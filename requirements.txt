@@ -1,0 +1,34 @@
+# ========================================================
+# Stock Market Analysis - Dependencias del Proyecto
+# ========================================================
+
+# --- Framework web y UI ---
+dash>=2.14                  # Framework web principal basado en Flask
+dash-bootstrap-components>=1.5
+dash-ag-grid>=2.3.0         # Tablas interactivas (screeners)
+plotly>=5.17                # Graficos financieros (candlestick, lineas, etc.)
+
+# --- Analisis de datos ---
+pandas>=2.2
+numpy>=1.26
+
+# --- Base de datos ---
+sqlalchemy>=2.0
+mysql-connector-python>=9.0
+
+# --- Logging ---
+loguru>=0.7
+
+# --- Seguridad y sesiones ---
+flask-login>=0.6
+werkzeug>=3.0
+
+# --- Configuracion y entorno ---
+python-dotenv>=1.0
+
+# --- Fuentes de precios ---
+yfinance>=0.2.40            # API Yahoo Finance
+requests>=2.31              # Dependencia de yfinance
+
+# --- Librerias adicionales ---
+openpyxl>=3.1               # Soporte opcional para exportar/importar a Excel

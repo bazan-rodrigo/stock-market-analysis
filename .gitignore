@@ -1,0 +1,17 @@
+# .gitignore
+# Ignorar entornos virtuales
+venv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos de log
+logs/
+*.log
+
+# Configuracion local
+.DS_Store
+.idea/
+.vscode/
