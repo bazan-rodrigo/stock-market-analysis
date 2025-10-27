@@ -1,0 +1,11 @@
+symbol,name,source_code,source_symbol,country,currency
+AAPL,Apple Inc.,YF,AAPL,US,USD
+MSFT,Microsoft Corporation,YF,MSFT,US,USD
+TSLA,Tesla Inc.,YF,TSLA,US,USD
+GOOGL,Alphabet Inc Class A,YF,GOOGL,US,USD
+META,Meta Platforms Inc,YF,META,US,USD
+AMZN,Amazon.com Inc,YF,AMZN,US,USD
+NVDA,NVIDIA Corporation,YF,NVDA,US,USD
+NFLX,Netflix Inc,YF,NFLX,US,USD
+BABA,Alibaba Group Holding Ltd,YF,BABA,CN,USD
+V, Visa Inc,YF,V,US,USD

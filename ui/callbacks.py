@@ -12,6 +12,7 @@ from services.price_updater import update_all_assets
 from core.logging_config import get_logger
 from ui.admin_users import admin_users_layout, register_admin_callbacks
 from ui.admin_assets import admin_assets_layout, register_admin_asset_callbacks
+from ui.import_assets import import_assets_layout, register_import_assets_callbacks
 
 logger = get_logger()
 
@@ -26,15 +27,6 @@ def dashboard_layout():
         html.H4("Actualizacion manual de precios"),
         dbc.Button("Ejecutar actualizacion", id="btn-run-update", n_clicks=0, className="mt-3"),
         html.Div(id="update-results", className="mt-3")
-    ])
-
-def import_layout():
-    """
-    Pantalla de importacion masiva (solo admin)
-    """
-    return dbc.Container([
-        html.H4("Importacion masiva de activos (solo admin)"),
-        html.P("Proximamente: carga de archivos CSV para importar activos.")
     ])
 
 def failed_updates_layout():
@@ -61,10 +53,10 @@ def register_callbacks(app):
             return admin_users_layout()
         elif pathname == "/failed-updates":
             return failed_updates_layout()
-        elif pathname == "/import-assets":
-            return import_layout()
         elif pathname == "/admin-assets":
             return admin_assets_layout()
+        if pathname == "/import-assets":
+            return import_assets_layout()
         else:
             return dashboard_layout()
 
@@ -99,6 +91,8 @@ def register_callbacks(app):
             logger.exception(e)
             return dbc.Alert(f"Fallo al ejecutar actualizacion: {e}", color="danger")
 
+
     # Registrar los callbacks del modulo de administracion
     register_admin_callbacks(app)
     register_admin_asset_callbacks(app)
+    register_import_assets_callbacks(app)

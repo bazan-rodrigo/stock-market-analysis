@@ -113,11 +113,14 @@ CREATE TABLE update_runs (
 );
 
 -- --------------------------------------------------------
--- PRICE SOURCE DEFAULT
+-- PRICE SOURCE
 -- --------------------------------------------------------
-INSERT INTO price_sources (name, code, api_type, base_url, is_active)
-VALUES ('Yahoo Finance', 'YAHOO', 'yfinance', 'https://query1.finance.yahoo.com', 1)
-ON DUPLICATE KEY UPDATE name=VALUES(name);
+INSERT INTO price_sources (id, name, code, api_type, base_url, notes, is_active, created_at)
+VALUES
+(1, 'Yahoo Finance', 'YF', 'yfinance', 'https://query1.finance.yahoo.com', 'Fuente principal de precios', 1, NOW()),
+(2, 'Finnhub', 'FH', 'finnhub', 'https://finnhub.io/api/v1', 'Fuente alternativa de datos financieros', 1, NOW()),
+(3, 'Polygon.io', 'PG', 'polygon', 'https://api.polygon.io', 'Fuente alternativa de datos de mercado', 1, NOW()),
+(4, 'Alpha Vantage', 'AV', 'alphavantage', 'https://www.alphavantage.co', 'Fuente alternativa de indicadores', 1, NOW());
 
 -- --------------------------------------------------------
 -- USUARIO ADMINISTRADOR POR DEFECTO

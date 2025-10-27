@@ -97,3 +97,14 @@ def delete_asset(asset_id: int):
         return f"Error eliminando activo: {e}", False
     finally:
         session.close()
+
+def get_source_id_by_code(source_code: str):
+    """Devuelve el ID de la fuente segun su code (por ejemplo 'YF' para Yahoo Finance)."""
+    session = get_session()
+    try:
+        src = session.execute(select(PriceSource).where(PriceSource.code == source_code)).scalar_one_or_none()
+        if not src:
+            raise ValueError(f"Fuente de precios no encontrada: {source_code}")
+        return src.id
+    finally:
+        session.close()
