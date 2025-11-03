@@ -3,32 +3,32 @@
 # ========================================================
 
 # --- Framework web y UI ---
-dash>=2.14                  # Framework web principal basado en Flask
-dash-bootstrap-components>=1.5
-dash-ag-grid>=2.3.0         # Tablas interactivas (screeners)
-plotly>=5.17                # Graficos financieros (candlestick, lineas, etc.)
+dash>=2.14,<3                  # Framework web principal basado en Flask
+dash-bootstrap-components>=1.5,<2
+dash-ag-grid>=2.3.0,<3         # Tablas interactivas (screeners)
+plotly>=5.17,<6                # Graficos financieros (candlestick, lineas, etc.)
 
 # --- Analisis de datos ---
-pandas>=2.2
-numpy>=1.26
+pandas>=2.2,<3
+numpy>=1.26,<2
 
 # --- Base de datos ---
-sqlalchemy>=2.0
-mysql-connector-python>=9.0
+sqlalchemy>=2.0,<3
+mysql-connector-python>=9.0,<10
 
 # --- Logging ---
-loguru>=0.7
+loguru>=0.7,<1
 
 # --- Seguridad y sesiones ---
-flask-login>=0.6
-werkzeug>=3.0
+flask-login>=0.6,<1
+werkzeug>=3.0,<4
 
 # --- Configuracion y entorno ---
-python-dotenv>=1.0
+python-dotenv>=1.0,<2
 
 # --- Fuentes de precios ---
-yfinance>=0.2.40            # API Yahoo Finance
-requests>=2.31              # Dependencia de yfinance
+yfinance>=0.2.40,<0.3            # API Yahoo Finance
+requests>=2.31,<3              # Dependencia de yfinance
 
 # --- Librerias adicionales ---
-openpyxl>=3.1               # Soporte opcional para exportar/importar a Excel
+openpyxl>=3.1,<4               # Soporte opcional para exportar/importar a Excel
