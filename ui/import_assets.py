@@ -1,122 +1,68 @@
-# -*- coding: utf-8 -*-
-"""
-Pantalla de importacion masiva de activos (solo admin).
-Permite subir un archivo CSV con multiples activos para registrar en la base.
-Usa la capa de servicios (asset_service).
-"""
-
-import io
-import pandas as pd
-from dash import html, dcc, Input, Output, State
-import dash_bootstrap_components as dbc
-from flask_login import current_user
-from core.logging_config import get_logger
-from services import asset_service
-
-logger = get_logger()
-
-# ==========================================================
-# LAYOUT
-# ==========================================================
-def import_assets_layout():
-    """Layout principal de la pantalla de importacion de activos."""
-    if not current_user.is_authenticated or current_user.role != "admin":
-        return dbc.Alert("Acceso restringido a usuarios administradores.", color="danger")
-
-    return html.Div([
-        html.H4("Importacion masiva de activos"),
-        html.Hr(),
-        html.P("Suba un archivo CSV con las siguientes columnas obligatorias:"),
-        html.Ul([
-            html.Li("symbol"),
-            html.Li("name"),
-            html.Li("source_code"),
-            html.Li("source_symbol"),
-            html.Li("country"),
-            html.Li("currency"),
-        ]),
-        dcc.Upload(
-            id="upload-assets-file",
-            children=html.Div(["Arrastre un archivo CSV o haga clic para seleccionar."]),
-            style={
-                "width": "100%", "height": "80px", "lineHeight": "80px",
-                "borderWidth": "1px", "borderStyle": "dashed",
-                "borderRadius": "5px", "textAlign": "center", "margin": "10px",
-            },
-            multiple=False,
-        ),
-        dbc.Button("Procesar archivo", id="btn-process-assets", color="primary", className="mt-3"),
-        html.Div(id="import-result", className="mt-4"),
-    ])
-
 # ==========================================================
 # CALLBACKS
 # ==========================================================
-def register_import_assets_callbacks(app):
-    """Registra los callbacks para la importacion masiva de activos."""
+from dash import callback, Input, Output, State, no_update
+import base64, io, pandas as pd
+import dash_bootstrap_components as dbc
+from core.logging_config import get_logger
+from services.asset_importer import import_asset
 
-    @app.callback(
-        Output("import-result", "children"),
-        Input("btn-process-assets", "n_clicks"),
-        State("upload-assets-file", "contents"),
-        State("upload-assets-file", "filename"),
-        prevent_initial_call=True
-    )
-    def process_uploaded_assets(n_clicks, file_content, filename):
-        if not file_content:
-            return dbc.Alert("No se ha cargado ningun archivo.", color="warning")
+logger = get_logger(__name__)
 
-        try:
-            # Extraer contenido del archivo
-            content_type, content_string = file_content.split(",")
-            decoded = io.BytesIO(base64.b64decode(content_string))
-            df = pd.read_csv(decoded)
+@callback(
+    Output("import-result", "children"),
+    Input("btn-process-assets", "n_clicks"),
+    State("upload-assets-file", "contents"),
+    prevent_initial_call=True
+)
+def process_imported_assets(n_clicks, contents):
+    """Procesa el archivo CSV subido y llama al servicio de importación masiva."""
+    if not contents:
+        return dbc.Alert("⚠️ No se cargó ningún archivo.", color="warning")
 
-            required_cols = {"symbol", "name", "source_code", "source_symbol", "country", "currency"}
-            if not required_cols.issubset(set(df.columns)):
-                return dbc.Alert("El archivo CSV no tiene todas las columnas requeridas.", color="danger")
+    try:
+        # Decodificar CSV
+        content_type, content_string = contents.split(",")
+        decoded = base64.b64decode(content_string)
+        df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
 
-            total = len(df)
-            success, failed = 0, 0
-            errors = []
+        # Validar columnas requeridas
+        required_cols = ["symbol", "name", "source_code", "source_symbol", "country", "currency"]
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            return dbc.Alert(f"❌ Faltan columnas: {', '.join(missing)}", color="danger")
 
-            # Procesar cada fila
-            for _, row in df.iterrows():
-                try:
-                    msg, ok = asset_service.create_asset(
-                        symbol=row["symbol"],
-                        name=row["name"],
-                        source_id=asset_service.get_source_id_by_code(row["source_code"]),
-                        source_symbol=row["source_symbol"],
-                        country=row["country"],
-                        currency=row["currency"],
-                    )
-                    if ok:
-                        success += 1
-                    else:
-                        failed += 1
-                        errors.append(msg)
-                except Exception as e:
-                    failed += 1
-                    errors.append(str(e))
-                    logger.error(f"Error importando asset: {e}")
+        stats = {"created": 0, "updated": 0, "skipped": 0, "failed": 0}
+        errors = []
 
-            summary = html.Div([
-                html.H5("Resumen de importacion"),
-                html.Ul([
-                    html.Li(f"Total de registros: {total}"),
-                    html.Li(f"Importados correctamente: {success}"),
-                    html.Li(f"Fallidos: {failed}"),
-                ]),
+        # Procesar cada fila del archivo
+        for _, row in df.iterrows():
+            result = import_asset(row.to_dict())
+
+            if result.get("success"):
+                action = result.get("action")
+                if action in stats:
+                    stats[action] += 1
+            else:
+                stats["failed"] += 1
+                errors.append(result.get("symbol", "desconocido"))
+
+        # Construir mensaje resumen
+        summary = [
+            html.H5("✅ Importación completada"),
+            html.Ul([
+                html.Li(f"🆕 Nuevos activos: {stats['created']}"),
+                html.Li(f"🔁 Actualizados: {stats['updated']}"),
+                html.Li(f"⏸️ Sin cambios: {stats['skipped']}"),
+                html.Li(f"❌ Errores: {stats['failed']}"),
             ])
+        ]
+        if errors:
+            summary.append(html.P(f"Errores en símbolos: {', '.join(errors[:10])}"))
 
-            if failed > 0:
-                summary.children.append(html.H6("Errores detectados:"))
-                summary.children.append(html.Ul([html.Li(e) for e in errors[:10]]))  # muestra max 10 errores
+        logger.info(f"Importación masiva completada: {stats}")
+        return dbc.Alert(summary, color="success")
 
-            color = "success" if failed == 0 else "warning"
-            return dbc.Alert(summary, color=color, style={"whiteSpace": "pre-wrap"})
-
-        except Exception as e:
-            logger.exception(f"Error procesando importacion masiva: {e}")
-            return dbc.Alert(f"Error al procesar el archivo: {e}", color="danger")
+    except Exception as e:
+        logger.error(f"Error procesando el archivo: {e}")
+        return dbc.Alert(f"❌ Error procesando archivo: {e}", color="danger")

@@ -1,110 +1,184 @@
 # -*- coding: utf-8 -*-
 """
-Servicio: asset_service.py
-Lógica de negocio para manejo de activos (Assets).
-Esta capa se comunica con la DB, y es utilizada por la UI (Dash).
+Servicio de gestión de activos (Assets).
+Permite crear, eliminar, listar y obtener fuentes de datos.
 """
 
 from sqlalchemy import select
-from services.db import get_session
-from models.db_models import Asset, PriceSource
+from sqlalchemy.exc import SQLAlchemyError
 from core.logging_config import get_logger
+from services.db import get_session
+from models.db_models import Asset, Source
 
-logger = get_logger()
+logger = get_logger(__name__)
+
 
 # ==========================================================
-# FUNCIONES PRINCIPALES
+# Crear nuevo asset
 # ==========================================================
-
-def list_assets():
-    """Devuelve todos los activos como lista de diccionarios."""
-    session = get_session()
-    try:
-        assets = session.execute(select(Asset)).scalars().all()
-        data = []
-        for a in assets:
-            data.append({
-                "id": a.id,
-                "symbol": a.symbol,
-                "name": a.name,
-                "source": a.source.name if a.source else "",
-                "source_symbol": a.source_symbol,
-                "country": a.country,
-                "currency": a.currency,
-            })
-        return data
-    finally:
-        session.close()
-
-
-def list_sources():
-    """Devuelve las fuentes activas disponibles para asociar a un asset."""
-    session = get_session()
-    try:
-        sources = session.execute(select(PriceSource).where(PriceSource.is_active == True)).scalars().all()
-        return [{"label": f"{s.name} ({s.code})", "value": s.id} for s in sources]
-    finally:
-        session.close()
-
-
-def create_asset(symbol: str, name: str, source_id: int, source_symbol: str,
-                 country: str = "US", currency: str = "USD"):
+def create_asset(symbol: str, name: str, source_id: int, source_symbol: str):
     """
-    Crea un nuevo activo en la base de datos.
-    Devuelve un mensaje de resultado y True/False según éxito.
+    Crea un nuevo activo si no existe.
+    Retorna (mensaje, ok)
     """
     session = get_session()
     try:
-        existing = session.execute(select(Asset).where(Asset.symbol == symbol.upper())).scalar_one_or_none()
+        # Verificar duplicado por símbolo
+        existing = session.execute(
+            select(Asset).where(Asset.symbol == symbol)
+        ).scalar_one_or_none()
+
         if existing:
-            return f"El activo '{symbol}' ya existe.", False
+            msg = f"El activo '{symbol}' ya existe."
+            logger.warning(msg)
+            return msg, False
 
-        asset = Asset(
-            symbol=symbol.upper().strip(),
+        new_asset = Asset(
+            symbol=symbol.strip().upper(),
             name=name.strip(),
             source_id=source_id,
             source_symbol=source_symbol.strip(),
-            country=country,
-            currency=currency
         )
-        session.add(asset)
+        session.add(new_asset)
         session.commit()
-        logger.info(f"Activo agregado: {symbol}")
-        return f"Activo '{symbol}' agregado correctamente.", True
+        msg = f"Activo '{symbol}' creado exitosamente."
+        logger.info(msg)
+        return msg, True
+
+    except SQLAlchemyError as e:
+        session.rollback()
+        msg = f"Error SQL al crear asset '{symbol}': {e}"
+        logger.error(msg)
+        return msg, False
+
     except Exception as e:
         session.rollback()
-        logger.error(f"Error creando activo {symbol}: {e}")
-        return f"Error creando activo: {e}", False
+        msg = f"Error inesperado al crear asset '{symbol}': {e}"
+        logger.error(msg)
+        return msg, False
+
     finally:
         session.close()
 
 
+# ==========================================================
+# Eliminar asset
+# ==========================================================
 def delete_asset(asset_id: int):
-    """Elimina un activo por ID."""
+    """
+    Elimina un activo por su ID.
+    Retorna (mensaje, ok)
+    """
     session = get_session()
     try:
         asset = session.get(Asset, asset_id)
         if not asset:
-            return f"Activo {asset_id} no encontrado.", False
+            msg = f"Activo ID {asset_id} no encontrado."
+            logger.warning(msg)
+            return msg, False
 
         session.delete(asset)
         session.commit()
-        logger.info(f"Activo eliminado: {asset.symbol}")
-        return f"Activo {asset.symbol} eliminado correctamente.", True
+        msg = f"Activo '{asset.symbol}' eliminado correctamente."
+        logger.info(msg)
+        return msg, True
+
+    except SQLAlchemyError as e:
+        session.rollback()
+        msg = f"Error SQL al eliminar asset {asset_id}: {e}"
+        logger.error(msg)
+        return msg, False
+
     except Exception as e:
         session.rollback()
-        logger.error(f"Error eliminando activo {asset_id}: {e}")
-        return f"Error eliminando activo: {e}", False
+        msg = f"Error inesperado al eliminar asset {asset_id}: {e}"
+        logger.error(msg)
+        return msg, False
+
     finally:
         session.close()
 
-def get_source_id_by_code(source_code: str):
-    """Devuelve el ID de la fuente segun su code (por ejemplo 'YF' para Yahoo Finance)."""
+
+# ==========================================================
+# Listar todos los assets
+# ==========================================================
+def list_assets():
+    """
+    Devuelve una lista de assets como lista de diccionarios.
+    """
     session = get_session()
     try:
-        src = session.execute(select(PriceSource).where(PriceSource.code == source_code)).scalar_one_or_none()
-        if not src:
-            raise ValueError(f"Fuente de precios no encontrada: {source_code}")
-        return src.id
+        result = session.execute(
+            select(
+                Asset.id,
+                Asset.symbol,
+                Asset.name,
+                Asset.source_symbol,
+                Asset.country,
+                Asset.currency,
+                Source.code.label("source")
+            ).join(Source, Source.id == Asset.source_id)
+        ).mappings().all()
+
+        assets = [dict(row) for row in result]
+        return assets
+
+    except SQLAlchemyError as e:
+        logger.error(f"Error SQL al listar assets: {e}")
+        return []
+
+    except Exception as e:
+        logger.error(f"Error inesperado al listar assets: {e}")
+        return []
+
+    finally:
+        session.close()
+
+
+# ==========================================================
+# Listar fuentes disponibles
+# ==========================================================
+def list_sources():
+    """
+    Devuelve las fuentes disponibles como lista de opciones para Dropdown.
+    """
+    session = get_session()
+    try:
+        result = session.execute(
+            select(Source.id, Source.name)
+        ).all()
+        options = [{"label": name, "value": id_} for id_, name in result]
+        return options
+
+    except SQLAlchemyError as e:
+        logger.error(f"Error SQL al listar fuentes: {e}")
+        return []
+
+    except Exception as e:
+        logger.error(f"Error inesperado al listar fuentes: {e}")
+        return []
+
+    finally:
+        session.close()
+
+
+# ==========================================================
+# Obtener ID de fuente por código
+# ==========================================================
+def get_source_id_by_code(code: str):
+    """
+    Retorna el ID de una fuente a partir de su código.
+    """
+    session = get_session()
+    try:
+        src = session.execute(
+            select(Source.id).where(Source.code == code)
+        ).scalar_one_or_none()
+        return src
+
+    except Exception as e:
+        logger.error(f"Error buscando fuente '{code}': {e}")
+        return None
+
     finally:
         session.close()

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Pantalla de administracion de activos (Assets).
+Pantalla de administración de activos (Assets).
 Usa la capa de servicios (asset_service) para acceder a la base de datos.
 """
 
@@ -9,8 +9,10 @@ import dash_bootstrap_components as dbc
 from flask_login import current_user
 from core.logging_config import get_logger
 from services import asset_service
+from ui.import_assets import import_assets_layout
+import dash
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 # ==========================================================
 # LAYOUT
@@ -24,7 +26,7 @@ def admin_assets_layout():
         html.H4("Administración de activos"),
         html.Hr(),
 
-        # Formulario
+        # Formulario de creación
         dbc.Row([
             dbc.Col([
                 dbc.Label("Símbolo (Ticker):"),
@@ -51,10 +53,15 @@ def admin_assets_layout():
             ], md=2),
         ], className="mb-4"),
 
-        dbc.Alert(id="asset-message", color="info", is_open=False),
+        dbc.Alert(id="asset-message", is_open=False),
         html.Hr(),
 
-        html.H5("Lista de activos"),
+        dbc.Row([
+            dbc.Col(html.H5("Lista de activos"), md=9),
+            dbc.Col(dbc.Button("⬆️ Importar desde CSV", id="btn-show-import", color="info"), md=3, style={"textAlign": "right"}),
+        ]),
+        html.Div(id="import-section", style={"marginTop": "20px"}),
+
         dash_table.DataTable(
             id="asset-table",
             columns=[
@@ -74,22 +81,28 @@ def admin_assets_layout():
         ),
     ])
 
+
 # ==========================================================
 # CALLBACKS
 # ==========================================================
 def register_admin_asset_callbacks(app):
     """Registra los callbacks de la pantalla de activos."""
 
+    # ------------------------------------------------------
     # Cargar fuentes
+    # ------------------------------------------------------
     @app.callback(Output("asset-source", "options"), Input("url", "pathname"))
     def load_sources(path):
         if path != "/admin-assets":
             raise dash.exceptions.PreventUpdate
         return asset_service.list_sources()
 
+    # ------------------------------------------------------
     # Agregar activo
+    # ------------------------------------------------------
     @app.callback(
         Output("asset-message", "children"),
+        Output("asset-message", "color"),
         Output("asset-message", "is_open"),
         Output("asset-table", "data"),
         Input("btn-add-asset", "n_clicks"),
@@ -101,12 +114,21 @@ def register_admin_asset_callbacks(app):
     )
     def add_asset(n_clicks, symbol, name, source_id, source_symbol):
         if not all([symbol, name, source_id, source_symbol]):
-            return "Complete todos los campos.", True, asset_service.list_assets()
+            return "⚠️ Complete todos los campos.", "warning", True, asset_service.list_assets()
 
         msg, ok = asset_service.create_asset(symbol, name, source_id, source_symbol)
-        return msg, True, asset_service.list_assets()
+        color = "success" if ok else "danger"
 
-    # Eliminar activo
+        if ok:
+            logger.info(f"Asset creado exitosamente: {symbol}")
+        else:
+            logger.error(f"Error al crear asset: {symbol} ({msg})")
+
+        return msg, color, True, asset_service.list_assets()
+
+    # ------------------------------------------------------
+    # Eliminar activo (con confirmación)
+    # ------------------------------------------------------
     @app.callback(
         Output("asset-table", "data"),
         Input("asset-table", "data_previous"),
@@ -122,12 +144,33 @@ def register_admin_asset_callbacks(app):
             raise dash.exceptions.PreventUpdate
 
         deleted_id = deleted[0]["id"]
-        asset_service.delete_asset(deleted_id)
+        symbol = deleted[0].get("symbol", "?")
+
+        try:
+            asset_service.delete_asset(deleted_id)
+            logger.info(f"Asset eliminado: {symbol} (ID {deleted_id})")
+        except Exception as e:
+            logger.error(f"Error al eliminar asset {symbol}: {e}")
+
         return asset_service.list_assets()
 
+    # ------------------------------------------------------
     # Cargar tabla inicial
+    # ------------------------------------------------------
     @app.callback(Output("asset-table", "data"), Input("url", "pathname"))
     def load_assets(path):
         if path != "/admin-assets":
             raise dash.exceptions.PreventUpdate
         return asset_service.list_assets()
+
+    # ------------------------------------------------------
+    # Mostrar módulo de importación
+    # ------------------------------------------------------
+    @app.callback(
+        Output("import-section", "children"),
+        Input("btn-show-import", "n_clicks"),
+        prevent_initial_call=True
+    )
+    def show_import_section(n_clicks):
+        logger.info("Se abrió el módulo de importación de assets.")
+        return import_assets_layout()

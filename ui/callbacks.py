@@ -13,6 +13,7 @@ from core.logging_config import get_logger
 from ui.admin_users import admin_users_layout, register_admin_callbacks
 from ui.admin_assets import admin_assets_layout, register_admin_asset_callbacks
 from ui.import_assets import import_assets_layout, register_import_assets_callbacks
+from ui.failed_updates import failed_updates_layout, register_failed_updates_callbacks
 
 logger = get_logger()
 
@@ -57,6 +58,8 @@ def register_callbacks(app):
             return admin_assets_layout()
         if pathname == "/import-assets":
             return import_assets_layout()
+        elif pathname == "/failed-updates":
+            return failed_updates_layout()
         else:
             return dashboard_layout()
 
@@ -96,3 +99,4 @@ def register_callbacks(app):
     register_admin_callbacks(app)
     register_admin_asset_callbacks(app)
     register_import_assets_callbacks(app)
+    register_failed_updates_callbacks(app)
