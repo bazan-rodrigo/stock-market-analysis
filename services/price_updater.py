@@ -1,136 +1,109 @@
-# -*- coding: utf-8 -*-
-"""
-Servicio: price_updater.py
---------------------------------------------
-Actualiza los precios históricos de los activos usando los adaptadores de fuentes.
-Cada activo tiene una única fuente de precios asociada (ej. YAHOO, ALPHAVANTAGE).
-Los errores se registran en la tabla failed_updates a través del servicio correspondiente.
-"""
-
-from datetime import date, timedelta
-from sqlalchemy import select
-from services.db import get_session
-from models.db_models import Asset, HistoricalPrice
-from services.failed_updates import register_failed_update
+# services/price_updater.py
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from sqlalchemy import select, func
+from core.db import get_session
+from models.db_models import Asset, UpdateRun
 from core.logging_config import get_logger
-from services.sources.factory import get_source_adapter
+from datetime import datetime
+import time
+import re
 
 logger = get_logger(__name__)
 
 
-# ==========================================================
-# FUNCIÓN PRINCIPAL: Actualizar todos los activos
-# ==========================================================
-def update_all_assets(run_type: str = "manual"):
+def update_all_assets(run_type="manual", max_workers=6, min_workers=2, backoff_time=15):
     """
-    Recorre todos los activos y actualiza sus precios desde la fuente correspondiente.
-    Cada error se registra en failed_updates sin detener el proceso completo.
+    Actualiza los precios de todos los activos registrados, 
+    ajustando dinámicamente el número de hilos según errores de red.
+
+    Args:
+        run_type (str): tipo de ejecución ("manual" o "scheduled")
+        max_workers (int): cantidad máxima de threads simultáneos
+        min_workers (int): cantidad mínima de threads permitidos
+        backoff_time (int): segundos de espera al reducir la concurrencia
+    Returns:
+        int: cantidad de activos actualizados exitosamente
     """
     session = get_session()
-    assets = session.execute(select(Asset)).scalars().all()
+    assets = session.query(Asset).all()
     session.close()
 
-    success, failures = 0, 0
-    logger.info(f"=== INICIO actualización de precios ({len(assets)} activos, modo={run_type}) ===")
+    total = len(assets)
+    updated = 0
+    start_time = datetime.now()
+    current_workers = max_workers
 
-    for asset in assets:
-        try:
-            update_asset_prices(asset, run_type=run_type)
-            success += 1
-        except Exception as e:
-            failures += 1
-            logger.error(f"❌ Fallo actualizando {asset.symbol}: {e}")
-            register_failed_update(
-                asset_id=asset.id,
-                source_id=asset.source_id,
-                error_message=str(e),
-                run_type=run_type
-            )
+    logger.info(f"🚀 Iniciando actualización de {total} activos ({run_type}) con {current_workers} hilos...")
 
-    logger.info(f"=== FIN actualización: {success} éxitos, {failures} fallos ===")
-    return {"success": success, "failures": failures}
+    # Lista de símbolos pendientes
+    pending_assets = [a.symbol for a in assets]
+
+    while pending_assets and current_workers >= min_workers:
+        logger.info(f"➡️ Ejecutando batch con {len(pending_assets)} activos ({current_workers} hilos)")
+        failed_assets = []
+        errors_429 = 0
+
+        with ThreadPoolExecutor(max_workers=current_workers) as executor:
+            futures = {executor.submit(update_single_asset, symbol, run_type): symbol for symbol in pending_assets}
+            for future in as_completed(futures):
+                symbol = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        updated += 1
+                        logger.info(f"✅ {symbol} actualizado correctamente.")
+                    else:
+                        logger.warning(f"⚠️ {symbol} no devolvió datos válidos.")
+                except Exception as e:
+                    msg = str(e)
+                    failed_assets.append(symbol)
+                    logger.error(f"❌ Error en {symbol}: {msg}")
+
+                    # Detectar throttling o demasiadas peticiones
+                    if re.search(r"429|Too Many Requests|timeout|temporarily unavailable", msg, re.I):
+                        errors_429 += 1
+
+        # Si hay muchos errores 429 → reducir concurrencia
+        if errors_429 > len(pending_assets) * 0.1:  # más del 10% con limitaciones
+            new_workers = max(current_workers - 2, min_workers)
+            if new_workers < current_workers:
+                logger.warning(
+                    f"⚠️ Detectado throttling (HTTP 429). Reduciendo concurrencia de {current_workers} → {new_workers} y esperando {backoff_time}s..."
+                )
+                current_workers = new_workers
+                time.sleep(backoff_time)
+        else:
+            # Si no hubo throttling, se puede terminar
+            break
+
+        # Reintentar los fallidos con menos hilos
+        pending_assets = failed_assets
+
+    duration = (datetime.now() - start_time).total_seconds()
+    logger.info(f"🏁 Finalizada actualización: {updated}/{total} activos en {duration:.1f}s (concurrencia final {current_workers})")
+
+    _register_update_run(start_time, datetime.now(), total, updated, run_type)
+    return updated
 
 
 # ==========================================================
-# FUNCIÓN: Actualizar precios de un activo
+# REGISTRAR EJECUCIÓN
 # ==========================================================
-def update_asset_prices(asset, run_type: str = "manual"):
-    """
-    Actualiza los precios históricos de un activo determinado.
-    Si no hay precios previos, descarga el historial completo.
-    Si hay precios previos, descarga desde el último día almacenado -1.
-    """
+def _register_update_run(start_time, end_time, total, updated, run_type):
+    """Guarda registro de la ejecución en la tabla UpdateRun."""
     session = get_session()
     try:
-        # Último registro en la base
-        last_price = session.execute(
-            select(HistoricalPrice)
-            .where(HistoricalPrice.asset_id == asset.id)
-            .order_by(HistoricalPrice.trade_date.desc())
-        ).scalars().first()
-
-    # Si ya existe data previa, traer solo desde la última fecha; si no, pedir TODO el histórico
-    if last_price:
-        start_date = last_price.trade_date - timedelta(days=1)
-        end_date = date.today()
-        logger.info(f"🔄 Actualizando {asset.symbol} ({asset.source.code}) desde {start_date} hasta {end_date}...")
-        df = adapter.download_daily_prices(asset.source_symbol, start=start_date, end=end_date)
-    else:
-        logger.info(f"🔄 Descargando histórico completo de {asset.symbol} ({asset.source.code})...")
-        df = adapter.download_daily_prices(asset.source_symbol)  # sin fechas → todo el histórico
-
-        if df.empty:
-            raise ValueError(f"No se obtuvieron precios para {asset.symbol}")
-
-        # Insertar precios nuevos o actualizar existentes
-        batch = []
-        for _, row in df.iterrows():
-            batch.append(HistoricalPrice(
-                asset_id=asset.id,
-                source_id=asset.source_id,
-                trade_date=row["trade_date"],
-                open=row["open"],
-                high=row["high"],
-                low=row["low"],
-                close=row["close"],
-                adj_close=row.get("adj_close", row["close"]),
-                volume=row.get("volume", 0),
-            ))
-
-        session.bulk_save_objects(batch)
-        session.commit()
-        logger.info(f"✅ {asset.symbol}: {len(batch)} precios guardados correctamente.")
-
-    except Exception as e:
-        session.rollback()
-        logger.error(f"Error actualizando precios de {asset.symbol}: {e}")
-        register_failed_update(
-            asset_id=asset.id,
-            source_id=asset.source_id,
-            error_message=str(e),
+        run = UpdateRun(
+            start_time=start_time,
+            end_time=end_time,
+            total_assets=total,
+            updated_assets=updated,
             run_type=run_type
         )
-        raise
+        session.add(run)
+        session.commit()
+    except Exception as e:
+        logger.error(f"Error guardando registro de actualización: {e}")
+        session.rollback()
     finally:
         session.close()
-
-
-# ==========================================================
-# FUNCIÓN: Actualización manual por símbolo
-# ==========================================================
-def update_single_asset(symbol: str, run_type: str = "manual"):
-    """
-    Permite actualizar manualmente un activo por su símbolo.
-    """
-    session = get_session()
-    try:
-        asset = session.execute(select(Asset).where(Asset.symbol == symbol)).scalar_one_or_none()
-        if not asset:
-            raise ValueError(f"Activo '{symbol}' no encontrado en la base de datos")
-
-        update_asset_prices(asset, run_type=run_type)
-        logger.info(f"Actualización manual finalizada para {symbol}.")
-        return True
-
-    except Exception as e:
-        logger.error(f"Error actualizando
