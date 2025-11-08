@@ -1,20 +1,20 @@
+# services/db.py
 # -*- coding: utf-8 -*-
-"""
-Archivo de configuracion seguro.
-Carga variables desde el archivo .env o desde el entorno del sistema.
-"""
-
 import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, scoped_session
 from dotenv import load_dotenv
 
-# Cargar variables desde el archivo .env si existe
 load_dotenv()
+DB_URI = os.getenv("DB_URI")
 
-def get_config():
-    return {
-        "DB_URI": os.getenv("DB_URI"),
-        "SECRET_KEY": os.getenv("SECRET_KEY"),
-        "LOG_DIR": os.getenv("LOG_DIR", "logs"),
-        "DEFAULT_SOURCE_CODE": os.getenv("DEFAULT_SOURCE_CODE", "YAHOO"),
-        "SCHEDULER_ENABLED": os.getenv("SCHEDULER_ENABLED", "0") == "1",
-    }
+engine = create_engine(DB_URI, echo=False, pool_pre_ping=True)
+SessionLocal = scoped_session(sessionmaker(bind=engine, autocommit=False, autoflush=False))
+
+def get_session():
+    """Retorna una sesión SQLAlchemy segura."""
+    return SessionLocal()
+
+def close_session():
+    """Cierra la sesión actual."""
+    SessionLocal.remove()
