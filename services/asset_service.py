@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from core.logging_config import get_logger
 from services.db import get_session
-from models.db_models import Asset, Source
+from models.db_models import Asset, PriceSource
 
 logger = get_logger(__name__)
 
@@ -116,8 +116,8 @@ def list_assets():
                 Asset.source_symbol,
                 Asset.country,
                 Asset.currency,
-                Source.code.label("source")
-            ).join(Source, Source.id == Asset.source_id)
+                PriceSource.code.label("source")
+            ).join(PriceSource, PriceSource.id == Asset.source_id)
         ).mappings().all()
 
         assets = [dict(row) for row in result]
@@ -145,7 +145,7 @@ def list_sources():
     session = get_session()
     try:
         result = session.execute(
-            select(Source.id, Source.name)
+            select(PriceSource.id, PriceSource.name)
         ).all()
         options = [{"label": name, "value": id_} for id_, name in result]
         return options
@@ -172,7 +172,7 @@ def get_source_id_by_code(code: str):
     session = get_session()
     try:
         src = session.execute(
-            select(Source.id).where(Source.code == code)
+            select(PriceSource.id).where(PriceSource.code == code)
         ).scalar_one_or_none()
         return src
 
