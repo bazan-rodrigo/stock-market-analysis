@@ -115,5 +115,12 @@ def restrict_to_authenticated():
     if not current_user.is_authenticated:
         return redirect("/login")
 
+
+def create_app():
+    """Factory para WSGI: devuelve la app Dash ya configurada."""
+    from app import app
+    return app
+
+
 if __name__ == "__main__":
     app.run_server(host="0.0.0.0", port=8050, debug=True)

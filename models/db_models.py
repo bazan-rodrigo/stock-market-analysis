@@ -107,7 +107,7 @@ class HistoricalPrice(Base):
     source = relationship("PriceSource", back_populates="historical_prices")
 
     def __repr__(self):
-        return f"<HistoricalPrice(asset={self.asset.symbol}, date={self.trade_date}, close={self.close})>"
+        return f"<HistoricalPrice(asset={self.asset.symbol}, date={self.date}, close={self.close})>"
 
 
 # ==========================================================

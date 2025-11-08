@@ -83,8 +83,8 @@ CREATE TABLE historical_prices (
   FOREIGN KEY (source_id) REFERENCES price_sources(id)
     ON DELETE CASCADE
     ON UPDATE CASCADE,
-  UNIQUE KEY uq_asset_trade_date (asset_id, trade_date),
-  INDEX idx_hp_asset_date (asset_id, trade_date)
+  UNIQUE KEY uq_asset_date (asset_id, date),
+  INDEX idx_hp_asset_date (asset_id, date)
 );
 
 CREATE INDEX idx_historical_prices_asset_date

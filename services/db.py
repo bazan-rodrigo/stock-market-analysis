@@ -1,26 +1,20 @@
+# services/db.py
 # -*- coding: utf-8 -*-
-"""
-Modulo de conexion a base de datos.
-Crea el motor SQLAlchemy y la sesion para consultas.
-"""
-
+import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from config.config import get_config
+from sqlalchemy.orm import sessionmaker, scoped_session
+from dotenv import load_dotenv
 
-_cfg = get_config()
+load_dotenv()
+DB_URI = os.getenv("DB_URI")
 
-# Se define el motor de conexion, con parametros de pool
-engine = create_engine(
-    _cfg["DB_URI"],
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    future=True
-)
-
-# Crea la sesion de trabajo
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+engine = create_engine(DB_URI, echo=False, pool_pre_ping=True)
+SessionLocal = scoped_session(sessionmaker(bind=engine, autocommit=False, autoflush=False))
 
 def get_session():
-    """Retorna una nueva sesion de base de datos."""
+    """Retorna una sesión SQLAlchemy segura."""
     return SessionLocal()
+
+def close_session():
+    """Cierra la sesión actual."""
+    SessionLocal.remove()
