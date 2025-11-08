@@ -87,6 +87,8 @@ CREATE TABLE historical_prices (
   INDEX idx_hp_asset_date (asset_id, trade_date)
 );
 
+CREATE INDEX idx_historical_prices_asset_date
+  ON historical_prices (asset_id, date);
 
 -- ============================================================
 -- FAILED UPDATES
