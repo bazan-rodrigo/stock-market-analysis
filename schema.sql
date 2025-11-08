@@ -1,6 +1,6 @@
 -- ============================================================
 --  Database: stock-market-analysis
---  Optimized schema for Stock Market Analysis System
+--  Schema for Stock Market Analysis System
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS `stock-market-analysis`
@@ -68,38 +68,48 @@ CREATE TABLE historical_prices (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   asset_id BIGINT NOT NULL,
   source_id BIGINT NOT NULL,
-  price_date DATE NOT NULL,
+  date DATE NOT NULL,
   open DECIMAL(18,6),
   high DECIMAL(18,6),
   low DECIMAL(18,6),
   close DECIMAL(18,6),
+  adj_close DECIMAL(18,6), 
   volume BIGINT,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
   FOREIGN KEY (asset_id) REFERENCES assets(id)
     ON DELETE CASCADE
     ON UPDATE CASCADE,
   FOREIGN KEY (source_id) REFERENCES price_sources(id)
     ON DELETE CASCADE
     ON UPDATE CASCADE,
-  UNIQUE KEY uq_asset_price_date (asset_id, price_date),
-  INDEX idx_hp_asset_date (asset_id, price_date)
+  UNIQUE KEY uq_asset_trade_date (asset_id, trade_date),
+  INDEX idx_hp_asset_date (asset_id, trade_date)
 );
+
 
 -- ============================================================
 -- FAILED UPDATES
 -- ============================================================
 CREATE TABLE failed_updates (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  source_id BIGINT,
-  asset_id BIGINT,
+  asset_id BIGINT NULL,
+  source_id BIGINT NULL,
+  run_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  run_type ENUM('scheduled', 'manual') NOT NULL DEFAULT 'scheduled',
+  attempted_from DATE,
+  attempted_to DATE,
   error_message TEXT,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (source_id) REFERENCES price_sources(id)
-    ON DELETE CASCADE
-    ON UPDATE CASCADE,
+  attempt_count INT DEFAULT 1,
+  resolved TINYINT(1) DEFAULT 0, 
+  resolved_at DATETIME NULL, 
   FOREIGN KEY (asset_id) REFERENCES assets(id)
-    ON DELETE CASCADE
+    ON DELETE SET NULL
+    ON UPDATE CASCADE,
+  FOREIGN KEY (source_id) REFERENCES price_sources(id)
+    ON DELETE SET NULL
     ON UPDATE CASCADE,
   INDEX idx_fu_source (source_id),
-  INDEX idx_fu_created (created_at)
+  INDEX idx_fu_run_timestamp (run_timestamp),
+  INDEX idx_fu_resolved (resolved)
 );

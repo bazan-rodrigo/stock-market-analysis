@@ -93,7 +93,7 @@ class HistoricalPrice(Base):
     id = Column(BigInteger, primary_key=True)
     asset_id = Column(BigInteger, ForeignKey("assets.id", ondelete="CASCADE"), nullable=False)
     source_id = Column(BigInteger, ForeignKey("price_sources.id", ondelete="CASCADE"), nullable=False)
-    trade_date = Column(Date, nullable=False)
+    date = Column(Date, nullable=False)
     open = Column(DECIMAL(18, 6))
     high = Column(DECIMAL(18, 6))
     low = Column(DECIMAL(18, 6))
@@ -134,42 +134,3 @@ class FailedUpdate(Base):
 
     def __repr__(self):
         return f"<FailedUpdate(asset_id={self.asset_id}, source_id={self.source_id}, resolved={self.resolved})>"
-
-
-# ==========================================================
-# TABLA: UPDATE_RUNS
-# ==========================================================
-class UpdateRun(Base):
-    __tablename__ = "update_runs"
-
-    id = Column(BigInteger, primary_key=True)
-    run_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
-    run_type = Column(Enum("scheduled", "manual", name="run_type_enum2"), nullable=False, default="scheduled")
-    total_assets = Column(Integer)
-    success_count = Column(Integer)
-    failure_count = Column(Integer)
-    notes = Column(Text)
-
-    def __repr__(self):
-        return f"<UpdateRun(timestamp={self.run_timestamp}, type={self.run_type})>"
-
-
-# ==========================================================
-# TABLA OPCIONAL: SAVED_ANALYSES
-# ==========================================================
-class SavedAnalysis(Base):
-    __tablename__ = "saved_analyses"
-
-    id = Column(BigInteger, primary_key=True)
-    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
-    asset_id = Column(BigInteger, ForeignKey("assets.id", ondelete="SET NULL"))
-    name = Column(String(255))
-    analysis_type = Column(String(64))
-    params = Column(JSON)
-    result = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, onupdate=datetime.utcnow)
-
-    def __repr__(self):
-        return f"<SavedAnalysis(name={self.name}, type={self.analysis_type})>"
-        
