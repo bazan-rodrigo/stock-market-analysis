@@ -1,7 +1,7 @@
 # services/price_updater.py
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import select, func
-from core.db import get_session
+from services.db import get_session
 from models.db_models import Asset, UpdateRun
 from core.logging_config import get_logger
 from datetime import datetime
