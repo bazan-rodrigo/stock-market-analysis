@@ -189,3 +189,5 @@ def _render_failed_updates_table(rows):
     ])
 
     return dbc.Table([header, body], bordered=True, hover=True, striped=True)
+
+

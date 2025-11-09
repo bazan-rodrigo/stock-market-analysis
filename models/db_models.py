@@ -134,3 +134,26 @@ class FailedUpdate(Base):
 
     def __repr__(self):
         return f"<FailedUpdate(asset_id={self.asset_id}, source_id={self.source_id}, resolved={self.resolved})>"
+
+
+# ==========================================================
+# TABLA: UPDATE_RUNS
+# ==========================================================
+class UpdateRun(Base):
+    __tablename__ = "update_runs"
+
+    id = Column(BigInteger, primary_key=True)
+    start_time = Column(DateTime, nullable=False, default=datetime.utcnow)
+    end_time = Column(DateTime)
+    total_assets = Column(Integer, nullable=False)
+    updated_assets = Column(Integer, nullable=False)
+    run_type = Column(Enum("manual", "scheduled", name="update_run_types"), nullable=False, default="manual")
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        dur = None
+        if self.start_time and self.end_time:
+            dur = (self.end_time - self.start_time).total_seconds()
+        return f"<UpdateRun(id={self.id}, updated={self.updated_assets}/{self.total_assets}, dur={dur}s, type={self.run_type})>"
+

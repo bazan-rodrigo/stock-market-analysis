@@ -115,3 +115,16 @@ CREATE TABLE failed_updates (
   INDEX idx_fu_run_timestamp (run_timestamp),
   INDEX idx_fu_resolved (resolved)
 );
+
+-- ============================================
+-- TABLA: update_runs
+-- ============================================
+CREATE TABLE IF NOT EXISTS update_runs (
+    id BIGINT PRIMARY KEY AUTOINCREMENT,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME,
+    total_assets INTEGER NOT NULL,
+    updated_assets INTEGER NOT NULL,
+    run_type TEXT CHECK(run_type IN ('manual','scheduled')) NOT NULL DEFAULT 'manual',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
