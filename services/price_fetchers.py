@@ -13,7 +13,7 @@ import yfinance as yf
 from datetime import date
 from core.logging_config import get_logger
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 
 def yahoo_fetch_prices(symbol: str, start_date: date) -> pd.DataFrame:

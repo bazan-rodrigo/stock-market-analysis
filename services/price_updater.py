@@ -1,9 +1,15 @@
-# services/price_updater.py
+# -*- coding: utf-8 -*-
+"""
+Servicio: price_updater.py
+Responsable de actualizar los precios históricos de los activos financieros.
+Incluye registro de errores y control de concurrencia dinámica.
+"""
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import select, func
-from services import price_fetchers, failed_updates
+from services import price_fetchers
 from services.db import get_session
-from models.db_models import Asset, UpdateRun, PriceSource, HistoricalPrice
+from models.db_models import Asset, UpdateRun, PriceSource, HistoricalPrice, FailedUpdate
 from core.logging_config import get_logger
 from datetime import datetime, timedelta
 import pandas as pd
@@ -12,21 +18,13 @@ import re
 
 logger = get_logger(__name__)
 
-
-logger = get_logger(__name__)
-
+# ==========================================================
+# ACTUALIZAR TODOS LOS ACTIVOS
+# ==========================================================
 def update_all_assets(run_type="manual", max_workers=6, min_workers=2, backoff_time=15):
     """
-    Actualiza los precios de todos los activos registrados, 
-    ajustando dinámicamente el número de hilos según errores de red.
-
-    Args:
-        run_type (str): tipo de ejecución ("manual" o "scheduled")
-        max_workers (int): cantidad máxima de threads simultáneos
-        min_workers (int): cantidad mínima de threads permitidos
-        backoff_time (int): segundos de espera al reducir la concurrencia
-    Returns:
-        int: cantidad de activos actualizados exitosamente
+    Actualiza los precios de todos los activos registrados.
+    Ajusta dinámicamente la cantidad de threads según errores de red (HTTP 429, timeouts).
     """
     session = get_session()
     assets = session.query(Asset).all()
@@ -38,8 +36,6 @@ def update_all_assets(run_type="manual", max_workers=6, min_workers=2, backoff_t
     current_workers = max_workers
 
     logger.info(f"🚀 Iniciando actualización de {total} activos ({run_type}) con {current_workers} hilos...")
-
-    # Lista de símbolos pendientes
     pending_assets = [a.symbol for a in assets]
 
     while pending_assets and current_workers >= min_workers:
@@ -63,24 +59,21 @@ def update_all_assets(run_type="manual", max_workers=6, min_workers=2, backoff_t
                     failed_assets.append(symbol)
                     logger.error(f"❌ Error en {symbol}: {msg}")
 
-                    # Detectar throttling o demasiadas peticiones
                     if re.search(r"429|Too Many Requests|timeout|temporarily unavailable", msg, re.I):
                         errors_429 += 1
 
-        # Si hay muchos errores 429 → reducir concurrencia
-        if errors_429 > len(pending_assets) * 0.1:  # más del 10% con limitaciones
+        # Control de throttling
+        if errors_429 > len(pending_assets) * 0.1:
             new_workers = max(current_workers - 2, min_workers)
             if new_workers < current_workers:
                 logger.warning(
-                    f"⚠️ Detectado throttling (HTTP 429). Reduciendo concurrencia de {current_workers} → {new_workers} y esperando {backoff_time}s..."
+                    f"⚠️ Throttling detectado (HTTP 429). Reduciendo concurrencia {current_workers} → {new_workers}, esperando {backoff_time}s..."
                 )
                 current_workers = new_workers
                 time.sleep(backoff_time)
         else:
-            # Si no hubo throttling, se puede terminar
             break
 
-        # Reintentar los fallidos con menos hilos
         pending_assets = failed_assets
 
     duration = (datetime.now() - start_time).total_seconds()
@@ -91,41 +84,14 @@ def update_all_assets(run_type="manual", max_workers=6, min_workers=2, backoff_t
 
 
 # ==========================================================
-# REGISTRAR EJECUCIÓN
+# ACTUALIZAR UN SOLO ACTIVO
 # ==========================================================
-def _register_update_run(start_time, end_time, total, updated, run_type):
-    """Guarda registro de la ejecución en la tabla UpdateRun."""
-    session = get_session()
-    try:
-        run = UpdateRun(
-            start_time=start_time,
-            end_time=end_time,
-            total_assets=total,
-            updated_assets=updated,
-            run_type=run_type
-        )
-        session.add(run)
-        session.commit()
-    except Exception as e:
-        logger.error(f"Error guardando registro de actualización: {e}")
-        session.rollback()
-    finally:
-        session.close()
-
-
 def update_single_asset(symbol: str, run_type="manual") -> bool:
     """
     Actualiza los precios de un activo específico.
-    
-    Args:
-        symbol (str): símbolo del activo (ej: "AAPL").
-        run_type (str): tipo de ejecución ("manual" o "scheduled").
-    Returns:
-        bool: True si se actualizó correctamente, False si hubo error.
     """
     session = get_session()
     try:
-        # Buscar activo
         asset = session.execute(select(Asset).where(Asset.symbol == symbol)).scalar_one_or_none()
         if not asset:
             raise ValueError(f"Activo '{symbol}' no encontrado en base de datos.")
@@ -152,15 +118,12 @@ def update_single_asset(symbol: str, run_type="manual") -> bool:
             logger.warning(f"Sin nuevos datos para {symbol}")
             return True  # no error, pero nada que actualizar
 
-        # Normalizar columnas
-        df.rename(columns={"Adj Close": "Adj_Close"}, inplace=True)
-        expected_cols = {"Date", "Open", "High", "Low", "Close", "Adj_Close", "Volume"}
+        expected_cols = {"Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"}
         if not expected_cols.issubset(df.columns):
-            raise ValueError(f"Datos incompletos para {symbol}. Columnas: {df.columns}")
+            raise ValueError(f"Datos incompletos para {symbol}. Columnas recibidas: {df.columns}")
 
         inserted = 0
         for _, row in df.iterrows():
-            # Evitar duplicados
             exists = session.execute(
                 select(HistoricalPrice.id).where(
                     (HistoricalPrice.asset_id == asset.id)
@@ -178,7 +141,7 @@ def update_single_asset(symbol: str, run_type="manual") -> bool:
                 high=row["High"],
                 low=row["Low"],
                 close=row["Close"],
-                adj_close=row.get("Adj_Close"),
+                adj_close=row.get("Adj Close"),
                 volume=int(row["Volume"]) if not pd.isna(row["Volume"]) else None,
                 recorded_at=datetime.utcnow(),
             )
@@ -192,16 +155,12 @@ def update_single_asset(symbol: str, run_type="manual") -> bool:
     except Exception as e:
         session.rollback()
         logger.error(f"Error actualizando {symbol}: {e}")
-        # Registrar fallo
-        try:
-            failed_updates.log_failed_update(
-                asset_id=asset.id if "asset" in locals() and asset else None,
-                source_id=source.id if "source" in locals() and source else None,
-                msg=str(e),
-                run_type=run_type
-            )
-        except Exception as log_err:
-            logger.error(f"No se pudo registrar el fallo para {symbol}: {log_err}")
+        log_failed_update(
+            asset_id=asset.id if "asset" in locals() and asset else None,
+            source_id=source.id if "source" in locals() and source else None,
+            msg=str(e),
+            run_type=run_type
+        )
         return False
 
     finally:
@@ -209,18 +168,62 @@ def update_single_asset(symbol: str, run_type="manual") -> bool:
 
 
 # ==========================================================
+# REGISTRAR EJECUCIÓN
+# ==========================================================
+def _register_update_run(start_time, end_time, total, updated, run_type):
+    """Guarda registro de la ejecución en la tabla UpdateRun."""
+    session = get_session()
+    try:
+        run = UpdateRun(
+            start_time=start_time,
+            end_time=end_time,
+            total_assets=total,
+            updated_assets=updated,
+            run_type=run_type
+        )
+        session.add(run)
+        session.commit()
+    except Exception as e:
+        logger.error(f"Error guardando registro de actualización: {e}")
+        session.rollback()
+    finally:
+        session.close()
+
+
+# ==========================================================
+# REGISTRAR ERROR DE ACTUALIZACIÓN
+# ==========================================================
+def log_failed_update(asset_id=None, source_id=None, msg="", run_type="manual"):
+    """Registra un error de actualización en failed_updates."""
+    session = get_session()
+    try:
+        fail = FailedUpdate(
+            asset_id=asset_id,
+            source_id=source_id,
+            error_message=msg[:255],
+            run_type=run_type,
+            run_timestamp=datetime.utcnow(),
+            resolved=False
+        )
+        session.add(fail)
+        session.commit()
+        logger.warning(f"[FAILED UPDATE] asset_id={asset_id}, source={source_id}: {msg}")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error registrando failed_update: {e}")
+    finally:
+        session.close()
+
+
+# ==========================================================
 # OBTENER FECHA DE ÚLTIMA ACTUALIZACIÓN
 # ==========================================================
-
 def get_last_update_date() -> datetime | None:
     """
     Retorna la fecha/hora de la última actualización registrada.
-    Prioriza el campo 'end_time' de la tabla UpdateRun.
-    Si no existen registros, busca la última fecha de HistoricalPrice.
     """
     session = get_session()
     try:
-        # Primero buscar la última ejecución completada
         last_run = session.execute(
             select(UpdateRun.end_time)
             .where(UpdateRun.end_time.isnot(None))
@@ -230,7 +233,6 @@ def get_last_update_date() -> datetime | None:
         if last_run:
             return last_run
 
-        # Si no hay registros en UpdateRun, usar el último precio cargado
         last_price = session.execute(
             select(func.max(HistoricalPrice.recorded_at))
         ).scalar()

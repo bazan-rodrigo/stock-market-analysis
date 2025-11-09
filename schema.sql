@@ -87,8 +87,6 @@ CREATE TABLE historical_prices (
   INDEX idx_hp_asset_date (asset_id, date)
 );
 
-CREATE INDEX idx_historical_prices_asset_date
-  ON historical_prices (asset_id, date);
 
 -- ============================================================
 -- FAILED UPDATES
@@ -119,12 +117,12 @@ CREATE TABLE failed_updates (
 -- ============================================
 -- TABLA: update_runs
 -- ============================================
-CREATE TABLE IF NOT EXISTS update_runs (
-    id BIGINT PRIMARY KEY AUTOINCREMENT,
-    start_time DATETIME NOT NULL,
-    end_time DATETIME,
-    total_assets INTEGER NOT NULL,
-    updated_assets INTEGER NOT NULL,
-    run_type TEXT CHECK(run_type IN ('manual','scheduled')) NOT NULL DEFAULT 'manual',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE update_runs (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  start_time DATETIME NOT NULL,
+  end_time DATETIME,
+  total_assets INT NOT NULL,
+  updated_assets INT NOT NULL,
+  run_type ENUM('manual','scheduled') NOT NULL DEFAULT 'manual',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

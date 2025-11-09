@@ -11,7 +11,7 @@ from services.db import get_session
 from models.db_models import User
 from core.logging_config import get_logger
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 def create_user(username: str, password: str, role: str = "analyst") -> str:
     """
