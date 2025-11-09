@@ -23,7 +23,7 @@ def register_failed_update(asset_id=None, source_id=None, error_message="", run_
             source_id=source_id,
             error_message=error_message[:255],
             run_type=run_type,
-            timestamp=datetime.now(),
+            run_timestamp=datetime.now(),
             resolved=False
         )
         session.add(entry)
@@ -47,12 +47,12 @@ def list_failed_updates():
                 PriceSource.code.label("source"),
                 FailedUpdate.error_message,
                 FailedUpdate.run_type,
-                FailedUpdate.timestamp
+                FailedUpdate.run_timestamp
             )
             .join(Asset, FailedUpdate.asset_id == Asset.id, isouter=True)
             .join(PriceSource, FailedUpdate.source_id == PriceSource.id, isouter=True)
             .where(FailedUpdate.resolved == False)
-            .order_by(FailedUpdate.timestamp.desc())
+            .order_by(FailedUpdate.run_timestamp.desc())
         )
         results = session.execute(query).mappings().all()
         return [dict(r) for r in results]

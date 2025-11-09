@@ -6,7 +6,7 @@ Refactorizado para manejo de duplicados, logs y rollback seguro.
 
 from core.logging_config import get_logger
 from services.db import get_session
-from models.db_models import Asset, Source
+from models.db_models import Asset, PriceSource
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -24,7 +24,7 @@ def import_asset(asset_data: dict) -> dict:
         # Buscar fuente asociada por código
         src_code = asset_data.get("source_code")
         src = session.execute(
-            select(Source).where(Source.code == src_code)
+            select(PriceSource).where(PriceSource.code == src_code)
         ).scalar_one_or_none()
 
         if not src:
