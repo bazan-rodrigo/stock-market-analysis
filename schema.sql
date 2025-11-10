@@ -3,11 +3,11 @@
 --  Schema for Stock Market Analysis System
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS `stock-market-analysis`
+CREATE DATABASE IF NOT EXISTS `sma`
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-USE `stock-market-analysis`;
+USE `sma`;
 
 -- ============================================================
 -- USERS
