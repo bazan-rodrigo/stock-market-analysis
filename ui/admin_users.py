@@ -11,7 +11,7 @@ from flask_login import current_user
 from core.logging_config import get_logger
 from services.user_service import create_user, get_all_users
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 def admin_users_layout():
     """Devuelve el layout de la pantalla de administracion de usuarios."""

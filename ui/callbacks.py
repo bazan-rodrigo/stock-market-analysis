@@ -15,7 +15,7 @@ from ui.admin_assets import admin_assets_layout, register_admin_asset_callbacks
 from ui.import_assets import import_assets_layout, register_import_assets_callbacks
 from ui.price_updates import price_updates_layout, register_price_updates_callbacks
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 # -----------------------------------------------------
 # PANTALLAS SIMPLES (placeholder)

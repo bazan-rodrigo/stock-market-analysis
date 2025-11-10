@@ -23,6 +23,19 @@ CREATE TABLE users (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+-- Usuario administrador inicial
+-- Ese password_hash corresponde a la contraseña:
+-- usuario: admin
+-- password: admin123
+INSERT INTO users (username, email, password_hash, role, is_active)
+VALUES (
+  'admin',
+  'admin@example.com',
+  'scrypt:32768:8:1$9u8A6FGcF3bTO65G$36670e697bc69e0e8fb1bbd3c2cdaf1d3b8e5149bd3d3c59ba1be69fcc48af267a8d19913ea96eff3720d8a9a389dc033d0de21f6f4595f3a10e50b5a3831877',
+  'admin',
+  1
+);
+
 -- ============================================================
 -- PRICE SOURCES
 -- ============================================================
@@ -39,6 +52,10 @@ CREATE TABLE price_sources (
   INDEX idx_source_active (is_active),
   INDEX idx_source_code_active (code, is_active)
 );
+
+-- Después de crear tabla price_sources
+INSERT INTO price_sources (code, name, source_type, base_url, is_active)
+VALUES ('YAHOO', 'Yahoo Finance', 'api', 'https://query1.finance.yahoo.com', 1);
 
 -- ============================================================
 -- ASSETS
