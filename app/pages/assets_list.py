@@ -58,6 +58,7 @@ def layout(**kwargs):
 
     return html.Div([
         dcc.Store(id="assets-editing-id", data=None),
+        dcc.Store(id="assets-autocomplete-data", data=None),
         html.Div([
             html.H3("Activos", className="d-inline-block me-3"),
             *admin_buttons,
