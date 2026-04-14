@@ -1,13 +1,16 @@
 #!/bin/bash
 set -e
 
-echo "=== Instalando dependencias Python ==="
-pip install --upgrade pip
-pip install -r requirements.txt
+echo "=== Instalando MySQL Server ==="
+sudo apt-get update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mysql-server
+
+echo "=== Iniciando MySQL ==="
+sudo service mysql start
 
 echo "=== Esperando que MySQL esté listo ==="
 for i in {1..30}; do
-    if mysqladmin ping -h 127.0.0.1 -u root --silent 2>/dev/null; then
+    if sudo mysqladmin ping --silent 2>/dev/null; then
         echo "MySQL listo."
         break
     fi
@@ -15,8 +18,15 @@ for i in {1..30}; do
     sleep 2
 done
 
-echo "=== Creando base de datos '$DB_NAME' si no existe ==="
-mysql -h 127.0.0.1 -u root -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+echo "=== Configurando usuario root sin password ==="
+sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" 2>/dev/null || true
+
+echo "=== Creando base de datos '$DB_NAME' ==="
+mysql -u root -h 127.0.0.1 -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+echo "=== Instalando dependencias Python ==="
+pip install --upgrade pip -q
+pip install -r requirements.txt -q
 
 echo "=== Inicializando base de datos (migraciones + datos semilla) ==="
 python scripts/init_db.py

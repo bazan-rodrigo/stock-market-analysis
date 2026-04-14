@@ -1,11 +1,6 @@
 {
   "name": "Stock Market Analysis",
   "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
-  "features": {
-    "ghcr.io/devcontainers/features/mysql:1": {
-      "version": "latest"
-    }
-  },
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "remoteEnv": {
     "SECRET_KEY": "codespace-dev-secret-change-in-prod",
