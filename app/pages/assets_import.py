@@ -18,24 +18,26 @@ def layout(**kwargs):
 
     return html.Div([
         html.H3("Importar activos desde Excel", className="mb-4"),
-        dbc.Card(dbc.CardBody([
-            html.H5("1. Descargar template"),
-            html.P("Descargá el archivo Excel con las columnas necesarias, completalo y subilo."),
-            dbc.Button("Descargar template", id="import-btn-template", color="secondary", size="sm"),
-            dcc.Download(id="import-download-template"),
-        ]), className="mb-4"),
-        dbc.Card(dbc.CardBody([
-            html.H5("2. Subir archivo"),
-            dcc.Upload(
-                id="import-upload",
-                children=dbc.Button("Seleccionar archivo .xlsx", color="primary", size="sm"),
-                accept=".xlsx",
-            ),
-            html.Div(id="import-filename", className="text-muted mt-1 small"),
-            dbc.Alert(id="import-alert", is_open=False, dismissable=True, className="mt-3"),
-            dbc.Button("Importar", id="import-btn-run", color="success", size="sm", disabled=True, className="mt-3"),
-            dcc.Store(id="import-file-store"),
-        ]), className="mb-4"),
+        dbc.Row([
+            dbc.Col(dbc.Card(dbc.CardBody([
+                html.H5("1. Descargar template"),
+                html.P("Descargá el archivo Excel con las columnas necesarias, completalo y subilo.", className="small text-muted"),
+                dbc.Button("Descargar template", id="import-btn-template", color="secondary", size="sm"),
+                dcc.Download(id="import-download-template"),
+            ])), md=4),
+            dbc.Col(dbc.Card(dbc.CardBody([
+                html.H5("2. Subir archivo"),
+                dcc.Upload(
+                    id="import-upload",
+                    children=dbc.Button("Seleccionar archivo .xlsx", color="primary", size="sm"),
+                    accept=".xlsx",
+                ),
+                html.Div(id="import-filename", className="text-muted mt-1 small"),
+                dbc.Alert(id="import-alert", is_open=False, dismissable=True, className="mt-2"),
+                dbc.Button("Importar", id="import-btn-run", color="success", size="sm", disabled=True, className="mt-2"),
+                dcc.Store(id="import-file-store"),
+            ])), md=8),
+        ], className="mb-4"),
         dbc.Card(dbc.CardBody([
             html.Div([
                 html.H5("Resultados", className="d-inline-block me-3"),
