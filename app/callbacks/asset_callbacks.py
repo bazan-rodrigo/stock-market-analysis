@@ -78,39 +78,63 @@ def assets_row_selection(sel_rows):
     Output("assets-f-industry_id", "value"),
     Output("assets-f-active", "value"),
     Output("assets-editing-id", "data"),
+    Output("assets-autocomplete-alert", "children"),
+    Output("assets-autocomplete-alert", "is_open"),
     Input("assets-btn-add", "n_clicks"),
     Input("assets-btn-edit", "n_clicks"),
     Input("assets-btn-cancel", "n_clicks"),
     Input("assets-btn-save", "n_clicks"),
-    Input("assets-autocomplete-data", "data"),
+    Input("assets-btn-autocomplete", "n_clicks"),
     State("assets-table", "selected_rows"),
     State("assets-table", "data"),
     State("assets-editing-id", "data"),
+    State("assets-f-ticker", "value"),
+    State("assets-f-price_source_id", "value"),
+    State("assets-f-currency_id", "options"),
     prevent_initial_call=True,
 )
-def assets_modal(n_add, n_edit, n_cancel, n_save, autocomplete_data, sel_rows, data, editing_id):
+def assets_modal(
+    n_add, n_edit, n_cancel, n_save, n_auto,
+    sel_rows, data, editing_id,
+    ticker, source_id, currency_options,
+):
     from dash import ctx
     t = ctx.triggered_id
     src_opts, cur_opts, country_opts, market_opts, itype_opts, sector_opts, ind_opts = _get_form_options()
 
-    if t in ("assets-btn-cancel", "assets-btn-save"):
-        return False, no_update, no_update, no_update, *([no_update] * 17)
+    _nu = no_update  # alias corto
+    _closed = (False,) + (_nu,) * 21
 
-    if t == "assets-autocomplete-data":
-        if not autocomplete_data:
-            return (no_update,) * 20
-        return (
-            no_update, no_update,
-            no_update, autocomplete_data.get("name") or no_update,
-            no_update, no_update,
-            no_update, autocomplete_data.get("currency_id") or no_update,
-            no_update, no_update,
-            no_update, no_update,
-            no_update, no_update,
-            no_update, no_update,
-            no_update, no_update,
-            no_update, no_update,
-        )
+    if t in ("assets-btn-cancel", "assets-btn-save"):
+        return False, *([_nu] * 21)
+
+    if t == "assets-btn-autocomplete":
+        if not ticker or not source_id:
+            return (*([_nu] * 20), "Ingresá el ticker y seleccioná la fuente antes de autocompletar.", True)
+        try:
+            meta = asset_svc.autocomplete_from_source(ticker, int(source_id))
+            cur_id = _nu
+            if meta.get("currency_iso"):
+                for opt in (currency_options or []):
+                    if meta["currency_iso"].upper() in opt["label"]:
+                        cur_id = opt["value"]
+                        break
+            name_val = meta.get("name") or _nu
+            return (
+                _nu, _nu,
+                _nu, name_val,
+                _nu, _nu,
+                _nu, cur_id,
+                _nu, _nu,
+                _nu, _nu,
+                _nu, _nu,
+                _nu, _nu,
+                _nu, _nu,
+                _nu, _nu,
+                "Autocompletado desde la fuente. Revisá los campos antes de guardar.", True,
+            )
+        except Exception as exc:
+            return (*([_nu] * 20), str(exc), True)
 
     if t == "assets-btn-add":
         return (
@@ -124,6 +148,7 @@ def assets_modal(n_add, n_edit, n_cancel, n_save, autocomplete_data, sel_rows, d
             sector_opts, None,
             ind_opts, None,
             True, None,
+            _nu, False,
         )
 
     if t == "assets-btn-edit" and sel_rows:
@@ -139,9 +164,10 @@ def assets_modal(n_add, n_edit, n_cancel, n_save, autocomplete_data, sel_rows, d
             sector_opts, a.sector_id,
             ind_opts, a.industry_id,
             a.active, a.id,
+            _nu, False,
         )
 
-    return (no_update,) * 20
+    return (False, *([_nu] * 21))
 
 
 @callback(
@@ -194,32 +220,6 @@ def assets_save(
     except Exception as exc:
         return no_update, str(exc), True, "danger"
 
-
-@callback(
-    Output("assets-autocomplete-alert", "children"),
-    Output("assets-autocomplete-alert", "is_open"),
-    Output("assets-autocomplete-data", "data"),
-    Input("assets-btn-autocomplete", "n_clicks"),
-    State("assets-f-ticker", "value"),
-    State("assets-f-price_source_id", "value"),
-    State("assets-f-currency_id", "options"),
-    prevent_initial_call=True,
-)
-def assets_autocomplete(_, ticker, source_id, currency_options):
-    if not ticker or not source_id:
-        return "Ingresá el ticker y seleccioná la fuente antes de autocompletar.", True, no_update
-    try:
-        meta = asset_svc.autocomplete_from_source(ticker, int(source_id))
-        cur_id = None
-        if meta.get("currency_iso"):
-            for opt in currency_options or []:
-                if meta["currency_iso"].upper() in opt["label"]:
-                    cur_id = opt["value"]
-                    break
-        msg = "Autocompletado desde la fuente. Revisá los campos antes de guardar."
-        return msg, True, {"name": meta.get("name"), "currency_id": cur_id}
-    except Exception as exc:
-        return str(exc), True, no_update
 
 
 @callback(
