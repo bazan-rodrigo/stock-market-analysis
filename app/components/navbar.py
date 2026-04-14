@@ -57,7 +57,7 @@ def build_navbar() -> dbc.Navbar:
     username = current_user.username if current_user.is_authenticated else ""
     user_menu = dbc.DropdownMenu(
         label=username,
-        children=[dbc.DropdownMenuItem("Cerrar sesión", href="/logout")],
+        children=[dbc.DropdownMenuItem("Cerrar sesión", href="/logout", external_link=True)],
         nav=True, in_navbar=True, align_end=True,
     )
 
