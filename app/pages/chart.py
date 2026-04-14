@@ -66,12 +66,13 @@ def layout(**kwargs):
         dbc.Col([
             html.H6("Activo"),
             dbc.Select(id="chart-asset-select", options=[], placeholder="Seleccioná un activo"),
-            html.H6("Período", className="mt-3"),
+            html.H6("Período", className="mt-2"),
             dbc.Row([
                 dbc.Col(dbc.Input(id="chart-date-from", type="date", value=None, placeholder="Desde")),
                 dbc.Col(dbc.Input(id="chart-date-to", type="date", value=None, placeholder="Hasta")),
-            ]),
-            html.H6("Tipo de gráfico", className="mt-3"),
+            ], className="mb-2"),
+            dbc.Button("Generar gráfico", id="chart-btn-update", color="primary", className="w-100 mb-3"),
+            html.H6("Tipo de gráfico"),
             dbc.RadioItems(
                 id="chart-type",
                 options=[
@@ -87,7 +88,6 @@ def layout(**kwargs):
             html.Hr(),
             html.H6("Indicadores en paneles separados"),
             *_build_separate_controls(),
-            dbc.Button("Actualizar gráfico", id="chart-btn-update", color="primary", className="mt-3 w-100"),
         ], md=3, className="border-end pe-3"),
         dbc.Col([
             dcc.Graph(id="chart-figure", style={"height": "80vh"}),

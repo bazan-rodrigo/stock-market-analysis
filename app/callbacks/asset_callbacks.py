@@ -1,6 +1,9 @@
+import threading
+
 from dash import Input, Output, State, callback, no_update
 
 import app.services.asset_service as asset_svc
+import app.services.price_service as price_svc
 import app.services.reference_service as ref_svc
 
 
@@ -36,6 +39,17 @@ def _get_form_options():
         [{"label": "", "value": ""}] + [{"label": s.name, "value": s.id} for s in sectors],
         [{"label": "", "value": ""}] + [{"label": i.name, "value": i.id} for i in industries],
     )
+
+
+def _match_option(opts: list, name: str | None):
+    """Busca un valor por nombre (case-insensitive) en una lista de opciones."""
+    if not name:
+        return no_update, None
+    name_lower = name.lower()
+    for opt in opts:
+        if opt.get("label", "").lower() == name_lower:
+            return opt["value"], None
+    return no_update, name  # no encontrado → devuelve el nombre para el mensaje
 
 
 @callback(
@@ -80,10 +94,11 @@ def assets_row_selection(sel_rows):
     Output("assets-editing-id", "data"),
     Output("assets-autocomplete-alert", "children"),
     Output("assets-autocomplete-alert", "is_open"),
+    Output("assets-form-error", "children"),
+    Output("assets-form-error", "is_open"),
     Input("assets-btn-add", "n_clicks"),
     Input("assets-btn-edit", "n_clicks"),
     Input("assets-btn-cancel", "n_clicks"),
-    Input("assets-btn-save", "n_clicks"),
     Input("assets-btn-autocomplete", "n_clicks"),
     State("assets-table", "selected_rows"),
     State("assets-table", "data"),
@@ -91,50 +106,69 @@ def assets_row_selection(sel_rows):
     State("assets-f-ticker", "value"),
     State("assets-f-price_source_id", "value"),
     State("assets-f-currency_id", "options"),
+    State("assets-f-sector_id", "options"),
+    State("assets-f-industry_id", "options"),
     prevent_initial_call=True,
 )
 def assets_modal(
-    n_add, n_edit, n_cancel, n_save, n_auto,
+    n_add, n_edit, n_cancel, n_auto,
     sel_rows, data, editing_id,
-    ticker, source_id, currency_options,
+    ticker, source_id, currency_options, sector_options, industry_options,
 ):
     from dash import ctx
     t = ctx.triggered_id
+    _nu = no_update
     src_opts, cur_opts, country_opts, market_opts, itype_opts, sector_opts, ind_opts = _get_form_options()
 
-    _nu = no_update  # alias corto
-    _closed = (False,) + (_nu,) * 21
-
-    if t in ("assets-btn-cancel", "assets-btn-save"):
-        return False, *([_nu] * 21)
+    if t == "assets-btn-cancel":
+        return False, *([_nu] * 23)
 
     if t == "assets-btn-autocomplete":
         if not ticker or not source_id:
-            return (*([_nu] * 20), "Ingresá el ticker y seleccioná la fuente antes de autocompletar.", True)
+            return (*([_nu] * 20), "Ingresá el ticker y seleccioná la fuente antes de autocompletar.", True, _nu, False)
         try:
             meta = asset_svc.autocomplete_from_source(ticker, int(source_id))
+
+            # Moneda
             cur_id = _nu
             if meta.get("currency_iso"):
                 for opt in (currency_options or []):
                     if meta["currency_iso"].upper() in opt["label"]:
                         cur_id = opt["value"]
                         break
-            name_val = meta.get("name") or _nu
+
+            # Sector
+            sector_id, sector_unmatched = _match_option(sector_options or [], meta.get("sector"))
+
+            # Industria
+            industry_id, industry_unmatched = _match_option(industry_options or [], meta.get("industry"))
+
+            # Mensaje
+            notes = []
+            if sector_unmatched:
+                notes.append(f"sector Yahoo: '{sector_unmatched}' (no está en la BD)")
+            if industry_unmatched:
+                notes.append(f"industria Yahoo: '{industry_unmatched}' (no está en la BD)")
+            msg = "Autocompletado. Revisá los campos antes de guardar."
+            if notes:
+                msg += " — " + "; ".join(notes)
+
             return (
                 _nu, _nu,
-                _nu, name_val,
+                _nu, meta.get("name") or _nu,
                 _nu, _nu,
                 _nu, cur_id,
                 _nu, _nu,
                 _nu, _nu,
                 _nu, _nu,
+                _nu, sector_id,
+                _nu, industry_id,
                 _nu, _nu,
-                _nu, _nu,
-                _nu, _nu,
-                "Autocompletado desde la fuente. Revisá los campos antes de guardar.", True,
+                msg, True,
+                _nu, False,
             )
         except Exception as exc:
-            return (*([_nu] * 20), str(exc), True)
+            return (*([_nu] * 20), str(exc), True, _nu, False)
 
     if t == "assets-btn-add":
         return (
@@ -149,6 +183,7 @@ def assets_modal(
             ind_opts, None,
             True, None,
             _nu, False,
+            "", False,
         )
 
     if t == "assets-btn-edit" and sel_rows:
@@ -165,9 +200,10 @@ def assets_modal(
             ind_opts, a.industry_id,
             a.active, a.id,
             _nu, False,
+            "", False,
         )
 
-    return (False, *([_nu] * 21))
+    return (False, *([_nu] * 23))
 
 
 @callback(
@@ -175,6 +211,9 @@ def assets_modal(
     Output("assets-alert", "children"),
     Output("assets-alert", "is_open"),
     Output("assets-alert", "color"),
+    Output("assets-modal", "is_open", allow_duplicate=True),
+    Output("assets-form-error", "children", allow_duplicate=True),
+    Output("assets-form-error", "is_open", allow_duplicate=True),
     Input("assets-btn-save", "n_clicks"),
     State("assets-f-ticker", "value"),
     State("assets-f-name", "value"),
@@ -193,9 +232,12 @@ def assets_save(
     _, ticker, name, country_id, market_id, itype_id, currency_id,
     source_id, sector_id, industry_id, active, editing_id
 ):
+    _nu = no_update
     required = [ticker, name, country_id, market_id, itype_id, currency_id, source_id]
     if any(v is None or v == "" for v in required):
-        return no_update, "Completá todos los campos obligatorios (*).", True, "danger"
+        # Modal se queda abierto, error dentro del modal
+        return _nu, _nu, False, _nu, _nu, "Completá todos los campos obligatorios (*).", True
+
     try:
         kwargs = dict(
             ticker=ticker,
@@ -211,15 +253,26 @@ def assets_save(
         )
         if editing_id:
             asset_svc.update_asset(editing_id, **kwargs)
+            msg = f"{ticker.upper()} actualizado correctamente."
         else:
-            asset_svc.create_asset(**kwargs)
+            new_asset = asset_svc.create_asset(**kwargs)
+            # Descargar precios en background
+            threading.Thread(
+                target=price_svc.update_asset_prices,
+                args=(new_asset.id,),
+                daemon=True,
+            ).start()
+            msg = f"{ticker.upper()} creado. Descarga de precios iniciada en background."
+
         return (
             [_asset_to_row(a) for a in asset_svc.get_assets()],
-            "Guardado correctamente.", True, "success",
+            msg, True, "success",
+            False,   # cerrar modal
+            "", False,
         )
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
-
+        # Error de negocio: modal se queda abierto
+        return _nu, _nu, False, _nu, _nu, str(exc), True
 
 
 @callback(

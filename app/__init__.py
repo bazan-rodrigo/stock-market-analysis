@@ -70,7 +70,7 @@ def create_app():
     def index():
         if not current_user.is_authenticated:
             return redirect("/login")
-        return redirect("/screener")
+        return redirect("/chart")
 
     @server.before_request
     def require_login():

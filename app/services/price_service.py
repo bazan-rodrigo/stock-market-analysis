@@ -178,6 +178,24 @@ def get_update_logs() -> list[PriceUpdateLog]:
     )
 
 
+def get_all_assets_with_log() -> list[dict]:
+    """Devuelve todos los activos activos con su último log de actualización (si existe)."""
+    s = get_session()
+    assets = s.query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
+    logs = {log.asset_id: log for log in s.query(PriceUpdateLog).all()}
+    result = []
+    for asset in assets:
+        log = logs.get(asset.id)
+        result.append({
+            "ticker": asset.ticker,
+            "asset_name": asset.name,
+            "last_attempt_at": str(log.last_attempt_at)[:19] if log else "—",
+            "result": ("Éxito" if log.success else "Error") if log else "—",
+            "error_detail": (log.error_detail or "") if log else "",
+        })
+    return result
+
+
 def clear_update_logs() -> None:
     s = get_session()
     s.query(PriceUpdateLog).delete()

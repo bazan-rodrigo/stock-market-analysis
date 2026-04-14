@@ -38,7 +38,8 @@ def _build_asset_form():
             dbc.Col([dbc.Label("Industria"), dbc.Select(id="assets-f-industry_id", options=[])]),
             dbc.Col([dbc.Label("Activo"), dbc.Switch(id="assets-f-active", value=True, label="Sí")]),
         ]),
-        dbc.Alert(id="assets-autocomplete-alert", is_open=False, color="info", className="mt-3"),
+        dbc.Alert(id="assets-form-error", is_open=False, color="danger", className="mt-2"),
+        dbc.Alert(id="assets-autocomplete-alert", is_open=False, color="info", className="mt-2"),
     ])
 
 

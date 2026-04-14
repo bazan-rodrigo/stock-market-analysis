@@ -21,7 +21,7 @@ def _logs_to_rows(logs) -> list[dict]:
     Input("prices-log-table", "id"),
 )
 def load_price_logs(_):
-    return _logs_to_rows(svc.get_update_logs())
+    return svc.get_all_assets_with_log()
 
 
 @callback(
@@ -55,7 +55,7 @@ def update_all(_):
             f"{len(summary['errors'])} errores."
         )
         color = "success" if not summary["errors"] else "warning"
-        return _logs_to_rows(svc.get_update_logs()), msg, True, color
+        return svc.get_all_assets_with_log(), msg, True, color
     except Exception as exc:
         return no_update, str(exc), True, "danger"
 
@@ -81,9 +81,9 @@ def update_one(n_one, n_retry, sel_rows, data):
         if asset is None:
             return no_update, f"Activo {ticker} no encontrado.", True, "danger"
         svc.update_asset_prices(asset.id)
-        return _logs_to_rows(svc.get_update_logs()), f"{ticker}: actualizado correctamente.", True, "success"
+        return svc.get_all_assets_with_log(), f"{ticker}: actualizado correctamente.", True, "success"
     except Exception as exc:
-        return _logs_to_rows(svc.get_update_logs()), f"{ticker}: {exc}", True, "danger"
+        return svc.get_all_assets_with_log(), f"{ticker}: {exc}", True, "danger"
 
 
 @callback(
@@ -107,9 +107,9 @@ def redownload(_, sel_rows, data):
             return no_update, f"Activo {ticker} no encontrado.", True, "danger"
         svc.clear_prices(asset.id)
         svc.update_asset_prices(asset.id)
-        return _logs_to_rows(svc.get_update_logs()), f"{ticker}: historia borrada y redescargada.", True, "success"
+        return svc.get_all_assets_with_log(), f"{ticker}: historia borrada y redescargada.", True, "success"
     except Exception as exc:
-        return _logs_to_rows(svc.get_update_logs()), f"{ticker}: {exc}", True, "danger"
+        return svc.get_all_assets_with_log(), f"{ticker}: {exc}", True, "danger"
 
 
 @callback(
