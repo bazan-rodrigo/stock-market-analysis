@@ -37,7 +37,7 @@ def create_app():
         pages_folder="",      # Sin auto-discovery; importamos manualmente
         suppress_callback_exceptions=True,
         external_stylesheets=[
-            dbc.themes.BOOTSTRAP,
+            dbc.themes.DARKLY,
             dbc.icons.FONT_AWESOME,
         ],
         title="Stock Market Analysis",

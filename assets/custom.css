@@ -3,34 +3,68 @@ body {
     font-size: 0.9rem;
 }
 
-/* DataTable — filas seleccionadas */
-.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr.row--selected td {
-    background-color: #e3f2fd !important;
+/* ── DataTable: dark mode ───────────────────────────────────────────────── */
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td,
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+    background-color: #222 !important;
+    color: #dee2e6 !important;
+    border-color: #444 !important;
 }
 
-/* Navbar brand */
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+    background-color: #2c2c2c !important;
+    font-weight: bold;
+}
+
+/* Filas seleccionadas */
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr.row--selected td {
+    background-color: #1a4a6e !important;
+    color: #fff !important;
+}
+
+/* Hover en filas */
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
+    background-color: #2e2e2e !important;
+}
+
+/* Input de filtro */
+.dash-table-container .dash-filter input {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #555 !important;
+}
+
+/* Paginación */
+.dash-table-container .previous-next-container button,
+.dash-table-container .page-number {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #555 !important;
+}
+
+/* ── Navbar brand ────────────────────────────────────────────────────────── */
 .navbar-brand {
     font-weight: 700;
     letter-spacing: 0.02em;
 }
 
-/* Cards de indicadores en el panel lateral del gráfico */
+/* ── Cards de indicadores en el panel lateral del gráfico ───────────────── */
 .card-body.p-1 {
     padding: 6px !important;
 }
 
-/* Alertas compactas */
+/* ── Alertas compactas ───────────────────────────────────────────────────── */
 .alert {
     padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
 }
 
-/* Screener: columnas de variación */
+/* ── Screener: columnas de variación ────────────────────────────────────── */
 .cell--variation-positive {
-    color: #00b050;
+    color: #4caf50;
     font-weight: 600;
 }
 .cell--variation-negative {
-    color: #e53935;
+    color: #ef5350;
     font-weight: 600;
 }
