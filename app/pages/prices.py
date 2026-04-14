@@ -44,7 +44,7 @@ def layout(**kwargs):
         ),
         html.Div([
             dbc.Button("Actualizar seleccionado", id="prices-btn-one", color="secondary", size="sm", disabled=True, className="me-2"),
-            dbc.Button("Reintentar fallido", id="prices-btn-retry", color="warning", size="sm", disabled=True, className="me-2"),
+            dbc.Button("Reintentar fallidos", id="prices-btn-retry", color="warning", size="sm", className="me-2"),
             dbc.Button("Borrar historia y redescargar", id="prices-btn-redownload", color="danger", size="sm", disabled=True),
         ], className="mt-2"),
     ])
