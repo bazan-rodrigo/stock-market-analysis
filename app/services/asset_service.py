@@ -37,12 +37,12 @@ def get_asset_by_ticker(ticker: str) -> Optional[Asset]:
 
 def create_asset(
     ticker: str,
-    name: str,
-    country_id: int,
-    market_id: int,
-    instrument_type_id: int,
-    currency_id: int,
     price_source_id: int,
+    name: Optional[str] = None,
+    country_id: Optional[int] = None,
+    market_id: Optional[int] = None,
+    instrument_type_id: Optional[int] = None,
+    currency_id: Optional[int] = None,
     sector_id: Optional[int] = None,
     industry_id: Optional[int] = None,
     active: bool = True,
@@ -50,7 +50,7 @@ def create_asset(
     s = get_session()
     obj = Asset(
         ticker=ticker.strip().upper(),
-        name=name.strip(),
+        name=name.strip() if name else ticker.strip().upper(),
         country_id=country_id,
         market_id=market_id,
         instrument_type_id=instrument_type_id,
@@ -73,12 +73,12 @@ def create_asset(
 def update_asset(
     asset_id: int,
     ticker: str,
-    name: str,
-    country_id: int,
-    market_id: int,
-    instrument_type_id: int,
-    currency_id: int,
     price_source_id: int,
+    name: Optional[str] = None,
+    country_id: Optional[int] = None,
+    market_id: Optional[int] = None,
+    instrument_type_id: Optional[int] = None,
+    currency_id: Optional[int] = None,
     sector_id: Optional[int] = None,
     industry_id: Optional[int] = None,
     active: bool = True,
@@ -88,7 +88,7 @@ def update_asset(
     if obj is None:
         raise ValueError(f"Activo id={asset_id} no encontrado")
     obj.ticker = ticker.strip().upper()
-    obj.name = name.strip()
+    obj.name = name.strip() if name else obj.name
     obj.country_id = country_id
     obj.market_id = market_id
     obj.instrument_type_id = instrument_type_id

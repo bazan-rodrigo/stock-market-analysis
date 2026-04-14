@@ -243,27 +243,26 @@ def assets_save(
         except (TypeError, ValueError):
             return False
 
-    _FIELD_LABELS = {
-        0: "Ticker", 1: "Nombre", 2: "País", 3: "Mercado",
-        4: "Tipo de instrumento", 5: "Moneda", 6: "Fuente de precios",
-    }
-    required = [ticker, name, country_id, market_id, itype_id, currency_id, source_id]
-    missing = [_FIELD_LABELS[i] for i, v in enumerate(required) if _empty(v)]
+    required = {"Ticker": ticker, "Fuente de precios": source_id}
+    missing = [label for label, v in required.items() if _empty(v)]
     if missing:
         msg = "Campos obligatorios sin completar: " + ", ".join(missing) + "."
         return _nu, _nu, False, _nu, _nu, msg, True
 
+    def _int(v):
+        return int(v) if not _empty(v) else None
+
     try:
         kwargs = dict(
             ticker=ticker,
-            name=name,
-            country_id=int(country_id),
-            market_id=int(market_id),
-            instrument_type_id=int(itype_id),
-            currency_id=int(currency_id),
+            name=name or None,
+            country_id=_int(country_id),
+            market_id=_int(market_id),
+            instrument_type_id=_int(itype_id),
+            currency_id=_int(currency_id),
             price_source_id=int(source_id),
-            sector_id=int(sector_id) if sector_id else None,
-            industry_id=int(industry_id) if industry_id else None,
+            sector_id=_int(sector_id),
+            industry_id=_int(industry_id),
             active=bool(active),
         )
         if editing_id:

@@ -63,7 +63,7 @@ def layout(**kwargs):
         return html.Div()
 
     return dbc.Row([
-        dbc.Col([
+        dbc.Col(id="chart-controls", children=[
             html.H6("Activo"),
             dbc.Select(id="chart-asset-select", options=[], placeholder="Seleccioná un activo"),
             html.H6("Período", className="mt-2"),
