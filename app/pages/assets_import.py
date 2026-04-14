@@ -1,6 +1,7 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
+from app.components.table_styles import FILTER, HEADER, DATA, CELL
 
 _LOG_COLUMNS = [
     {"name": "Ticker", "id": "ticker"},
@@ -45,13 +46,16 @@ def layout(**kwargs):
                 columns=_LOG_COLUMNS,
                 data=[],
                 style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px 12px"},
-                style_header={"fontWeight": "bold", "backgroundColor": "#f8f9fa"},
+                style_header=HEADER,
+                style_data=DATA,
+                style_cell=CELL,
+                style_filter=FILTER,
                 style_data_conditional=[
-                    {"if": {"filter_query": "{status} = imported"}, "color": "green"},
-                    {"if": {"filter_query": "{status} = error"}, "color": "red"},
-                    {"if": {"filter_query": "{status} = skipped"}, "color": "orange"},
+                    {"if": {"filter_query": "{status} = imported"}, "color": "#4caf50"},
+                    {"if": {"filter_query": "{status} = error"}, "color": "#ef5350"},
+                    {"if": {"filter_query": "{status} = skipped"}, "color": "#ff9800"},
                 ],
+                filter_action="native",
                 page_size=30,
                 sort_action="native",
             ),

@@ -2,7 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.table_styles import HEADER, DATA, CELL, SELECTED_ROW
+from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 _HISTORY_COLUMNS = [
     {"name": "Fecha",     "id": "date"},
@@ -26,8 +26,10 @@ _DT_COMMON = dict(
     style_header=HEADER,
     style_data=DATA,
     style_cell=CELL,
+    style_filter=FILTER,
     style_data_conditional=SELECTED_ROW,
     sort_action="native",
+    filter_action="native",
     page_size=50,
 )
 

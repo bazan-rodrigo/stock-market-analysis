@@ -5,7 +5,7 @@ Los callbacks se registran individualmente en cada módulo de callback.
 """
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
-from app.components.table_styles import HEADER, DATA, CELL, SELECTED_ROW
+from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 
 def make_abm_layout(
@@ -49,9 +49,11 @@ def make_abm_layout(
                 style_header=HEADER,
                 style_data=DATA,
                 style_cell=CELL,
+                style_filter=FILTER,
                 style_data_conditional=SELECTED_ROW,
                 page_size=25,
                 sort_action="native",
+                filter_action="native",
             ),
             html.Div(
                 [

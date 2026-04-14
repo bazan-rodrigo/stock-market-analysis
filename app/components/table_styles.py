@@ -1,5 +1,11 @@
 """Estilos dark mode compartidos para dash_table.DataTable."""
 
+FILTER = {
+    "backgroundColor": "#2c2c2c",
+    "color": "#dee2e6",
+    "border": "1px solid #444",
+}
+
 HEADER = {
     "fontWeight": "bold",
     "backgroundColor": "#2c2c2c",

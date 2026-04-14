@@ -1,7 +1,7 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, html
-from app.components.table_styles import HEADER, DATA, CELL, SELECTED_ROW
+from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 _LOG_COLUMNS = [
     {"name": "Ticker", "id": "ticker"},
@@ -35,12 +35,14 @@ def layout(**kwargs):
             style_header=HEADER,
             style_data=DATA,
             style_cell=CELL,
+            style_filter=FILTER,
             style_data_conditional=SELECTED_ROW + [
                 {"if": {"filter_query": '{result} = "Éxito"'}, "color": "#4caf50"},
                 {"if": {"filter_query": '{result} = "Error"'}, "color": "#ef5350"},
             ],
             page_size=30,
             sort_action="native",
+            filter_action="native",
         ),
         html.Div([
             dbc.Button("Actualizar seleccionado", id="prices-btn-one", color="secondary", size="sm", disabled=True, className="me-2"),
