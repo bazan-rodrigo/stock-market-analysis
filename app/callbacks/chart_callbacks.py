@@ -2,7 +2,7 @@
 Callbacks del gráfico técnico.
 Construye un gráfico Plotly con subplots para precio, volumen e indicadores separados.
 """
-from datetime import date, timedelta
+from datetime import date
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -31,17 +31,6 @@ def _sma_filter(value):
 def load_chart_assets(_):
     assets = get_assets(only_active=True)
     return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
-
-
-# Fechas por defecto: último año
-@callback(
-    Output("chart-date-from", "value"),
-    Output("chart-date-to", "value"),
-    Input("chart-date-from", "id"),
-)
-def set_default_dates(_):
-    today = date.today()
-    return str(today - timedelta(days=365)), str(today)
 
 
 # Mostrar/ocultar parámetros cuando se activa un indicador
@@ -219,11 +208,13 @@ def update_chart(n_clicks, *args):
     fig.update_layout(
         height=700,
         xaxis_rangeslider_visible=False,
-        template="plotly_white",
+        template="plotly_dark",
         legend=dict(orientation="h", y=-0.05),
         margin=dict(l=40, r=20, t=40, b=40),
+        paper_bgcolor="#1e1e1e",
+        plot_bgcolor="#1e1e1e",
     )
-    fig.update_xaxes(showgrid=True, gridcolor="#f0f0f0")
-    fig.update_yaxes(showgrid=True, gridcolor="#f0f0f0")
+    fig.update_xaxes(showgrid=True, gridcolor="#333")
+    fig.update_yaxes(showgrid=True, gridcolor="#333")
 
     return fig

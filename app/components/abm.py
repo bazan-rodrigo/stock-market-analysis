@@ -5,6 +5,7 @@ Los callbacks se registran individualmente en cada módulo de callback.
 """
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
+from app.components.table_styles import HEADER, DATA, CELL, SELECTED_ROW
 
 
 def make_abm_layout(
@@ -45,8 +46,10 @@ def make_abm_layout(
                 row_selectable="single",
                 selected_rows=[],
                 style_table={"overflowX": "auto"},
-                style_cell={"textAlign": "left", "padding": "6px 12px"},
-                style_header={"fontWeight": "bold", "backgroundColor": "#f8f9fa"},
+                style_header=HEADER,
+                style_data=DATA,
+                style_cell=CELL,
+                style_data_conditional=SELECTED_ROW,
                 page_size=25,
                 sort_action="native",
             ),

@@ -182,3 +182,32 @@ def clear_update_logs() -> None:
     s = get_session()
     s.query(PriceUpdateLog).delete()
     s.commit()
+
+
+def get_latest_prices_all() -> list[dict]:
+    """Devuelve el precio de cierre más reciente de cada activo activo."""
+    s = get_session()
+    from sqlalchemy import func
+    subq = (
+        s.query(Price.asset_id, func.max(Price.date).label("max_date"))
+        .group_by(Price.asset_id)
+        .subquery()
+    )
+    rows = (
+        s.query(Price, Asset)
+        .join(subq, (Price.asset_id == subq.c.asset_id) & (Price.date == subq.c.max_date))
+        .join(Asset, Price.asset_id == Asset.id)
+        .filter(Asset.active == True)
+        .order_by(Asset.ticker)
+        .all()
+    )
+    return [
+        {
+            "ticker": asset.ticker,
+            "name": asset.name,
+            "date": str(price.date),
+            "close": price.close,
+            "volume": price.volume,
+        }
+        for price, asset in rows
+    ]

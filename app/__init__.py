@@ -115,6 +115,7 @@ def create_app():
     import app.pages.admin_sectors       # noqa: F401
     import app.pages.admin_industries    # noqa: F401
     import app.pages.admin_price_sources # noqa: F401
+    import app.pages.price_viewer        # noqa: F401
 
     # -----------------------------------------------------------------
     # 8. Registrar callbacks
@@ -125,7 +126,8 @@ def create_app():
     import app.callbacks.import_callbacks     # noqa: F401
     import app.callbacks.price_callbacks      # noqa: F401
     import app.callbacks.chart_callbacks      # noqa: F401
-    import app.callbacks.screener_callbacks   # noqa: F401
+    import app.callbacks.screener_callbacks       # noqa: F401
+    import app.callbacks.price_viewer_callbacks   # noqa: F401
 
     # -----------------------------------------------------------------
     # 9. Layout principal

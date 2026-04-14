@@ -1,6 +1,7 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
+from app.components.table_styles import HEADER, DATA, CELL
 
 _COLUMNS = [
     {"name": "Ticker", "id": "ticker"},
@@ -82,18 +83,19 @@ def layout(**kwargs):
                     row_selectable="single",
                     selected_rows=[],
                     style_table={"overflowX": "auto"},
-                    style_cell={"textAlign": "center", "padding": "5px 10px"},
+                    style_header=HEADER,
+                    style_data=DATA,
+                    style_cell={**CELL, "textAlign": "center"},
                     style_cell_conditional=[
                         {"if": {"column_id": c}, "textAlign": "left"}
                         for c in ["ticker", "name"]
                     ],
-                    style_header={"fontWeight": "bold", "backgroundColor": "#f8f9fa"},
                     style_data_conditional=(
                         [
-                            {"if": {"filter_query": f"{{{col}}} > 0", "column_id": col}, "color": "green"}
+                            {"if": {"filter_query": f"{{{col}}} > 0", "column_id": col}, "color": "#4caf50"}
                             for col in ["var_daily", "var_month", "var_quarter", "var_year", "var_52w"]
                         ] + [
-                            {"if": {"filter_query": f"{{{col}}} < 0", "column_id": col}, "color": "red"}
+                            {"if": {"filter_query": f"{{{col}}} < 0", "column_id": col}, "color": "#ef5350"}
                             for col in ["var_daily", "var_month", "var_quarter", "var_year", "var_52w"]
                         ]
                     ),

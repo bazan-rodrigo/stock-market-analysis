@@ -25,6 +25,7 @@ def build_navbar() -> dbc.Navbar:
     nav_items = [
         dbc.NavItem(dbc.NavLink("Screener", href="/screener")),
         dbc.NavItem(dbc.NavLink("Gráfico técnico", href="/chart")),
+        dbc.NavItem(dbc.NavLink("Precios", href="/price-viewer")),
     ]
 
     if current_user.is_authenticated and current_user.is_admin:

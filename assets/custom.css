@@ -1,70 +1,107 @@
-/* Ajustes generales */
+/* ── Base ────────────────────────────────────────────────────────────────── */
 body {
-    font-size: 0.9rem;
+    font-size: 0.82rem;
 }
 
-/* ── DataTable: dark mode ───────────────────────────────────────────────── */
-.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td,
-.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
-    background-color: #222 !important;
-    color: #dee2e6 !important;
-    border-color: #444 !important;
-}
+h3 { font-size: 1.15rem !important; }
+h5 { font-size: 0.95rem !important; }
+h6 { font-size: 0.85rem !important; }
 
-.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
-    background-color: #2c2c2c !important;
-    font-weight: bold;
+/* ── Navbar compacta ─────────────────────────────────────────────────────── */
+.navbar {
+    padding: 0.2rem 1rem !important;
+    min-height: unset !important;
 }
-
-/* Filas seleccionadas */
-.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr.row--selected td {
-    background-color: #1a4a6e !important;
-    color: #fff !important;
+.navbar .nav-link {
+    padding: 0.25rem 0.6rem !important;
+    font-size: 0.82rem !important;
 }
-
-/* Hover en filas */
-.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
-    background-color: #2e2e2e !important;
-}
-
-/* Input de filtro */
-.dash-table-container .dash-filter input {
-    background-color: #2c2c2c !important;
-    color: #dee2e6 !important;
-    border-color: #555 !important;
-}
-
-/* Paginación */
-.dash-table-container .previous-next-container button,
-.dash-table-container .page-number {
-    background-color: #2c2c2c !important;
-    color: #dee2e6 !important;
-    border-color: #555 !important;
-}
-
-/* ── Navbar brand ────────────────────────────────────────────────────────── */
 .navbar-brand {
     font-weight: 700;
     letter-spacing: 0.02em;
+    font-size: 0.95rem !important;
+    padding: 0 !important;
 }
 
-/* ── Cards de indicadores en el panel lateral del gráfico ───────────────── */
-.card-body.p-1 {
-    padding: 6px !important;
+/* ── Contenedor principal ────────────────────────────────────────────────── */
+.container-fluid {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+}
+
+/* ── Botones compactos ───────────────────────────────────────────────────── */
+.btn-sm {
+    font-size: 0.78rem !important;
+    padding: 0.18rem 0.5rem !important;
+}
+.btn {
+    font-size: 0.82rem !important;
+}
+
+/* ── Labels y formularios ────────────────────────────────────────────────── */
+.form-label, label {
+    margin-bottom: 0.15rem !important;
+    font-size: 0.8rem !important;
+}
+.form-control, .form-select, select, input[type="date"] {
+    font-size: 0.82rem !important;
+    padding: 0.2rem 0.4rem !important;
 }
 
 /* ── Alertas compactas ───────────────────────────────────────────────────── */
 .alert {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.82rem;
+    margin-bottom: 0.5rem !important;
 }
 
-/* ── Screener: columnas de variación ────────────────────────────────────── */
-.cell--variation-positive {
-    color: #4caf50;
-    font-weight: 600;
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.card-body { padding: 0.5rem !important; }
+.card-body.p-1 { padding: 6px !important; }
+
+/* ── DataTable: dark mode ────────────────────────────────────────────────── */
+/* Fallback por si los inline styles no alcanzan */
+.dash-spreadsheet-container .dash-spreadsheet-inner td {
+    background-color: #1e1e1e !important;
+    color: #dee2e6 !important;
+    border-color: #333 !important;
+    font-size: 0.82rem !important;
 }
-.cell--variation-negative {
-    color: #ef5350;
-    font-weight: 600;
+.dash-spreadsheet-container .dash-spreadsheet-inner th {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #444 !important;
+    font-size: 0.82rem !important;
+}
+.dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
+    background-color: #2a2a2a !important;
+}
+.dash-filter input {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #555 !important;
+    font-size: 0.8rem !important;
+}
+.previous-next-container button,
+.page-number {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #555 !important;
+    font-size: 0.78rem !important;
+}
+
+/* ── Screener: variación ─────────────────────────────────────────────────── */
+.cell--variation-positive { color: #4caf50; font-weight: 600; }
+.cell--variation-negative { color: #ef5350; font-weight: 600; }
+
+/* ── Dropdown Dash (dcc.Dropdown) ────────────────────────────────────────── */
+.Select-control, .Select-menu-outer {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #555 !important;
+    font-size: 0.82rem !important;
+}
+.Select-value-label, .Select-placeholder {
+    color: #dee2e6 !important;
+    font-size: 0.82rem !important;
 }

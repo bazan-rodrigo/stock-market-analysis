@@ -1,8 +1,6 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
-from datetime import date, timedelta
-
 from app.indicators.registry import overlay_indicators, separate_indicators
 
 
@@ -64,18 +62,14 @@ def layout(**kwargs):
     if not current_user.is_authenticated:
         return html.Div()
 
-    today = date.today()
-    default_from = str(today - timedelta(days=365))
-    default_to = str(today)
-
     return dbc.Row([
         dbc.Col([
             html.H6("Activo"),
             dbc.Select(id="chart-asset-select", options=[], placeholder="Seleccioná un activo"),
             html.H6("Período", className="mt-3"),
             dbc.Row([
-                dbc.Col(dbc.Input(id="chart-date-from", type="date", value=default_from)),
-                dbc.Col(dbc.Input(id="chart-date-to", type="date", value=default_to)),
+                dbc.Col(dbc.Input(id="chart-date-from", type="date", value=None, placeholder="Desde")),
+                dbc.Col(dbc.Input(id="chart-date-to", type="date", value=None, placeholder="Hasta")),
             ]),
             html.H6("Tipo de gráfico", className="mt-3"),
             dbc.RadioItems(
