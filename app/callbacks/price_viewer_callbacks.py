@@ -21,6 +21,7 @@ def load_pv_assets(_):
     Output("pv-result-info", "children"),
     Input("pv-mode", "value"),
 )
+def switch_mode(mode):
     if mode == "latest":
         rows = get_latest_prices_all()
         info = f"{len(rows)} instrumentos con precio disponible."
