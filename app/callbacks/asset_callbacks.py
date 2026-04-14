@@ -233,10 +233,25 @@ def assets_save(
     source_id, sector_id, industry_id, active, editing_id
 ):
     _nu = no_update
+
+    def _empty(v):
+        if v is None or v == "":
+            return True
+        try:
+            import math
+            return math.isnan(float(v))
+        except (TypeError, ValueError):
+            return False
+
+    _FIELD_LABELS = {
+        0: "Ticker", 1: "Nombre", 2: "País", 3: "Mercado",
+        4: "Tipo de instrumento", 5: "Moneda", 6: "Fuente de precios",
+    }
     required = [ticker, name, country_id, market_id, itype_id, currency_id, source_id]
-    if any(v is None or v == "" for v in required):
-        # Modal se queda abierto, error dentro del modal
-        return _nu, _nu, False, _nu, _nu, "Completá todos los campos obligatorios (*).", True
+    missing = [_FIELD_LABELS[i] for i, v in enumerate(required) if _empty(v)]
+    if missing:
+        msg = "Campos obligatorios sin completar: " + ", ".join(missing) + "."
+        return _nu, _nu, False, _nu, _nu, msg, True
 
     try:
         kwargs = dict(
