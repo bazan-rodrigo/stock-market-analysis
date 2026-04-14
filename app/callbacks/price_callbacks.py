@@ -39,12 +39,10 @@ def load_price_logs(_):
 
 @callback(
     Output("prices-btn-one", "disabled"),
-    Output("prices-btn-redownload", "disabled"),
     Input("prices-log-table", "selected_rows"),
 )
 def price_row_selection(sel_rows):
-    disabled = not bool(sel_rows)
-    return disabled, disabled
+    return not bool(sel_rows)
 
 
 @callback(
@@ -131,29 +129,44 @@ def retry_failed(_):
 
 
 @callback(
+    Output("prices-redownload-modal", "is_open"),
+    Input("prices-btn-redownload", "n_clicks"),
+    Input("prices-btn-redownload-confirm", "n_clicks"),
+    Input("prices-btn-redownload-cancel", "n_clicks"),
+    prevent_initial_call=True,
+)
+def toggle_redownload_modal(n_open, n_confirm, n_cancel):
+    from dash import ctx
+    return ctx.triggered_id == "prices-btn-redownload"
+
+
+@callback(
     Output("prices-log-table", "data", allow_duplicate=True),
     Output("prices-alert", "children", allow_duplicate=True),
     Output("prices-alert", "is_open", allow_duplicate=True),
     Output("prices-alert", "color", allow_duplicate=True),
-    Input("prices-btn-redownload", "n_clicks"),
-    State("prices-log-table", "selected_rows"),
-    State("prices-log-table", "data"),
+    Input("prices-btn-redownload-confirm", "n_clicks"),
     prevent_initial_call=True,
 )
-def redownload(_, sel_rows, data):
-    if not sel_rows:
-        return no_update, no_update, no_update, no_update
-    ticker = data[sel_rows[0]]["ticker"]
-    try:
-        from app.services.asset_service import get_asset_by_ticker
-        asset = get_asset_by_ticker(ticker)
-        if asset is None:
-            return no_update, f"Activo {ticker} no encontrado.", True, "danger"
-        svc.clear_prices(asset.id)
-        svc.update_asset_prices(asset.id)
-        return svc.get_all_assets_with_log(), f"{ticker}: historia borrada y redescargada.", True, "success"
-    except Exception as exc:
-        return svc.get_all_assets_with_log(), _error_msg(ticker, exc), True, "danger"
+def redownload_all(_):
+    from app.services.asset_service import get_assets
+    assets = get_assets(only_active=True)
+    successes, errors = [], []
+    for asset in assets:
+        try:
+            svc.clear_prices(asset.id)
+            svc.update_asset_prices(asset.id)
+            successes.append(asset.ticker)
+        except Exception as exc:
+            errors.append(_error_msg(asset.ticker, exc))
+
+    parts = []
+    if successes:
+        parts.append(f"{len(successes)} redescargados: {', '.join(successes)}.")
+    if errors:
+        parts.append(html.Span(["Errores: ", *[html.Span([e, " | "]) for e in errors]]))
+    color = "success" if not errors else ("warning" if successes else "danger")
+    return svc.get_all_assets_with_log(), html.Span(parts), True, color
 
 
 @callback(

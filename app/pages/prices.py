@@ -45,8 +45,20 @@ def layout(**kwargs):
         html.Div([
             dbc.Button("Actualizar seleccionado", id="prices-btn-one", color="secondary", size="sm", disabled=True, className="me-2"),
             dbc.Button("Reintentar fallidos", id="prices-btn-retry", color="warning", size="sm", className="me-2"),
-            dbc.Button("Borrar historia y redescargar", id="prices-btn-redownload", color="danger", size="sm", disabled=True),
+            dbc.Button("Borrar históricos y redescargar todos", id="prices-btn-redownload", color="danger", size="sm"),
         ], className="mt-2"),
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),
+            dbc.ModalBody(
+                "Esta acción borrará toda la historia de precios de todos los activos activos "
+                "y la redescargará desde Yahoo Finance. El proceso puede demorar varios minutos. "
+                "¿Confirmás?"
+            ),
+            dbc.ModalFooter([
+                dbc.Button("Sí, borrar y redescargar", id="prices-btn-redownload-confirm", color="danger"),
+                dbc.Button("Cancelar", id="prices-btn-redownload-cancel", color="secondary", className="ms-2"),
+            ]),
+        ], id="prices-redownload-modal", is_open=False),
     ])
 
 
