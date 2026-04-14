@@ -119,13 +119,17 @@ def retry_failed(_):
         except Exception as exc:
             errors.append(_error_msg(ticker, exc))
 
-    parts = []
-    if successes:
-        parts.append(f"{len(successes)} actualizados: {', '.join(successes)}.")
-    if errors:
-        parts.append("Errores: " + " | ".join(errors))
     color = "success" if not errors else ("warning" if successes else "danger")
-    return svc.get_all_assets_with_log(), " ".join(parts), True, color
+    children = []
+    if successes:
+        children.append(f"{len(successes)} actualizados: {', '.join(successes)}. ")
+    if errors:
+        children.append("Errores: ")
+        for i, e in enumerate(errors):
+            if i > 0:
+                children.append(" | ")
+            children.append(e)
+    return svc.get_all_assets_with_log(), html.Span(children), True, color
 
 
 @callback(
