@@ -85,6 +85,9 @@ def update_asset_prices(asset_id: int) -> None:
             _delete_from_date(asset_id, last_date, s)
             df = source.download_history(asset.ticker, start=last_date)
 
+        if df.empty:
+            raise ValueError(f"No se encontraron datos de precio para '{asset.ticker}'. Verificá que el ticker sea válido en Yahoo Finance.")
+
         count = _upsert_prices(asset_id, df, s)
         _save_update_log(asset_id, success=True, error=None, session=s)
         s.commit()
