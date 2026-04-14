@@ -55,6 +55,7 @@ def _build_chart_inputs():
         State("chart-date-from", "value"),
         State("chart-date-to", "value"),
         State("chart-type", "value"),
+        State("chart-yscale", "value"),
     ]
     for ind in all_indicators():
         states.append(State(f"chart-ind-{ind.NAME}-enabled", "value"))
@@ -78,6 +79,7 @@ def update_chart(n_clicks, *args):
     date_from = args[idx]; idx += 1
     date_to = args[idx]; idx += 1
     chart_type = args[idx]; idx += 1
+    yscale = args[idx]; idx += 1
 
     # Leer enabled + params por indicador
     indicator_config = {}
@@ -216,5 +218,6 @@ def update_chart(n_clicks, *args):
     )
     fig.update_xaxes(showgrid=True, gridcolor="#333")
     fig.update_yaxes(showgrid=True, gridcolor="#333")
+    fig.update_yaxes(type=yscale, row=1, col=1)
 
     return fig

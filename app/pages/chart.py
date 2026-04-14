@@ -82,6 +82,16 @@ def layout(**kwargs):
                 value="candlestick",
                 inline=True,
             ),
+            html.H6("Escala Y", className="mt-2"),
+            dbc.RadioItems(
+                id="chart-yscale",
+                options=[
+                    {"label": "Aritmética", "value": "linear"},
+                    {"label": "Logarítmica", "value": "log"},
+                ],
+                value="linear",
+                inline=True,
+            ),
             html.Hr(),
             html.H6("Indicadores sobre precio"),
             *_build_overlay_controls(),
