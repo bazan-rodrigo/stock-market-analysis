@@ -8,7 +8,8 @@
     "DB_PORT": "3306",
     "DB_NAME": "stock_analysis",
     "DB_USER": "root",
-    "DB_PASSWORD": ""
+    "DB_PASSWORD": "",
+    "LOG_LEVEL": "DEBUG"
   },
   "forwardPorts": [8050],
   "portsAttributes": {
