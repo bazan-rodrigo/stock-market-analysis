@@ -15,7 +15,7 @@ if command -v mysql &>/dev/null; then
     ok "MySQL ya instalado: $(mysql --version)"
 else
     echo "    Instalando MySQL Server..."
-    sudo apt-get update -qq
+    sudo apt-get update -qq 2>/dev/null || true
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mysql-server
     ok "MySQL instalado"
 fi
