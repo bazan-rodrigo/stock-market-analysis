@@ -20,20 +20,28 @@ else
     ok "MySQL instalado"
 fi
 
-# ─── 2. MySQL corriendo ────────────────────────────────────────────────────
-step "Iniciando servicio MySQL..."
-sudo service mysql start 2>/dev/null || true
+# ─── 2. MySQL/MariaDB corriendo ───────────────────────────────────────────
+step "Iniciando servicio de base de datos..."
+if sudo service mysql start 2>/dev/null; then
+    DB_SERVICE="mysql"
+elif sudo service mariadb start 2>/dev/null; then
+    DB_SERVICE="mariadb"
+else
+    fail "No se encontro servicio mysql ni mariadb"
+    exit 1
+fi
 sleep 2
 if sudo mysqladmin ping --silent 2>/dev/null; then
-    ok "MySQL corriendo"
+    ok "Servicio '$DB_SERVICE' corriendo"
 else
-    fail "MySQL no responde — revisar con: sudo service mysql status"
+    fail "El servicio no responde — revisar con: sudo service $DB_SERVICE status"
     exit 1
 fi
 
 # ─── 3. Configurar root sin password ──────────────────────────────────────
 step "Configurando usuario root..."
-sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" 2>/dev/null || true
+sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY ''; FLUSH PRIVILEGES;" 2>/dev/null || \
+sudo mysql -e "UPDATE mysql.user SET authentication_string='' WHERE User='root'; FLUSH PRIVILEGES;" 2>/dev/null || true
 if mysql -u root -h 127.0.0.1 -e "SELECT 1;" &>/dev/null; then
     ok "Conexion root sin password OK"
 else
