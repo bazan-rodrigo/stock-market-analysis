@@ -17,8 +17,8 @@ import logging
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
-from flask import redirect, request
-from flask_login import current_user, logout_user
+from flask import redirect, render_template_string, request
+from flask_login import current_user, login_user, logout_user
 
 from app.logging_setup import configure_logging
 
@@ -64,7 +64,80 @@ def create_app():
         "/_reload-hash",
         "/assets/",
     )
-    _PUBLIC_PATHS = ("/login",)
+    _PUBLIC_PATHS = ("/login", "/do-login")
+
+    _LOGIN_TEMPLATE = """<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Market Analysis – Iniciar sesión</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #222; color: #dee2e6; }
+    .card { background-color: #2d3338; border: 1px solid #495057; }
+    .form-control, .form-control:focus {
+      background-color: #1a1d20; color: #dee2e6; border-color: #495057;
+    }
+    .form-control::placeholder { color: #6c757d; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="row justify-content-center mt-5">
+      <div class="col-md-4">
+        <div class="card shadow p-4">
+          <h4 class="text-center mb-4">Stock Market Analysis</h4>
+          {% if error %}
+          <div class="alert alert-danger py-2">{{ error }}</div>
+          {% endif %}
+          <form method="post" action="/do-login">
+            <div class="mb-3">
+              <label class="form-label">Usuario</label>
+              <input type="text" name="username" class="form-control" autofocus required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Contraseña</label>
+              <input type="password" name="password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Iniciar sesión</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>"""
+
+    _ERROR_MSGS = {
+        "empty":    "Ingresá usuario y contraseña.",
+        "invalid":  "Usuario o contraseña incorrectos.",
+        "inactive": "Usuario inactivo. Contactá al administrador.",
+    }
+
+    @server.route("/login", methods=["GET"])
+    def login_page():
+        if current_user.is_authenticated:
+            return redirect("/chart")
+        error = _ERROR_MSGS.get(request.args.get("error", ""), "")
+        return render_template_string(_LOGIN_TEMPLATE, error=error)
+
+    @server.route("/do-login", methods=["POST"])
+    def do_login():
+        from app.database import get_session as _db
+        from app.models import User
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if not username or not password:
+            return redirect("/login?error=empty")
+        s = _db()
+        user = s.query(User).filter(User.username == username).first()
+        if user is None or not user.check_password(password):
+            return redirect("/login?error=invalid")
+        if not user.is_active:
+            return redirect("/login?error=inactive")
+        login_user(user, remember=False)
+        return redirect("/chart")
 
     @server.route("/")
     def index():
@@ -74,7 +147,6 @@ def create_app():
 
     @server.before_request
     def require_login():
-        # Permitir Dash internals y assets estáticos sin auth
         for prefix in _DASH_INTERNAL_PREFIXES:
             if request.path.startswith(prefix):
                 return None
@@ -101,7 +173,6 @@ def create_app():
     # -----------------------------------------------------------------
     # 7. Registrar páginas (importar módulos)
     # -----------------------------------------------------------------
-    import app.pages.login               # noqa: F401
     import app.pages.screener            # noqa: F401
     import app.pages.chart               # noqa: F401
     import app.pages.assets_list         # noqa: F401
@@ -120,7 +191,6 @@ def create_app():
     # -----------------------------------------------------------------
     # 8. Registrar callbacks
     # -----------------------------------------------------------------
-    import app.callbacks.auth_callbacks       # noqa: F401
     import app.callbacks.reference_callbacks  # noqa: F401
     import app.callbacks.asset_callbacks      # noqa: F401
     import app.callbacks.import_callbacks     # noqa: F401
