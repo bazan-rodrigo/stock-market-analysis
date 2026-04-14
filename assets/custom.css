@@ -121,10 +121,22 @@ h6 { font-size: 0.85rem !important; }
 .modal-body .mb-2 { margin-bottom: 0.3rem !important; }
 
 /* Cards de indicadores en el gráfico */
-#chart-controls .card-body {
-    padding: 0.3rem 0.4rem !important;
+#chart-controls .card { margin-bottom: 0.25rem !important; }
+#chart-controls .card-body { padding: 0.25rem 0.4rem !important; }
+#chart-controls .mb-1 { margin-bottom: 0.1rem !important; }
+#chart-controls .mb-2 { margin-bottom: 0.2rem !important; }
+#chart-controls h6 { margin-bottom: 0.15rem !important; }
+#chart-controls hr { margin: 0.4rem 0 !important; }
+/* Inputs numéricos de parámetros */
+#chart-controls input[type="number"] {
+    font-size: 0.75rem !important;
+    padding: 0.1rem 0.3rem !important;
+    height: 1.5rem !important;
+    line-height: 1.2 !important;
 }
-#chart-controls .mb-1 { margin-bottom: 0.15rem !important; }
+/* Radio items y switches */
+#chart-controls .form-check { margin-bottom: 0.1rem !important; }
+#chart-controls .form-switch { padding-top: 0 !important; }
 
 /* ── Screener: variación ─────────────────────────────────────────────────── */
 .cell--variation-positive { color: #4caf50; font-weight: 600; }

@@ -129,58 +129,69 @@ def assets_modal(
         try:
             meta = asset_svc.autocomplete_from_source(ticker, int(source_id))
 
-            # Moneda
-            cur_id = _nu
-            if meta.get("currency_iso"):
-                for opt in (currency_options or []):
-                    if meta["currency_iso"].upper() in opt["label"]:
-                        cur_id = opt["value"]
-                        break
-
-            # Sector: buscar o crear
-            sector_id, sector_unmatched = _match_option(sector_options or [], meta.get("sector"))
             created = []
-            if sector_unmatched:
-                new_sector = ref_svc.create_sector(sector_unmatched)
-                sector_id = new_sector.id
-                created.append(f"sector '{sector_unmatched}'")
-                # Recargar opciones de sector para el siguiente paso
-                sector_options = [{"label": "", "value": ""}] + [
-                    {"label": s.name, "value": s.id} for s in ref_svc.get_sectors()
-                ]
 
-            # Industria: buscar o crear (asociada al sector)
-            industry_id, industry_unmatched = _match_option(sector_options or [], meta.get("industry"))
-            # buscar en opciones de industria actualizadas
-            fresh_ind_opts = [{"label": "", "value": ""}] + [
-                {"label": i.name, "value": i.id} for i in ref_svc.get_industries()
-            ]
-            industry_id, industry_unmatched = _match_option(fresh_ind_opts, meta.get("industry"))
-            if industry_unmatched:
-                ind_sector_id = sector_id if not isinstance(sector_id, type(_nu)) else None
-                new_industry = ref_svc.create_industry(industry_unmatched, ind_sector_id)
-                industry_id = new_industry.id
-                created.append(f"industria '{industry_unmatched}'")
+            def _goc(fn, val, label):
+                if not val:
+                    return _nu, None
+                obj, is_new = fn(val)
+                if is_new:
+                    created.append(f"{label} '{val}'")
+                return obj.id, obj.id
 
-            # Recargar opciones actualizadas para el formulario
-            fresh_sector_opts = [{"label": "", "value": ""}] + [
-                {"label": s.name, "value": s.id} for s in ref_svc.get_sectors()
-            ]
+            # País
+            country_id_new, _ = _goc(ref_svc.get_or_create_country,
+                                      meta.get("country"), "país")
+
+            # Moneda
+            currency_id_new, _ = _goc(ref_svc.get_or_create_currency,
+                                       meta.get("currency_iso"), "moneda")
+
+            # Mercado (usa fullExchangeName)
+            market_id_new, _ = _goc(ref_svc.get_or_create_market,
+                                     meta.get("exchange_name") or meta.get("exchange"),
+                                     "mercado")
+
+            # Tipo de instrumento (quoteType)
+            itype_id_new, _ = _goc(ref_svc.get_or_create_instrument_type,
+                                    meta.get("quote_type"), "tipo de instrumento")
+
+            # Sector
+            sector_obj_id = None
+            if meta.get("sector"):
+                sec_obj, is_new = ref_svc.get_or_create_sector(meta["sector"])
+                sector_obj_id = sec_obj.id
+                if is_new:
+                    created.append(f"sector '{meta['sector']}'")
+
+            # Industria
+            industry_obj_id = None
+            if meta.get("industry"):
+                ind_obj, is_new = ref_svc.get_or_create_industry(
+                    meta["industry"], sector_obj_id
+                )
+                industry_obj_id = ind_obj.id
+                if is_new:
+                    created.append(f"industria '{meta['industry']}'")
+
+            # Recargar opciones actualizadas
+            _, cur_opts_new, country_opts_new, market_opts_new, itype_opts_new, \
+                sector_opts_new, ind_opts_new = _get_form_options()
 
             msg = "Autocompletado. Revisá los campos antes de guardar."
             if created:
-                msg += " — Creados automáticamente: " + ", ".join(created) + "."
+                msg += " — Creados: " + ", ".join(created) + "."
 
             return (
                 _nu, _nu,
                 _nu, meta.get("name") or _nu,
                 _nu, _nu,
-                _nu, cur_id,
-                _nu, _nu,
-                _nu, _nu,
-                _nu, _nu,
-                fresh_sector_opts, sector_id,
-                fresh_ind_opts, industry_id,
+                cur_opts_new, currency_id_new,
+                country_opts_new, country_id_new,
+                market_opts_new, market_id_new,
+                itype_opts_new, itype_id_new,
+                sector_opts_new, sector_obj_id or _nu,
+                ind_opts_new, industry_obj_id or _nu,
                 _nu, _nu,
                 msg, True,
                 _nu, False,

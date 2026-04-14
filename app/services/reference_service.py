@@ -341,3 +341,92 @@ def delete_user(user_id: int) -> None:
     obj = _get_by_id(User, user_id, s)
     s.delete(obj)
     s.commit()
+
+
+# ---------------------------------------------------------------------------
+# Helpers get-or-create (usados por autocompletado)
+# ---------------------------------------------------------------------------
+
+def _get_or_create(Model, s, **filter_kwargs):
+    """Busca un registro por los kwargs dados; lo crea si no existe."""
+    obj = s.query(Model).filter_by(**filter_kwargs).first()
+    if obj is None:
+        obj = Model(**filter_kwargs)
+        s.add(obj)
+        s.commit()
+        s.refresh(obj)
+    return obj, obj not in s.identity_map.values()
+
+
+def get_or_create_country(name: str) -> tuple:
+    s = get_session()
+    existing = s.query(Country).filter(Country.name.ilike(name.strip())).first()
+    if existing:
+        return existing, False
+    obj = Country(name=name.strip(), iso_code=name.strip()[:3].upper())
+    s.add(obj)
+    s.commit()
+    s.refresh(obj)
+    return obj, True
+
+
+def get_or_create_currency(iso_code: str) -> tuple:
+    s = get_session()
+    code = iso_code.strip().upper()
+    existing = s.query(Currency).filter(Currency.iso_code == code).first()
+    if existing:
+        return existing, False
+    obj = Currency(iso_code=code, name=code)
+    s.add(obj)
+    s.commit()
+    s.refresh(obj)
+    return obj, True
+
+
+def get_or_create_market(name: str) -> tuple:
+    s = get_session()
+    existing = s.query(Market).filter(Market.name.ilike(name.strip())).first()
+    if existing:
+        return existing, False
+    obj = Market(name=name.strip())
+    s.add(obj)
+    s.commit()
+    s.refresh(obj)
+    return obj, True
+
+
+def get_or_create_instrument_type(name: str) -> tuple:
+    s = get_session()
+    existing = s.query(InstrumentType).filter(InstrumentType.name.ilike(name.strip())).first()
+    if existing:
+        return existing, False
+    obj = InstrumentType(name=name.strip())
+    s.add(obj)
+    s.commit()
+    s.refresh(obj)
+    return obj, True
+
+
+def get_or_create_sector(name: str) -> tuple:
+    s = get_session()
+    existing = s.query(Sector).filter(Sector.name.ilike(name.strip())).first()
+    if existing:
+        return existing, False
+    obj = Sector(name=name.strip())
+    s.add(obj)
+    s.commit()
+    s.refresh(obj)
+    return obj, True
+
+
+def get_or_create_industry(name: str, sector_id: int = None) -> tuple:
+    s = get_session()
+    existing = s.query(Industry).filter(Industry.name.ilike(name.strip())).first()
+    if existing:
+        return existing, False
+    obj = Industry(name=name.strip(), sector_id=sector_id)
+    s.add(obj)
+    s.commit()
+    s.refresh(obj)
+    return obj, True
+

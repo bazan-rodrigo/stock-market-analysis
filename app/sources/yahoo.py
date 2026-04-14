@@ -42,6 +42,9 @@ class YahooFinanceSource(PriceSourceBase):
                 industry=info.get("industry"),
                 currency_iso=info.get("currency"),
                 exchange=info.get("exchange"),
+                exchange_name=info.get("fullExchangeName") or info.get("exchange"),
+                country=info.get("country"),
+                quote_type=info.get("quoteType"),
             )
             return TickerValidationResult(valid=True, metadata=meta)
 

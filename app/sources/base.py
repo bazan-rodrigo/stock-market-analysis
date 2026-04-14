@@ -12,7 +12,10 @@ class AssetMetadata:
     sector: Optional[str] = None
     industry: Optional[str] = None
     currency_iso: Optional[str] = None
-    exchange: Optional[str] = None
+    exchange: Optional[str] = None        # código corto (NMS, NYQ…)
+    exchange_name: Optional[str] = None   # nombre completo
+    country: Optional[str] = None         # nombre del país
+    quote_type: Optional[str] = None      # EQUITY, ETF, MUTUALFUND…
 
 
 @dataclass
