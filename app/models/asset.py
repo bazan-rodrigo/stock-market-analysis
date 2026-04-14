@@ -11,16 +11,16 @@ class Asset(Base):
     ticker = Column(String(20), nullable=False, unique=True)
     name = Column(String(200), nullable=False)
     country_id = Column(
-        Integer, ForeignKey("countries.id", ondelete="RESTRICT"), nullable=False
+        Integer, ForeignKey("countries.id", ondelete="RESTRICT"), nullable=True
     )
     market_id = Column(
-        Integer, ForeignKey("markets.id", ondelete="RESTRICT"), nullable=False
+        Integer, ForeignKey("markets.id", ondelete="RESTRICT"), nullable=True
     )
     instrument_type_id = Column(
-        Integer, ForeignKey("instrument_types.id", ondelete="RESTRICT"), nullable=False
+        Integer, ForeignKey("instrument_types.id", ondelete="RESTRICT"), nullable=True
     )
     currency_id = Column(
-        Integer, ForeignKey("currencies.id", ondelete="RESTRICT"), nullable=False
+        Integer, ForeignKey("currencies.id", ondelete="RESTRICT"), nullable=True
     )
     sector_id = Column(
         Integer, ForeignKey("sectors.id", ondelete="RESTRICT"), nullable=True

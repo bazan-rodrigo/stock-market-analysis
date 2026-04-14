@@ -229,7 +229,7 @@ def get_industries() -> list[Industry]:
     return _get_all(Industry, get_session())
 
 
-def create_industry(name: str, sector_id: int) -> Industry:
+def create_industry(name: str, sector_id: int = None) -> Industry:
     s = get_session()
     obj = Industry(name=name.strip(), sector_id=sector_id)
     s.add(obj)

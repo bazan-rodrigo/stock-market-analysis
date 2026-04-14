@@ -137,21 +137,39 @@ def assets_modal(
                         cur_id = opt["value"]
                         break
 
-            # Sector
+            # Sector: buscar o crear
             sector_id, sector_unmatched = _match_option(sector_options or [], meta.get("sector"))
-
-            # Industria
-            industry_id, industry_unmatched = _match_option(industry_options or [], meta.get("industry"))
-
-            # Mensaje
-            notes = []
+            created = []
             if sector_unmatched:
-                notes.append(f"sector Yahoo: '{sector_unmatched}' (no está en la BD)")
+                new_sector = ref_svc.create_sector(sector_unmatched)
+                sector_id = new_sector.id
+                created.append(f"sector '{sector_unmatched}'")
+                # Recargar opciones de sector para el siguiente paso
+                sector_options = [{"label": "", "value": ""}] + [
+                    {"label": s.name, "value": s.id} for s in ref_svc.get_sectors()
+                ]
+
+            # Industria: buscar o crear (asociada al sector)
+            industry_id, industry_unmatched = _match_option(sector_options or [], meta.get("industry"))
+            # buscar en opciones de industria actualizadas
+            fresh_ind_opts = [{"label": "", "value": ""}] + [
+                {"label": i.name, "value": i.id} for i in ref_svc.get_industries()
+            ]
+            industry_id, industry_unmatched = _match_option(fresh_ind_opts, meta.get("industry"))
             if industry_unmatched:
-                notes.append(f"industria Yahoo: '{industry_unmatched}' (no está en la BD)")
+                ind_sector_id = sector_id if not isinstance(sector_id, type(_nu)) else None
+                new_industry = ref_svc.create_industry(industry_unmatched, ind_sector_id)
+                industry_id = new_industry.id
+                created.append(f"industria '{industry_unmatched}'")
+
+            # Recargar opciones actualizadas para el formulario
+            fresh_sector_opts = [{"label": "", "value": ""}] + [
+                {"label": s.name, "value": s.id} for s in ref_svc.get_sectors()
+            ]
+
             msg = "Autocompletado. Revisá los campos antes de guardar."
-            if notes:
-                msg += " — " + "; ".join(notes)
+            if created:
+                msg += " — Creados automáticamente: " + ", ".join(created) + "."
 
             return (
                 _nu, _nu,
@@ -161,8 +179,8 @@ def assets_modal(
                 _nu, _nu,
                 _nu, _nu,
                 _nu, _nu,
-                _nu, sector_id,
-                _nu, industry_id,
+                fresh_sector_opts, sector_id,
+                fresh_ind_opts, industry_id,
                 _nu, _nu,
                 msg, True,
                 _nu, False,
