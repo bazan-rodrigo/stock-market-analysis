@@ -30,4 +30,4 @@ def handle_login(n_clicks, user_submit, pass_submit, username, password):
         return no_update, "Usuario inactivo. Contactá al administrador.", True
 
     login_user(user, remember=False)
-    return "/", no_update, False
+    return "/screener", no_update, False
