@@ -1,0 +1,266 @@
+from dash import Input, Output, State, callback, no_update
+
+import app.services.asset_service as asset_svc
+import app.services.reference_service as ref_svc
+
+
+def _asset_to_row(a) -> dict:
+    return {
+        "id": a.id,
+        "ticker": a.ticker,
+        "name": a.name,
+        "country_name": a.country.name,
+        "market_name": a.market.name,
+        "instrument_type_name": a.instrument_type.name,
+        "currency_iso": a.currency.iso_code,
+        "sector_name": a.sector.name if a.sector else "",
+        "source_name": a.price_source.name,
+        "active": "Sí" if a.active else "No",
+    }
+
+
+def _get_form_options():
+    sources = ref_svc.get_price_sources(only_active=True)
+    currencies = ref_svc.get_currencies()
+    countries = ref_svc.get_countries()
+    markets = ref_svc.get_markets()
+    itypes = ref_svc.get_instrument_types()
+    sectors = ref_svc.get_sectors()
+    industries = ref_svc.get_industries()
+    return (
+        [{"label": s.name, "value": s.id} for s in sources],
+        [{"label": f"{c.iso_code} - {c.name}", "value": c.id} for c in currencies],
+        [{"label": c.name, "value": c.id} for c in countries],
+        [{"label": m.name, "value": m.id} for m in markets],
+        [{"label": it.name, "value": it.id} for it in itypes],
+        [{"label": "", "value": ""}] + [{"label": s.name, "value": s.id} for s in sectors],
+        [{"label": "", "value": ""}] + [{"label": i.name, "value": i.id} for i in industries],
+    )
+
+
+@callback(
+    Output("assets-table", "data"),
+    Input("assets-table", "id"),
+)
+def load_assets(_):
+    return [_asset_to_row(a) for a in asset_svc.get_assets()]
+
+
+@callback(
+    Output("assets-btn-edit", "disabled"),
+    Output("assets-btn-toggle", "disabled"),
+    Output("assets-btn-delete", "disabled"),
+    Input("assets-table", "selected_rows"),
+)
+def assets_row_selection(sel_rows):
+    d = not bool(sel_rows)
+    return d, d, d
+
+
+@callback(
+    Output("assets-modal", "is_open"),
+    Output("assets-modal-title", "children"),
+    Output("assets-f-ticker", "value"),
+    Output("assets-f-name", "value"),
+    Output("assets-f-price_source_id", "options"),
+    Output("assets-f-price_source_id", "value"),
+    Output("assets-f-currency_id", "options"),
+    Output("assets-f-currency_id", "value"),
+    Output("assets-f-country_id", "options"),
+    Output("assets-f-country_id", "value"),
+    Output("assets-f-market_id", "options"),
+    Output("assets-f-market_id", "value"),
+    Output("assets-f-instrument_type_id", "options"),
+    Output("assets-f-instrument_type_id", "value"),
+    Output("assets-f-sector_id", "options"),
+    Output("assets-f-sector_id", "value"),
+    Output("assets-f-industry_id", "options"),
+    Output("assets-f-industry_id", "value"),
+    Output("assets-f-active", "value"),
+    Output("assets-editing-id", "data"),
+    Input("assets-btn-add", "n_clicks"),
+    Input("assets-btn-edit", "n_clicks"),
+    Input("assets-btn-cancel", "n_clicks"),
+    Input("assets-btn-save", "n_clicks"),
+    State("assets-table", "selected_rows"),
+    State("assets-table", "data"),
+    State("assets-editing-id", "data"),
+    prevent_initial_call=True,
+)
+def assets_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+    from dash import ctx
+    t = ctx.triggered_id
+    src_opts, cur_opts, country_opts, market_opts, itype_opts, sector_opts, ind_opts = _get_form_options()
+
+    _closed = (False,) + (no_update,) * 19
+    if t in ("assets-btn-cancel", "assets-btn-save"):
+        return False, no_update, no_update, no_update, *([no_update] * 17)
+
+    if t == "assets-btn-add":
+        return (
+            True, "Nuevo activo",
+            "", "",
+            src_opts, None,
+            cur_opts, None,
+            country_opts, None,
+            market_opts, None,
+            itype_opts, None,
+            sector_opts, None,
+            ind_opts, None,
+            True, None,
+        )
+
+    if t == "assets-btn-edit" and sel_rows:
+        a = asset_svc.get_asset_by_id(data[sel_rows[0]]["id"])
+        return (
+            True, f"Editar activo — {a.ticker}",
+            a.ticker, a.name,
+            src_opts, a.price_source_id,
+            cur_opts, a.currency_id,
+            country_opts, a.country_id,
+            market_opts, a.market_id,
+            itype_opts, a.instrument_type_id,
+            sector_opts, a.sector_id,
+            ind_opts, a.industry_id,
+            a.active, a.id,
+        )
+
+    return (False,) + (no_update,) * 19
+
+
+@callback(
+    Output("assets-table", "data", allow_duplicate=True),
+    Output("assets-alert", "children"),
+    Output("assets-alert", "is_open"),
+    Output("assets-alert", "color"),
+    Input("assets-btn-save", "n_clicks"),
+    State("assets-f-ticker", "value"),
+    State("assets-f-name", "value"),
+    State("assets-f-country_id", "value"),
+    State("assets-f-market_id", "value"),
+    State("assets-f-instrument_type_id", "value"),
+    State("assets-f-currency_id", "value"),
+    State("assets-f-price_source_id", "value"),
+    State("assets-f-sector_id", "value"),
+    State("assets-f-industry_id", "value"),
+    State("assets-f-active", "value"),
+    State("assets-editing-id", "data"),
+    prevent_initial_call=True,
+)
+def assets_save(
+    _, ticker, name, country_id, market_id, itype_id, currency_id,
+    source_id, sector_id, industry_id, active, editing_id
+):
+    required = [ticker, name, country_id, market_id, itype_id, currency_id, source_id]
+    if any(v is None or v == "" for v in required):
+        return no_update, "Completá todos los campos obligatorios (*).", True, "danger"
+    try:
+        kwargs = dict(
+            ticker=ticker,
+            name=name,
+            country_id=int(country_id),
+            market_id=int(market_id),
+            instrument_type_id=int(itype_id),
+            currency_id=int(currency_id),
+            price_source_id=int(source_id),
+            sector_id=int(sector_id) if sector_id else None,
+            industry_id=int(industry_id) if industry_id else None,
+            active=bool(active),
+        )
+        if editing_id:
+            asset_svc.update_asset(editing_id, **kwargs)
+        else:
+            asset_svc.create_asset(**kwargs)
+        return (
+            [_asset_to_row(a) for a in asset_svc.get_assets()],
+            "Guardado correctamente.", True, "success",
+        )
+    except Exception as exc:
+        return no_update, str(exc), True, "danger"
+
+
+@callback(
+    Output("assets-autocomplete-alert", "children"),
+    Output("assets-autocomplete-alert", "is_open"),
+    Output("assets-f-name", "value", allow_duplicate=True),
+    Output("assets-f-currency_id", "value", allow_duplicate=True),
+    Input("assets-btn-autocomplete", "n_clicks"),
+    State("assets-f-ticker", "value"),
+    State("assets-f-price_source_id", "value"),
+    State("assets-f-currency_id", "options"),
+    prevent_initial_call=True,
+)
+def assets_autocomplete(_, ticker, source_id, currency_options):
+    if not ticker or not source_id:
+        return "Ingresá el ticker y seleccioná la fuente antes de autocompletar.", True, no_update, no_update
+    try:
+        meta = asset_svc.autocomplete_from_source(ticker, int(source_id))
+        # Buscar currency_id por ISO code
+        cur_id = no_update
+        if meta.get("currency_iso"):
+            for opt in currency_options:
+                if meta["currency_iso"].upper() in opt["label"]:
+                    cur_id = opt["value"]
+                    break
+        msg = f"Autocompletado desde la fuente. Revisá los campos antes de guardar."
+        return msg, True, meta.get("name") or no_update, cur_id
+    except Exception as exc:
+        return str(exc), True, no_update, no_update
+
+
+@callback(
+    Output("assets-table", "data", allow_duplicate=True),
+    Output("assets-alert", "children", allow_duplicate=True),
+    Output("assets-alert", "is_open", allow_duplicate=True),
+    Output("assets-alert", "color", allow_duplicate=True),
+    Input("assets-btn-toggle", "n_clicks"),
+    State("assets-table", "selected_rows"),
+    State("assets-table", "data"),
+    prevent_initial_call=True,
+)
+def assets_toggle(_, sel_rows, data):
+    if not sel_rows:
+        return no_update, no_update, no_update, no_update
+    try:
+        asset_svc.toggle_active(data[sel_rows[0]]["id"])
+        return (
+            [_asset_to_row(a) for a in asset_svc.get_assets()],
+            "Estado actualizado.", True, "success",
+        )
+    except Exception as exc:
+        return no_update, str(exc), True, "danger"
+
+
+@callback(
+    Output("assets-confirm-modal", "is_open"),
+    Input("assets-btn-delete", "n_clicks"),
+    Input("assets-btn-confirm-delete", "n_clicks"),
+    Input("assets-btn-cancel-delete", "n_clicks"),
+    prevent_initial_call=True,
+)
+def assets_confirm_modal(n_del, n_confirm, n_cancel):
+    from dash import ctx
+    return ctx.triggered_id == "assets-btn-delete"
+
+
+@callback(
+    Output("assets-table", "data", allow_duplicate=True),
+    Output("assets-alert", "children", allow_duplicate=True),
+    Output("assets-alert", "is_open", allow_duplicate=True),
+    Output("assets-alert", "color", allow_duplicate=True),
+    Input("assets-btn-confirm-delete", "n_clicks"),
+    State("assets-table", "selected_rows"),
+    State("assets-table", "data"),
+    prevent_initial_call=True,
+)
+def assets_delete(_, sel_rows, data):
+    if not sel_rows:
+        return no_update, no_update, no_update, no_update
+    try:
+        asset_svc.delete_asset(data[sel_rows[0]]["id"])
+        return (
+            [_asset_to_row(a) for a in asset_svc.get_assets()],
+            "Activo eliminado.", True, "success",
+        )
+    except Exception as exc:
+        return no_update, str(exc), True, "danger"

@@ -1,0 +1,22 @@
+conf.properties
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+.env
+logs/
+*.log
+.pytest_cache/
+venv/
+.venv/
+env/
+*.sqlite
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+alembic/versions/__pycache__/
+
+# Claude Code local settings
+.claude/

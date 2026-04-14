@@ -1,0 +1,11 @@
+# Normalizar todos los archivos de texto a LF en el repositorio
+* text=auto eol=lf
+
+# Scripts shell siempre LF (para ejecutar en Linux/Codespace)
+*.sh text eol=lf
+
+# Archivos binarios sin conversión
+*.png binary
+*.jpg binary
+*.ico binary
+*.xlsx binary

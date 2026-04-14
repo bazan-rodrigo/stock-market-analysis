@@ -1,0 +1,36 @@
+/* Ajustes generales */
+body {
+    font-size: 0.9rem;
+}
+
+/* DataTable — filas seleccionadas */
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr.row--selected td {
+    background-color: #e3f2fd !important;
+}
+
+/* Navbar brand */
+.navbar-brand {
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+/* Cards de indicadores en el panel lateral del gráfico */
+.card-body.p-1 {
+    padding: 6px !important;
+}
+
+/* Alertas compactas */
+.alert {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+}
+
+/* Screener: columnas de variación */
+.cell--variation-positive {
+    color: #00b050;
+    font-weight: 600;
+}
+.cell--variation-negative {
+    color: #e53935;
+    font-weight: 600;
+}

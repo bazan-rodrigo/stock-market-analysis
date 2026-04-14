@@ -1,0 +1,11 @@
+[settings]
+secret_key = cambia-esto-en-produccion
+db_host = localhost
+db_port = 3306
+db_name = stock_analysis
+db_user = root
+db_password = tu_password_aqui
+scheduler_hour = 18
+scheduler_minute = 0
+log_level = INFO
+# log_file = /ruta/personalizada/app.log
