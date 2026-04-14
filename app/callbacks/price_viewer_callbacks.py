@@ -1,5 +1,3 @@
-from datetime import date
-
 from dash import Input, Output, State, callback, no_update
 
 from app.services.asset_service import get_assets
@@ -23,7 +21,6 @@ def load_pv_assets(_):
     Output("pv-result-info", "children"),
     Input("pv-mode", "value"),
 )
-def switch_mode(mode):
     if mode == "latest":
         rows = get_latest_prices_all()
         info = f"{len(rows)} instrumentos con precio disponible."
@@ -50,25 +47,15 @@ def switch_mode(mode):
     Output("pv-result-info", "children", allow_duplicate=True),
     Input("pv-btn-query", "n_clicks"),
     State("pv-asset-select", "value"),
-    State("pv-date-from", "value"),
-    State("pv-date-to", "value"),
     prevent_initial_call=True,
 )
-def query_history(_, asset_id, date_from, date_to):
+def query_history(_, asset_id):
     if not asset_id:
         return no_update, "Seleccioná un instrumento.", True, no_update
 
     df = get_prices_df(int(asset_id))
     if df.empty:
         return [], "No hay precios descargados para este instrumento.", True, ""
-
-    if date_from:
-        df = df[df["date"] >= date.fromisoformat(date_from)]
-    if date_to:
-        df = df[df["date"] <= date.fromisoformat(date_to)]
-
-    if df.empty:
-        return [], "Sin datos en el rango seleccionado.", True, ""
 
     rows = df.assign(date=df["date"].astype(str)).to_dict("records")
     info = f"{len(rows)} registros — {rows[0]['date']} → {rows[-1]['date']}"

@@ -43,29 +43,21 @@ def layout(**kwargs):
         dbc.RadioItems(
             id="pv-mode",
             options=[
-                {"label": "Historia de un instrumento", "value": "history"},
                 {"label": "Último precio de todos los instrumentos", "value": "latest"},
+                {"label": "Historia de un instrumento", "value": "history"},
             ],
-            value="history",
+            value="latest",
             inline=True,
             className="mb-3",
         ),
 
         # ── Controles modo historia ──────────────────────────────────────
-        html.Div(id="pv-history-controls", children=[
+        html.Div(id="pv-history-controls", style={"display": "none"}, children=[
             dbc.Row([
                 dbc.Col([
                     dbc.Label("Instrumento"),
                     dcc.Dropdown(id="pv-asset-select", placeholder="Seleccioná un activo..."),
                 ], md=4),
-                dbc.Col([
-                    dbc.Label("Desde"),
-                    dbc.Input(id="pv-date-from", type="date"),
-                ], md=2),
-                dbc.Col([
-                    dbc.Label("Hasta"),
-                    dbc.Input(id="pv-date-to", type="date"),
-                ], md=2),
                 dbc.Col([
                     dbc.Label("\u00a0"),
                     dbc.Button("Consultar", id="pv-btn-query", color="primary", className="d-block"),

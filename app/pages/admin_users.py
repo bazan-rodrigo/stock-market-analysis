@@ -5,7 +5,6 @@ from dash import html
 from app.components.abm import make_abm_layout
 
 _COLUMNS = [
-    {"name": "ID", "id": "id"},
     {"name": "Usuario", "id": "username"},
     {"name": "Rol", "id": "role"},
     {"name": "Activo", "id": "active"},
