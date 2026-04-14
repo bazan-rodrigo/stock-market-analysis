@@ -10,7 +10,7 @@ class Market(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
     country_id = Column(
-        Integer, ForeignKey("countries.id", ondelete="RESTRICT"), nullable=False
+        Integer, ForeignKey("countries.id", ondelete="RESTRICT"), nullable=True
     )
 
     country = relationship("Country", back_populates="markets")

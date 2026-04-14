@@ -383,12 +383,12 @@ def get_or_create_currency(iso_code: str) -> tuple:
     return obj, True
 
 
-def get_or_create_market(name: str) -> tuple:
+def get_or_create_market(name: str, country_id: int = None) -> tuple:
     s = get_session()
     existing = s.query(Market).filter(Market.name.ilike(name.strip())).first()
     if existing:
         return existing, False
-    obj = Market(name=name.strip())
+    obj = Market(name=name.strip(), country_id=country_id)
     s.add(obj)
     s.commit()
     s.refresh(obj)
