@@ -222,6 +222,15 @@ def create_app():
 
     dash_app.layout = serve_layout
 
+    # Redirige "/" a "/chart"
+    from dash import Input, Output, callback as _callback, no_update as _no_update
+
+    @_callback(Output("url", "pathname"), Input("url", "pathname"))
+    def _redirect_root(pathname):
+        if pathname == "/":
+            return "/chart"
+        return _no_update
+
     # -----------------------------------------------------------------
     # 10. APScheduler
     # -----------------------------------------------------------------
