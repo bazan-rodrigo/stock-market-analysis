@@ -67,7 +67,7 @@ def create_app():
         "/_reload-hash",
         "/assets/",
     )
-    _PUBLIC_PATHS = ("/login", "/do-login")
+    _PUBLIC_PATHS = ("/login", "/do-login", "/")
 
     _LOGIN_TEMPLATE = """<!DOCTYPE html>
 <html lang="es" data-bs-theme="dark">
@@ -145,7 +145,8 @@ def create_app():
     @server.route("/")
     def index():
         if not current_user.is_authenticated:
-            return redirect("/login")
+            error = _ERROR_MSGS.get(request.args.get("error", ""), "")
+            return render_template_string(_LOGIN_TEMPLATE, error=error)
         return redirect("/chart")
 
     @server.before_request
