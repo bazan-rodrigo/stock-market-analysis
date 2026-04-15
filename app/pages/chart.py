@@ -1,52 +1,65 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
-from app.indicators.registry import overlay_indicators, separate_indicators, all_indicators
+
+_SMA_COLORS  = ["#ff9800", "#e91e63", "#4caf50"]
+_EMA_COLORS  = ["#00bcd4", "#9c27b0", "#ffeb3b"]
+_SMA_DEF     = [20, 50, 200]
+_EMA_DEF     = [9,  21,  50]
 
 
-def _param_inputs(ind):
-    inputs = []
-    for p in ind.PARAMS:
-        inputs += [
-            html.Small(p.label[:4], style={"color": "#aaa", "fontSize": "0.68rem", "whiteSpace": "nowrap"}),
-            dbc.Input(
-                id=f"chart-ind-{ind.NAME}-{p.name}",
-                type="number",
-                value=p.default,
-                min=p.min_val,
-                max=p.max_val,
-                step=p.step or (1 if p.type == "int" else 0.1),
-                style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "20px"},
-            ),
-        ]
-    return inputs
+def _sep():
+    return html.Div(style={
+        "width": "1px", "backgroundColor": "#555",
+        "alignSelf": "stretch", "margin": "0 4px",
+    })
 
 
-def _ind_toggle(ind):
+def _simple_slot(name, slot, color, default_period):
+    """Toggle compacto para SMA/EMA: switch + periodo siempre visible."""
     return html.Div([
         dbc.Switch(
-            id=f"chart-ind-{ind.NAME}-enabled",
-            label=ind.LABEL,
+            id=f"chart-ind-{name}-{slot}-enabled",
             value=False,
-            style={"fontSize": "0.75rem", "marginBottom": 0},
+            style={"marginBottom": 0},
         ),
-        html.Div(
-            _param_inputs(ind),
-            id=f"chart-ind-{ind.NAME}-params",
-            className="d-flex align-items-center gap-1 ms-1",
-            style={"display": "none"},
+        html.Span(
+            name.upper(),
+            style={"fontSize": "0.72rem", "color": color},
+        ),
+        dbc.Input(
+            id=f"chart-ind-{name}-{slot}-period",
+            type="number", value=default_period, min=2, max=500, step=1,
+            style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "20px"},
         ),
     ], className="d-flex align-items-center border rounded px-2",
        style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
 
 
-def _vol_toggle():
+def _ind_toggle(label, name, params):
+    """Toggle con params colapsables para indicadores de panel separado."""
+    # params: [(pname, short_label, default, min, max, step), ...]
+    param_inputs = []
+    for pname, plabel, pdef, pmin, pmax, pstep in params:
+        param_inputs += [
+            html.Small(plabel, style={"color": "#aaa", "fontSize": "0.68rem", "whiteSpace": "nowrap"}),
+            dbc.Input(
+                id=f"chart-ind-{name}-1-{pname}",
+                type="number", value=pdef, min=pmin, max=pmax, step=pstep,
+                style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "20px"},
+            ),
+        ]
     return html.Div([
         dbc.Switch(
-            id="chart-volume-enabled",
-            label="Vol",
-            value=True,
+            id=f"chart-ind-{name}-1-enabled",
+            label=label, value=False,
             style={"fontSize": "0.75rem", "marginBottom": 0},
+        ),
+        html.Div(
+            param_inputs,
+            id=f"chart-ind-{name}-1-params",
+            className="d-flex align-items-center gap-1 ms-1",
+            style={"display": "none"},
         ),
     ], className="d-flex align-items-center border rounded px-2",
        style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
@@ -58,10 +71,6 @@ def layout(**kwargs):
         return html.Div()
 
     _radio_sm = {"fontSize": "0.75rem"}
-    _sep = html.Div(style={
-        "width": "1px", "backgroundColor": "#555",
-        "alignSelf": "stretch", "margin": "0 4px",
-    })
 
     return html.Div([
         # ── Fila 1: activo + frecuencia + tipo + escala ────────────────────────
@@ -78,55 +87,68 @@ def layout(**kwargs):
             dbc.Col(
                 dbc.RadioItems(
                     id="chart-freq",
-                    options=[
-                        {"label": "D", "value": "D"},
-                        {"label": "W", "value": "W"},
-                        {"label": "M", "value": "M"},
-                    ],
-                    value="D",
-                    inline=True,
-                    inputStyle={"marginRight": "3px"},
-                    style=_radio_sm,
+                    options=[{"label": x, "value": x} for x in ["D", "W", "M"]],
+                    value="D", inline=True,
+                    inputStyle={"marginRight": "3px"}, style=_radio_sm,
                 ),
                 width="auto",
             ),
             dbc.Col(
                 dbc.RadioItems(
                     id="chart-type",
-                    options=[
-                        {"label": "Velas", "value": "candlestick"},
-                        {"label": "Linea",  "value": "line"},
-                    ],
-                    value="candlestick",
-                    inline=True,
-                    inputStyle={"marginRight": "3px"},
-                    style=_radio_sm,
+                    options=[{"label": "Velas", "value": "candlestick"},
+                             {"label": "Linea",  "value": "line"}],
+                    value="candlestick", inline=True,
+                    inputStyle={"marginRight": "3px"}, style=_radio_sm,
                 ),
                 width="auto",
             ),
             dbc.Col(
                 dbc.RadioItems(
                     id="chart-yscale",
-                    options=[
-                        {"label": "Lin", "value": "linear"},
-                        {"label": "Log", "value": "log"},
-                    ],
-                    value="linear",
-                    inline=True,
-                    inputStyle={"marginRight": "3px"},
-                    style=_radio_sm,
+                    options=[{"label": "Lin", "value": "linear"},
+                             {"label": "Log", "value": "log"}],
+                    value="linear", inline=True,
+                    inputStyle={"marginRight": "3px"}, style=_radio_sm,
                 ),
                 width="auto",
             ),
         ], className="mb-1 g-2 align-items-center flex-wrap"),
 
-        # ── Fila 2: volumen + indicadores ──────────────────────────────────────
+        # ── Fila 2: controles de indicadores ──────────────────────────────────
         html.Div([
-            _vol_toggle(),
-            _sep,
-            *[_ind_toggle(ind) for ind in overlay_indicators()],
-            _sep,
-            *[_ind_toggle(ind) for ind in separate_indicators()],
+            # Volumen
+            html.Div([
+                dbc.Switch(id="chart-volume-enabled", value=True,
+                           style={"marginBottom": 0}),
+                html.Span("Vol", style={"fontSize": "0.72rem"}),
+            ], className="d-flex align-items-center border rounded px-2",
+               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            _sep(),
+            # SMA ×3
+            *[_simple_slot("sma", i + 1, _SMA_COLORS[i], _SMA_DEF[i]) for i in range(3)],
+            _sep(),
+            # EMA ×3
+            *[_simple_slot("ema", i + 1, _EMA_COLORS[i], _EMA_DEF[i]) for i in range(3)],
+            _sep(),
+            # Bollinger
+            _ind_toggle("Bollinger", "bollinger", [
+                ("period", "Per",  20,  5, 100, 1),
+                ("std_dev", "Dev", 2.0, 0.5, 4.0, 0.5),
+            ]),
+            _sep(),
+            # Separados
+            _ind_toggle("RSI", "rsi", [("period", "Per", 14, 2, 100, 1)]),
+            _ind_toggle("MACD", "macd", [
+                ("fast",   "Rap",  12, 2, 100, 1),
+                ("slow",   "Len",  26, 2, 200, 1),
+                ("signal", "Señ",   9, 2,  50, 1),
+            ]),
+            _ind_toggle("Estocástico", "stochastic", [
+                ("k_period", "%K",  14, 2, 100, 1),
+                ("d_period", "%D",   3, 1,  20, 1),
+            ]),
+            _ind_toggle("ATR", "atr", [("period", "Per", 14, 2, 100, 1)]),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
         # ── Stores ─────────────────────────────────────────────────────────────
@@ -138,17 +160,13 @@ def layout(**kwargs):
         dcc.Store(id="chart-ind-dummy"),
         dcc.Store(id="chart-volume-dummy"),
 
-        # ── Contenedor del grafico (alto calculado en JS) ──────────────────────
+        # ── Contenedor del gráfico ─────────────────────────────────────────────
         dcc.Loading(
             [
                 html.Div(id="chart-load-output", style={"display": "none"}),
                 html.Div(
                     id="lwc-container",
-                    style={
-                        "backgroundColor": "#1e1e1e",
-                        "padding": "8px",
-                        "borderRadius": "4px",
-                    },
+                    style={"backgroundColor": "#1e1e1e", "padding": "8px", "borderRadius": "4px"},
                 ),
             ],
             type="circle",

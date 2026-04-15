@@ -2,49 +2,87 @@
 Callbacks del grafico tecnico.
 
 Arquitectura:
-  - Python: calcula raw_daily + TODOS los indicadores con params actuales
-  - JS (clientside): maneja frecuencia, tipo de grafico, escala y toggles de
-    indicadores sin round-trip al servidor.
+  - Python: solo obtiene raw_daily al cambiar el activo (sin indicadores).
+  - JS: calcula TODOS los indicadores en el browser (sin round-trip al server).
 
 Flujo:
-  1. Seleccionar activo (o cambiar params) -> Python -> chart-data
-  2. chart-data change -> clientside: render completo
-  3. Cambiar tipo/frecuencia/escala/indicadores -> clientside: actualiza en lugar
+  1. Cambiar activo → Python → chart-data (raw_daily + asset_id)
+  2. chart-data change → clientside _JS_RENDER → render completo
+  3. Cambiar params/toggles → clientside _JS_IND_UPDATE → recalcula y renderiza
+  4. Cambiar tipo/freq/escala/volumen → clientside individuales
 """
 from dash import Input, Output, State, callback, clientside_callback, no_update, callback_context
 
 import pandas as pd
 
-from app.indicators.base import PANEL_OVERLAY, PANEL_SEPARATE
-from app.indicators.registry import all_indicators, overlay_indicators, separate_indicators
 from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df
 
 
-# ── Paleta de colores ─────────────────────────────────────────────────────────
-_PALETTE = [
-    "#ff9800", "#00bcd4", "#9c27b0", "#f44336", "#4caf50",
-    "#ffeb3b", "#e91e63", "#ff5722", "#00e5ff", "#cddc39",
-]
+# ─── Configuración de slots ───────────────────────────────────────────────────
+# {nombre: (n_slots, [(param_name, defaults_por_slot)])}
+_SLOTS = {
+    "sma":        (3, [("period",   [20, 50, 200])]),
+    "ema":        (3, [("period",   [9,  21,  50])]),
+    "bollinger":  (1, [("period",   [20]), ("std_dev", [2.0])]),
+    "rsi":        (1, [("period",   [14])]),
+    "macd":       (1, [("fast",     [12]), ("slow",    [26]), ("signal", [9])]),
+    "stochastic": (1, [("k_period", [14]), ("d_period", [3])]),
+    "atr":        (1, [("period",   [14])]),
+}
+_COLLAPSIBLE = {"bollinger", "rsi", "macd", "stochastic", "atr"}  # tienen params div
 
-def _color(name, idx=0):
-    if name.startswith("SMA"):        return "#ff9800"
-    if name.startswith("EMA"):        return "#00bcd4"
-    if "Superior" in name:            return "#7e57c2"
-    if "Inferior" in name:            return "#7e57c2"
-    if "Media" in name:               return "#e91e63"
-    if name.startswith("RSI"):        return "#9c27b0"
-    if name == "MACD":                return "#2196f3"
-    if "Se" in name and "al" in name: return "#ff5722"
-    if name.startswith("%K"):         return "#ffeb3b"
-    if name.startswith("%D"):         return "#ff9800"
-    if name.startswith("ATR"):        return "#00bcd4"
-    return _PALETTE[idx % len(_PALETTE)]
+# Genera listas de IDs y args JS en orden canónico
+# Orden: para cada ind, para cada slot: enabled, luego params
+def _canonical():
+    for name, (n_slots, params) in _SLOTS.items():
+        for slot in range(1, n_slots + 1):
+            yield ("enabled", name, slot, None, None)
+            for pname, defaults in params:
+                d = defaults[slot - 1] if slot <= len(defaults) else defaults[-1]
+                yield ("param",  name, slot, pname, d)
 
-def _t(d): return str(d)[:10]
+_CANONICAL = list(_canonical())
+
+def _js_arg(entry):
+    kind, name, slot, pname, _ = entry
+    if kind == "enabled":
+        return f"ind_{name}_{slot}_en"
+    return f"ind_{name}_{slot}_{pname}"
+
+_JS_ARGS = [_js_arg(e) for e in _CANONICAL]
+_JS_ARGS_STR = ", ".join(_JS_ARGS)
+
+def _state_list(cls=State):
+    result = []
+    for kind, name, slot, pname, _ in _CANONICAL:
+        if kind == "enabled":
+            result.append(cls(f"chart-ind-{name}-{slot}-enabled", "value"))
+        else:
+            result.append(cls(f"chart-ind-{name}-{slot}-{pname}", "value"))
+    return result
 
 
-# ── Carga de activos ──────────────────────────────────────────────────────────
+def _js_ind_params():
+    """Genera el literal JS del objeto indParams a partir de los args."""
+    lines = []
+    for name, (n_slots, params) in _SLOTS.items():
+        slots_js = []
+        for slot in range(1, n_slots + 1):
+            en = f"ind_{name}_{slot}_en"
+            fields = f"enabled: {en}"
+            for pname, _ in params:
+                fields += f", {pname}: ind_{name}_{slot}_{pname}"
+            slots_js.append("{" + fields + "}")
+        lines.append(f"    {name}: [{', '.join(slots_js)}]")
+    return "{\n" + ",\n".join(lines) + "\n  }"
+
+
+def _t(d):
+    return str(d)[:10]
+
+
+# ─── Carga de activos ─────────────────────────────────────────────────────────
 @callback(
     Output("chart-asset-select", "options"),
     Input("chart-asset-select", "id"),
@@ -54,343 +92,453 @@ def load_chart_assets(_):
     return [{"label": f"{a.ticker} - {a.name or a.ticker}", "value": a.id} for a in assets]
 
 
-# ── Mostrar/ocultar params de indicadores ─────────────────────────────────────
-for _ind in all_indicators():
-    _ind_id = _ind.NAME
+# ─── Mostrar/ocultar params colapsables ───────────────────────────────────────
+for _name, _slot in [(e[1], e[2]) for e in _CANONICAL if e[0] == "enabled" and e[1] in _COLLAPSIBLE]:
     @callback(
-        Output(f"chart-ind-{_ind_id}-params", "style"),
-        Input(f"chart-ind-{_ind_id}-enabled", "value"),
+        Output(f"chart-ind-{_name}-{_slot}-params", "style"),
+        Input(f"chart-ind-{_name}-{_slot}-enabled", "value"),
     )
-    def _toggle_params(enabled, ind_id=_ind_id):
+    def _toggle_params(enabled):
         return {"display": "flex"} if enabled else {"display": "none"}
 
 
-# ── Python: calcula datos al seleccionar activo o cambiar params ──────────────
-def _param_inputs():
-    return [Input(f"chart-ind-{ind.NAME}-{p.name}", "value")
-            for ind in all_indicators() for p in ind.PARAMS]
-
+# ─── Python: solo carga raw_daily al cambiar el activo ────────────────────────
 @callback(
     Output("chart-data", "data"),
     Output("chart-load-output", "children"),
     Input("chart-asset-select", "value"),
-    *_param_inputs(),
     State("chart-data", "data"),
     prevent_initial_call=True,
 )
-def load_chart_data(asset_id, *args):
-    *param_vals, current_data = args
-
+def load_chart_data(asset_id, current_data):
     if not asset_id:
         return no_update, no_update
+    if current_data and current_data.get("asset_id") == int(asset_id):
+        return no_update, no_update
 
-    asset_changed = any(
-        "chart-asset-select" in t["prop_id"]
-        for t in callback_context.triggered
-    )
+    df = get_prices_df(int(asset_id))
+    if df.empty:
+        return no_update, no_update
 
-    if asset_changed or not current_data or current_data.get("asset_id") != int(asset_id):
-        df = get_prices_df(int(asset_id))
-        if df.empty:
-            return no_update, no_update
-        raw_daily = [
-            {"time": _t(row.date), "open": row.open, "high": row.high,
-             "low": row.low,  "close": row.close, "volume": float(row.volume or 0)}
-            for row in df.itertuples(index=False)
-        ]
-    else:
-        raw_daily = current_data["raw_daily"]
-        df = pd.DataFrame([
-            {"date": pd.Timestamp(r["time"]),
-             "open": r["open"], "high": r["high"],
-             "low": r["low"],  "close": r["close"], "volume": r.get("volume", 0)}
-            for r in raw_daily
-        ])
-
-    # Calcular TODOS los indicadores con los params actuales
-    indicator_series = []
-    idx = 0
-    for ind in all_indicators():
-        params = {}
-        for p in ind.PARAMS:
-            v = param_vals[idx]
-            params[p.name] = v if v is not None else p.default
-            idx += 1
-
-        ref_lines_map = {}
-        if ind.NAME == "rsi":
-            ref_lines_map["RSI"] = [{"price": 70, "color": "#ef5350"}, {"price": 30, "color": "#4caf50"}]
-        elif ind.NAME == "stochastic":
-            ref_lines_map["%K"] = [{"price": 80, "color": "#ef5350"}, {"price": 20, "color": "#4caf50"}]
-
-        for i, (sname, s) in enumerate(ind.compute(df, **params).items()):
-            is_hist = (ind.NAME == "macd" and "Histograma" in sname)
-            entry = {
-                "ind_id": ind.NAME,
-                "panel":  ind.PANEL,
-                "sid":    f"{ind.NAME}_{i}",
-                "name":   sname,
-                "type":   "histogram" if is_hist else "line",
-                "color":  _color(sname, i),
-            }
-            if is_hist:
-                entry["data"] = [
-                    {"time": _t(t), "value": float(v) if pd.notna(v) else 0.0,
-                     "color": "#00b050" if (pd.notna(v) and v >= 0) else "#ef5350"}
-                    for t, v in zip(df["date"], s)
-                ]
-            else:
-                entry["data"] = [
-                    {"time": _t(t), "value": float(v)}
-                    for t, v in zip(df["date"], s) if pd.notna(v)
-                ]
-                for key, lines in ref_lines_map.items():
-                    if sname.startswith(key):
-                        entry["price_lines"] = lines
-                        break
-
-            indicator_series.append(entry)
-
-    return {"raw_daily": raw_daily, "indicator_series": indicator_series, "asset_id": int(asset_id)}, ""
+    raw_daily = [
+        {"time": _t(row.date), "open": row.open, "high": row.high,
+         "low": row.low,  "close": row.close, "volume": float(row.volume or 0)}
+        for row in df.itertuples(index=False)
+    ]
+    return {"raw_daily": raw_daily, "asset_id": int(asset_id)}, ""
 
 
-# ── JS compartido ─────────────────────────────────────────────────────────────
-# Toda la logica de render se define en el primer clientside_callback y queda
-# disponible via window._lwc para los callbacks de tipo/freq/escala/indicadores.
-
-_IND_IDS = [ind.NAME for ind in all_indicators()]
-_IND_IDS_JS = str(_IND_IDS).replace("'", '"')
-
+# ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, {", ".join(f"en_{n}" for n in _IND_IDS)}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
 
-    /* ---- setup compartido (solo la primera vez) ---- */
-    if (!window._lwc) {{ window._lwc = {{}}; }}
+  if (!window._lwc) {{ window._lwc = {{}}; }}
 
-    window._lwc.IND_IDS = {_IND_IDS_JS};
+  /* ── Indicadores: cálculo en el browser ── */
 
-    window._lwc.resample = function(daily, freq) {{
-        if (freq === 'D') return daily;
-        var groups = {{}}, keys = [];
-        daily.forEach(function(b) {{
-            var key;
-            if (freq === 'W') {{
-                var d = new Date(b.time + 'T00:00:00Z');
-                var dow = d.getUTCDay() || 7;
-                d.setUTCDate(d.getUTCDate() - (dow - 1));
-                key = d.toISOString().slice(0, 10);
-            }} else {{
-                key = b.time.slice(0, 7) + '-01';
-            }}
-            if (!groups[key]) {{
-                groups[key] = {{time:key, open:b.open, high:b.high, low:b.low, close:b.close, volume:b.volume||0}};
-                keys.push(key);
-            }} else {{
-                var g = groups[key];
-                if (b.high > g.high) g.high = b.high;
-                if (b.low  < g.low)  g.low  = b.low;
-                g.close  = b.close;
-                g.volume = (g.volume||0) + (b.volume||0);
-            }}
+  window._lwc.sma = function(arr, n) {{
+    var r = [], sum = 0;
+    for (var i = 0; i < arr.length; i++) {{
+      sum += arr[i]; if (i >= n) sum -= arr[i - n];
+      r.push(i >= n - 1 ? sum / n : NaN);
+    }}
+    return r;
+  }};
+
+  window._lwc.ema = function(arr, n) {{
+    var r = [], a = 2 / (n + 1), prev = NaN;
+    for (var i = 0; i < arr.length; i++) {{
+      prev = isNaN(prev) ? arr[i] : a * arr[i] + (1 - a) * prev;
+      r.push(prev);
+    }}
+    return r;
+  }};
+
+  window._lwc.emaW = function(arr, n) {{
+    /* Wilder: warmup SMA luego alpha=1/n */
+    var r = new Array(arr.length).fill(NaN);
+    var sum = 0;
+    for (var i = 0; i < n; i++) sum += arr[i];
+    r[n - 1] = sum / n;
+    var a = 1 / n;
+    for (var i = n; i < arr.length; i++)
+      r[i] = a * arr[i] + (1 - a) * r[i - 1];
+    return r;
+  }};
+
+  window._lwc.bollinger = function(close, n, std) {{
+    var sma = window._lwc.sma(close, n);
+    var upper = [], mid = [], lower = [];
+    for (var i = 0; i < close.length; i++) {{
+      if (i < n - 1) {{ upper.push(NaN); mid.push(NaN); lower.push(NaN); continue; }}
+      var s2 = 0;
+      for (var j = i - n + 1; j <= i; j++) s2 += (close[j] - sma[i]) * (close[j] - sma[i]);
+      var sd = Math.sqrt(s2 / n);
+      upper.push(sma[i] + std * sd); mid.push(sma[i]); lower.push(sma[i] - std * sd);
+    }}
+    return {{upper: upper, mid: mid, lower: lower}};
+  }};
+
+  window._lwc.rsi = function(close, n) {{
+    var g = [0], l = [0];
+    for (var i = 1; i < close.length; i++) {{
+      var d = close[i] - close[i-1];
+      g.push(d > 0 ? d : 0); l.push(d < 0 ? -d : 0);
+    }}
+    var ag = window._lwc.emaW(g, n), al = window._lwc.emaW(l, n);
+    return ag.map(function(gv, i) {{
+      if (isNaN(gv)) return NaN;
+      return al[i] === 0 ? 100 : 100 - 100 / (1 + gv / al[i]);
+    }});
+  }};
+
+  window._lwc.macd = function(close, fast, slow, sig) {{
+    var ef = window._lwc.ema(close, fast), es = window._lwc.ema(close, slow);
+    var ml = ef.map(function(v, i) {{ return v - es[i]; }});
+    var sl = window._lwc.ema(ml, sig);
+    return {{line: ml, signal: sl, hist: ml.map(function(v, i) {{ return v - sl[i]; }})}};
+  }};
+
+  window._lwc.stochastic = function(high, low, close, k, d) {{
+    var kArr = [];
+    for (var i = 0; i < close.length; i++) {{
+      if (i < k - 1) {{ kArr.push(NaN); continue; }}
+      var lo = Infinity, hi = -Infinity;
+      for (var j = i - k + 1; j <= i; j++) {{
+        if (low[j] < lo) lo = low[j]; if (high[j] > hi) hi = high[j];
+      }}
+      var rng = hi - lo; kArr.push(rng === 0 ? NaN : 100 * (close[i] - lo) / rng);
+    }}
+    var dArr = new Array(close.length).fill(NaN);
+    for (var i = k - 1 + d - 1; i < close.length; i++) {{
+      var sum = 0, ok = true;
+      for (var j = i - d + 1; j <= i; j++) {{ if (isNaN(kArr[j])) {{ ok = false; break; }} sum += kArr[j]; }}
+      if (ok) dArr[i] = sum / d;
+    }}
+    return {{k: kArr, d: dArr}};
+  }};
+
+  window._lwc.atr = function(high, low, close, n) {{
+    var tr = [0];
+    for (var i = 1; i < close.length; i++) {{
+      var a = high[i] - low[i], b = Math.abs(high[i] - close[i-1]), c = Math.abs(low[i] - close[i-1]);
+      tr.push(Math.max(a, b, c));
+    }}
+    return window._lwc.emaW(tr, n);
+  }};
+
+  /* ── Funciones de render ── */
+
+  window._lwc.resample = function(daily, freq) {{
+    if (freq === 'D') return daily;
+    var groups = {{}}, keys = [];
+    daily.forEach(function(b) {{
+      var key;
+      if (freq === 'W') {{
+        var d = new Date(b.time + 'T00:00:00Z'), dow = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() - (dow - 1)); key = d.toISOString().slice(0, 10);
+      }} else {{ key = b.time.slice(0, 7) + '-01'; }}
+      if (!groups[key]) {{
+        groups[key] = {{time: key, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume || 0}};
+        keys.push(key);
+      }} else {{
+        var g = groups[key];
+        if (b.high > g.high) g.high = b.high; if (b.low < g.low) g.low = b.low;
+        g.close = b.close; g.volume = (g.volume || 0) + (b.volume || 0);
+      }}
+    }});
+    return keys.sort().map(function(k) {{ return groups[k]; }});
+  }};
+
+  window._lwc.addSeries = function(chart, spec) {{
+    var s;
+    if (spec.type === 'candlestick') {{
+      s = chart.addCandlestickSeries({{
+        upColor: '#00b050', downColor: '#ef5350',
+        borderUpColor: '#00b050', borderDownColor: '#ef5350',
+        wickUpColor: '#00b050', wickDownColor: '#ef5350'
+      }});
+    }} else if (spec.type === 'line') {{
+      s = chart.addLineSeries({{
+        color: spec.color || '#2196f3', lineWidth: spec.lineWidth || 1.5,
+        title: spec.name || '', priceLineVisible: false, lastValueVisible: true,
+        lineStyle: spec.dashed ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+      }});
+    }} else if (spec.type === 'histogram') {{
+      s = chart.addHistogramSeries({{
+        title: spec.name || '', color: spec.color || '#26a69a',
+        priceFormat: spec.isVolume ? {{type: 'volume'}} : {{type: 'price', precision: 4}},
+        priceLineVisible: false, lastValueVisible: !spec.isVolume,
+      }});
+    }}
+    if (!s) return;
+    if (spec.data && spec.data.length) s.setData(spec.data);
+    if (spec.priceLines) spec.priceLines.forEach(function(pl) {{
+      s.createPriceLine({{price: pl.price, color: pl.color, lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: true, title: String(pl.price)}});
+    }});
+  }};
+
+  window._lwc.fullRender = function() {{
+    var st = window._lwcState;
+    if (!st || !st.rawDaily) return;
+    var container = document.getElementById('lwc-container');
+    if (!container) return;
+
+    /* Guardar rango si mismo activo */
+    var savedRange = null;
+    if (window._lwcLastAssetId === st.assetId && window._lwcCharts && window._lwcCharts.length > 0) {{
+      try {{ savedRange = window._lwcCharts[0].timeScale().getVisibleLogicalRange(); }} catch(e) {{}}
+    }}
+    window._lwcLastAssetId = st.assetId;
+
+    if (window._lwcCharts) window._lwcCharts.forEach(function(c) {{ try {{ c.remove(); }} catch(e) {{}} }});
+    if (window._lwcResizeObs) window._lwcResizeObs.disconnect();
+    window._lwcCharts = []; window._lwcPanelCharts = {{}};
+    container.innerHTML = '';
+
+    var ohlcv  = window._lwc.resample(st.rawDaily, st.freq);
+    var rect   = container.getBoundingClientRect();
+    var totalH = Math.max(window.innerHeight - rect.top - 6, 200);
+    container.style.height = totalH + 'px';
+    var totalW = container.clientWidth || 800;
+
+    var close = ohlcv.map(function(b) {{ return b.close; }});
+    var high  = ohlcv.map(function(b) {{ return b.high;  }});
+    var low   = ohlcv.map(function(b) {{ return b.low;   }});
+    var times = ohlcv.map(function(b) {{ return b.time;  }});
+
+    /* Calcular indicadores separados activos */
+    var activeSeps = [];
+    var ip = st.indParams;
+
+    function toData(vals) {{
+      return vals.map(function(v, i) {{ return isNaN(v) ? null : {{time: times[i], value: v}}; }})
+                 .filter(function(x) {{ return x !== null; }});
+    }}
+
+    /* Paneles activos */
+    var showVolume = !!st.volumeEnabled;
+    ['rsi', 'macd', 'stochastic', 'atr'].forEach(function(n) {{
+      if (ip[n] && ip[n][0].enabled) activeSeps.push(n);
+    }});
+
+    var panels = ['price'];
+    if (showVolume) panels.push('volume');
+    panels = panels.concat(activeSeps);
+
+    /* Alturas: volumen fijo 60px, resto proporcional, suma = totalH */
+    var heights = {{}};
+    var VOLUME_H = showVolume ? 60 : 0;
+    var ns = activeSeps.length;
+    if (ns === 0) {{
+      heights.price = totalH - VOLUME_H;
+      if (showVolume) heights.volume = VOLUME_H;
+    }} else {{
+      var sepTotal = Math.round((totalH - VOLUME_H) * 0.42);
+      heights.price = totalH - VOLUME_H - sepTotal;
+      if (showVolume) heights.volume = VOLUME_H;
+      var sh = Math.floor(sepTotal / ns), rem = sepTotal - sh * ns;
+      activeSeps.forEach(function(p, i) {{ heights[p] = sh + (i === ns - 1 ? rem : 0); }});
+    }}
+
+    /* Crear charts con drag handles entre paneles */
+    var handleInfo = [];
+    panels.forEach(function(panel, idx) {{
+      var div = document.createElement('div');
+      div.style.cssText = 'width:100%;overflow:hidden;flex-shrink:0;';
+      container.appendChild(div);
+      var isLast = idx === panels.length - 1;
+      var chart = LightweightCharts.createChart(div, {{
+        width: totalW, height: heights[panel] || 60,
+        layout: {{ background: {{type:'solid',color:'#1e1e1e'}}, textColor:'#dee2e6', fontSize: 11 }},
+        grid:   {{ vertLines: {{color:'#2a2a2a'}}, horzLines: {{color:'#2a2a2a'}} }},
+        crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
+        rightPriceScale: {{ borderColor:'#444', scaleMargins: {{top:0.05,bottom:0.05}} }},
+        timeScale: {{ borderColor:'#444', visible: isLast, timeVisible: false }},
+        handleScroll: true, handleScale: true,
+      }});
+      window._lwcPanelCharts[panel] = chart;
+      window._lwcCharts.push(chart);
+      /* Handle de resize (excepto después del último) */
+      if (!isLast) {{
+        var handle = document.createElement('div');
+        handle.style.cssText = 'width:100%;height:5px;cursor:row-resize;background:#2a2a2a;flex-shrink:0;';
+        handle.onmouseover = function() {{ this.style.background='#555'; }};
+        handle.onmouseout  = function() {{ this.style.background='#2a2a2a'; }};
+        container.appendChild(handle);
+        handleInfo.push({{handle: handle, idx: idx}});
+      }}
+    }});
+
+    /* Eventos de drag en los handles */
+    handleInfo.forEach(function(h) {{
+      (function(handle, i) {{
+        handle.addEventListener('mousedown', function(e) {{
+          e.preventDefault();
+          var startY = e.clientY;
+          var c1 = window._lwcCharts[i], c2 = window._lwcCharts[i + 1];
+          var h1 = c1.options().height, h2 = c2.options().height;
+          function onMove(ev) {{
+            var dy = ev.clientY - startY;
+            c1.applyOptions({{height: Math.max(60, h1 + dy)}});
+            c2.applyOptions({{height: Math.max(40, h2 - dy)}});
+          }}
+          function onUp() {{
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+          }}
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
         }});
-        return keys.sort().map(function(k) {{ return groups[k]; }});
-    }};
+      }})(h.handle, h.idx);
+    }});
 
-    window._lwc.buildChart = function(panel, height, totalW, isLast) {{
-        var div = document.createElement('div');
-        div.style.cssText = 'width:100%;overflow:hidden;';
-        document.getElementById('lwc-container').appendChild(div);
-        var c = LightweightCharts.createChart(div, {{
-            width: totalW, height: height,
-            layout: {{ background:{{type:'solid',color:'#1e1e1e'}}, textColor:'#dee2e6', fontSize:11 }},
-            grid:   {{ vertLines:{{color:'#2a2a2a'}}, horzLines:{{color:'#2a2a2a'}} }},
-            crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
-            rightPriceScale: {{ borderColor:'#444', scaleMargins:{{top:0.05,bottom:0.05}} }},
-            timeScale: {{ borderColor:'#444', visible:isLast, timeVisible:false }},
-            handleScroll:true, handleScale:true
+    /* Escala logarítmica */
+    if (st.logScale && window._lwcPanelCharts.price) {{
+      window._lwcPanelCharts.price.priceScale('right').applyOptions({{
+        mode: LightweightCharts.PriceScaleMode.Logarithmic
+      }});
+    }}
+
+    /* Serie de precio */
+    var pc = window._lwcPanelCharts.price;
+    if (st.chartType === 'candlestick') {{
+      window._lwc.addSeries(pc, {{type: 'candlestick', data: ohlcv}});
+    }} else {{
+      window._lwc.addSeries(pc, {{type: 'line', color: '#2196f3', lineWidth: 1.5,
+        data: ohlcv.map(function(b) {{ return {{time: b.time, value: b.close}}; }})}});
+    }}
+
+    /* Volumen */
+    if (showVolume && window._lwcPanelCharts.volume) {{
+      window._lwc.addSeries(window._lwcPanelCharts.volume, {{
+        type: 'histogram', isVolume: true,
+        data: ohlcv.map(function(b) {{
+          return {{time: b.time, value: b.volume || 0, color: b.close >= b.open ? '#00b050' : '#ef5350'}};
+        }})
+      }});
+    }}
+
+    /* SMA */
+    var smaColors = ['#ff9800','#e91e63','#4caf50'];
+    ip.sma.forEach(function(s, i) {{
+      if (!s.enabled) return;
+      var vals = window._lwc.sma(close, s.period);
+      window._lwc.addSeries(pc, {{type:'line', name:'SMA '+s.period,
+        color: smaColors[i], lineWidth: 1.5,
+        data: toData(vals)}});
+    }});
+
+    /* EMA */
+    var emaColors = ['#00bcd4','#9c27b0','#ffeb3b'];
+    ip.ema.forEach(function(s, i) {{
+      if (!s.enabled) return;
+      var vals = window._lwc.ema(close, s.period);
+      window._lwc.addSeries(pc, {{type:'line', name:'EMA '+s.period,
+        color: emaColors[i], lineWidth: 1.5, dashed: true,
+        data: toData(vals)}});
+    }});
+
+    /* Bollinger */
+    if (ip.bollinger[0].enabled) {{
+      var bb = window._lwc.bollinger(close, ip.bollinger[0].period, ip.bollinger[0].std_dev);
+      window._lwc.addSeries(pc, {{type:'line', name:'BB Sup', color:'#7e57c2', lineWidth:1, dashed:true, data: toData(bb.upper)}});
+      window._lwc.addSeries(pc, {{type:'line', name:'BB Med', color:'#e91e63', lineWidth:1, data: toData(bb.mid)}});
+      window._lwc.addSeries(pc, {{type:'line', name:'BB Inf', color:'#7e57c2', lineWidth:1, dashed:true, data: toData(bb.lower)}});
+    }}
+
+    /* RSI */
+    if (ip.rsi[0].enabled && window._lwcPanelCharts.rsi) {{
+      var rsiVals = window._lwc.rsi(close, ip.rsi[0].period);
+      var rsiS = window._lwc.addSeries(window._lwcPanelCharts.rsi, {{
+        type:'line', name:'RSI', color:'#9c27b0', lineWidth:1.5, data: toData(rsiVals)}});
+      window._lwcPanelCharts.rsi.addLineSeries({{color:'#ef5350',lineWidth:1,priceLineVisible:false,lastValueVisible:false}}).setData([{{time:times[0],value:70}},{{time:times[times.length-1],value:70}}]);
+      window._lwcPanelCharts.rsi.addLineSeries({{color:'#4caf50',lineWidth:1,priceLineVisible:false,lastValueVisible:false}}).setData([{{time:times[0],value:30}},{{time:times[times.length-1],value:30}}]);
+    }}
+
+    /* MACD */
+    if (ip.macd[0].enabled && window._lwcPanelCharts.macd) {{
+      var mc = window._lwc.macd(close, ip.macd[0].fast, ip.macd[0].slow, ip.macd[0].signal);
+      window._lwc.addSeries(window._lwcPanelCharts.macd, {{type:'line',  name:'MACD',  color:'#2196f3', lineWidth:1.5, data: toData(mc.line)}});
+      window._lwc.addSeries(window._lwcPanelCharts.macd, {{type:'line',  name:'Señal', color:'#ff5722', lineWidth:1,   data: toData(mc.signal)}});
+      window._lwc.addSeries(window._lwcPanelCharts.macd, {{
+        type:'histogram', name:'Hist',
+        data: mc.hist.map(function(v, i) {{
+          return isNaN(v) ? null : {{time: times[i], value: v, color: v >= 0 ? '#00b050' : '#ef5350'}};
+        }}).filter(function(x) {{ return x !== null; }})
+      }});
+    }}
+
+    /* Estocástico */
+    if (ip.stochastic[0].enabled && window._lwcPanelCharts.stochastic) {{
+      var st2 = window._lwc.stochastic(high, low, close, ip.stochastic[0].k_period, ip.stochastic[0].d_period);
+      window._lwc.addSeries(window._lwcPanelCharts.stochastic, {{type:'line', name:'%K', color:'#ffeb3b', lineWidth:1.5, data: toData(st2.k)}});
+      window._lwc.addSeries(window._lwcPanelCharts.stochastic, {{type:'line', name:'%D', color:'#ff9800', lineWidth:1.5, data: toData(st2.d)}});
+    }}
+
+    /* ATR */
+    if (ip.atr[0].enabled && window._lwcPanelCharts.atr) {{
+      var atrVals = window._lwc.atr(high, low, close, ip.atr[0].period);
+      window._lwc.addSeries(window._lwcPanelCharts.atr, {{type:'line', name:'ATR', color:'#00bcd4', lineWidth:1.5, data: toData(atrVals)}});
+    }}
+
+    /* Sync timescales */
+    if (window._lwcCharts.length > 1) {{
+      window._lwcCharts.forEach(function(src, i) {{
+        src.timeScale().subscribeVisibleLogicalRangeChange(function(range) {{
+          if (!range) return;
+          window._lwcCharts.forEach(function(dst, j) {{
+            if (i !== j) dst.timeScale().setVisibleLogicalRange(range);
+          }});
         }});
-        return c;
-    }};
+      }});
+    }}
 
-    window._lwc.addSeries = function(chart, spec) {{
-        var s;
-        if (spec.type === 'candlestick') {{
-            s = chart.addCandlestickSeries({{
-                upColor:'#00b050', downColor:'#ef5350',
-                borderUpColor:'#00b050', borderDownColor:'#ef5350',
-                wickUpColor:'#00b050', wickDownColor:'#ef5350'
-            }});
-        }} else if (spec.type === 'line') {{
-            s = chart.addLineSeries({{
-                color: spec.color||'#2196f3', lineWidth: spec.lineWidth||1.5,
-                title: spec.name||'', priceLineVisible:false, lastValueVisible:true
-            }});
-        }} else if (spec.type === 'histogram') {{
-            s = chart.addHistogramSeries({{
-                title: spec.name||'', color: spec.color||'#26a69a',
-                priceFormat: spec.panel==='volume' ? {{type:'volume'}} : {{type:'price',precision:4}},
-                priceLineVisible:false, lastValueVisible: spec.panel!=='volume'
-            }});
-        }}
-        if (!s) return;
-        if (spec.data && spec.data.length) s.setData(spec.data);
-        if (spec.price_lines) {{
-            spec.price_lines.forEach(function(pl) {{
-                s.createPriceLine({{price:pl.price, color:pl.color, lineWidth:1,
-                    lineStyle:LightweightCharts.LineStyle.Dotted,
-                    axisLabelVisible:true, title:String(pl.price)}});
-            }});
-        }}
-        return s;
-    }};
+    if (savedRange) {{
+      window._lwcCharts.forEach(function(c) {{ c.timeScale().setVisibleLogicalRange(savedRange); }});
+    }} else {{
+      window._lwcCharts.forEach(function(c) {{ c.timeScale().fitContent(); }});
+    }}
 
-    window._lwc.fullRender = function() {{
-        var st = window._lwcState;
-        if (!st) return;
-        var container = document.getElementById('lwc-container');
-        if (!container) return;
+    if (window.ResizeObserver) {{
+      window._lwcResizeObs = new ResizeObserver(function() {{
+        var w = container.clientWidth;
+        window._lwcCharts.forEach(function(c) {{ c.applyOptions({{width: w}}); }});
+      }});
+      window._lwcResizeObs.observe(container);
+    }}
+  }};
 
-        /* Guardar rango visible si es el mismo activo */
-        var savedRange = null;
-        var sameAsset = (window._lwcLastAssetId !== undefined && window._lwcLastAssetId === st.assetId);
-        if (sameAsset && window._lwcCharts && window._lwcCharts.length > 0) {{
-            try {{ savedRange = window._lwcCharts[0].timeScale().getVisibleLogicalRange(); }} catch(e) {{}}
-        }}
-        window._lwcLastAssetId = st.assetId;
+  /* ── Actualizar estado y renderizar ── */
+  var indParams = {_js_ind_params()};
 
-        if (window._lwcCharts) window._lwcCharts.forEach(function(c){{try{{c.remove();}}catch(e){{ }}}});
-        if (window._lwcResizeObs) window._lwcResizeObs.disconnect();
-        window._lwcCharts = [];
-        window._lwcPanelCharts = {{}};
-        container.innerHTML = '';
-
-        var ohlcv = window._lwc.resample(st.rawDaily, st.freq);
-
-        /* Alto dinámico: ocupa desde el top del contenedor hasta el borde del viewport */
-        var rect = container.getBoundingClientRect();
-        var totalH = Math.max(window.innerHeight - rect.top - 6, 200);
-        container.style.height = totalH + 'px';
-        var totalW = container.clientWidth || 800;
-
-        // Paneles activos
-        var activeSeps = [];
-        st.indicatorSeries.forEach(function(spec) {{
-            if (st.enabledMap[spec.ind_id] && spec.panel === 'separate') {{
-                if (activeSeps.indexOf(spec.ind_id) === -1) activeSeps.push(spec.ind_id);
-            }}
-        }});
-        var showVolume = !!st.volumeEnabled;
-        var panels = ['price'];
-        if (showVolume) panels.push('volume');
-        panels = panels.concat(activeSeps);
-
-        // Alturas: volumen fijo, precio y separados se reparten el resto
-        // La suma siempre es igual a totalH para no causar scroll
-        var heights = {{}};
-        var VOLUME_H = showVolume ? 60 : 0;
-        var ns = activeSeps.length;
-        if (ns === 0) {{
-            heights.price = totalH - VOLUME_H;
-            if (showVolume) heights.volume = VOLUME_H;
-        }} else {{
-            var sepTotal = Math.round((totalH - VOLUME_H) * 0.42);
-            heights.price = totalH - VOLUME_H - sepTotal;
-            if (showVolume) heights.volume = VOLUME_H;
-            var sepH = Math.floor(sepTotal / ns);
-            var sepRem = sepTotal - sepH * ns;
-            activeSeps.forEach(function(p, i) {{
-                heights[p] = sepH + (i === ns - 1 ? sepRem : 0);
-            }});
-        }}
-
-        panels.forEach(function(panel, idx) {{
-            var c = window._lwc.buildChart(panel, heights[panel]||80, totalW, idx===panels.length-1);
-            window._lwcPanelCharts[panel] = c;
-            window._lwcCharts.push(c);
-        }});
-
-        // Escala log
-        if (st.logScale && window._lwcPanelCharts.price) {{
-            window._lwcPanelCharts.price.priceScale('right').applyOptions({{
-                mode: LightweightCharts.PriceScaleMode.Logarithmic
-            }});
-        }}
-
-        // Serie de precio
-        var pc = window._lwcPanelCharts.price;
-        if (st.chartType === 'candlestick') {{
-            window._lwc.addSeries(pc, {{type:'candlestick', data:ohlcv}});
-        }} else {{
-            window._lwc.addSeries(pc, {{type:'line', color:'#2196f3', lineWidth:1.5,
-                data: ohlcv.map(function(b){{return{{time:b.time,value:b.close}};}})}});
-        }}
-
-        // Volumen (opcional)
-        if (showVolume && window._lwcPanelCharts.volume) {{
-            window._lwc.addSeries(window._lwcPanelCharts.volume, {{
-                type:'histogram', panel:'volume',
-                data: ohlcv.map(function(b){{
-                    return{{time:b.time, value:b.volume||0, color:b.close>=b.open?'#00b050':'#ef5350'}};
-                }})
-            }});
-        }}
-
-        // Indicadores activos
-        st.indicatorSeries.forEach(function(spec) {{
-            if (!st.enabledMap[spec.ind_id]) return;
-            var panelKey = spec.panel === 'overlay' ? 'price' : spec.ind_id;
-            var c = window._lwcPanelCharts[panelKey];
-            if (c) window._lwc.addSeries(c, spec);
-        }});
-
-        // Sync timescales
-        if (window._lwcCharts.length > 1) {{
-            window._lwcCharts.forEach(function(src, i) {{
-                src.timeScale().subscribeVisibleLogicalRangeChange(function(range) {{
-                    if (!range) return;
-                    window._lwcCharts.forEach(function(dst, j) {{
-                        if (i !== j) dst.timeScale().setVisibleLogicalRange(range);
-                    }});
-                }});
-            }});
-        }}
-        if (savedRange) {{
-            window._lwcCharts.forEach(function(c) {{ c.timeScale().setVisibleLogicalRange(savedRange); }});
-        }} else {{
-            window._lwcCharts.forEach(function(c) {{ c.timeScale().fitContent(); }});
-        }}
-
-        if (window.ResizeObserver) {{
-            window._lwcResizeObs = new ResizeObserver(function() {{
-                var w = container.clientWidth;
-                window._lwcCharts.forEach(function(c) {{ c.applyOptions({{width:w}}); }});
-            }});
-            window._lwcResizeObs.observe(container);
-        }}
-    }};
-
-    /* ---- llamada principal ---- */
-    var enabledMap = {{}};
-    var ids = window._lwc.IND_IDS;
-    var flags = [{", ".join(f"en_{n}" for n in _IND_IDS)}];
-    ids.forEach(function(id, i) {{ enabledMap[id] = !!flags[i]; }});
-
-    window._lwcState = {{
-        rawDaily:        chartData.raw_daily,
-        indicatorSeries: chartData.indicator_series,
-        assetId:         chartData.asset_id,
-        enabledMap:      enabledMap,
-        volumeEnabled:   volumeEnabled !== false,
-        chartType:       chartType || 'candlestick',
-        freq:            freq      || 'D',
-        logScale:        logScale  === 'log'
-    }};
-    window._lwc.fullRender();
-    return null;
+  window._lwcState = {{
+    rawDaily:      chartData.raw_daily,
+    assetId:       chartData.asset_id,
+    indParams:     indParams,
+    volumeEnabled: volumeEnabled !== false,
+    chartType:     chartType  || 'candlestick',
+    freq:          freq       || 'D',
+    logScale:      logScale   === 'log',
+  }};
+  window._lwc.fullRender();
+  return null;
 }}
 """
 
-# Callback principal: chart-data -> render completo
+_JS_IND_UPDATE = f"""
+function({_JS_ARGS_STR}) {{
+  if (!window._lwcState || !window._lwc) return null;
+  var indParams = {_js_ind_params()};
+  window._lwcState.indParams = indParams;
+  window._lwc.fullRender();
+  return null;
+}}
+"""
+
+# ─── Callback principal: chart-data → render completo ────────────────────────
 clientside_callback(
     _JS_RENDER,
     Output("chart-render-dummy", "data"),
@@ -399,89 +547,39 @@ clientside_callback(
     State("chart-freq", "value"),
     State("chart-yscale", "value"),
     State("chart-volume-enabled", "value"),
-    *[State(f"chart-ind-{n}-enabled", "value") for n in _IND_IDS],
+    *_state_list(State),
     prevent_initial_call=True,
 )
 
-# Cambio de tipo de grafico (sin round-trip)
+# ─── Callback de indicadores: param/toggle → recalcula en JS ─────────────────
 clientside_callback(
-    """
-    function(chartType) {
-        if (!window._lwcState || !window._lwc) return null;
-        window._lwcState.chartType = chartType;
-        window._lwc.fullRender();
-        return null;
-    }
-    """,
+    _JS_IND_UPDATE,
+    Output("chart-ind-dummy", "data"),
+    *_state_list(Input),
+    prevent_initial_call=True,
+)
+
+# ─── Callbacks de controles sin round-trip ───────────────────────────────────
+clientside_callback(
+    "function(t){if(!window._lwcState||!window._lwc)return null;window._lwcState.chartType=t;window._lwc.fullRender();return null;}",
     Output("chart-type-dummy", "data"),
     Input("chart-type", "value"),
     prevent_initial_call=True,
 )
-
-# Cambio de frecuencia (sin round-trip)
 clientside_callback(
-    """
-    function(freq) {
-        if (!window._lwcState || !window._lwc) return null;
-        window._lwcState.freq = freq;
-        window._lwc.fullRender();
-        return null;
-    }
-    """,
+    "function(f){if(!window._lwcState||!window._lwc)return null;window._lwcState.freq=f;window._lwc.fullRender();return null;}",
     Output("chart-freq-dummy", "data"),
     Input("chart-freq", "value"),
     prevent_initial_call=True,
 )
-
-# Cambio de escala (sin round-trip)
 clientside_callback(
-    """
-    function(logScale) {
-        if (!window._lwcState || !window._lwc) return null;
-        window._lwcState.logScale = logScale === 'log';
-        window._lwc.fullRender();
-        return null;
-    }
-    """,
+    "function(s){if(!window._lwcState||!window._lwc)return null;window._lwcState.logScale=s==='log';window._lwc.fullRender();return null;}",
     Output("chart-scale-dummy", "data"),
     Input("chart-yscale", "value"),
     prevent_initial_call=True,
 )
-
-# Toggle de cualquier indicador (sin round-trip)
-_enabled_inputs = [Input(f"chart-ind-{n}-enabled", "value") for n in _IND_IDS]
-_enabled_args   = ", ".join(f"en_{n}" for n in _IND_IDS)
-_map_build_js   = "; ".join(
-    f'enabledMap["{n}"] = !!en_{n}'
-    for n in _IND_IDS
-)
-
 clientside_callback(
-    f"""
-    function({_enabled_args}) {{
-        if (!window._lwcState || !window._lwc) return null;
-        var enabledMap = {{}};
-        {_map_build_js};
-        window._lwcState.enabledMap = enabledMap;
-        window._lwc.fullRender();
-        return null;
-    }}
-    """,
-    Output("chart-ind-dummy", "data"),
-    *_enabled_inputs,
-    prevent_initial_call=True,
-)
-
-# Toggle de volumen (sin round-trip)
-clientside_callback(
-    """
-    function(volumeEnabled) {
-        if (!window._lwcState || !window._lwc) return null;
-        window._lwcState.volumeEnabled = volumeEnabled !== false;
-        window._lwc.fullRender();
-        return null;
-    }
-    """,
+    "function(v){if(!window._lwcState||!window._lwc)return null;window._lwcState.volumeEnabled=v!==false;window._lwc.fullRender();return null;}",
     Output("chart-volume-dummy", "data"),
     Input("chart-volume-enabled", "value"),
     prevent_initial_call=True,
