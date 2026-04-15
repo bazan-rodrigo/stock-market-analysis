@@ -16,7 +16,6 @@ def _param_inputs(ind):
                 min=p.min_val,
                 max=p.max_val,
                 step=p.step or (1 if p.type == "int" else 0.1),
-                debounce=True,
                 style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "20px"},
             ),
         ]

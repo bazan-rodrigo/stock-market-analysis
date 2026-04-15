@@ -11,7 +11,7 @@ Flujo:
   2. chart-data change -> clientside: render completo
   3. Cambiar tipo/frecuencia/escala/indicadores -> clientside: actualiza en lugar
 """
-from dash import Input, Output, State, callback, clientside_callback, no_update
+from dash import Input, Output, State, callback, clientside_callback, no_update, callback_context
 
 import pandas as pd
 
@@ -74,21 +74,37 @@ def _param_inputs():
     Output("chart-data", "data"),
     Input("chart-asset-select", "value"),
     *_param_inputs(),
+    State("chart-data", "data"),
     prevent_initial_call=True,
 )
-def load_chart_data(asset_id, *param_vals):
+def load_chart_data(asset_id, *args):
+    *param_vals, current_data = args
+
     if not asset_id:
         return no_update
 
-    df = get_prices_df(int(asset_id))
-    if df.empty:
-        return no_update
+    asset_changed = any(
+        "chart-asset-select" in t["prop_id"]
+        for t in callback_context.triggered
+    )
 
-    raw_daily = [
-        {"time": _t(row.date), "open": row.open, "high": row.high,
-         "low": row.low,  "close": row.close, "volume": float(row.volume or 0)}
-        for row in df.itertuples(index=False)
-    ]
+    if asset_changed or not current_data or current_data.get("asset_id") != int(asset_id):
+        df = get_prices_df(int(asset_id))
+        if df.empty:
+            return no_update
+        raw_daily = [
+            {"time": _t(row.date), "open": row.open, "high": row.high,
+             "low": row.low,  "close": row.close, "volume": float(row.volume or 0)}
+            for row in df.itertuples(index=False)
+        ]
+    else:
+        raw_daily = current_data["raw_daily"]
+        df = pd.DataFrame([
+            {"date": pd.Timestamp(r["time"]),
+             "open": r["open"], "high": r["high"],
+             "low": r["low"],  "close": r["close"], "volume": r.get("volume", 0)}
+            for r in raw_daily
+        ])
 
     # Calcular TODOS los indicadores con los params actuales
     indicator_series = []
@@ -134,7 +150,7 @@ def load_chart_data(asset_id, *param_vals):
 
             indicator_series.append(entry)
 
-    return {"raw_daily": raw_daily, "indicator_series": indicator_series}
+    return {"raw_daily": raw_daily, "indicator_series": indicator_series, "asset_id": int(asset_id)}
 
 
 # ── JS compartido ─────────────────────────────────────────────────────────────
@@ -233,6 +249,14 @@ function(chartData, chartType, freq, logScale, {", ".join(f"en_{n}" for n in _IN
         var container = document.getElementById('lwc-container');
         if (!container) return;
 
+        /* Guardar rango visible si es el mismo activo */
+        var savedRange = null;
+        var sameAsset = (window._lwcLastAssetId !== undefined && window._lwcLastAssetId === st.assetId);
+        if (sameAsset && window._lwcCharts && window._lwcCharts.length > 0) {{
+            try {{ savedRange = window._lwcCharts[0].timeScale().getVisibleLogicalRange(); }} catch(e) {{}}
+        }}
+        window._lwcLastAssetId = st.assetId;
+
         if (window._lwcCharts) window._lwcCharts.forEach(function(c){{try{{c.remove();}}catch(e){{ }}}});
         if (window._lwcResizeObs) window._lwcResizeObs.disconnect();
         window._lwcCharts = [];
@@ -314,7 +338,11 @@ function(chartData, chartType, freq, logScale, {", ".join(f"en_{n}" for n in _IN
                 }});
             }});
         }}
-        window._lwcCharts.forEach(function(c) {{ c.timeScale().fitContent(); }});
+        if (savedRange) {{
+            window._lwcCharts.forEach(function(c) {{ c.timeScale().setVisibleLogicalRange(savedRange); }});
+        }} else {{
+            window._lwcCharts.forEach(function(c) {{ c.timeScale().fitContent(); }});
+        }}
 
         if (window.ResizeObserver) {{
             window._lwcResizeObs = new ResizeObserver(function() {{
@@ -334,6 +362,7 @@ function(chartData, chartType, freq, logScale, {", ".join(f"en_{n}" for n in _IN
     window._lwcState = {{
         rawDaily:        chartData.raw_daily,
         indicatorSeries: chartData.indicator_series,
+        assetId:         chartData.asset_id,
         enabledMap:      enabledMap,
         chartType:       chartType || 'candlestick',
         freq:            freq      || 'D',
