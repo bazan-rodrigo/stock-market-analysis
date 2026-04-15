@@ -23,23 +23,32 @@ def layout(**kwargs):
     if not current_user.is_authenticated:
         return html.Div()
 
+    _label = {"fontSize": "0.75rem", "fontWeight": "600", "marginBottom": "2px", "marginTop": "6px", "display": "block"}
+    _dd_sm = {"fontSize": "0.75rem"}
+    _hr = {"margin": "6px 0"}
+    _radio_opts = [
+        {"label": "Cualquiera", "value": "any"},
+        {"label": "Por encima", "value": "above"},
+        {"label": "Por debajo", "value": "below"},
+    ]
+
     return html.Div([
         dcc.Location(id="screener-redirect"),
         dbc.Row([
-            dbc.Col([
-                html.H5("Filtros"),
-                dbc.Label("País"),
-                dcc.Dropdown(id="scr-filter-country", multi=True, placeholder="Todos"),
-                dbc.Label("Mercado", className="mt-2"),
-                dcc.Dropdown(id="scr-filter-market", multi=True, placeholder="Todos"),
-                dbc.Label("Tipo de instrumento", className="mt-2"),
-                dcc.Dropdown(id="scr-filter-itype", multi=True, placeholder="Todos"),
-                dbc.Label("Sector", className="mt-2"),
-                dcc.Dropdown(id="scr-filter-sector", multi=True, placeholder="Todos"),
-                dbc.Label("Industria", className="mt-2"),
-                dcc.Dropdown(id="scr-filter-industry", multi=True, placeholder="Todos"),
-                html.Hr(),
-                dbc.Label("RSI"),
+            dbc.Col(style={"fontSize": "0.75rem"}, children=[
+                html.Span("Filtros", style={"fontSize": "0.9rem", "fontWeight": "700", "display": "block", "marginBottom": "6px"}),
+                html.Span("País", style=_label),
+                dcc.Dropdown(id="scr-filter-country", multi=True, placeholder="Todos", style=_dd_sm),
+                html.Span("Mercado", style=_label),
+                dcc.Dropdown(id="scr-filter-market", multi=True, placeholder="Todos", style=_dd_sm),
+                html.Span("Tipo de instrumento", style=_label),
+                dcc.Dropdown(id="scr-filter-itype", multi=True, placeholder="Todos", style=_dd_sm),
+                html.Span("Sector", style=_label),
+                dcc.Dropdown(id="scr-filter-sector", multi=True, placeholder="Todos", style=_dd_sm),
+                html.Span("Industria", style=_label),
+                dcc.Dropdown(id="scr-filter-industry", multi=True, placeholder="Todos", style=_dd_sm),
+                html.Hr(style=_hr),
+                html.Span("RSI", style=_label),
                 dcc.RangeSlider(
                     id="scr-filter-rsi",
                     min=0, max=100, step=1,
@@ -47,26 +56,18 @@ def layout(**kwargs):
                     marks={0: "0", 30: "30", 50: "50", 70: "70", 100: "100"},
                     tooltip={"placement": "bottom", "always_visible": False},
                 ),
-                html.Hr(),
-                dbc.Label("Precio vs SMA 20"),
-                dbc.RadioItems(id="scr-filter-sma20", options=[
-                    {"label": "Cualquiera", "value": "any"},
-                    {"label": "Por encima", "value": "above"},
-                    {"label": "Por debajo", "value": "below"},
-                ], value="any"),
-                dbc.Label("Precio vs SMA 50", className="mt-2"),
-                dbc.RadioItems(id="scr-filter-sma50", options=[
-                    {"label": "Cualquiera", "value": "any"},
-                    {"label": "Por encima", "value": "above"},
-                    {"label": "Por debajo", "value": "below"},
-                ], value="any"),
-                dbc.Label("Precio vs SMA 200", className="mt-2"),
-                dbc.RadioItems(id="scr-filter-sma200", options=[
-                    {"label": "Cualquiera", "value": "any"},
-                    {"label": "Por encima", "value": "above"},
-                    {"label": "Por debajo", "value": "below"},
-                ], value="any"),
-                dbc.Button("Aplicar filtros", id="scr-btn-apply", color="primary", className="mt-3 w-100"),
+                html.Hr(style=_hr),
+                html.Span("Precio vs SMA 20", style=_label),
+                dbc.RadioItems(id="scr-filter-sma20", options=_radio_opts, value="any",
+                               style={"fontSize": "0.75rem"}),
+                html.Span("Precio vs SMA 50", style=_label),
+                dbc.RadioItems(id="scr-filter-sma50", options=_radio_opts, value="any",
+                               style={"fontSize": "0.75rem"}),
+                html.Span("Precio vs SMA 200", style=_label),
+                dbc.RadioItems(id="scr-filter-sma200", options=_radio_opts, value="any",
+                               style={"fontSize": "0.75rem"}),
+                dbc.Button("Aplicar filtros", id="scr-btn-apply", color="primary",
+                           className="mt-2 w-100", size="sm"),
             ], md=3, className="border-end pe-3"),
             dbc.Col([
                 html.Div([
