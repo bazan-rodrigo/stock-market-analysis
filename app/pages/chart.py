@@ -1,63 +1,44 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
-from app.indicators.registry import overlay_indicators, separate_indicators
+from app.indicators.registry import overlay_indicators, separate_indicators, all_indicators
 
 
-def _param_control(ind_id: str, param):
-    step = param.step or (1 if param.type == "int" else 0.1)
-    return dbc.Row([
-        dbc.Col(html.Small(param.label, style={"fontSize": "0.72rem"}), width=6),
-        dbc.Col(
+def _param_inputs(ind):
+    inputs = []
+    for p in ind.PARAMS:
+        inputs += [
+            html.Small(p.label[:4], style={"color": "#aaa", "fontSize": "0.68rem", "whiteSpace": "nowrap"}),
             dbc.Input(
-                id=f"chart-ind-{ind_id}-{param.name}",
+                id=f"chart-ind-{ind.NAME}-{p.name}",
                 type="number",
-                value=param.default,
-                min=param.min_val,
-                max=param.max_val,
-                step=step,
-                size="sm",
-                style={"fontSize": "0.72rem", "padding": "1px 4px"},
+                value=p.default,
+                min=p.min_val,
+                max=p.max_val,
+                step=p.step or (1 if p.type == "int" else 0.1),
+                debounce=True,
+                style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "20px"},
             ),
-            width=6,
+        ]
+    return inputs
+
+
+def _ind_toggle(ind):
+    return html.Div([
+        dbc.Switch(
+            id=f"chart-ind-{ind.NAME}-enabled",
+            label=ind.LABEL,
+            value=False,
+            style={"fontSize": "0.75rem", "marginBottom": 0},
         ),
-    ], className="mb-1")
-
-
-def _build_overlay_controls():
-    controls = []
-    for ind in overlay_indicators():
-        ind_id = ind.NAME
-        controls.append(
-            dbc.Card(dbc.CardBody([
-                dbc.Switch(id=f"chart-ind-{ind_id}-enabled", label=ind.LABEL, value=False,
-                           style={"fontSize": "0.75rem"}),
-                html.Div(
-                    [_param_control(ind_id, p) for p in ind.PARAMS],
-                    id=f"chart-ind-{ind_id}-params",
-                    style={"display": "none"},
-                ),
-            ], style={"padding": "4px 8px"}), className="mb-1")
-        )
-    return controls
-
-
-def _build_separate_controls():
-    controls = []
-    for ind in separate_indicators():
-        ind_id = ind.NAME
-        controls.append(
-            dbc.Card(dbc.CardBody([
-                dbc.Switch(id=f"chart-ind-{ind_id}-enabled", label=ind.LABEL, value=False,
-                           style={"fontSize": "0.75rem"}),
-                html.Div(
-                    [_param_control(ind_id, p) for p in ind.PARAMS],
-                    id=f"chart-ind-{ind_id}-params",
-                    style={"display": "none"},
-                ),
-            ], style={"padding": "4px 8px"}), className="mb-1")
-        )
-    return controls
+        html.Div(
+            _param_inputs(ind),
+            id=f"chart-ind-{ind.NAME}-params",
+            className="d-flex align-items-center gap-1 ms-1",
+            style={"display": "none"},
+        ),
+    ], className="d-flex align-items-center border rounded px-2",
+       style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
 
 
 def layout(**kwargs):
@@ -65,65 +46,94 @@ def layout(**kwargs):
     if not current_user.is_authenticated:
         return html.Div()
 
-    _label = {"fontSize": "0.75rem", "fontWeight": "600", "marginBottom": "2px", "marginTop": "6px", "display": "block"}
-    _input_sm = {"fontSize": "0.75rem", "padding": "2px 6px", "height": "28px"}
-    _hr = {"margin": "6px 0"}
+    _radio_sm = {"fontSize": "0.75rem"}
 
-    return dbc.Row([
-        # ── Sidebar de controles ───────────────────────────────────────────────
-        dbc.Col(id="chart-controls", style={"fontSize": "0.75rem"}, children=[
-            html.Span("Activo", style=_label),
-            dbc.Select(id="chart-asset-select", options=[], placeholder="Seleccioná un activo",
-                       style=_input_sm),
-            html.Span("Período", style=_label),
-            dbc.Row([
-                dbc.Col(dbc.Input(id="chart-date-from", type="date", value=None,
-                                  style=_input_sm), className="pe-1"),
-                dbc.Col(dbc.Input(id="chart-date-to", type="date", value=None,
-                                  style=_input_sm), className="ps-1"),
-            ], className="mb-1 g-0"),
-            dbc.Button("Generar gráfico", id="chart-btn-update", color="primary",
-                       className="w-100 mb-2", size="sm"),
-            html.Span("Tipo de gráfico", style=_label),
-            dbc.RadioItems(
-                id="chart-type",
-                options=[
-                    {"label": "Velas japonesas", "value": "candlestick"},
-                    {"label": "Línea", "value": "line"},
-                ],
-                value="candlestick",
-                inline=True,
-                style={"fontSize": "0.75rem"},
+    return html.Div([
+        # ── Fila 1: activo + frecuencia + tipo + escala ────────────────────────
+        dbc.Row([
+            dbc.Col(
+                dbc.Select(
+                    id="chart-asset-select",
+                    options=[],
+                    placeholder="Selecciona un activo...",
+                    style={"fontSize": "0.8rem", "height": "30px", "padding": "2px 8px"},
+                ),
+                style={"maxWidth": "280px"},
             ),
-            html.Span("Escala Y", style={**_label, "marginTop": "4px"}),
-            dbc.RadioItems(
-                id="chart-yscale",
-                options=[
-                    {"label": "Aritmética", "value": "linear"},
-                    {"label": "Logarítmica", "value": "log"},
-                ],
-                value="linear",
-                inline=True,
-                style={"fontSize": "0.75rem"},
+            dbc.Col(
+                dbc.RadioItems(
+                    id="chart-freq",
+                    options=[
+                        {"label": "D", "value": "D"},
+                        {"label": "W", "value": "W"},
+                        {"label": "M", "value": "M"},
+                    ],
+                    value="D",
+                    inline=True,
+                    inputStyle={"marginRight": "3px"},
+                    style=_radio_sm,
+                ),
+                width="auto",
             ),
-            html.Hr(style=_hr),
-            html.Span("Indicadores sobre precio", style=_label),
-            *_build_overlay_controls(),
-            html.Hr(style=_hr),
-            html.Span("Indicadores en paneles separados", style=_label),
-            *_build_separate_controls(),
-        ], md=3, className="border-end pe-3"),
-
-        # ── Área del gráfico ───────────────────────────────────────────────────
-        dbc.Col([
-            dcc.Store(id="chart-data"),
-            dcc.Store(id="chart-render-dummy"),
-            html.Div(
-                id="lwc-container",
-                style={"height": "80vh", "backgroundColor": "#1e1e1e"},
+            dbc.Col(
+                dbc.RadioItems(
+                    id="chart-type",
+                    options=[
+                        {"label": "Velas", "value": "candlestick"},
+                        {"label": "Linea",  "value": "line"},
+                    ],
+                    value="candlestick",
+                    inline=True,
+                    inputStyle={"marginRight": "3px"},
+                    style=_radio_sm,
+                ),
+                width="auto",
             ),
-        ], md=9),
-    ], className="g-0")
+            dbc.Col(
+                dbc.RadioItems(
+                    id="chart-yscale",
+                    options=[
+                        {"label": "Lin", "value": "linear"},
+                        {"label": "Log", "value": "log"},
+                    ],
+                    value="linear",
+                    inline=True,
+                    inputStyle={"marginRight": "3px"},
+                    style=_radio_sm,
+                ),
+                width="auto",
+            ),
+        ], className="mb-1 g-2 align-items-center flex-wrap"),
+
+        # ── Fila 2: indicadores ────────────────────────────────────────────────
+        html.Div([
+            *[_ind_toggle(ind) for ind in overlay_indicators()],
+            html.Div(style={
+                "width": "1px", "backgroundColor": "#555",
+                "alignSelf": "stretch", "margin": "0 4px",
+            }),
+            *[_ind_toggle(ind) for ind in separate_indicators()],
+        ], className="d-flex flex-wrap align-items-center mb-2", style={"gap": "6px"}),
+
+        # ── Stores ─────────────────────────────────────────────────────────────
+        dcc.Store(id="chart-data"),
+        dcc.Store(id="chart-render-dummy"),
+        dcc.Store(id="chart-type-dummy"),
+        dcc.Store(id="chart-freq-dummy"),
+        dcc.Store(id="chart-scale-dummy"),
+        dcc.Store(id="chart-ind-dummy"),
+
+        # ── Contenedor del grafico ─────────────────────────────────────────────
+        html.Div(
+            id="lwc-container",
+            style={
+                "height": "calc(100vh - 120px)",
+                "backgroundColor": "#1e1e1e",
+                "padding": "8px",
+                "borderRadius": "4px",
+            },
+        ),
+    ], style={"padding": "0 8px"})
 
 
-dash.register_page(__name__, path="/chart", title="Gráfico técnico", layout=layout)
+dash.register_page(__name__, path="/chart", title="Grafico tecnico", layout=layout)
