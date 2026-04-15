@@ -72,6 +72,7 @@ def _param_inputs():
 
 @callback(
     Output("chart-data", "data"),
+    Output("chart-load-output", "children"),
     Input("chart-asset-select", "value"),
     *_param_inputs(),
     State("chart-data", "data"),
@@ -81,7 +82,7 @@ def load_chart_data(asset_id, *args):
     *param_vals, current_data = args
 
     if not asset_id:
-        return no_update
+        return no_update, no_update
 
     asset_changed = any(
         "chart-asset-select" in t["prop_id"]
@@ -91,7 +92,7 @@ def load_chart_data(asset_id, *args):
     if asset_changed or not current_data or current_data.get("asset_id") != int(asset_id):
         df = get_prices_df(int(asset_id))
         if df.empty:
-            return no_update
+            return no_update, no_update
         raw_daily = [
             {"time": _t(row.date), "open": row.open, "high": row.high,
              "low": row.low,  "close": row.close, "volume": float(row.volume or 0)}
@@ -150,7 +151,7 @@ def load_chart_data(asset_id, *args):
 
             indicator_series.append(entry)
 
-    return {"raw_daily": raw_daily, "indicator_series": indicator_series, "asset_id": int(asset_id)}
+    return {"raw_daily": raw_daily, "indicator_series": indicator_series, "asset_id": int(asset_id)}, ""
 
 
 # ── JS compartido ─────────────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ _IND_IDS = [ind.NAME for ind in all_indicators()]
 _IND_IDS_JS = str(_IND_IDS).replace("'", '"')
 
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, {", ".join(f"en_{n}" for n in _IND_IDS)}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, {", ".join(f"en_{n}" for n in _IND_IDS)}) {{
 
     /* ---- setup compartido (solo la primera vez) ---- */
     if (!window._lwc) {{ window._lwc = {{}}; }}
@@ -264,8 +265,12 @@ function(chartData, chartType, freq, logScale, {", ".join(f"en_{n}" for n in _IN
         container.innerHTML = '';
 
         var ohlcv = window._lwc.resample(st.rawDaily, st.freq);
-        var totalH = container.clientHeight || 600;
-        var totalW = container.clientWidth  || 800;
+
+        /* Alto dinámico: ocupa desde el top del contenedor hasta el borde del viewport */
+        var rect = container.getBoundingClientRect();
+        var totalH = Math.max(window.innerHeight - rect.top - 6, 200);
+        container.style.height = totalH + 'px';
+        var totalW = container.clientWidth || 800;
 
         // Paneles activos
         var activeSeps = [];
@@ -274,19 +279,28 @@ function(chartData, chartType, freq, logScale, {", ".join(f"en_{n}" for n in _IN
                 if (activeSeps.indexOf(spec.ind_id) === -1) activeSeps.push(spec.ind_id);
             }}
         }});
-        var panels = ['price', 'volume'].concat(activeSeps);
+        var showVolume = !!st.volumeEnabled;
+        var panels = ['price'];
+        if (showVolume) panels.push('volume');
+        panels = panels.concat(activeSeps);
 
-        // Alturas
+        // Alturas: volumen fijo, precio y separados se reparten el resto
+        // La suma siempre es igual a totalH para no causar scroll
         var heights = {{}};
+        var VOLUME_H = showVolume ? 60 : 0;
         var ns = activeSeps.length;
         if (ns === 0) {{
-            heights.price  = Math.round(totalH * 0.88);
-            heights.volume = totalH - heights.price;
+            heights.price = totalH - VOLUME_H;
+            if (showVolume) heights.volume = VOLUME_H;
         }} else {{
-            heights.price  = Math.round(totalH * 0.52);
-            heights.volume = Math.round(totalH * 0.08);
-            var sepH = Math.floor((totalH - heights.price - heights.volume) / ns);
-            activeSeps.forEach(function(p) {{ heights[p] = Math.max(sepH, 60); }});
+            var sepTotal = Math.round((totalH - VOLUME_H) * 0.42);
+            heights.price = totalH - VOLUME_H - sepTotal;
+            if (showVolume) heights.volume = VOLUME_H;
+            var sepH = Math.floor(sepTotal / ns);
+            var sepRem = sepTotal - sepH * ns;
+            activeSeps.forEach(function(p, i) {{
+                heights[p] = sepH + (i === ns - 1 ? sepRem : 0);
+            }});
         }}
 
         panels.forEach(function(panel, idx) {{
@@ -311,13 +325,15 @@ function(chartData, chartType, freq, logScale, {", ".join(f"en_{n}" for n in _IN
                 data: ohlcv.map(function(b){{return{{time:b.time,value:b.close}};}})}});
         }}
 
-        // Volumen
-        window._lwc.addSeries(window._lwcPanelCharts.volume, {{
-            type:'histogram', panel:'volume',
-            data: ohlcv.map(function(b){{
-                return{{time:b.time, value:b.volume||0, color:b.close>=b.open?'#00b050':'#ef5350'}};
-            }})
-        }});
+        // Volumen (opcional)
+        if (showVolume && window._lwcPanelCharts.volume) {{
+            window._lwc.addSeries(window._lwcPanelCharts.volume, {{
+                type:'histogram', panel:'volume',
+                data: ohlcv.map(function(b){{
+                    return{{time:b.time, value:b.volume||0, color:b.close>=b.open?'#00b050':'#ef5350'}};
+                }})
+            }});
+        }}
 
         // Indicadores activos
         st.indicatorSeries.forEach(function(spec) {{
@@ -364,6 +380,7 @@ function(chartData, chartType, freq, logScale, {", ".join(f"en_{n}" for n in _IN
         indicatorSeries: chartData.indicator_series,
         assetId:         chartData.asset_id,
         enabledMap:      enabledMap,
+        volumeEnabled:   volumeEnabled !== false,
         chartType:       chartType || 'candlestick',
         freq:            freq      || 'D',
         logScale:        logScale  === 'log'
@@ -381,6 +398,7 @@ clientside_callback(
     State("chart-type", "value"),
     State("chart-freq", "value"),
     State("chart-yscale", "value"),
+    State("chart-volume-enabled", "value"),
     *[State(f"chart-ind-{n}-enabled", "value") for n in _IND_IDS],
     prevent_initial_call=True,
 )
@@ -451,5 +469,20 @@ clientside_callback(
     """,
     Output("chart-ind-dummy", "data"),
     *_enabled_inputs,
+    prevent_initial_call=True,
+)
+
+# Toggle de volumen (sin round-trip)
+clientside_callback(
+    """
+    function(volumeEnabled) {
+        if (!window._lwcState || !window._lwc) return null;
+        window._lwcState.volumeEnabled = volumeEnabled !== false;
+        window._lwc.fullRender();
+        return null;
+    }
+    """,
+    Output("chart-volume-dummy", "data"),
+    Input("chart-volume-enabled", "value"),
     prevent_initial_call=True,
 )

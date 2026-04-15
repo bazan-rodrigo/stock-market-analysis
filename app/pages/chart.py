@@ -40,12 +40,28 @@ def _ind_toggle(ind):
        style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
 
 
+def _vol_toggle():
+    return html.Div([
+        dbc.Switch(
+            id="chart-volume-enabled",
+            label="Vol",
+            value=True,
+            style={"fontSize": "0.75rem", "marginBottom": 0},
+        ),
+    ], className="d-flex align-items-center border rounded px-2",
+       style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
+
+
 def layout(**kwargs):
     from flask_login import current_user
     if not current_user.is_authenticated:
         return html.Div()
 
     _radio_sm = {"fontSize": "0.75rem"}
+    _sep = html.Div(style={
+        "width": "1px", "backgroundColor": "#555",
+        "alignSelf": "stretch", "margin": "0 4px",
+    })
 
     return html.Div([
         # ── Fila 1: activo + frecuencia + tipo + escala ────────────────────────
@@ -104,15 +120,14 @@ def layout(**kwargs):
             ),
         ], className="mb-1 g-2 align-items-center flex-wrap"),
 
-        # ── Fila 2: indicadores ────────────────────────────────────────────────
+        # ── Fila 2: volumen + indicadores ──────────────────────────────────────
         html.Div([
+            _vol_toggle(),
+            _sep,
             *[_ind_toggle(ind) for ind in overlay_indicators()],
-            html.Div(style={
-                "width": "1px", "backgroundColor": "#555",
-                "alignSelf": "stretch", "margin": "0 4px",
-            }),
+            _sep,
             *[_ind_toggle(ind) for ind in separate_indicators()],
-        ], className="d-flex flex-wrap align-items-center mb-2", style={"gap": "6px"}),
+        ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
         # ── Stores ─────────────────────────────────────────────────────────────
         dcc.Store(id="chart-data"),
@@ -121,16 +136,23 @@ def layout(**kwargs):
         dcc.Store(id="chart-freq-dummy"),
         dcc.Store(id="chart-scale-dummy"),
         dcc.Store(id="chart-ind-dummy"),
+        dcc.Store(id="chart-volume-dummy"),
 
-        # ── Contenedor del grafico ─────────────────────────────────────────────
-        html.Div(
-            id="lwc-container",
-            style={
-                "height": "calc(100vh - 120px)",
-                "backgroundColor": "#1e1e1e",
-                "padding": "8px",
-                "borderRadius": "4px",
-            },
+        # ── Contenedor del grafico (alto calculado en JS) ──────────────────────
+        dcc.Loading(
+            [
+                html.Div(id="chart-load-output", style={"display": "none"}),
+                html.Div(
+                    id="lwc-container",
+                    style={
+                        "backgroundColor": "#1e1e1e",
+                        "padding": "8px",
+                        "borderRadius": "4px",
+                    },
+                ),
+            ],
+            type="circle",
+            color="#dee2e6",
         ),
     ], style={"padding": "0 8px"})
 
