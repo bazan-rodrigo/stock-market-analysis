@@ -246,8 +246,9 @@
         return null;
     }
 
-    /* ── Exponer namespace para Dash ────────────────────────────────────────── */
-    if (!window.dashLWC) window.dashLWC = {};
-    window.dashLWC.render = render;
+    /* ── Exponer namespace para Dash clientside_callback ───────────────────── */
+    window.dash_clientside = Object.assign({}, window.dash_clientside, {
+        dashLWC: { render: render },
+    });
 
 })();
