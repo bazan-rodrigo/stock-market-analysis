@@ -6,7 +6,7 @@ El render lo ejecuta un clientside_callback en assets/chart.js.
 from datetime import date
 
 import pandas as pd
-from dash import ClientsideFunction, Input, Output, State, callback, clientside_callback, no_update
+from dash import Input, Output, State, callback, clientside_callback, no_update
 
 from app.indicators.base import PANEL_OVERLAY, PANEL_SEPARATE
 from app.indicators.registry import all_indicators, overlay_indicators, separate_indicators
@@ -247,7 +247,13 @@ def update_chart_data(n_clicks, *args):
 
 # ── Clientside callback: render en Lightweight Charts ────────────────────────
 clientside_callback(
-    ClientsideFunction(namespace="dashLWC", function_name="render"),
+    """
+    function(chartData) {
+        if (!chartData) return window.dash_clientside.no_update;
+        if (window._lwcRender) window._lwcRender(chartData);
+        return null;
+    }
+    """,
     Output("chart-render-dummy", "data"),
     Input("chart-data", "data"),
     prevent_initial_call=True,

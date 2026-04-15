@@ -246,9 +246,7 @@
         return null;
     }
 
-    /* ── Exponer namespace para Dash clientside_callback ───────────────────── */
-    window.dash_clientside = Object.assign({}, window.dash_clientside, {
-        dashLWC: { render: render },
-    });
+    /* ── Exponer función para el clientside_callback inline de Dash ─────────── */
+    window._lwcRender = render;
 
 })();
