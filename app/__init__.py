@@ -67,7 +67,7 @@ def create_app():
     _PUBLIC_PATHS = ("/login", "/do-login")
 
     _LOGIN_TEMPLATE = """<!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

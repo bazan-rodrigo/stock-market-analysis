@@ -24,14 +24,14 @@ def _build_asset_form():
         ], className="mb-3"),
         dbc.Row([
             dbc.Col([dbc.Label("Fuente de precios *"), dbc.Select(id="assets-f-price_source_id", options=[])]),
-            dbc.Col([dbc.Label("Moneda *"), dbc.Select(id="assets-f-currency_id", options=[])]),
+            dbc.Col([dbc.Label("Moneda"), dbc.Select(id="assets-f-currency_id", options=[])]),
         ], className="mb-3"),
         dbc.Row([
-            dbc.Col([dbc.Label("País *"), dbc.Select(id="assets-f-country_id", options=[])]),
-            dbc.Col([dbc.Label("Mercado *"), dbc.Select(id="assets-f-market_id", options=[])]),
+            dbc.Col([dbc.Label("País"), dbc.Select(id="assets-f-country_id", options=[])]),
+            dbc.Col([dbc.Label("Mercado"), dbc.Select(id="assets-f-market_id", options=[])]),
         ], className="mb-3"),
         dbc.Row([
-            dbc.Col([dbc.Label("Tipo de instrumento *"), dbc.Select(id="assets-f-instrument_type_id", options=[])]),
+            dbc.Col([dbc.Label("Tipo de instrumento"), dbc.Select(id="assets-f-instrument_type_id", options=[])]),
             dbc.Col([dbc.Label("Sector"), dbc.Select(id="assets-f-sector_id", options=[])]),
         ], className="mb-3"),
         dbc.Row([
