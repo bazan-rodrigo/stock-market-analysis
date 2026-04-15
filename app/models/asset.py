@@ -9,7 +9,7 @@ class Asset(Base):
 
     id = Column(Integer, primary_key=True)
     ticker = Column(String(20), nullable=False, unique=True)
-    name = Column(String(200), nullable=False)
+    name = Column(String(200), nullable=True)
     country_id = Column(
         Integer, ForeignKey("countries.id", ondelete="RESTRICT"), nullable=True
     )

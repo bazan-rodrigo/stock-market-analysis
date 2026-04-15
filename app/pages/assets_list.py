@@ -20,7 +20,7 @@ def _build_asset_form():
     return dbc.Form([
         dbc.Row([
             dbc.Col([dbc.Label("Ticker *"), dbc.Input(id="assets-f-ticker", placeholder="AAPL")]),
-            dbc.Col([dbc.Label("Nombre *"), dbc.Input(id="assets-f-name", placeholder="Apple Inc.")]),
+            dbc.Col([dbc.Label("Nombre"), dbc.Input(id="assets-f-name", placeholder="Apple Inc.")]),
         ], className="mb-3"),
         dbc.Row([
             dbc.Col([dbc.Label("Fuente de precios *"), dbc.Select(id="assets-f-price_source_id", options=[])]),
