@@ -7,7 +7,7 @@ if __name__ == "__main__":
 
     dash_app.run(
         debug=True,
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=8050,
         use_reloader=True,
         # Excluir logs para que los cambios en el archivo de log
