@@ -40,6 +40,9 @@ def create_app():
             dbc.themes.DARKLY,
             dbc.icons.FONT_AWESOME,
         ],
+        external_scripts=[
+            "https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js",
+        ],
         title="Stock Market Analysis",
     )
     server = dash_app.server

@@ -1,39 +1,179 @@
 """
 Callbacks del gráfico técnico.
-Construye un gráfico Plotly con subplots para precio, volumen e indicadores separados.
+Produce un dict JSON con datos de precios e indicadores para Lightweight Charts (TradingView).
+El render lo ejecuta un clientside_callback en assets/chart.js.
 """
 from datetime import date
 
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from dash import Input, Output, State, callback, no_update
+import pandas as pd
+from dash import ClientsideFunction, Input, Output, State, callback, clientside_callback, no_update
 
+from app.indicators.base import PANEL_OVERLAY, PANEL_SEPARATE
 from app.indicators.registry import all_indicators, overlay_indicators, separate_indicators
-from app.indicators.base import PANEL_SEPARATE
 from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df
 
 
-def _sma_filter(value):
-    """Convierte el valor del radio item de SMA en bool o None."""
-    if value == "above":
-        return True
-    if value == "below":
-        return False
-    return None
+# ── Paleta de colores para series ─────────────────────────────────────────────
+_PALETTE = [
+    "#ff9800", "#00bcd4", "#9c27b0", "#f44336", "#4caf50",
+    "#ffeb3b", "#e91e63", "#ff5722", "#00e5ff", "#cddc39",
+]
 
 
-# Carga dinámica de opciones de activos
+def _series_color(name: str, index: int = 0) -> str:
+    if name.startswith("SMA"):       return "#ff9800"
+    if name.startswith("EMA"):       return "#00bcd4"
+    if "Superior" in name:           return "#7e57c2"
+    if "Inferior" in name:           return "#7e57c2"
+    if "Media" in name:              return "#e91e63"
+    if name.startswith("RSI"):       return "#9c27b0"
+    if name == "MACD":               return "#2196f3"
+    if "Señal" in name:              return "#ff5722"
+    if name.startswith("%K"):        return "#ffeb3b"
+    if name.startswith("%D"):        return "#ff9800"
+    if name.startswith("ATR"):       return "#00bcd4"
+    return _PALETTE[index % len(_PALETTE)]
+
+
+def _t(d) -> str:
+    """Convierte datetime.date o string a 'YYYY-MM-DD' para LWC."""
+    return str(d)[:10]
+
+
+def _build_chart_data(df: pd.DataFrame, chart_type: str, yscale: str, indicator_config: dict) -> dict:
+    """
+    Convierte un DataFrame de precios + configuración de indicadores al contrato
+    JSON consumido por window.dashLWC.render en assets/chart.js.
+    """
+    panels = ["price", "volume"]
+    series = []
+
+    # ── Precio ────────────────────────────────────────────────────────────────
+    if chart_type == "candlestick":
+        series.append({
+            "type": "candlestick",
+            "panel": "price",
+            "data": [
+                {
+                    "time": _t(row.date),
+                    "open": row.open, "high": row.high,
+                    "low": row.low,   "close": row.close,
+                }
+                for row in df.itertuples(index=False)
+            ],
+        })
+    else:
+        series.append({
+            "type": "line",
+            "panel": "price",
+            "name": "Precio",
+            "color": "#2196f3",
+            "data": [
+                {"time": _t(row.date), "value": row.close}
+                for row in df.itertuples(index=False)
+            ],
+        })
+
+    # ── Indicadores overlay (sobre precio) ───────────────────────────────────
+    color_idx = 0
+    for cfg in indicator_config.values():
+        if not cfg["enabled"] or cfg["indicator"].PANEL != PANEL_OVERLAY:
+            continue
+        ind = cfg["indicator"]
+        for series_name, s in ind.compute(df, **cfg["params"]).items():
+            series.append({
+                "type": "line",
+                "panel": "price",
+                "name": series_name,
+                "color": _series_color(series_name, color_idx),
+                "data": [
+                    {"time": _t(t), "value": float(v)}
+                    for t, v in zip(df["date"], s) if pd.notna(v)
+                ],
+            })
+            color_idx += 1
+
+    # ── Volumen ───────────────────────────────────────────────────────────────
+    series.append({
+        "type": "histogram",
+        "panel": "volume",
+        "name": "Volumen",
+        "data": [
+            {
+                "time": _t(row.date),
+                "value": float(row.volume or 0),
+                "color": "#00b050" if row.close >= row.open else "#ef5350",
+            }
+            for row in df.itertuples(index=False)
+        ],
+    })
+
+    # ── Indicadores en paneles separados ─────────────────────────────────────
+    for cfg in indicator_config.values():
+        if not cfg["enabled"] or cfg["indicator"].PANEL != PANEL_SEPARATE:
+            continue
+        ind = cfg["indicator"]
+        panel_id = ind.NAME
+        if panel_id not in panels:
+            panels.append(panel_id)
+
+        # Líneas de referencia por indicador
+        ref_lines: dict[str, list] = {}
+        if ind.NAME == "rsi":
+            ref_lines["RSI"] = [
+                {"price": 70, "color": "#ef5350"},
+                {"price": 30, "color": "#4caf50"},
+            ]
+        elif ind.NAME == "stochastic":
+            ref_lines["%K"] = [
+                {"price": 80, "color": "#ef5350"},
+                {"price": 20, "color": "#4caf50"},
+            ]
+
+        for i, (series_name, s) in enumerate(ind.compute(df, **cfg["params"]).items()):
+            is_hist = (ind.NAME == "macd" and "Histograma" in series_name)
+            entry: dict = {
+                "panel": panel_id,
+                "name": series_name,
+                "color": _series_color(series_name, i),
+            }
+            if is_hist:
+                entry["type"] = "histogram"
+                entry["data"] = [
+                    {
+                        "time": _t(t),
+                        "value": float(v) if pd.notna(v) else 0.0,
+                        "color": "#00b050" if (pd.notna(v) and v >= 0) else "#ef5350",
+                    }
+                    for t, v in zip(df["date"], s)
+                ]
+            else:
+                entry["type"] = "line"
+                entry["data"] = [
+                    {"time": _t(t), "value": float(v)}
+                    for t, v in zip(df["date"], s) if pd.notna(v)
+                ]
+                for key, lines in ref_lines.items():
+                    if series_name.startswith(key):
+                        entry["priceLines"] = lines
+                        break
+            series.append(entry)
+
+    return {"panels": panels, "series": series, "log_scale": yscale == "log"}
+
+
+# ── Carga de activos ──────────────────────────────────────────────────────────
 @callback(
     Output("chart-asset-select", "options"),
     Input("chart-asset-select", "id"),
 )
 def load_chart_assets(_):
     assets = get_assets(only_active=True)
-    return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
+    return [{"label": f"{a.ticker} — {a.name or a.ticker}", "value": a.id} for a in assets]
 
 
-# Mostrar/ocultar parámetros cuando se activa un indicador
+# ── Mostrar/ocultar parámetros de indicadores ─────────────────────────────────
 for _ind in all_indicators():
     _ind_id = _ind.NAME
 
@@ -45,11 +185,9 @@ for _ind in all_indicators():
         return {"display": "block"} if enabled else {"display": "none"}
 
 
-# Callback principal: construir el gráfico
-def _build_chart_inputs():
-    inputs = [
-        Input("chart-btn-update", "n_clicks"),
-    ]
+# ── Callback principal: construir JSON para LWC ───────────────────────────────
+def _build_inputs():
+    inputs = [Input("chart-btn-update", "n_clicks")]
     states = [
         State("chart-asset-select", "value"),
         State("chart-date-from", "value"),
@@ -64,24 +202,23 @@ def _build_chart_inputs():
     return inputs, states
 
 
-_chart_inputs, _chart_states = _build_chart_inputs()
+_inputs, _states = _build_inputs()
 
 
 @callback(
-    Output("chart-figure", "figure"),
-    *_chart_inputs,
-    *_chart_states,
+    Output("chart-data", "data"),
+    *_inputs,
+    *_states,
     prevent_initial_call=True,
 )
-def update_chart(n_clicks, *args):
+def update_chart_data(n_clicks, *args):
     idx = 0
-    asset_id = args[idx]; idx += 1
+    asset_id  = args[idx]; idx += 1
     date_from = args[idx]; idx += 1
-    date_to = args[idx]; idx += 1
+    date_to   = args[idx]; idx += 1
     chart_type = args[idx]; idx += 1
-    yscale = args[idx]; idx += 1
+    yscale     = args[idx]; idx += 1
 
-    # Leer enabled + params por indicador
     indicator_config = {}
     for ind in all_indicators():
         enabled = args[idx]; idx += 1
@@ -91,133 +228,27 @@ def update_chart(n_clicks, *args):
         indicator_config[ind.NAME] = {"enabled": bool(enabled), "params": params, "indicator": ind}
 
     if not asset_id:
-        return go.Figure()
+        return no_update
 
     df = get_prices_df(int(asset_id))
     if df.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="Sin datos de precios para este activo.", showarrow=False)
-        return fig
+        return no_update
 
-    # Filtrar por rango de fechas
     if date_from:
         df = df[df["date"] >= date.fromisoformat(date_from)]
     if date_to:
         df = df[df["date"] <= date.fromisoformat(date_to)]
 
     if df.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="Sin datos en el rango seleccionado.", showarrow=False)
-        return fig
+        return no_update
 
-    # Determinar subplots necesarios
-    active_separate = [
-        cfg for cfg in indicator_config.values()
-        if cfg["enabled"] and cfg["indicator"].PANEL == PANEL_SEPARATE
-    ]
-    n_subplots = 2 + len(active_separate)  # precio + volumen + indicadores separados
-    row_heights = [0.5, 0.1] + [0.4 / max(len(active_separate), 1)] * len(active_separate)
+    return _build_chart_data(df, chart_type, yscale, indicator_config)
 
-    subplot_titles = ["Precio", "Volumen"] + [
-        cfg["indicator"].LABEL for cfg in active_separate
-    ]
 
-    fig = make_subplots(
-        rows=n_subplots,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        row_heights=row_heights,
-        subplot_titles=subplot_titles,
-    )
-
-    # --- Precio ---
-    if chart_type == "candlestick":
-        fig.add_trace(
-            go.Candlestick(
-                x=df["date"],
-                open=df["open"],
-                high=df["high"],
-                low=df["low"],
-                close=df["close"],
-                name="Precio",
-                increasing_line_color="#00b050",
-                decreasing_line_color="#ff0000",
-            ),
-            row=1, col=1,
-        )
-    else:
-        fig.add_trace(
-            go.Scatter(x=df["date"], y=df["close"], name="Precio", line=dict(color="#2196F3")),
-            row=1, col=1,
-        )
-
-    # --- Indicadores sobre precio ---
-    for cfg in indicator_config.values():
-        if not cfg["enabled"] or cfg["indicator"].PANEL != "overlay":
-            continue
-        ind = cfg["indicator"]
-        series_dict = ind.compute(df, **cfg["params"])
-        for series_name, series in series_dict.items():
-            fig.add_trace(
-                go.Scatter(x=df["date"], y=series, name=series_name, line=dict(width=1.5)),
-                row=1, col=1,
-            )
-
-    # --- Volumen ---
-    colors = ["#00b050" if c >= o else "#ff0000" for c, o in zip(df["close"], df["open"])]
-    fig.add_trace(
-        go.Bar(x=df["date"], y=df["volume"], name="Volumen", marker_color=colors, showlegend=False),
-        row=2, col=1,
-    )
-
-    # --- Indicadores en paneles separados ---
-    for i, cfg in enumerate(active_separate):
-        row_idx = 3 + i
-        ind = cfg["indicator"]
-        series_dict = ind.compute(df, **cfg["params"])
-
-        if ind.NAME == "macd":
-            # MACD tiene histograma como barras
-            for series_name, series in series_dict.items():
-                if "Histograma" in series_name:
-                    bar_colors = ["#00b050" if v >= 0 else "#ff0000" for v in series.fillna(0)]
-                    fig.add_trace(
-                        go.Bar(x=df["date"], y=series, name=series_name, marker_color=bar_colors),
-                        row=row_idx, col=1,
-                    )
-                else:
-                    fig.add_trace(
-                        go.Scatter(x=df["date"], y=series, name=series_name, line=dict(width=1.5)),
-                        row=row_idx, col=1,
-                    )
-        elif ind.NAME == "rsi":
-            for series_name, series in series_dict.items():
-                fig.add_trace(
-                    go.Scatter(x=df["date"], y=series, name=series_name, line=dict(width=1.5)),
-                    row=row_idx, col=1,
-                )
-            # Líneas de referencia 30 y 70
-            fig.add_hline(y=70, line_dash="dot", line_color="red", row=row_idx, col=1)
-            fig.add_hline(y=30, line_dash="dot", line_color="green", row=row_idx, col=1)
-        else:
-            for series_name, series in series_dict.items():
-                fig.add_trace(
-                    go.Scatter(x=df["date"], y=series, name=series_name, line=dict(width=1.5)),
-                    row=row_idx, col=1,
-                )
-
-    fig.update_layout(
-        height=700,
-        xaxis_rangeslider_visible=False,
-        template="plotly_dark",
-        legend=dict(orientation="h", y=-0.05),
-        margin=dict(l=40, r=20, t=40, b=40),
-        paper_bgcolor="#1e1e1e",
-        plot_bgcolor="#1e1e1e",
-    )
-    fig.update_xaxes(showgrid=True, gridcolor="#333")
-    fig.update_yaxes(showgrid=True, gridcolor="#333")
-    fig.update_yaxes(type=yscale, row=1, col=1)
-
-    return fig
+# ── Clientside callback: render en Lightweight Charts ────────────────────────
+clientside_callback(
+    ClientsideFunction(namespace="dashLWC", function_name="render"),
+    Output("chart-render-dummy", "data"),
+    Input("chart-data", "data"),
+    prevent_initial_call=True,
+)

@@ -70,6 +70,7 @@ def layout(**kwargs):
     _hr = {"margin": "6px 0"}
 
     return dbc.Row([
+        # ── Sidebar de controles ───────────────────────────────────────────────
         dbc.Col(id="chart-controls", style={"fontSize": "0.75rem"}, children=[
             html.Span("Activo", style=_label),
             dbc.Select(id="chart-asset-select", options=[], placeholder="Seleccioná un activo",
@@ -112,8 +113,15 @@ def layout(**kwargs):
             html.Span("Indicadores en paneles separados", style=_label),
             *_build_separate_controls(),
         ], md=3, className="border-end pe-3"),
+
+        # ── Área del gráfico ───────────────────────────────────────────────────
         dbc.Col([
-            dcc.Graph(id="chart-figure", style={"height": "80vh"}),
+            dcc.Store(id="chart-data"),
+            dcc.Store(id="chart-render-dummy"),
+            html.Div(
+                id="lwc-container",
+                style={"height": "80vh", "backgroundColor": "#1e1e1e"},
+            ),
         ], md=9),
     ], className="g-0")
 
