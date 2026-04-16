@@ -185,6 +185,17 @@ h6 { font-size: 0.85rem !important; }
 }
 .Select .Select-clear-zone { color: #aaa !important; }
 
+/* ── Input de fecha nativo (type="date") ─────────────────────────────────── */
+input[type="date"] {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #555 !important;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+    cursor: pointer;
+}
+
 /* ── Multi-select tags (dcc.Dropdown multi=True) ─────────────────────────── */
 .Select-multi-value-wrapper {
     background-color: transparent !important;

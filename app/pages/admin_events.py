@@ -39,23 +39,11 @@ _FORM = [
     dbc.Row([
         dbc.Col([
             dbc.Label("Fecha inicio"),
-            dcc.DatePickerSingle(
-                id="events-f-start_date",
-                display_format="DD/MM/YYYY",
-                placeholder="DD/MM/AAAA",
-                clearable=True,
-                style={"width": "100%"},
-            ),
+            dbc.Input(id="events-f-start_date", type="date"),
         ]),
         dbc.Col([
             dbc.Label("Fecha fin"),
-            dcc.DatePickerSingle(
-                id="events-f-end_date",
-                display_format="DD/MM/YYYY",
-                placeholder="DD/MM/AAAA",
-                clearable=True,
-                style={"width": "100%"},
-            ),
+            dbc.Input(id="events-f-end_date", type="date"),
         ]),
     ], className="mb-2"),
     dbc.Row([

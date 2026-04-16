@@ -98,8 +98,8 @@ def toggle_buttons(sel_rows):
     Output("events-modal",       "is_open"),
     Output("events-modal-title", "children"),
     Output("events-f-name",       "value"),
-    Output("events-f-start_date", "date"),
-    Output("events-f-end_date",   "date"),
+    Output("events-f-start_date", "value"),
+    Output("events-f-end_date",   "value"),
     Output("events-f-scope",      "value"),
     Output("events-f-color",      "value"),
     Output("events-f-country_id", "value"),
@@ -124,7 +124,7 @@ def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
         return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     if trigger == "events-btn-add":
-        return True, "Nuevo evento", "", None, None, "global", "#ff9800", None, None, None
+        return True, "Nuevo evento", "", "", "", "global", "#ff9800", None, None, None
 
     if trigger == "events-btn-edit" and sel_rows:
         row = data[sel_rows[0]]
@@ -156,8 +156,8 @@ def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
     Input("events-btn-save", "n_clicks"),
     State("events-editing-id",   "data"),
     State("events-f-name",        "value"),
-    State("events-f-start_date",  "date"),
-    State("events-f-end_date",    "date"),
+    State("events-f-start_date",  "value"),
+    State("events-f-end_date",    "value"),
     State("events-f-scope",       "value"),
     State("events-f-color",       "value"),
     State("events-f-country_id",  "value"),
