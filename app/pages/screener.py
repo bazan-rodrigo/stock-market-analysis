@@ -70,6 +70,10 @@ def layout(**kwargs):
                                style={"fontSize": "0.75rem"}),
                 dbc.Button("Aplicar filtros", id="scr-btn-apply", color="primary",
                            className="mt-2 w-100", size="sm"),
+                dbc.Button("Recalcular snapshots", id="scr-btn-recompute", color="secondary",
+                           className="mt-1 w-100", size="sm"),
+                html.Small(id="scr-recompute-status", className="text-muted d-block mt-1",
+                           style={"fontSize": "0.7rem"}),
             ], md=3, className="border-end pe-3"),
             dbc.Col([
                 html.Div([

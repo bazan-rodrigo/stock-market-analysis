@@ -1,4 +1,5 @@
 from dash import Input, Output, State, callback, no_update
+from datetime import datetime
 
 import app.services.reference_service as ref_svc
 import app.services.screener_service as scr_svc
@@ -71,6 +72,19 @@ def apply_screener(
     )
     count_label = f"{len(rows)} resultado{'s' if len(rows) != 1 else ''}"
     return rows, count_label
+
+
+@callback(
+    Output("scr-recompute-status", "children"),
+    Input("scr-btn-recompute", "n_clicks"),
+    prevent_initial_call=True,
+)
+def recompute_snapshots(_):
+    try:
+        scr_svc.recompute_all_snapshots()
+        return f"Recalculado a las {datetime.now().strftime('%H:%M:%S')}"
+    except Exception as e:
+        return f"Error: {e}"
 
 
 @callback(
