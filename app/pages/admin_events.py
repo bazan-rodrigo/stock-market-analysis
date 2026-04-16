@@ -30,6 +30,8 @@ _COLUMNS = [
 ]
 
 _FORM = [
+    dbc.Alert(id="events-modal-alert", is_open=False, dismissable=True,
+              color="warning", className="py-2 mb-2"),
     dbc.Row([
         dbc.Col([
             dbc.Label("Nombre"),

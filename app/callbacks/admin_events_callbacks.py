@@ -147,12 +147,20 @@ def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
 
 
 # ── Guardar ──────────────────────────────────────────────────────────────────
+def _modal_error(msg):
+    """Error dentro del modal: mantiene modal abierto, muestra alert interno."""
+    return no_update, no_update, no_update, no_update, msg, "warning", True, no_update
+
+
 @callback(
-    Output("events-table",  "data",    allow_duplicate=True),
-    Output("events-alert",  "children"),
-    Output("events-alert",  "color"),
-    Output("events-alert",  "is_open"),
-    Output("events-modal",  "is_open", allow_duplicate=True),
+    Output("events-table",        "data",     allow_duplicate=True),
+    Output("events-alert",        "children"),
+    Output("events-alert",        "color"),
+    Output("events-alert",        "is_open"),
+    Output("events-modal-alert",  "children"),
+    Output("events-modal-alert",  "color"),
+    Output("events-modal-alert",  "is_open"),
+    Output("events-modal",        "is_open",  allow_duplicate=True),
     Input("events-btn-save", "n_clicks"),
     State("events-editing-id",   "data"),
     State("events-f-name",        "value"),
@@ -166,20 +174,21 @@ def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
 )
 def save_event(n_save, editing_id, name, start_date, end_date, scope, color, country_id, asset_id):
     if not n_save:
-        return no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
     if _require_admin():
-        return no_update, "Sin permisos.", "danger", True, no_update
+        return _modal_error("Sin permisos de administrador.")
     if not name or not start_date or not end_date or not scope:
-        return no_update, "Completá nombre, fechas y alcance.", "warning", True, no_update
+        return _modal_error("Completá nombre, fechas y alcance.")
     try:
         start = date.fromisoformat(start_date[:10])
         end   = date.fromisoformat(end_date[:10])
         if end <= start:
-            return no_update, "La fecha de fin debe ser mayor a la de inicio.", "warning", True, no_update
+            return _modal_error("La fecha de fin debe ser mayor a la de inicio.")
         svc.save_event(editing_id, name, start, end, scope, country_id, asset_id, color)
-        return load_events(None), "Guardado correctamente.", "success", True, False
+        # Éxito: cerrar modal, limpiar alert interno, mostrar confirmación en página
+        return load_events(None), "Guardado correctamente.", "success", True, "", "warning", False, False
     except Exception as e:
-        return no_update, f"Error: {e}", "danger", True, no_update
+        return _modal_error(f"Error al guardar: {e}")
 
 
 # ── Modal confirmación eliminar ───────────────────────────────────────────────
