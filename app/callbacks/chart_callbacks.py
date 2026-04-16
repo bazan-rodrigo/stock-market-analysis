@@ -703,6 +703,7 @@ clientside_callback(
 )
 clientside_callback(
     """function(enabled) {
+        if (window._lwcState) window._lwcState.eventsEnabled = enabled !== false;
         var els = document.querySelectorAll('.lwc-ev');
         els.forEach(function(el) { el.style.display = enabled === false ? 'none' : ''; });
         return null;
