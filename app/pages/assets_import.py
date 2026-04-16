@@ -34,7 +34,14 @@ def layout(**kwargs):
                 ),
                 html.Div(id="import-filename", className="text-muted mt-1 small"),
                 dbc.Alert(id="import-alert", is_open=False, dismissable=True, className="mt-2"),
-                dbc.Button("Importar", id="import-btn-run", color="success", size="sm", disabled=True, className="mt-2"),
+                dcc.Loading(
+                    html.Div([
+                        dbc.Button("Importar", id="import-btn-run", color="success", size="sm",
+                                   disabled=True, className="mt-2"),
+                        html.Span(id="import-running-msg", className="ms-2 text-muted small"),
+                    ], className="d-flex align-items-center"),
+                    type="circle", color="#dee2e6",
+                ),
                 dcc.Store(id="import-file-store"),
             ])), md=8),
         ], className="mb-4"),

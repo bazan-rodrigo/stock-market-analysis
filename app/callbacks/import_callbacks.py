@@ -50,29 +50,29 @@ def store_uploaded_file(contents, filename):
 
 
 @callback(
-    Output("import-log-table", "data", allow_duplicate=True),
-    Output("import-alert", "children"),
-    Output("import-alert", "is_open"),
-    Output("import-alert", "color"),
+    Output("import-log-table",   "data", allow_duplicate=True),
+    Output("import-alert",       "children"),
+    Output("import-alert",       "is_open"),
+    Output("import-alert",       "color"),
+    Output("import-running-msg", "children"),
     Input("import-btn-run", "n_clicks"),
     State("import-file-store", "data"),
     prevent_initial_call=True,
 )
 def run_import(_, file_data):
     if not file_data:
-        return no_update, "No hay archivo cargado.", True, "warning"
+        return no_update, "No hay archivo cargado.", True, "warning", ""
     try:
-        # Decodificar el contenido base64 de dcc.Upload
         _header, encoded = file_data.split(",", 1)
         file_bytes = base64.b64decode(encoded)
         results = svc.import_from_excel(file_bytes)
         imported = sum(1 for r in results if r["status"] == "imported")
-        skipped = sum(1 for r in results if r["status"] == "skipped")
-        errors = sum(1 for r in results if r["status"] == "error")
+        skipped  = sum(1 for r in results if r["status"] == "skipped")
+        errors   = sum(1 for r in results if r["status"] == "error")
         msg = f"Procesados {len(results)}: {imported} importados, {skipped} omitidos, {errors} con error."
-        return _logs_to_rows(svc.get_import_logs()), msg, True, "info"
+        return _logs_to_rows(svc.get_import_logs()), msg, True, "info", ""
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, str(exc), True, "danger", ""
 
 
 @callback(

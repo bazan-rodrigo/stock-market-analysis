@@ -17,6 +17,7 @@ import pandas as pd
 
 from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df
+import app.services.event_service as event_svc
 
 
 # ─── Configuración de slots ───────────────────────────────────────────────────
@@ -126,7 +127,15 @@ def load_chart_data(asset_id, current_data):
          "low": row.low,  "close": row.close, "volume": float(row.volume or 0)}
         for row in df.itertuples(index=False)
     ]
-    return {"raw_daily": raw_daily, "asset_id": int(asset_id)}, ""
+
+    # Cargar eventos relevantes para el activo
+    from app.database import get_session
+    from app.models import Asset
+    asset = get_session().query(Asset).filter(Asset.id == int(asset_id)).first()
+    country_id = asset.country_id if asset else None
+    events = event_svc.get_events_for_asset(int(asset_id), country_id)
+
+    return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events}, ""
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
@@ -237,6 +246,56 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
     return window._lwc.emaW(tr, n);
   }};
 
+  /* ── Overlays de eventos de mercado ── */
+
+  window._lwc.drawEventOverlays = function(charts, panelDivs, events) {{
+    /* Limpiar overlays previos en todos los paneles */
+    panelDivs.forEach(function(div) {{
+      div.querySelectorAll('.lwc-ev').forEach(function(el) {{ el.remove(); }});
+    }});
+    if (!events || !events.length || !charts.length) return;
+
+    var refChart = charts[0];
+
+    function reposition() {{
+      events.forEach(function(ev) {{
+        panelDivs.forEach(function(div) {{
+          var el = div.querySelector('[data-ev="' + ev.id + '"]');
+          if (!el) return;
+          var x1 = refChart.timeScale().timeToCoordinate(ev.start);
+          var x2 = refChart.timeScale().timeToCoordinate(ev.end);
+          /* Si ambas fechas están fuera del rango visible, ocultar */
+          if (x1 === null && x2 === null) {{ el.style.display = 'none'; return; }}
+          el.style.display = '';
+          if (x1 === null) x1 = 0;
+          if (x2 === null) x2 = div.clientWidth;
+          var left  = Math.min(x1, x2);
+          var width = Math.max(Math.abs(x2 - x1), 2);
+          el.style.left  = left + 'px';
+          el.style.width = width + 'px';
+        }});
+      }});
+    }}
+
+    /* Crear overlay div en cada panel */
+    events.forEach(function(ev) {{
+      panelDivs.forEach(function(div) {{
+        var el = document.createElement('div');
+        el.className = 'lwc-ev';
+        el.setAttribute('data-ev', String(ev.id));
+        el.title = ev.name + '  ' + ev.start + ' – ' + ev.end;
+        el.style.cssText = 'position:absolute;top:0;height:100%;pointer-events:none;z-index:2;opacity:0.13;';
+        el.style.backgroundColor = ev.color || '#ff9800';
+        div.appendChild(el);
+      }});
+    }});
+
+    reposition();
+    /* Re-posicionar al hacer pan/zoom */
+    refChart.timeScale().subscribeVisibleTimeRangeChange(reposition);
+    refChart.timeScale().subscribeVisibleLogicalRangeChange(reposition);
+  }};
+
   /* ── Funciones de render ── */
 
   window._lwc.resample = function(daily, freq) {{
@@ -305,7 +364,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
 
     if (window._lwcCharts) window._lwcCharts.forEach(function(c) {{ try {{ c.remove(); }} catch(e) {{}} }});
     if (window._lwcResizeObs) window._lwcResizeObs.disconnect();
-    window._lwcCharts = []; window._lwcPanelCharts = {{}};
+    window._lwcCharts = []; window._lwcPanelCharts = {{}}; window._lwcPanelDivs = {{}};
     container.innerHTML = '';
 
     var ohlcv  = window._lwc.resample(st.rawDaily, st.freq);
@@ -370,6 +429,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
         handleScroll: true, handleScale: true,
       }});
       window._lwcPanelCharts[panel] = chart;
+      window._lwcPanelDivs[panel]   = div;
       window._lwcCharts.push(chart);
       /* Handle de resize (excepto después del último) */
       if (!isLast) {{
@@ -503,6 +563,13 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
       window._lwc.addSeries(window._lwcPanelCharts.atr, {{type:'line', name:'ATR', color:'#00bcd4', lineWidth:1.5, data: toData(atrVals)}});
     }}
 
+    /* Overlays de eventos en todos los paneles */
+    var evts = st.events || [];
+    if (evts.length) {{
+      var allDivs = panels.map(function(p) {{ return window._lwcPanelDivs[p]; }}).filter(Boolean);
+      window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts);
+    }}
+
     /* Sync timescales */
     if (window._lwcCharts.length > 1) {{
       window._lwcCharts.forEach(function(src, i) {{
@@ -536,6 +603,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
   window._lwcState = {{
     rawDaily:      chartData.raw_daily,
     assetId:       chartData.asset_id,
+    events:        chartData.events || [],
     indParams:     indParams,
     volumeEnabled: volumeEnabled !== false,
     chartType:     chartType  || 'candlestick',

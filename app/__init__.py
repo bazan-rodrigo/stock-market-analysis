@@ -195,13 +195,14 @@ def create_app():
     # -----------------------------------------------------------------
     # 8. Registrar callbacks
     # -----------------------------------------------------------------
-    import app.callbacks.reference_callbacks  # noqa: F401
-    import app.callbacks.asset_callbacks      # noqa: F401
-    import app.callbacks.import_callbacks     # noqa: F401
-    import app.callbacks.price_callbacks      # noqa: F401
-    import app.callbacks.chart_callbacks      # noqa: F401
+    import app.callbacks.reference_callbacks      # noqa: F401
+    import app.callbacks.asset_callbacks          # noqa: F401
+    import app.callbacks.import_callbacks         # noqa: F401
+    import app.callbacks.price_callbacks          # noqa: F401
+    import app.callbacks.chart_callbacks          # noqa: F401
     import app.callbacks.screener_callbacks       # noqa: F401
     import app.callbacks.price_viewer_callbacks   # noqa: F401
+    import app.callbacks.admin_events_callbacks   # noqa: F401
 
     # -----------------------------------------------------------------
     # 9. Layout principal

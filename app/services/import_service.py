@@ -155,19 +155,24 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
             detail = str(exc)
             logger.warning("Import error para ticker %s: %s", ticker, exc)
 
-        # Upsert en import_log
-        log = s.query(ImportLog).filter(ImportLog.ticker == ticker).first()
-        if log is None:
-            log = ImportLog(ticker=ticker, status=status, detail=detail)
-            s.add(log)
-        else:
-            log.status = status
-            log.detail = detail
-            log.attempted_at = datetime.utcnow()
+        # Upsert en import_log y commit por ticker para que los errores
+        # de un ticker no anulen los logs de los anteriores.
+        try:
+            log = s.query(ImportLog).filter(ImportLog.ticker == ticker).first()
+            if log is None:
+                log = ImportLog(ticker=ticker, status=status, detail=detail)
+                s.add(log)
+            else:
+                log.status = status
+                log.detail = detail
+                log.attempted_at = datetime.utcnow()
+            s.commit()
+        except Exception as log_exc:
+            s.rollback()
+            logger.warning("Error guardando log para %s: %s", ticker, log_exc)
 
         results.append({"ticker": ticker, "status": status, "detail": detail})
 
-    s.commit()
     return results
 
 

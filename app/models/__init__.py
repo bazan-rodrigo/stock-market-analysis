@@ -8,6 +8,7 @@ from app.models.market import Market
 from app.models.price import Price
 from app.models.price_source import PriceSource
 from app.models.price_update_log import PriceUpdateLog
+from app.models.market_event import MarketEvent
 from app.models.screener_snapshot import ScreenerSnapshot
 from app.models.sector import Sector
 from app.models.user import User
@@ -26,4 +27,5 @@ __all__ = [
     "PriceUpdateLog",
     "ImportLog",
     "ScreenerSnapshot",
+    "MarketEvent",
 ]
