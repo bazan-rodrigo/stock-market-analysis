@@ -302,9 +302,9 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
       }});
     }});
 
-    reposition();
+    /* Posicionamiento inicial: pequeño delay para que el layout de LWC esté listo */
+    setTimeout(reposition, 0);
     /* Re-posicionar al hacer pan/zoom */
-    refChart.timeScale().subscribeVisibleTimeRangeChange(reposition);
     refChart.timeScale().subscribeVisibleLogicalRangeChange(reposition);
   }};
 
@@ -575,13 +575,6 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
       window._lwc.addSeries(window._lwcPanelCharts.atr, {{type:'line', name:'ATR', color:'#00bcd4', lineWidth:1.5, data: toData(atrVals)}});
     }}
 
-    /* Overlays de eventos en todos los paneles */
-    var evts = st.events || [];
-    if (evts.length && st.eventsEnabled !== false) {{
-      var allDivs = panels.map(function(p) {{ return window._lwcPanelDivs[p]; }}).filter(Boolean);
-      window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts);
-    }}
-
     /* Sync timescales */
     if (window._lwcCharts.length > 1) {{
       window._lwcCharts.forEach(function(src, i) {{
@@ -598,6 +591,16 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
       window._lwcCharts.forEach(function(c) {{ c.timeScale().setVisibleLogicalRange(savedRange); }});
     }} else {{
       window._lwcCharts.forEach(function(c) {{ c.timeScale().fitContent(); }});
+    }}
+
+    /* Overlays de eventos: se dibujan DESPUÉS de fitContent con setTimeout
+       para que timeToCoordinate tenga el rango correcto */
+    var evts = st.events || [];
+    if (evts.length && st.eventsEnabled !== false) {{
+      var allDivs = panels.map(function(p) {{ return window._lwcPanelDivs[p]; }}).filter(Boolean);
+      setTimeout(function() {{
+        window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts);
+      }}, 50);
     }}
 
     if (window.ResizeObserver) {{
