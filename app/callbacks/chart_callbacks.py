@@ -248,29 +248,43 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
 
   /* ── Overlays de eventos de mercado ── */
 
-  window._lwc.drawEventOverlays = function(charts, panelDivs, events) {{
+  window._lwc.drawEventOverlays = function(charts, panelDivs, events, times) {{
     /* Limpiar overlays previos en todos los paneles */
     panelDivs.forEach(function(div) {{
       div.querySelectorAll('.lwc-ev').forEach(function(el) {{ el.remove(); }});
     }});
-    if (!events || !events.length || !charts.length) return;
+    if (!events || !events.length || !charts.length || !times || !times.length) return;
 
     var refChart = charts[0];
 
+    /* Índice del primer bar >= dateStr (búsqueda binaria en times[]) */
+    function barIndex(dateStr) {{
+      var lo = 0, hi = times.length - 1;
+      while (lo <= hi) {{
+        var mid = (lo + hi) >> 1;
+        if (times[mid] < dateStr) lo = mid + 1;
+        else if (times[mid] > dateStr) hi = mid - 1;
+        else return mid;
+      }}
+      return lo; /* primer bar DESPUÉS de dateStr si no existe exacto */
+    }}
+
     function reposition() {{
+      var vr = refChart.timeScale().getVisibleLogicalRange();
+      if (!vr) return;
+      var fromIdx = vr.from, toIdx = vr.to, span = toIdx - fromIdx;
+      if (span <= 0) return;
+
       events.forEach(function(ev) {{
+        var i1 = barIndex(ev.start);
+        var i2 = barIndex(ev.end);
         panelDivs.forEach(function(div) {{
           var el = div.querySelector('[data-ev="' + ev.id + '"]');
           if (!el) return;
           var W  = div.clientWidth;
-          var x1 = refChart.timeScale().timeToCoordinate(ev.start);
-          var x2 = refChart.timeScale().timeToCoordinate(ev.end);
-          /* null = fecha fuera del rango de datos: tratar como borde */
-          if (x1 === null) x1 = -1;
-          if (x2 === null) x2 = W + 1;
-          /* Si el evento está completamente fuera del área visible, ocultar */
+          var x1 = (i1 - fromIdx) / span * W;
+          var x2 = (i2 - fromIdx) / span * W;
           if (x1 >= W || x2 <= 0) {{ el.style.display = 'none'; return; }}
-          /* Clampear al área visible */
           var left  = Math.max(0, x1);
           var right = Math.min(W, x2);
           if (right <= left) {{ el.style.display = 'none'; return; }}
@@ -593,14 +607,13 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
       window._lwcCharts.forEach(function(c) {{ c.timeScale().fitContent(); }});
     }}
 
-    /* Overlays de eventos: se dibujan DESPUÉS de fitContent con setTimeout
-       para que timeToCoordinate tenga el rango correcto */
+    /* Overlays de eventos usando índices de barra (no timeToCoordinate) */
     var evts = st.events || [];
     if (evts.length && st.eventsEnabled !== false) {{
       var allDivs = panels.map(function(p) {{ return window._lwcPanelDivs[p]; }}).filter(Boolean);
       setTimeout(function() {{
-        window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts);
-      }}, 50);
+        window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts, times);
+      }}, 0);
     }}
 
     if (window.ResizeObserver) {{
