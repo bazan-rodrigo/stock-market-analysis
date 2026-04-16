@@ -158,6 +158,14 @@ def layout(**kwargs):
                 html.Span("Drawdown", style={"fontSize": "0.72rem", "color": "#ef5350"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            _sep(),
+            # Eventos de mercado
+            html.Div([
+                dbc.Switch(id="chart-events-enabled", value=True,
+                           style={"marginBottom": 0}),
+                html.Span("Eventos", style={"fontSize": "0.72rem", "color": "#ff9800"}),
+            ], className="d-flex align-items-center border rounded px-2",
+               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
         # ── Stores ─────────────────────────────────────────────────────────────
@@ -168,6 +176,7 @@ def layout(**kwargs):
         dcc.Store(id="chart-scale-dummy"),
         dcc.Store(id="chart-ind-dummy"),
         dcc.Store(id="chart-volume-dummy"),
+        dcc.Store(id="chart-events-dummy"),
 
         # ── Contenedor del gráfico ─────────────────────────────────────────────
         dcc.Loading(

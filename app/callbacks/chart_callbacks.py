@@ -140,7 +140,7 @@ def load_chart_data(asset_id, current_data):
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -281,15 +281,23 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
       }});
     }}
 
-    /* Crear overlay div en cada panel */
+    /* Crear overlay div en cada panel (etiqueta solo en panel de precio) */
     events.forEach(function(ev) {{
-      panelDivs.forEach(function(div) {{
+      panelDivs.forEach(function(div, di) {{
         var el = document.createElement('div');
         el.className = 'lwc-ev';
         el.setAttribute('data-ev', String(ev.id));
-        el.title = ev.name + '  ' + ev.start + ' – ' + ev.end;
-        el.style.cssText = 'position:absolute;top:0;height:100%;pointer-events:none;z-index:2;opacity:0.13;';
+        el.title = ev.name + '  (' + ev.start + ' – ' + ev.end + ')';
+        el.style.cssText = 'position:absolute;top:0;height:100%;pointer-events:none;z-index:2;opacity:0.13;overflow:hidden;';
         el.style.backgroundColor = ev.color || '#ff9800';
+        /* Etiqueta de nombre solo en el primer panel (precio) */
+        if (di === 0) {{
+          var lbl = document.createElement('span');
+          lbl.textContent = ev.name;
+          lbl.style.cssText = 'position:absolute;top:4px;left:4px;font-size:10px;color:#fff;'
+            + 'text-shadow:0 1px 2px rgba(0,0,0,0.8);white-space:nowrap;pointer-events:none;opacity:0.85;';
+          el.appendChild(lbl);
+        }}
         div.appendChild(el);
       }});
     }});
@@ -569,7 +577,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
 
     /* Overlays de eventos en todos los paneles */
     var evts = st.events || [];
-    if (evts.length) {{
+    if (evts.length && st.eventsEnabled !== false) {{
       var allDivs = panels.map(function(p) {{ return window._lwcPanelDivs[p]; }}).filter(Boolean);
       window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts);
     }}
@@ -605,14 +613,15 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
   var indParams = {_js_ind_params()};
 
   window._lwcState = {{
-    rawDaily:      chartData.raw_daily,
-    assetId:       chartData.asset_id,
-    events:        chartData.events || [],
-    indParams:     indParams,
-    volumeEnabled: volumeEnabled !== false,
-    chartType:     chartType  || 'candlestick',
-    freq:          freq       || 'D',
-    logScale:      logScale   === 'log',
+    rawDaily:       chartData.raw_daily,
+    assetId:        chartData.asset_id,
+    events:         chartData.events || [],
+    eventsEnabled:  eventsEnabled !== false,
+    indParams:      indParams,
+    volumeEnabled:  volumeEnabled !== false,
+    chartType:      chartType  || 'candlestick',
+    freq:           freq       || 'D',
+    logScale:       logScale   === 'log',
   }};
   window._lwc.fullRender();
   return null;
@@ -638,6 +647,7 @@ clientside_callback(
     State("chart-freq", "value"),
     State("chart-yscale", "value"),
     State("chart-volume-enabled", "value"),
+    State("chart-events-enabled", "value"),
     *_state_list(State),
     prevent_initial_call=True,
 )
@@ -673,5 +683,15 @@ clientside_callback(
     "function(v){if(!window._lwcState||!window._lwc)return null;window._lwcState.volumeEnabled=v!==false;window._lwc.fullRender();return null;}",
     Output("chart-volume-dummy", "data"),
     Input("chart-volume-enabled", "value"),
+    prevent_initial_call=True,
+)
+clientside_callback(
+    """function(enabled) {
+        var els = document.querySelectorAll('.lwc-ev');
+        els.forEach(function(el) { el.style.display = enabled === false ? 'none' : ''; });
+        return null;
+    }""",
+    Output("chart-events-dummy", "data"),
+    Input("chart-events-enabled", "value"),
     prevent_initial_call=True,
 )
