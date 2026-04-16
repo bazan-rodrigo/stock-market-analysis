@@ -76,6 +76,7 @@ h6 { font-size: 0.85rem !important; }
 .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover td {
     background-color: #2a2a2a !important;
 }
+.dash-filter,
 .dash-filter input {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
@@ -183,3 +184,24 @@ h6 { font-size: 0.85rem !important; }
     border-top-color: #aaa !important;
 }
 .Select .Select-clear-zone { color: #aaa !important; }
+
+/* ── Multi-select tags (dcc.Dropdown multi=True) ─────────────────────────── */
+.Select-multi-value-wrapper {
+    background-color: transparent !important;
+}
+.Select-value {
+    background-color: #3a3a3a !important;
+    border-color: #555 !important;
+    color: #dee2e6 !important;
+}
+.Select-value-label {
+    color: #dee2e6 !important;
+}
+.Select-value-icon {
+    border-color: #555 !important;
+    color: #aaa !important;
+}
+.Select-value-icon:hover {
+    background-color: #ef5350 !important;
+    color: #fff !important;
+}
