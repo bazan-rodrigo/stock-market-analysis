@@ -31,44 +31,19 @@ def load_screener_filter_options(_):
 @callback(
     Output("scr-table", "data"),
     Output("scr-result-count", "children"),
-    Input("scr-btn-apply", "n_clicks"),
-    Input("scr-table", "id"),
-    State("scr-filter-country", "value"),
-    State("scr-filter-market", "value"),
-    State("scr-filter-itype", "value"),
-    State("scr-filter-sector", "value"),
-    State("scr-filter-industry", "value"),
-    State("scr-filter-rsi", "value"),
-    State("scr-filter-sma20", "value"),
-    State("scr-filter-sma50", "value"),
-    State("scr-filter-sma200", "value"),
+    Input("scr-filter-country", "value"),
+    Input("scr-filter-market", "value"),
+    Input("scr-filter-itype", "value"),
+    Input("scr-filter-sector", "value"),
+    Input("scr-filter-industry", "value"),
 )
-def apply_screener(
-    n_clicks, _id,
-    country_ids, market_ids, itype_ids, sector_ids, industry_ids,
-    rsi_range, sma20_val, sma50_val, sma200_val,
-):
-    def sma_filter(v):
-        if v == "above":
-            return True
-        if v == "below":
-            return False
-        return None
-
-    rsi_min = rsi_range[0] if rsi_range else None
-    rsi_max = rsi_range[1] if rsi_range else None
-
+def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids):
     rows = scr_svc.get_screener_data(
         country_ids=country_ids or None,
         market_ids=market_ids or None,
         instrument_type_ids=itype_ids or None,
         sector_ids=sector_ids or None,
         industry_ids=industry_ids or None,
-        rsi_min=rsi_min,
-        rsi_max=rsi_max,
-        above_sma20=sma_filter(sma20_val),
-        above_sma50=sma_filter(sma50_val),
-        above_sma200=sma_filter(sma200_val),
     )
     count_label = f"{len(rows)} resultado{'s' if len(rows) != 1 else ''}"
     return rows, count_label

@@ -76,13 +76,15 @@ def layout(**kwargs):
         # ── Fila 1: activo + frecuencia + tipo + escala ────────────────────────
         dbc.Row([
             dbc.Col(
-                dbc.Select(
+                dcc.Dropdown(
                     id="chart-asset-select",
                     options=[],
                     placeholder="Selecciona un activo...",
-                    style={"fontSize": "0.8rem", "height": "30px", "padding": "2px 8px"},
+                    searchable=True,
+                    clearable=False,
+                    style={"fontSize": "0.8rem"},
                 ),
-                style={"maxWidth": "280px"},
+                style={"minWidth": "220px", "maxWidth": "320px"},
             ),
             dbc.Col(
                 dbc.RadioItems(
