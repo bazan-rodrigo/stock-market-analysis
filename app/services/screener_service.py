@@ -34,12 +34,11 @@ def _closest_price_on_or_before(df: pd.DataFrame, target: date) -> float | None:
 
 def compute_and_save_snapshot(asset_id: int) -> None:
     s = get_session()
-    # Cargar los últimos 260 días de precios (suficiente para SMA200 + 52 semanas)
+    # Cargar TODOS los precios para drawdown histórico correcto
     rows = (
         s.query(Price)
         .filter(Price.asset_id == asset_id)
-        .order_by(Price.date.desc())
-        .limit(260)
+        .order_by(Price.date.asc())
         .all()
     )
 
@@ -48,7 +47,19 @@ def compute_and_save_snapshot(asset_id: int) -> None:
 
     df = pd.DataFrame(
         [{"date": r.date, "close": r.close, "high": r.high, "low": r.low} for r in rows]
-    ).sort_values("date").reset_index(drop=True)
+    ).reset_index(drop=True)
+
+    # --- Drawdown desde el máximo histórico (usa TODOS los datos) ---
+    running_max = df["close"].cummax()
+    dd_series = (df["close"] - running_max) / running_max * 100
+    dd_current = float(dd_series.iloc[-1])
+    dd_sorted = dd_series.nsmallest(3).values
+    dd_max1 = float(dd_sorted[0]) if len(dd_sorted) > 0 else None
+    dd_max2 = float(dd_sorted[1]) if len(dd_sorted) > 1 else None
+    dd_max3 = float(dd_sorted[2]) if len(dd_sorted) > 2 else None
+
+    # Para el resto de métricas usar solo los últimos 260 días
+    df = df.tail(260).reset_index(drop=True)
 
     today = df.iloc[-1]["date"]
     last_close = float(df.iloc[-1]["close"])
@@ -110,6 +121,10 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.vs_sma20 = _pct_change(last_close, sma20)
     snap.vs_sma50 = _pct_change(last_close, sma50)
     snap.vs_sma200 = _pct_change(last_close, sma200)
+    snap.dd_current = round(dd_current, 2)
+    snap.dd_max1 = round(dd_max1, 2) if dd_max1 is not None else None
+    snap.dd_max2 = round(dd_max2, 2) if dd_max2 is not None else None
+    snap.dd_max3 = round(dd_max3, 2) if dd_max3 is not None else None
 
     s.commit()
 
@@ -122,6 +137,11 @@ def recompute_all_snapshots() -> None:
             compute_and_save_snapshot(aid)
         except Exception as exc:
             logger.warning("Error snapshot activo id=%d: %s", aid, exc)
+
+
+def _fmt_dd_top3(d1, d2, d3) -> str:
+    parts = [f"{v:.1f}%" for v in [d1, d2, d3] if v is not None]
+    return " / ".join(parts) if parts else ""
 
 
 def get_screener_data(
@@ -192,6 +212,8 @@ def get_screener_data(
                 "vs_sma20": snap.vs_sma20,
                 "vs_sma50": snap.vs_sma50,
                 "vs_sma200": snap.vs_sma200,
+                "dd_current": snap.dd_current,
+                "dd_top3": _fmt_dd_top3(snap.dd_max1, snap.dd_max2, snap.dd_max3),
             }
         )
     return result

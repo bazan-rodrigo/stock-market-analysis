@@ -15,6 +15,8 @@ _COLUMNS = [
     {"name": "vs SMA20 %", "id": "vs_sma20", "type": "numeric", "format": {"specifier": ".2f"}},
     {"name": "vs SMA50 %", "id": "vs_sma50", "type": "numeric", "format": {"specifier": ".2f"}},
     {"name": "vs SMA200 %", "id": "vs_sma200", "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "DD Actual %",  "id": "dd_current", "type": "numeric", "format": {"specifier": ".1f"}},
+    {"name": "DD Hist. Máx", "id": "dd_top3"},
 ]
 
 
@@ -98,6 +100,8 @@ def layout(**kwargs):
                         ] + [
                             {"if": {"filter_query": f"{{{col}}} < 0", "column_id": col}, "color": "#ef5350"}
                             for col in ["var_daily", "var_month", "var_quarter", "var_year", "var_52w"]
+                        ] + [
+                            {"if": {"filter_query": "{dd_current} < 0", "column_id": "dd_current"}, "color": "#ef5350"},
                         ]
                     ),
                 ),

@@ -149,6 +149,13 @@ def layout(**kwargs):
                 ("d_period", "%D",   3, 1,  20, 1),
             ]),
             _ind_toggle("ATR", "atr", [("period", "Per", 14, 2, 100, 1)]),
+            # Drawdown (sin params)
+            html.Div([
+                dbc.Switch(id="chart-ind-drawdown-1-enabled", value=False,
+                           style={"marginBottom": 0}),
+                html.Span("Drawdown", style={"fontSize": "0.72rem", "color": "#ef5350"}),
+            ], className="d-flex align-items-center border rounded px-2",
+               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
         # ── Stores ─────────────────────────────────────────────────────────────

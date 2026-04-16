@@ -40,4 +40,10 @@ class ScreenerSnapshot(Base):
     vs_sma50 = Column(Float)
     vs_sma200 = Column(Float)
 
+    # Drawdown desde el máximo histórico (%)
+    dd_current = Column(Float)   # drawdown actual
+    dd_max1 = Column(Float)      # peor drawdown histórico
+    dd_max2 = Column(Float)      # 2do peor
+    dd_max3 = Column(Float)      # 3er peor
+
     asset = relationship("Asset", back_populates="screener_snapshot")

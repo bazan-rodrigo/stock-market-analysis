@@ -29,6 +29,7 @@ _SLOTS = {
     "macd":       (1, [("fast",     [12]), ("slow",    [26]), ("signal", [9])]),
     "stochastic": (1, [("k_period", [14]), ("d_period", [3])]),
     "atr":        (1, [("period",   [14])]),
+    "drawdown":   (1, []),
 }
 _COLLAPSIBLE = {"bollinger", "rsi", "macd", "stochastic", "atr"}  # tienen params div
 
@@ -218,6 +219,15 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
     return {{k: kArr, d: dArr}};
   }};
 
+  window._lwc.drawdown = function(close) {{
+    var r = [], mx = -Infinity;
+    for (var i = 0; i < close.length; i++) {{
+      if (close[i] > mx) mx = close[i];
+      r.push(mx > 0 ? (close[i] - mx) / mx * 100 : 0);
+    }}
+    return r;
+  }};
+
   window._lwc.atr = function(high, low, close, n) {{
     var tr = [0];
     for (var i = 1; i < close.length; i++) {{
@@ -320,7 +330,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
 
     /* Paneles activos */
     var showVolume = !!st.volumeEnabled;
-    ['rsi', 'macd', 'stochastic', 'atr'].forEach(function(n) {{
+    ['rsi', 'macd', 'stochastic', 'atr', 'drawdown'].forEach(function(n) {{
       if (ip[n] && ip[n][0].enabled) activeSeps.push(n);
     }});
 
@@ -476,6 +486,15 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
       var st2 = window._lwc.stochastic(high, low, close, ip.stochastic[0].k_period, ip.stochastic[0].d_period);
       window._lwc.addSeries(window._lwcPanelCharts.stochastic, {{type:'line', name:'%K', color:'#ffeb3b', lineWidth:1.5, data: toData(st2.k)}});
       window._lwc.addSeries(window._lwcPanelCharts.stochastic, {{type:'line', name:'%D', color:'#ff9800', lineWidth:1.5, data: toData(st2.d)}});
+    }}
+
+    /* Drawdown */
+    if (ip.drawdown[0].enabled && window._lwcPanelCharts.drawdown) {{
+      var ddVals = window._lwc.drawdown(close);
+      window._lwc.addSeries(window._lwcPanelCharts.drawdown, {{
+        type: 'line', name: 'Drawdown', color: '#ef5350', lineWidth: 1.5,
+        data: toData(ddVals)
+      }});
     }}
 
     /* ATR */
