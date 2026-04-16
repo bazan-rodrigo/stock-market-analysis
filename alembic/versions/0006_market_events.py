@@ -14,21 +14,21 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
-        "market_event",
-        sa.Column("id",         sa.Integer(),     nullable=False, autoincrement=True),
-        sa.Column("name",       sa.String(200),   nullable=False),
-        sa.Column("start_date", sa.Date(),        nullable=False),
-        sa.Column("end_date",   sa.Date(),        nullable=False),
-        sa.Column("scope",      sa.String(10),    nullable=False, server_default="global"),
-        sa.Column("country_id", sa.Integer(),     nullable=True),
-        sa.Column("asset_id",   sa.Integer(),     nullable=True),
-        sa.Column("color",      sa.String(20),    nullable=True, server_default="#ff9800"),
-        sa.ForeignKeyConstraint(["country_id"], ["countries.id"]),
-        sa.ForeignKeyConstraint(["asset_id"],   ["asset.id"]),
-        sa.PrimaryKeyConstraint("id"),
-        mysql_engine="InnoDB",
-    )
+    # FK constraints se omiten para compatibilidad con MariaDB/MyISAM.
+    # Las relaciones se gestionan a nivel ORM (SQLAlchemy).
+    op.execute("""
+        CREATE TABLE market_event (
+            id         INT          NOT NULL AUTO_INCREMENT,
+            name       VARCHAR(200) NOT NULL,
+            start_date DATE         NOT NULL,
+            end_date   DATE         NOT NULL,
+            scope      VARCHAR(10)  NOT NULL DEFAULT 'global',
+            country_id INT          NULL,
+            asset_id   INT          NULL,
+            color      VARCHAR(20)  NULL DEFAULT '#ff9800',
+            PRIMARY KEY (id)
+        ) DEFAULT CHARSET=utf8mb4
+    """)
 
 
 def downgrade():
