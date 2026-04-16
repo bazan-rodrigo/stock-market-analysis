@@ -27,6 +27,7 @@ def upgrade():
         sa.ForeignKeyConstraint(["country_id"], ["countries.id"]),
         sa.ForeignKeyConstraint(["asset_id"],   ["asset.id"]),
         sa.PrimaryKeyConstraint("id"),
+        mysql_engine="InnoDB",
     )
 
 
