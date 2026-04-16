@@ -190,6 +190,7 @@ def create_app():
     import app.pages.admin_sectors       # noqa: F401
     import app.pages.admin_industries    # noqa: F401
     import app.pages.admin_price_sources # noqa: F401
+    import app.pages.admin_events        # noqa: F401
     import app.pages.price_viewer        # noqa: F401
 
     # -----------------------------------------------------------------
