@@ -262,17 +262,21 @@ function(chartData, chartType, freq, logScale, volumeEnabled, {_JS_ARGS_STR}) {{
         panelDivs.forEach(function(div) {{
           var el = div.querySelector('[data-ev="' + ev.id + '"]');
           if (!el) return;
+          var W  = div.clientWidth;
           var x1 = refChart.timeScale().timeToCoordinate(ev.start);
           var x2 = refChart.timeScale().timeToCoordinate(ev.end);
-          /* Si ambas fechas están fuera del rango visible, ocultar */
-          if (x1 === null && x2 === null) {{ el.style.display = 'none'; return; }}
+          /* null = fecha fuera del rango de datos: tratar como borde */
+          if (x1 === null) x1 = -1;
+          if (x2 === null) x2 = W + 1;
+          /* Si el evento está completamente fuera del área visible, ocultar */
+          if (x1 >= W || x2 <= 0) {{ el.style.display = 'none'; return; }}
+          /* Clampear al área visible */
+          var left  = Math.max(0, x1);
+          var right = Math.min(W, x2);
+          if (right <= left) {{ el.style.display = 'none'; return; }}
           el.style.display = '';
-          if (x1 === null) x1 = 0;
-          if (x2 === null) x2 = div.clientWidth;
-          var left  = Math.min(x1, x2);
-          var width = Math.max(Math.abs(x2 - x1), 2);
           el.style.left  = left + 'px';
-          el.style.width = width + 'px';
+          el.style.width = (right - left) + 'px';
         }});
       }});
     }}

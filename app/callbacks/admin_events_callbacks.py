@@ -39,11 +39,13 @@ def load_events(_):
             ref = asset.ticker if asset else str(ev.asset_id)
         else:
             ref = "—"
+        def _fmt(d):
+            return d.strftime("%d/%m/%Y") if d else ""
         result.append({
             "id":          ev.id,
             "name":        ev.name,
-            "start_date":  str(ev.start_date),
-            "end_date":    str(ev.end_date),
+            "start_date":  _fmt(ev.start_date),
+            "end_date":    _fmt(ev.end_date),
             "scope_label": _SCOPE_LABELS.get(ev.scope, ev.scope),
             "ref_label":   ref,
             "color":       ev.color or "#ff9800",
@@ -96,8 +98,8 @@ def toggle_buttons(sel_rows):
     Output("events-modal",       "is_open"),
     Output("events-modal-title", "children"),
     Output("events-f-name",       "value"),
-    Output("events-f-start_date", "value"),
-    Output("events-f-end_date",   "value"),
+    Output("events-f-start_date", "date"),
+    Output("events-f-end_date",   "date"),
     Output("events-f-scope",      "value"),
     Output("events-f-color",      "value"),
     Output("events-f-country_id", "value"),
@@ -122,7 +124,7 @@ def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
         return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     if trigger == "events-btn-add":
-        return True, "Nuevo evento", "", "", "", "global", "#ff9800", None, None, None
+        return True, "Nuevo evento", "", None, None, "global", "#ff9800", None, None, None
 
     if trigger == "events-btn-edit" and sel_rows:
         row = data[sel_rows[0]]
@@ -132,7 +134,7 @@ def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
         return (
             True, "Editar evento",
             ev.name,
-            str(ev.start_date),
+            str(ev.start_date),   # ISO YYYY-MM-DD para DatePickerSingle
             str(ev.end_date),
             ev.scope,
             ev.color or "#ff9800",
@@ -154,8 +156,8 @@ def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
     Input("events-btn-save", "n_clicks"),
     State("events-editing-id",   "data"),
     State("events-f-name",        "value"),
-    State("events-f-start_date",  "value"),
-    State("events-f-end_date",    "value"),
+    State("events-f-start_date",  "date"),
+    State("events-f-end_date",    "date"),
     State("events-f-scope",       "value"),
     State("events-f-color",       "value"),
     State("events-f-country_id",  "value"),
@@ -170,10 +172,10 @@ def save_event(n_save, editing_id, name, start_date, end_date, scope, color, cou
     if not name or not start_date or not end_date or not scope:
         return no_update, "Completá nombre, fechas y alcance.", "warning", True, no_update
     try:
-        start = date.fromisoformat(start_date)
-        end   = date.fromisoformat(end_date)
-        if end < start:
-            return no_update, "La fecha de fin debe ser >= inicio.", "warning", True, no_update
+        start = date.fromisoformat(start_date[:10])
+        end   = date.fromisoformat(end_date[:10])
+        if end <= start:
+            return no_update, "La fecha de fin debe ser mayor a la de inicio.", "warning", True, no_update
         svc.save_event(editing_id, name, start, end, scope, country_id, asset_id, color)
         return load_events(None), "Guardado correctamente.", "success", True, False
     except Exception as e:
