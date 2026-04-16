@@ -295,6 +295,14 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
       }});
     }}
 
+    /* Convierte hex color a rgba con alpha dado */
+    function hexRgba(hex, a) {{
+      var h = (hex || '#ff9800').replace('#','');
+      if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+      var r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+      return 'rgba('+r+','+g+','+b+','+a+')';
+    }}
+
     /* Crear overlay div en cada panel (etiqueta solo en panel de precio) */
     events.forEach(function(ev) {{
       panelDivs.forEach(function(div, di) {{
@@ -302,8 +310,8 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
         el.className = 'lwc-ev';
         el.setAttribute('data-ev', String(ev.id));
         el.title = ev.name + '  (' + ev.start + ' – ' + ev.end + ')';
-        el.style.cssText = 'position:absolute;top:0;height:100%;pointer-events:none;z-index:2;opacity:0.13;overflow:hidden;';
-        el.style.backgroundColor = ev.color || '#ff9800';
+        el.style.cssText = 'position:absolute;top:0;height:100%;pointer-events:none;z-index:2;overflow:hidden;';
+        el.style.backgroundColor = hexRgba(ev.color, 0.13);
         /* Etiqueta de nombre solo en el primer panel (precio) */
         if (di === 0) {{
           var lbl = document.createElement('span');
