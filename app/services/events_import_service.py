@@ -66,7 +66,7 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
 
     for _, row in df.iterrows():
         nombre = str(row.get("nombre", "")).strip()
-        if not nombre:
+        if not nombre or nombre.startswith("──") or nombre.startswith("--"):
             continue
 
         status = "error"

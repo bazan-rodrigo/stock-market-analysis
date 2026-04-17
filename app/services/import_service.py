@@ -75,7 +75,7 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
 
     for _, row in df.iterrows():
         ticker = str(row.get("ticker", "")).strip().upper()
-        if not ticker:
+        if not ticker or ticker.startswith("──") or ticker.startswith("--"):
             continue
 
         source_name = str(row.get("fuente_precios", "")).strip()

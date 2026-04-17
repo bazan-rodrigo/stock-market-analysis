@@ -6,8 +6,8 @@ Uso:
 
 Qué hace:
   1. Aplica las migraciones de Alembic (crea todas las tablas).
-  2. Inserta datos de referencia básicos (fuente Yahoo Finance).
-  3. Crea el usuario admin inicial (admin / admin123).
+  2. Inserta la fuente de precios Yahoo Finance.
+  3. Crea el usuario admin inicial.
 
 Seguro para ejecutar múltiples veces: verifica existencia antes de insertar.
 """
@@ -56,73 +56,13 @@ def _upsert(session, model, lookup_field: str, lookup_value, **kwargs):
 
 def seed_reference_data() -> None:
     from app.database import get_session
-    from app.models import (
-        Country, Currency, InstrumentType, Market, PriceSource,
-    )
+    from app.models import PriceSource
 
     s = get_session()
 
-    # ── Fuente de precios ──────────────────────────────────────────────────
     _upsert(s, PriceSource, "name", "Yahoo Finance",
             description="Datos de mercado gratuitos via yfinance (Yahoo Finance API).",
             active=True)
-
-    # ── Países ────────────────────────────────────────────────────────────
-    countries_data = [
-        ("Estados Unidos", "USA"),
-        ("Argentina",      "ARG"),
-        ("México",         "MEX"),
-        ("Alemania",       "DEU"),
-        ("Reino Unido",    "GBR"),
-        ("Global",         "GLB"),   # usado por mercados sin país específico (ej: cripto)
-    ]
-    countries = {}
-    for name, iso in countries_data:
-        countries[iso] = _upsert(s, Country, "iso_code", iso, name=name)
-
-    # ── Monedas ───────────────────────────────────────────────────────────
-    currencies_data = [
-        ("USD",  "Dólar estadounidense"),
-        ("ARS",  "Peso argentino"),
-        ("MXN",  "Peso mexicano"),
-        ("EUR",  "Euro"),
-        ("GBP",  "Libra esterlina"),
-        ("USDT", "Tether"),
-    ]
-    currencies = {}
-    for iso, name in currencies_data:
-        currencies[iso] = _upsert(s, Currency, "iso_code", iso, name=name)
-
-    # ── Mercados ──────────────────────────────────────────────────────────
-    markets_data = [
-        ("NYSE",     "New York Stock Exchange",  "USA"),
-        ("NASDAQ",   "NASDAQ",                   "USA"),
-        ("BYMA",     "Bolsa y Mercados Argentinos", "ARG"),
-        ("MAE",      "Mercado Abierto Electrónico", "ARG"),
-        ("BMV",      "Bolsa Mexicana de Valores",   "MEX"),
-        ("XETRA",    "Deutsche Börse XETRA",        "DEU"),
-        ("LSE",      "London Stock Exchange",        "GBR"),
-        ("EURONEXT", "Euronext",                     "DEU"),
-        ("CRYPTO",   "Mercado de Criptomonedas",     "GLB"),
-    ]
-    for code, name, country_iso in markets_data:
-        _upsert(s, Market, "name", name,
-                country_id=countries[country_iso].id)
-
-    # ── Tipos de instrumento ──────────────────────────────────────────────
-    instrument_types_data = [
-        ("Acción",        "USD"),
-        ("ETF",           "USD"),
-        ("Bono",          "USD"),
-        ("CEDEAR",        "ARS"),
-        ("Criptomoneda",  "USDT"),
-        ("Opción",        "USD"),
-        ("Futuro",        "USD"),
-        ("Índice",        "USD"),
-    ]
-    for name, cur_iso in instrument_types_data:
-        _upsert(s, InstrumentType, "name", name,
-                default_currency_id=currencies[cur_iso].id)
 
     s.commit()
     logger.info("Datos de referencia cargados correctamente.")
