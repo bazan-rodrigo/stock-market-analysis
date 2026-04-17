@@ -102,8 +102,11 @@ def _resample_ohlc(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     tmp = df.copy()
     tmp["date"] = pd.to_datetime(tmp["date"])
     tmp = tmp.set_index("date")
-    rule = "W" if freq == "W" else "ME"
-    resampled = tmp.resample(rule).agg({"close": "last", "high": "max", "low": "min"}).dropna()
+    rule = "W" if freq == "W" else "M"
+    try:
+        resampled = tmp.resample(rule).agg({"close": "last", "high": "max", "low": "min"}).dropna()
+    except ValueError:
+        resampled = tmp.resample("ME").agg({"close": "last", "high": "max", "low": "min"}).dropna()
     return resampled.reset_index(drop=True)
 
 
