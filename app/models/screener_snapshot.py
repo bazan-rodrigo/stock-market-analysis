@@ -41,9 +41,17 @@ class ScreenerSnapshot(Base):
     vs_sma200 = Column(Float)
 
     # Drawdown desde el máximo histórico (%)
-    dd_current = Column(Float)   # drawdown actual
-    dd_max1 = Column(Float)      # peor drawdown histórico
-    dd_max2 = Column(Float)      # 2do peor
-    dd_max3 = Column(Float)      # 3er peor
+    dd_current = Column(Float)
+    dd_max1 = Column(Float)
+    dd_max2 = Column(Float)
+    dd_max3 = Column(Float)
+
+    # MA más respetada por timeframe (período óptimo)
+    best_sma_d = Column(Integer)
+    best_ema_d = Column(Integer)
+    best_sma_w = Column(Integer)
+    best_ema_w = Column(Integer)
+    best_sma_m = Column(Integer)
+    best_ema_m = Column(Integer)
 
     asset = relationship("Asset", back_populates="screener_snapshot")

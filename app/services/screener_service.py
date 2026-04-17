@@ -17,6 +17,54 @@ logger = logging.getLogger(__name__)
 # Mínimo de filas de precios para calcular métricas
 _MIN_ROWS = 20
 
+_MA_PERIODS = [10, 20, 50, 100, 200]
+
+
+def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str = "sma") -> int | None:
+    """
+    Devuelve el período de SMA/EMA que el precio respeta más.
+    Un 'respeto' es cuando la vela toca la MA (rango incluye el valor) y el cierre
+    permanece del mismo lado que el cierre anterior (rebote, no cruce limpio).
+    """
+    best_period = None
+    best_score  = -1
+
+    for period in _MA_PERIODS:
+        if len(close) < period * 2:
+            continue
+
+        if kind == "sma":
+            ma = close.rolling(period).mean()
+        else:
+            ma = close.ewm(span=period, adjust=False).mean()
+
+        score = 0
+        for i in range(period, len(close) - 1):
+            ma_val = ma.iloc[i]
+            if pd.isna(ma_val):
+                continue
+            if low.iloc[i] <= ma_val <= high.iloc[i]:
+                prev_c = close.iloc[i - 1]
+                curr_c = close.iloc[i]
+                if (prev_c >= ma_val and curr_c >= ma_val) or (prev_c <= ma_val and curr_c <= ma_val):
+                    score += 1
+
+        if score > best_score:
+            best_score  = score
+            best_period = period
+
+    return best_period
+
+
+def _resample_ohlc(df: pd.DataFrame, freq: str) -> pd.DataFrame:
+    """Resamplea OHLC a frecuencia semanal ('W') o mensual ('M')."""
+    tmp = df.copy()
+    tmp["date"] = pd.to_datetime(tmp["date"])
+    tmp = tmp.set_index("date")
+    rule = "W" if freq == "W" else "ME"
+    resampled = tmp.resample(rule).agg({"close": "last", "high": "max", "low": "min"}).dropna()
+    return resampled.reset_index(drop=True)
+
 
 def _pct_change(current: float, reference: float) -> float | None:
     if reference and reference != 0:
@@ -57,6 +105,16 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     dd_max1 = float(dd_sorted[0]) if len(dd_sorted) > 0 else None
     dd_max2 = float(dd_sorted[1]) if len(dd_sorted) > 1 else None
     dd_max3 = float(dd_sorted[2]) if len(dd_sorted) > 2 else None
+
+    # --- MA más respetada por timeframe (usa TODOS los datos) ---
+    best_sma_d = _find_best_ma(df["close"], df["high"], df["low"], "sma")
+    best_ema_d = _find_best_ma(df["close"], df["high"], df["low"], "ema")
+    df_w = _resample_ohlc(df, "W")
+    best_sma_w = _find_best_ma(df_w["close"], df_w["high"], df_w["low"], "sma")
+    best_ema_w = _find_best_ma(df_w["close"], df_w["high"], df_w["low"], "ema")
+    df_m = _resample_ohlc(df, "M")
+    best_sma_m = _find_best_ma(df_m["close"], df_m["high"], df_m["low"], "sma")
+    best_ema_m = _find_best_ma(df_m["close"], df_m["high"], df_m["low"], "ema")
 
     # Para el resto de métricas usar solo los últimos 260 días
     df = df.tail(260).reset_index(drop=True)
@@ -125,6 +183,12 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.dd_max1 = round(dd_max1, 2) if dd_max1 is not None else None
     snap.dd_max2 = round(dd_max2, 2) if dd_max2 is not None else None
     snap.dd_max3 = round(dd_max3, 2) if dd_max3 is not None else None
+    snap.best_sma_d = best_sma_d
+    snap.best_ema_d = best_ema_d
+    snap.best_sma_w = best_sma_w
+    snap.best_ema_w = best_ema_w
+    snap.best_sma_m = best_sma_m
+    snap.best_ema_m = best_ema_m
 
     s.commit()
 

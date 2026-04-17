@@ -128,14 +128,24 @@ def load_chart_data(asset_id, current_data):
         for row in df.itertuples(index=False)
     ]
 
-    # Cargar eventos relevantes para el activo
+    # Cargar eventos y snapshot
     from app.database import get_session
-    from app.models import Asset
-    asset = get_session().query(Asset).filter(Asset.id == int(asset_id)).first()
+    from app.models import Asset, ScreenerSnapshot
+    db = get_session()
+    asset = db.query(Asset).filter(Asset.id == int(asset_id)).first()
     country_id = asset.country_id if asset else None
     events = event_svc.get_events_for_asset(int(asset_id), country_id)
 
-    return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events}, ""
+    snap = db.query(ScreenerSnapshot).filter(ScreenerSnapshot.asset_id == int(asset_id)).first()
+    best_ma = {}
+    if snap:
+        best_ma = {
+            "D": {"sma": snap.best_sma_d, "ema": snap.best_ema_d},
+            "W": {"sma": snap.best_sma_w, "ema": snap.best_ema_w},
+            "M": {"sma": snap.best_sma_m, "ema": snap.best_ema_m},
+        }
+
+    return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events, "best_ma": best_ma}, ""
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
@@ -739,3 +749,30 @@ clientside_callback(
     Input("chart-events-enabled", "value"),
     prevent_initial_call=True,
 )
+
+
+# ─── Actualizar SMA-1 / EMA-1 con la MA más respetada ────────────────────────
+@callback(
+    Output("chart-ind-sma-1-period",  "value"),
+    Output("chart-ind-ema-1-period",  "value"),
+    Output("chart-ind-sma-1-enabled", "value"),
+    Output("chart-ind-ema-1-enabled", "value"),
+    Input("chart-data", "data"),
+    Input("chart-freq", "value"),
+    prevent_initial_call=True,
+)
+def apply_best_ma(chart_data, freq):
+    if not chart_data:
+        return no_update, no_update, no_update, no_update
+    best_ma = chart_data.get("best_ma", {})
+    fd = best_ma.get(freq or "D", {})
+    sma = fd.get("sma")
+    ema = fd.get("ema")
+    if sma is None and ema is None:
+        return no_update, no_update, no_update, no_update
+    return (
+        sma if sma else no_update,
+        ema if ema else no_update,
+        bool(sma),
+        bool(ema),
+    )
