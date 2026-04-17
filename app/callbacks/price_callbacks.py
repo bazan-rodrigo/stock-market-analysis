@@ -80,15 +80,16 @@ def update_all(_):
 
 
 @callback(
-    Output("prices-progress", "value"),
-    Output("prices-progress", "label"),
-    Output("prices-progress", "style",    allow_duplicate=True),
-    Output("prices-interval", "disabled", allow_duplicate=True),
-    Output("prices-log-table", "data",     allow_duplicate=True),
-    Output("prices-alert",     "children", allow_duplicate=True),
-    Output("prices-alert",     "is_open",  allow_duplicate=True),
-    Output("prices-alert",     "color",    allow_duplicate=True),
-    Output("prices-btn-all",   "disabled", allow_duplicate=True),
+    Output("prices-progress",     "value"),
+    Output("prices-progress",     "label"),
+    Output("prices-progress",     "style",    allow_duplicate=True),
+    Output("prices-interval",     "disabled", allow_duplicate=True),
+    Output("prices-log-table",    "data",     allow_duplicate=True),
+    Output("prices-alert",        "children", allow_duplicate=True),
+    Output("prices-alert",        "is_open",  allow_duplicate=True),
+    Output("prices-alert",        "color",    allow_duplicate=True),
+    Output("prices-btn-all",      "disabled", allow_duplicate=True),
+    Output("prices-btn-snapshot", "disabled", allow_duplicate=True),
     Input("prices-interval", "n_intervals"),
     prevent_initial_call=True,
 )
@@ -98,14 +99,14 @@ def poll_prices(_):
         total   = _prices_state["total"] or 1
         pct     = int(current / total * 100)
         label   = f"{current} / {_prices_state['total']}" if _prices_state["total"] else "Iniciando..."
-        return pct, label, {"display": "block"}, False, no_update, no_update, no_update, no_update, True
+        return pct, label, {"display": "block"}, False, no_update, no_update, no_update, no_update, True, True
 
     if _prices_state["error"]:
-        return 0, "", {"display": "none"}, True, no_update, _prices_state["error"], True, "danger", False
+        return 0, "", {"display": "none"}, True, no_update, _prices_state["error"], True, "danger", False, False
 
     msg   = _prices_state["msg"]
-    color = "success" if "error" not in msg.lower() and not _prices_state.get("has_errors") else "warning"
-    return 100, "Completo", {"display": "none"}, True, svc.get_all_assets_with_log(), msg, True, color, False
+    color = "success" if not _prices_state.get("has_errors") else "warning"
+    return 100, "Completo", {"display": "none"}, True, svc.get_all_assets_with_log(), msg, True, color, False, False
 
 
 @callback(
@@ -234,3 +235,35 @@ def redownload_all(_):
 def clear_log(_):
     svc.clear_update_logs()
     return []
+
+
+@callback(
+    Output("prices-interval",      "disabled",  allow_duplicate=True),
+    Output("prices-progress",      "style",     allow_duplicate=True),
+    Output("prices-btn-all",       "disabled",  allow_duplicate=True),
+    Output("prices-btn-snapshot",  "disabled"),
+    Input("prices-btn-snapshot", "n_clicks"),
+    prevent_initial_call=True,
+)
+def recompute_snapshots(_):
+    from app.services.screener_service import recompute_all_snapshots
+    _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
+
+    def _run():
+        def _progress(current, total):
+            _prices_state["current"] = current
+            _prices_state["total"]   = total
+        try:
+            result = recompute_all_snapshots(progress_cb=_progress)
+            n_err = len(result["errors"])
+            _prices_state["has_errors"] = bool(n_err)
+            _prices_state["msg"] = (
+                f"Snapshots recalculados: {result['total'] - n_err}/{result['total']} exitosos, {n_err} errores."
+            )
+        except Exception as exc:
+            _prices_state["error"] = str(exc)
+        finally:
+            _prices_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return False, {"display": "block"}, True, True

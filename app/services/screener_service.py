@@ -193,14 +193,20 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     s.commit()
 
 
-def recompute_all_snapshots() -> None:
+def recompute_all_snapshots(progress_cb=None) -> dict:
     s = get_session()
     asset_ids = [r[0] for r in s.query(Asset.id).filter(Asset.active == True).all()]
-    for aid in asset_ids:
+    total = len(asset_ids)
+    errors = []
+    for i, aid in enumerate(asset_ids):
+        if progress_cb:
+            progress_cb(i + 1, total)
         try:
             compute_and_save_snapshot(aid)
         except Exception as exc:
             logger.warning("Error snapshot activo id=%d: %s", aid, exc)
+            errors.append(aid)
+    return {"total": total, "errors": errors}
 
 
 def _fmt_dd_top3(d1, d2, d3) -> str:

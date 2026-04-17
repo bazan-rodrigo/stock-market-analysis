@@ -21,6 +21,7 @@ def layout(**kwargs):
         html.Div([
             html.H3("Actualización de precios", className="d-inline-block me-3"),
             dbc.Button("Actualizar todos", id="prices-btn-all", color="primary", size="sm", disabled=False, className="me-2"),
+            dbc.Button("Recalcular snapshots", id="prices-btn-snapshot", color="secondary", size="sm", disabled=False, className="me-2"),
             dbc.Button("Limpiar log", id="prices-btn-clear-log", color="link", size="sm"),
         ], className="d-flex align-items-center mb-3"),
         dbc.Alert(id="prices-alert", is_open=False, dismissable=True),
