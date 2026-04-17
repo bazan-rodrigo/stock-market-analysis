@@ -4,8 +4,8 @@ Servicio de importación masiva de eventos de mercado desde Excel.
 import logging
 from datetime import datetime, date
 from io import BytesIO
-from pathlib import Path
 
+import openpyxl
 import pandas as pd
 
 from app.database import get_session
@@ -22,13 +22,30 @@ TEMPLATE_COLUMNS = [
     "color",
 ]
 
-_TEMPLATE_FILE = Path(__file__).resolve().parent.parent.parent / "eventos_prueba.xlsx"
-
 
 def generate_template() -> bytes:
-    if _TEMPLATE_FILE.exists():
-        return _TEMPLATE_FILE.read_bytes()
-    raise FileNotFoundError(f"Template no encontrado: {_TEMPLATE_FILE}")
+    """Exporta los eventos actuales de la BD como Excel descargable."""
+    from app.models import Country
+    s = get_session()
+    events = s.query(MarketEvent).order_by(MarketEvent.start_date).all()
+    countries = {c.id: c.iso_code for c in s.query(Country).all()}
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Eventos"
+    ws.append(TEMPLATE_COLUMNS)
+    for e in events:
+        ws.append([
+            e.name,
+            e.start_date.isoformat() if e.start_date else "",
+            e.end_date.isoformat()   if e.end_date   else "",
+            e.scope,
+            countries.get(e.country_id, "") if e.country_id else "",
+            e.color or "#ff9800",
+        ])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def import_from_excel(file_bytes: bytes) -> list[dict]:

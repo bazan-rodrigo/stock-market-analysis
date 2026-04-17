@@ -27,23 +27,26 @@ TEMPLATE_COLUMNS = [
 
 
 def generate_template() -> bytes:
-    """Genera un archivo Excel vacío con las columnas de importación."""
+    """Exporta los activos actuales de la BD como Excel descargable."""
+    s = get_session()
+    assets = s.query(Asset).order_by(Asset.ticker).all()
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Activos"
     ws.append(TEMPLATE_COLUMNS)
-    # Fila de ejemplo
-    ws.append([
-        "AAPL",
-        "Yahoo Finance",
-        "Apple Inc.",
-        "US",
-        "NASDAQ",
-        "Acción",
-        "USD",
-        "Technology",
-        "Consumer Electronics",
-    ])
+    for a in assets:
+        ws.append([
+            a.ticker,
+            a.price_source.name          if a.price_source    else "",
+            a.name                       or "",
+            a.country.iso_code           if a.country         else "",
+            a.market.name                if a.market          else "",
+            a.instrument_type.name       if a.instrument_type else "",
+            a.currency.iso_code          if a.currency        else "",
+            a.sector.name                if a.sector          else "",
+            a.industry.name              if a.industry        else "",
+        ])
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
