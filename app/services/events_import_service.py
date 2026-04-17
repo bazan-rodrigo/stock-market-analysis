@@ -18,7 +18,7 @@ TEMPLATE_COLUMNS = [
     "fecha_inicio",
     "fecha_fin",
     "alcance",
-    "pais_iso",
+    "pais",
     "color",
 ]
 
@@ -28,7 +28,7 @@ def generate_template() -> bytes:
     from app.models import Country
     s = get_session()
     events = s.query(MarketEvent).order_by(MarketEvent.start_date).all()
-    countries = {c.id: c.iso_code for c in s.query(Country).all()}
+    countries = {c.id: c.name for c in s.query(Country).all()}
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -88,13 +88,11 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
 
             country_id = None
             if alcance == "country":
-                pais_iso = str(row.get("pais_iso", "")).strip().upper()
-                if not pais_iso:
-                    raise ValueError("pais_iso es obligatorio cuando alcance=country")
-                from app.models import Country
-                country = s.query(Country).filter(Country.iso_code == pais_iso).first()
-                if country is None:
-                    raise ValueError(f"País con ISO '{pais_iso}' no encontrado en el catálogo")
+                pais = str(row.get("pais", "")).strip()
+                if not pais:
+                    raise ValueError("pais es obligatorio cuando alcance=country")
+                from app.services.reference_service import get_or_create_country
+                country, _ = get_or_create_country(pais)
                 country_id = country.id
 
             event = MarketEvent(
