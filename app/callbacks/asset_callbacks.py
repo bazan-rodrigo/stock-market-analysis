@@ -148,8 +148,7 @@ def assets_modal(
             _market_name = meta.get("exchange_name") or meta.get("exchange")
             market_id_new = _nu
             if _market_name:
-                _cid = country_id_new if country_id_new is not _nu else None
-                _mobj, _is_new = ref_svc.get_or_create_market(_market_name, country_id=_cid)
+                _mobj, _is_new = ref_svc.get_or_create_market(_market_name)
                 market_id_new = _mobj.id
                 if _is_new:
                     created.append(f"mercado '{_market_name}'")

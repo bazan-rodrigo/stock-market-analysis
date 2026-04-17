@@ -117,7 +117,7 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
             industry_val = _first_nonempty(row.get("industria"),         getattr(meta, "industry",      None))
 
             country_id  = _resolve_country(country_val)
-            market_id   = _resolve_market(market_val, country_id)
+            market_id   = _resolve_market(market_val)
             currency_id = _resolve_currency(currency_val)
             itype_id    = _resolve_instrument_type(itype_val)
             sector_id   = _resolve_sector(sector_val)
