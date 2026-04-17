@@ -1,6 +1,6 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import html
+from dash import dcc, html
 
 _TABLES_INFO = [
     ("prices",            "Historia de precios"),
@@ -54,6 +54,9 @@ def layout(**kwargs):
             size="lg",
         ),
 
+        dcc.Interval(id="cleanup-interval", interval=600, disabled=True, n_intervals=0),
+        dbc.Progress(id="cleanup-progress", value=100, striped=True, animated=True,
+                     label="Procesando...", className="mt-3", style={"display": "none"}),
         dbc.Alert(id="cleanup-alert", is_open=False, dismissable=True, className="mt-3"),
 
         dbc.Modal([

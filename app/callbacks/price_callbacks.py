@@ -4,7 +4,7 @@ from dash import Input, Output, State, callback, no_update, html
 
 import app.services.price_service as svc
 
-_prices_state = {"running": False, "current": 0, "total": 0, "summary": None, "error": None}
+_prices_state = {"running": False, "current": 0, "total": 0, "summary": None, "error": None, "msg": ""}
 
 
 def _error_msg(ticker: str, exc: Exception):
@@ -64,7 +64,12 @@ def update_all(_):
             _prices_state["current"] = current
             _prices_state["total"]   = total
         try:
-            _prices_state["summary"] = svc.update_all_active_assets(progress_cb=_progress)
+            summary = svc.update_all_active_assets(progress_cb=_progress)
+            _prices_state["has_errors"] = bool(summary["errors"])
+            _prices_state["msg"] = (
+                f"Actualización completa: {summary['success']}/{summary['total']} exitosos, "
+                f"{len(summary['errors'])} errores."
+            )
         except Exception as exc:
             _prices_state["error"] = str(exc)
         finally:
@@ -98,12 +103,8 @@ def poll_prices(_):
     if _prices_state["error"]:
         return 0, "", {"display": "none"}, True, no_update, _prices_state["error"], True, "danger", False
 
-    summary = _prices_state["summary"] or {"total": 0, "success": 0, "errors": []}
-    msg = (
-        f"Actualización completa: {summary['success']}/{summary['total']} exitosos, "
-        f"{len(summary['errors'])} errores."
-    )
-    color = "success" if not summary["errors"] else "warning"
+    msg   = _prices_state["msg"]
+    color = "success" if "error" not in msg.lower() and not _prices_state.get("has_errors") else "warning"
     return 100, "Completo", {"display": "none"}, True, svc.get_all_assets_with_log(), msg, True, color, False
 
 
@@ -133,10 +134,11 @@ def update_one(_, sel_rows, data):
 
 
 @callback(
-    Output("prices-log-table", "data", allow_duplicate=True),
-    Output("prices-alert", "children", allow_duplicate=True),
-    Output("prices-alert", "is_open", allow_duplicate=True),
-    Output("prices-alert", "color", allow_duplicate=True),
+    Output("prices-interval", "disabled", allow_duplicate=True),
+    Output("prices-progress", "style",    allow_duplicate=True),
+    Output("prices-alert",    "children", allow_duplicate=True),
+    Output("prices-alert",    "is_open",  allow_duplicate=True),
+    Output("prices-alert",    "color",    allow_duplicate=True),
     Input("prices-btn-retry", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -145,32 +147,37 @@ def retry_failed(_):
     logs = svc.get_all_assets_with_log()
     failed = [r for r in logs if r["result"] == "Error"]
     if not failed:
-        return no_update, "No hay activos con error.", True, "info"
+        return True, {"display": "none"}, "No hay activos con error.", True, "info"
 
-    successes, errors = [], []
-    for row in failed:
-        ticker = row["ticker"]
-        try:
-            asset = get_asset_by_ticker(ticker)
-            if asset is None:
-                errors.append(f"{ticker}: no encontrado")
-                continue
-            svc.update_asset_prices(asset.id)
-            successes.append(ticker)
-        except Exception as exc:
-            errors.append(_error_msg(ticker, exc))
+    total = len(failed)
+    _prices_state.update({"running": True, "current": 0, "total": total, "msg": "", "error": None, "has_errors": False})
 
-    color = "success" if not errors else ("warning" if successes else "danger")
-    children = []
-    if successes:
-        children.append(f"{len(successes)} actualizados: {', '.join(successes)}. ")
-    if errors:
-        children.append("Errores: ")
-        for i, e in enumerate(errors):
-            if i > 0:
-                children.append(" | ")
-            children.append(e)
-    return svc.get_all_assets_with_log(), html.Span(children), True, color
+    def _run():
+        from app.services.asset_service import get_asset_by_ticker as _get
+        successes, errors = [], []
+        for i, row in enumerate(failed):
+            _prices_state["current"] = i + 1
+            ticker = row["ticker"]
+            try:
+                asset = _get(ticker)
+                if asset is None:
+                    errors.append(f"{ticker}: no encontrado")
+                    continue
+                svc.update_asset_prices(asset.id)
+                successes.append(ticker)
+            except Exception as exc:
+                errors.append(f"{ticker}: {exc}")
+        _prices_state["has_errors"] = bool(errors)
+        parts = []
+        if successes:
+            parts.append(f"{len(successes)} actualizados.")
+        if errors:
+            parts.append(f"{len(errors)} errores: {', '.join(errors[:5])}")
+        _prices_state["msg"] = " ".join(parts)
+        _prices_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return False, {"display": "block"}, "", False, "info"
 
 
 @callback(
@@ -186,32 +193,37 @@ def toggle_redownload_modal(n_open, n_confirm, n_cancel):
 
 
 @callback(
-    Output("prices-log-table", "data", allow_duplicate=True),
-    Output("prices-alert", "children", allow_duplicate=True),
-    Output("prices-alert", "is_open", allow_duplicate=True),
-    Output("prices-alert", "color", allow_duplicate=True),
+    Output("prices-redownload-modal", "is_open", allow_duplicate=True),
+    Output("prices-interval", "disabled", allow_duplicate=True),
+    Output("prices-progress", "style",    allow_duplicate=True),
+    Output("prices-btn-all",  "disabled", allow_duplicate=True),
     Input("prices-btn-redownload-confirm", "n_clicks"),
     prevent_initial_call=True,
 )
 def redownload_all(_):
     from app.services.asset_service import get_assets
     assets = get_assets(only_active=True)
-    successes, errors = [], []
-    for asset in assets:
-        try:
-            svc.clear_prices(asset.id)
-            svc.update_asset_prices(asset.id)
-            successes.append(asset.ticker)
-        except Exception as exc:
-            errors.append(_error_msg(asset.ticker, exc))
+    total  = len(assets)
+    _prices_state.update({"running": True, "current": 0, "total": total, "msg": "", "error": None, "has_errors": False})
 
-    parts = []
-    if successes:
-        parts.append(f"{len(successes)} redescargados: {', '.join(successes)}.")
-    if errors:
-        parts.append(html.Span(["Errores: ", *[html.Span([e, " | "]) for e in errors]]))
-    color = "success" if not errors else ("warning" if successes else "danger")
-    return svc.get_all_assets_with_log(), html.Span(parts), True, color
+    def _run():
+        successes, errors = [], []
+        for i, asset in enumerate(assets):
+            _prices_state["current"] = i + 1
+            try:
+                svc.clear_prices(asset.id)
+                svc.update_asset_prices(asset.id)
+                successes.append(asset.ticker)
+            except Exception as exc:
+                errors.append(f"{asset.ticker}: {exc}")
+        _prices_state["has_errors"] = bool(errors)
+        _prices_state["msg"] = (
+            f"Redescargar completo: {len(successes)} exitosos, {len(errors)} errores."
+        )
+        _prices_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return False, False, {"display": "block"}, True  # cierra modal, activa interval
 
 
 @callback(
