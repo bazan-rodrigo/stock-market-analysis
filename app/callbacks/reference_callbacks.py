@@ -373,7 +373,7 @@ def load_instrument_types(_):
     itypes = svc.get_instrument_types()
     currencies = svc.get_currencies()
     data = [
-        {"id": it.id, "name": it.name, "currency_name": it.default_currency.iso_code}
+        {"id": it.id, "name": it.name, "currency_name": it.default_currency.iso_code if it.default_currency else ""}
         for it in itypes
     ]
     currency_opts = [{"label": f"{c.iso_code} - {c.name}", "value": c.id} for c in currencies]
