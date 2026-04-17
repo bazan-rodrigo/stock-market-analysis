@@ -9,7 +9,7 @@ class Country(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
-    iso_code = Column(String(3), nullable=False, unique=True)
+    iso_code = Column(String(3), nullable=True, unique=True)
 
     markets = relationship("Market", back_populates="country")
     assets = relationship("Asset", back_populates="country")

@@ -389,7 +389,7 @@ def get_or_create_country(name: str) -> tuple:
         _upsert_alias(s, "country", value, existing.id)
         s.commit()
         return existing, False
-    obj = Country(name=value, iso_code=value[:3].upper())
+    obj = Country(name=value, iso_code=None)
     s.add(obj)
     s.flush()
     _upsert_alias(s, "country", value, obj.id)

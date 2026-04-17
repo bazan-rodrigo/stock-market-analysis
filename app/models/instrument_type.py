@@ -10,7 +10,7 @@ class InstrumentType(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
     default_currency_id = Column(
-        Integer, ForeignKey("currencies.id", ondelete="RESTRICT"), nullable=False
+        Integer, ForeignKey("currencies.id", ondelete="RESTRICT"), nullable=True
     )
 
     default_currency = relationship("Currency", back_populates="instrument_types")
