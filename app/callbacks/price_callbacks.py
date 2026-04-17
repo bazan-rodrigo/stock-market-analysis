@@ -1,6 +1,10 @@
+import threading
+
 from dash import Input, Output, State, callback, no_update, html
 
 import app.services.price_service as svc
+
+_prices_state = {"running": False, "current": 0, "total": 0, "summary": None, "error": None}
 
 
 def _error_msg(ticker: str, exc: Exception):
@@ -46,24 +50,61 @@ def price_row_selection(sel_rows):
 
 
 @callback(
-    Output("prices-log-table", "data", allow_duplicate=True),
-    Output("prices-alert", "children"),
-    Output("prices-alert", "is_open"),
-    Output("prices-alert", "color"),
+    Output("prices-interval", "disabled"),
+    Output("prices-progress", "style"),
+    Output("prices-btn-all", "disabled"),
     Input("prices-btn-all", "n_clicks"),
     prevent_initial_call=True,
 )
 def update_all(_):
-    try:
-        summary = svc.update_all_active_assets()
-        msg = (
-            f"Actualización completa: {summary['success']}/{summary['total']} exitosos, "
-            f"{len(summary['errors'])} errores."
-        )
-        color = "success" if not summary["errors"] else "warning"
-        return svc.get_all_assets_with_log(), msg, True, color
-    except Exception as exc:
-        return no_update, _error_msg("Error general", exc), True, "danger"
+    _prices_state.update({"running": True, "current": 0, "total": 0, "summary": None, "error": None})
+
+    def _run():
+        def _progress(current, total):
+            _prices_state["current"] = current
+            _prices_state["total"]   = total
+        try:
+            _prices_state["summary"] = svc.update_all_active_assets(progress_cb=_progress)
+        except Exception as exc:
+            _prices_state["error"] = str(exc)
+        finally:
+            _prices_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return False, {"display": "block"}, True
+
+
+@callback(
+    Output("prices-progress", "value"),
+    Output("prices-progress", "label"),
+    Output("prices-progress", "style",    allow_duplicate=True),
+    Output("prices-interval", "disabled", allow_duplicate=True),
+    Output("prices-log-table", "data",     allow_duplicate=True),
+    Output("prices-alert",     "children", allow_duplicate=True),
+    Output("prices-alert",     "is_open",  allow_duplicate=True),
+    Output("prices-alert",     "color",    allow_duplicate=True),
+    Output("prices-btn-all",   "disabled", allow_duplicate=True),
+    Input("prices-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def poll_prices(_):
+    if _prices_state["running"]:
+        current = _prices_state["current"]
+        total   = _prices_state["total"] or 1
+        pct     = int(current / total * 100)
+        label   = f"{current} / {_prices_state['total']}" if _prices_state["total"] else "Iniciando..."
+        return pct, label, {"display": "block"}, False, no_update, no_update, no_update, no_update, True
+
+    if _prices_state["error"]:
+        return 0, "", {"display": "none"}, True, no_update, _prices_state["error"], True, "danger", False
+
+    summary = _prices_state["summary"] or {"total": 0, "success": 0, "errors": []}
+    msg = (
+        f"Actualización completa: {summary['success']}/{summary['total']} exitosos, "
+        f"{len(summary['errors'])} errores."
+    )
+    color = "success" if not summary["errors"] else "warning"
+    return 100, "Completo", {"display": "none"}, True, svc.get_all_assets_with_log(), msg, True, color, False
 
 
 @callback(

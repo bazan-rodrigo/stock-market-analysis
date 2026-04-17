@@ -52,7 +52,7 @@ def generate_template() -> bytes:
     return buf.getvalue()
 
 
-def import_from_excel(file_bytes: bytes) -> list[dict]:
+def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
     """
     Procesa el archivo Excel y devuelve una lista de resultados por ticker.
     Cada elemento tiene: ticker, status ("imported"|"skipped"|"error"), detail.
@@ -72,8 +72,11 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
 
     results = []
     s = get_session()
+    total = len(df)
 
-    for _, row in df.iterrows():
+    for i, (_, row) in enumerate(df.iterrows()):
+        if progress_cb:
+            progress_cb(i + 1, total)
         ticker = str(row.get("ticker", "")).strip().upper()
         if not ticker or ticker.startswith("──") or ticker.startswith("--"):
             continue

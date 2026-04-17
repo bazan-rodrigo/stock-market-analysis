@@ -110,16 +110,19 @@ def update_asset_prices(asset_id: int) -> None:
         raise
 
 
-def update_all_active_assets() -> dict:
+def update_all_active_assets(progress_cb=None) -> dict:
     """
     Actualiza todos los activos activos. Tolerante a fallos individuales.
     Devuelve un resumen con éxitos y errores.
     """
     s = get_session()
     assets = s.query(Asset).filter(Asset.active == True).all()
-    summary = {"total": len(assets), "success": 0, "errors": []}
+    total = len(assets)
+    summary = {"total": total, "success": 0, "errors": []}
 
-    for asset in assets:
+    for i, asset in enumerate(assets):
+        if progress_cb:
+            progress_cb(i + 1, total)
         try:
             update_asset_prices(asset.id)
             summary["success"] += 1

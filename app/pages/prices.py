@@ -1,6 +1,6 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import dash_table, html
+from dash import dash_table, dcc, html
 from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 _LOG_COLUMNS = [
@@ -20,11 +20,13 @@ def layout(**kwargs):
     return html.Div([
         html.Div([
             html.H3("Actualización de precios", className="d-inline-block me-3"),
-            dbc.Button("Actualizar todos", id="prices-btn-all", color="primary", size="sm", className="me-2"),
+            dbc.Button("Actualizar todos", id="prices-btn-all", color="primary", size="sm", disabled=False, className="me-2"),
             dbc.Button("Limpiar log", id="prices-btn-clear-log", color="link", size="sm"),
         ], className="d-flex align-items-center mb-3"),
         dbc.Alert(id="prices-alert", is_open=False, dismissable=True),
-        dbc.Spinner(html.Div(id="prices-spinner-placeholder"), color="primary", size="sm"),
+        dcc.Interval(id="prices-interval", interval=800, disabled=True, n_intervals=0),
+        dbc.Progress(id="prices-progress", value=0, striped=True, animated=True,
+                     label="", className="mb-3", style={"display": "none"}),
         dash_table.DataTable(
             id="prices-log-table",
             columns=_LOG_COLUMNS,

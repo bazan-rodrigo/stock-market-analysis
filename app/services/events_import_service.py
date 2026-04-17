@@ -48,7 +48,7 @@ def generate_template() -> bytes:
     return buf.getvalue()
 
 
-def import_from_excel(file_bytes: bytes) -> list[dict]:
+def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
     try:
         df = pd.read_excel(BytesIO(file_bytes), dtype=str)
     except Exception as exc:
@@ -63,8 +63,11 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
 
     results = []
     s = get_session()
+    total = len(df)
 
-    for _, row in df.iterrows():
+    for i, (_, row) in enumerate(df.iterrows()):
+        if progress_cb:
+            progress_cb(i + 1, total)
         nombre = str(row.get("nombre", "")).strip()
         if not nombre or nombre.startswith("──") or nombre.startswith("--"):
             continue

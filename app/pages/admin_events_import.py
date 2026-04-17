@@ -41,6 +41,9 @@ def layout(**kwargs):
                 html.Div(id="ev-import-filename", className="text-muted mt-1 small"),
                 dbc.Alert(id="ev-import-alert", is_open=False,
                           dismissable=True, className="mt-2"),
+                dcc.Interval(id="ev-import-interval", interval=800, disabled=True, n_intervals=0),
+                dbc.Progress(id="ev-import-progress", value=0, striped=True, animated=True,
+                             label="", className="mt-2", style={"display": "none"}),
                 dcc.Loading(
                     html.Div([
                         dbc.Button("Importar", id="ev-import-btn-run", color="success",
