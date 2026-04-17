@@ -12,7 +12,6 @@ _COLUMNS = [
     {"name": "Moneda", "id": "currency_iso"},
     {"name": "Sector", "id": "sector_name"},
     {"name": "Fuente", "id": "source_name"},
-    {"name": "Activo", "id": "active"},
 ]
 
 
@@ -20,10 +19,10 @@ def _build_asset_form():
     return dbc.Form([
         dbc.Row([
             dbc.Col([dbc.Label("Ticker *"), dbc.Input(id="assets-f-ticker", placeholder="AAPL")]),
-            dbc.Col([dbc.Label("Nombre"), dbc.Input(id="assets-f-name", placeholder="Apple Inc.")]),
+            dbc.Col([dbc.Label("Fuente de precios *"), dbc.Select(id="assets-f-price_source_id", options=[])]),
         ], className="mb-3"),
         dbc.Row([
-            dbc.Col([dbc.Label("Fuente de precios *"), dbc.Select(id="assets-f-price_source_id", options=[])]),
+            dbc.Col([dbc.Label("Nombre"), dbc.Input(id="assets-f-name", placeholder="Apple Inc.")]),
             dbc.Col([dbc.Label("Moneda"), dbc.Select(id="assets-f-currency_id", options=[])]),
         ], className="mb-3"),
         dbc.Row([
@@ -36,7 +35,6 @@ def _build_asset_form():
         ], className="mb-3"),
         dbc.Row([
             dbc.Col([dbc.Label("Industria"), dbc.Select(id="assets-f-industry_id", options=[])]),
-            dbc.Col([dbc.Label("Activo"), dbc.Switch(id="assets-f-active", value=True, label="Sí")]),
         ]),
         dbc.Alert(id="assets-form-error", is_open=False, color="danger", className="mt-2"),
         dbc.Alert(id="assets-autocomplete-alert", is_open=False, color="info", className="mt-2"),
@@ -54,7 +52,6 @@ def layout(**kwargs):
         admin_buttons = [
             dbc.Button("+ Nuevo activo", id="assets-btn-add", color="primary", size="sm", className="me-2"),
             dbc.Button("Editar", id="assets-btn-edit", color="secondary", size="sm", disabled=True, className="me-2"),
-            dbc.Button("Activar/Desactivar", id="assets-btn-toggle", color="warning", size="sm", disabled=True, className="me-2"),
             dbc.Button("Eliminar", id="assets-btn-delete", color="danger", size="sm", disabled=True),
         ]
 

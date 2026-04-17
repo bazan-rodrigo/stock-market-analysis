@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_session
 from app.models import (
+    CatalogAlias,
     Country,
     Currency,
     Industry,
@@ -358,13 +359,40 @@ def _get_or_create(Model, s, **filter_kwargs):
     return obj, obj not in s.identity_map.values()
 
 
+def _upsert_alias(s, entity_type: str, source_value: str, entity_id: int) -> None:
+    obj = s.query(CatalogAlias).filter_by(
+        entity_type=entity_type, source_value=source_value
+    ).first()
+    if obj:
+        obj.entity_id = entity_id
+    else:
+        s.add(CatalogAlias(entity_type=entity_type, source_value=source_value, entity_id=entity_id))
+
+
+def _resolve_alias(s, entity_type: str, value: str, Model):
+    alias = s.query(CatalogAlias).filter_by(entity_type=entity_type, source_value=value).first()
+    if alias:
+        entity = s.get(Model, alias.entity_id)
+        if entity:
+            return entity
+    return None
+
+
 def get_or_create_country(name: str) -> tuple:
     s = get_session()
-    existing = s.query(Country).filter(Country.name.ilike(name.strip())).first()
+    value = name.strip()
+    entity = _resolve_alias(s, "country", value, Country)
+    if entity:
+        return entity, False
+    existing = s.query(Country).filter(Country.name.ilike(value)).first()
     if existing:
+        _upsert_alias(s, "country", value, existing.id)
+        s.commit()
         return existing, False
-    obj = Country(name=name.strip(), iso_code=name.strip()[:3].upper())
+    obj = Country(name=value, iso_code=value[:3].upper())
     s.add(obj)
+    s.flush()
+    _upsert_alias(s, "country", value, obj.id)
     s.commit()
     s.refresh(obj)
     return obj, True
@@ -385,11 +413,19 @@ def get_or_create_currency(iso_code: str) -> tuple:
 
 def get_or_create_market(name: str, country_id: int = None) -> tuple:
     s = get_session()
-    existing = s.query(Market).filter(Market.name.ilike(name.strip())).first()
+    value = name.strip()
+    entity = _resolve_alias(s, "market", value, Market)
+    if entity:
+        return entity, False
+    existing = s.query(Market).filter(Market.name.ilike(value)).first()
     if existing:
+        _upsert_alias(s, "market", value, existing.id)
+        s.commit()
         return existing, False
-    obj = Market(name=name.strip(), country_id=country_id)
+    obj = Market(name=value, country_id=country_id)
     s.add(obj)
+    s.flush()
+    _upsert_alias(s, "market", value, obj.id)
     s.commit()
     s.refresh(obj)
     return obj, True
@@ -397,11 +433,19 @@ def get_or_create_market(name: str, country_id: int = None) -> tuple:
 
 def get_or_create_instrument_type(name: str) -> tuple:
     s = get_session()
-    existing = s.query(InstrumentType).filter(InstrumentType.name.ilike(name.strip())).first()
+    value = name.strip()
+    entity = _resolve_alias(s, "instrument_type", value, InstrumentType)
+    if entity:
+        return entity, False
+    existing = s.query(InstrumentType).filter(InstrumentType.name.ilike(value)).first()
     if existing:
+        _upsert_alias(s, "instrument_type", value, existing.id)
+        s.commit()
         return existing, False
-    obj = InstrumentType(name=name.strip())
+    obj = InstrumentType(name=value)
     s.add(obj)
+    s.flush()
+    _upsert_alias(s, "instrument_type", value, obj.id)
     s.commit()
     s.refresh(obj)
     return obj, True
@@ -409,11 +453,19 @@ def get_or_create_instrument_type(name: str) -> tuple:
 
 def get_or_create_sector(name: str) -> tuple:
     s = get_session()
-    existing = s.query(Sector).filter(Sector.name.ilike(name.strip())).first()
+    value = name.strip()
+    entity = _resolve_alias(s, "sector", value, Sector)
+    if entity:
+        return entity, False
+    existing = s.query(Sector).filter(Sector.name.ilike(value)).first()
     if existing:
+        _upsert_alias(s, "sector", value, existing.id)
+        s.commit()
         return existing, False
-    obj = Sector(name=name.strip())
+    obj = Sector(name=value)
     s.add(obj)
+    s.flush()
+    _upsert_alias(s, "sector", value, obj.id)
     s.commit()
     s.refresh(obj)
     return obj, True
@@ -421,12 +473,90 @@ def get_or_create_sector(name: str) -> tuple:
 
 def get_or_create_industry(name: str, sector_id: int = None) -> tuple:
     s = get_session()
-    existing = s.query(Industry).filter(Industry.name.ilike(name.strip())).first()
+    value = name.strip()
+    entity = _resolve_alias(s, "industry", value, Industry)
+    if entity:
+        return entity, False
+    existing = s.query(Industry).filter(Industry.name.ilike(value)).first()
     if existing:
+        _upsert_alias(s, "industry", value, existing.id)
+        s.commit()
         return existing, False
-    obj = Industry(name=name.strip(), sector_id=sector_id)
+    obj = Industry(name=value, sector_id=sector_id)
     s.add(obj)
+    s.flush()
+    _upsert_alias(s, "industry", value, obj.id)
     s.commit()
     s.refresh(obj)
     return obj, True
+
+
+# ---------------------------------------------------------------------------
+# Catalog mapper — aliases y fusión de entidades
+# ---------------------------------------------------------------------------
+
+_ENTITY_MODELS = {
+    "country":         Country,
+    "market":          Market,
+    "instrument_type": InstrumentType,
+    "sector":          Sector,
+    "industry":        Industry,
+}
+
+
+def get_catalog_entities_with_aliases(entity_type: str) -> tuple:
+    s = get_session()
+    Model = _ENTITY_MODELS[entity_type]
+    entities = s.query(Model).order_by(Model.name).all()
+    aliases = s.query(CatalogAlias).filter_by(entity_type=entity_type).all()
+    return entities, aliases
+
+
+def get_aliases(entity_type: str) -> list:
+    return get_session().query(CatalogAlias).filter_by(entity_type=entity_type).all()
+
+
+def delete_alias(alias_id: int) -> None:
+    s = get_session()
+    obj = s.get(CatalogAlias, alias_id)
+    if obj:
+        s.delete(obj)
+        s.commit()
+
+
+def merge_entities(entity_type: str, source_id: int, target_id: int) -> str:
+    """
+    Fusiona source en target: redirige todas las FK, crea alias con el nombre
+    del source y elimina el source. Devuelve el nombre del source.
+    """
+    from app.models import Asset
+    s = get_session()
+    Model = _ENTITY_MODELS[entity_type]
+    source = s.get(Model, source_id)
+    target = s.get(Model, target_id)
+
+    if source is None or target is None:
+        raise ValueError("Entidad no encontrada")
+    if source_id == target_id:
+        raise ValueError("No podés fusionar una entidad consigo misma")
+
+    source_name = source.name
+
+    if entity_type == "country":
+        s.query(Asset).filter(Asset.country_id == source_id).update({"country_id": target_id})
+        s.query(Market).filter(Market.country_id == source_id).update({"country_id": target_id})
+    elif entity_type == "market":
+        s.query(Asset).filter(Asset.market_id == source_id).update({"market_id": target_id})
+    elif entity_type == "instrument_type":
+        s.query(Asset).filter(Asset.instrument_type_id == source_id).update({"instrument_type_id": target_id})
+    elif entity_type == "sector":
+        s.query(Asset).filter(Asset.sector_id == source_id).update({"sector_id": target_id})
+        s.query(Industry).filter(Industry.sector_id == source_id).update({"sector_id": target_id})
+    elif entity_type == "industry":
+        s.query(Asset).filter(Asset.industry_id == source_id).update({"industry_id": target_id})
+
+    _upsert_alias(s, entity_type, source_name, target_id)
+    s.delete(source)
+    s.commit()
+    return source_name
 

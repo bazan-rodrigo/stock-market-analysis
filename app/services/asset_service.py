@@ -150,4 +150,7 @@ def autocomplete_from_source(ticker: str, price_source_id: int) -> dict:
         "industry": getattr(meta, "industry", None),
         "currency_iso": getattr(meta, "currency_iso", None),
         "exchange": getattr(meta, "exchange", None),
+        "exchange_name": getattr(meta, "exchange_name", None),
+        "country": getattr(meta, "country", None),
+        "quote_type": getattr(meta, "quote_type", None),
     }

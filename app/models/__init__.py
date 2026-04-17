@@ -1,4 +1,5 @@
 from app.models.asset import Asset
+from app.models.catalog_alias import CatalogAlias
 from app.models.country import Country
 from app.models.currency import Currency
 from app.models.import_log import ImportLog
@@ -23,6 +24,7 @@ __all__ = [
     "Industry",
     "PriceSource",
     "Asset",
+    "CatalogAlias",
     "Price",
     "PriceUpdateLog",
     "ImportLog",

@@ -18,7 +18,6 @@ def _asset_to_row(a) -> dict:
         "currency_iso": a.currency.iso_code if a.currency else "",
         "sector_name": a.sector.name if a.sector else "",
         "source_name": a.price_source.name,
-        "active": "Sí" if a.active else "No",
     }
 
 
@@ -62,13 +61,12 @@ def load_assets(_):
 
 @callback(
     Output("assets-btn-edit", "disabled"),
-    Output("assets-btn-toggle", "disabled"),
     Output("assets-btn-delete", "disabled"),
     Input("assets-table", "selected_rows"),
 )
 def assets_row_selection(sel_rows):
     d = not bool(sel_rows)
-    return d, d, d
+    return d, d
 
 
 @callback(
@@ -90,7 +88,6 @@ def assets_row_selection(sel_rows):
     Output("assets-f-sector_id", "value"),
     Output("assets-f-industry_id", "options"),
     Output("assets-f-industry_id", "value"),
-    Output("assets-f-active", "value"),
     Output("assets-editing-id", "data"),
     Output("assets-autocomplete-alert", "children"),
     Output("assets-autocomplete-alert", "is_open"),
@@ -121,7 +118,7 @@ def assets_modal(
     src_opts, cur_opts, country_opts, market_opts, itype_opts, sector_opts, ind_opts = _get_form_options()
 
     if t == "assets-btn-cancel":
-        return False, *([_nu] * 23)
+        return False, *([_nu] * 22)
 
     if t == "assets-btn-autocomplete":
         if not ticker or not source_id:
@@ -197,12 +194,12 @@ def assets_modal(
                 itype_opts_new, itype_id_new,
                 sector_opts_new, sector_obj_id or _nu,
                 ind_opts_new, industry_obj_id or _nu,
-                _nu, _nu,
+                _nu,
                 msg, True,
                 _nu, False,
             )
         except Exception as exc:
-            return (*([_nu] * 20), str(exc), True, _nu, False)
+            return (*([_nu] * 19), str(exc), True, _nu, False)
 
     if t == "assets-btn-add":
         return (
@@ -215,7 +212,7 @@ def assets_modal(
             itype_opts, None,
             sector_opts, None,
             ind_opts, None,
-            True, None,
+            None,
             _nu, False,
             "", False,
         )
@@ -232,12 +229,12 @@ def assets_modal(
             itype_opts, a.instrument_type_id,
             sector_opts, a.sector_id,
             ind_opts, a.industry_id,
-            a.active, a.id,
+            a.id,
             _nu, False,
             "", False,
         )
 
-    return (False, *([_nu] * 23))
+    return (False, *([_nu] * 22))
 
 
 @callback(
@@ -258,13 +255,12 @@ def assets_modal(
     State("assets-f-price_source_id", "value"),
     State("assets-f-sector_id", "value"),
     State("assets-f-industry_id", "value"),
-    State("assets-f-active", "value"),
     State("assets-editing-id", "data"),
     prevent_initial_call=True,
 )
 def assets_save(
     _, ticker, name, country_id, market_id, itype_id, currency_id,
-    source_id, sector_id, industry_id, active, editing_id
+    source_id, sector_id, industry_id, editing_id
 ):
     _nu = no_update
 
@@ -297,7 +293,6 @@ def assets_save(
             price_source_id=int(source_id),
             sector_id=_int(sector_id),
             industry_id=_int(industry_id),
-            active=bool(active),
         )
         if editing_id:
             asset_svc.update_asset(editing_id, **kwargs)
@@ -322,28 +317,6 @@ def assets_save(
         # Error de negocio: modal se queda abierto
         return _nu, _nu, False, _nu, _nu, str(exc), True
 
-
-@callback(
-    Output("assets-table", "data", allow_duplicate=True),
-    Output("assets-alert", "children", allow_duplicate=True),
-    Output("assets-alert", "is_open", allow_duplicate=True),
-    Output("assets-alert", "color", allow_duplicate=True),
-    Input("assets-btn-toggle", "n_clicks"),
-    State("assets-table", "selected_rows"),
-    State("assets-table", "data"),
-    prevent_initial_call=True,
-)
-def assets_toggle(_, sel_rows, data):
-    if not sel_rows:
-        return no_update, no_update, no_update, no_update
-    try:
-        asset_svc.toggle_active(data[sel_rows[0]]["id"])
-        return (
-            [_asset_to_row(a) for a in asset_svc.get_assets()],
-            "Estado actualizado.", True, "success",
-        )
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
 
 
 @callback(

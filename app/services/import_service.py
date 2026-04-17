@@ -4,13 +4,11 @@ Servicio de importación masiva de activos desde Excel.
 import logging
 from datetime import datetime
 from io import BytesIO
-from typing import Optional
-
 import openpyxl
 import pandas as pd
 
 from app.database import get_session
-from app.models import Asset, Currency, ImportLog, Industry, Market, PriceSource, Sector
+from app.models import Asset, ImportLog, PriceSource
 from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
@@ -25,7 +23,6 @@ TEMPLATE_COLUMNS = [
     "moneda_iso",
     "sector",
     "industria",
-    "activo",
 ]
 
 
@@ -46,7 +43,6 @@ def generate_template() -> bytes:
         "USD",
         "Technology",
         "Consumer Electronics",
-        "SI",
     ])
     buf = BytesIO()
     wb.save(buf)
@@ -108,27 +104,21 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
 
             # Resolver campos opcionales del Excel (tienen prioridad sobre autocompletado)
             name = _first_nonempty(row.get("nombre"), getattr(meta, "name", None), ticker)
-            active_str = str(row.get("activo", "SI")).strip().upper()
-            active = active_str not in ("NO", "0", "FALSE", "N")
 
-            # Resolver FKs opcionales
-            country_id = _resolve_country(row.get("pais_iso"), s)
-            market_id = _resolve_market(row.get("mercado"), s)
-            currency_id = _resolve_currency(
-                row.get("moneda_iso") or getattr(meta, "currency_iso", None), s
-            )
-            itype_id = _resolve_instrument_type(row.get("tipo_instrumento"), s)
-            sector_id = _resolve_sector(
-                row.get("sector") or getattr(meta, "sector", None), s
-            )
-            industry_id = _resolve_industry(
-                row.get("industria") or getattr(meta, "industry", None), s
-            )
+            # Resolver FKs — Excel tiene prioridad, meta de la fuente como fallback
+            country_val  = _first_nonempty(row.get("pais_iso"),         getattr(meta, "country",       None))
+            market_val   = _first_nonempty(row.get("mercado"),           getattr(meta, "exchange_name", None), getattr(meta, "exchange", None))
+            currency_val = _first_nonempty(row.get("moneda_iso"),        getattr(meta, "currency_iso",  None))
+            itype_val    = _first_nonempty(row.get("tipo_instrumento"),  getattr(meta, "quote_type",    None))
+            sector_val   = _first_nonempty(row.get("sector"),            getattr(meta, "sector",        None))
+            industry_val = _first_nonempty(row.get("industria"),         getattr(meta, "industry",      None))
 
-            if not all([country_id, market_id, currency_id, itype_id]):
-                raise ValueError(
-                    "Faltan datos obligatorios: país, mercado, moneda o tipo de instrumento"
-                )
+            country_id  = _resolve_country(country_val)
+            market_id   = _resolve_market(market_val, country_id)
+            currency_id = _resolve_currency(currency_val)
+            itype_id    = _resolve_instrument_type(itype_val)
+            sector_id   = _resolve_sector(sector_val)
+            industry_id = _resolve_industry(industry_val, sector_id)
 
             asset = Asset(
                 ticker=ticker,
@@ -140,7 +130,6 @@ def import_from_excel(file_bytes: bytes) -> list[dict]:
                 price_source_id=source_obj.id,
                 sector_id=sector_id,
                 industry_id=industry_id,
-                active=active,
             )
             s.add(asset)
             s.flush()
@@ -202,59 +191,55 @@ def _first_nonempty(*values) -> str:
     return ""
 
 
-def _resolve_country(iso, session):
-    from app.models import Country
-    if not iso or str(iso).strip().lower() in ("nan", "none", ""):
+def _resolve_country(name):
+    if not _valid(name):
         return None
-    return _id_or_none(
-        session.query(Country).filter(Country.iso_code == str(iso).strip().upper()).first()
-    )
-
-
-def _resolve_market(name, session):
-    if not name or str(name).strip().lower() in ("nan", "none", ""):
-        return None
-    return _id_or_none(
-        session.query(Market).filter(Market.name == str(name).strip()).first()
-    )
-
-
-def _resolve_currency(iso, session):
-    if not iso or str(iso).strip().lower() in ("nan", "none", ""):
-        return None
-    return _id_or_none(
-        session.query(Currency).filter(Currency.iso_code == str(iso).strip().upper()).first()
-    )
-
-
-def _resolve_instrument_type(name, session):
-    from app.models import InstrumentType
-    if not name or str(name).strip().lower() in ("nan", "none", ""):
-        return None
-    return _id_or_none(
-        session.query(InstrumentType).filter(
-            InstrumentType.name == str(name).strip()
-        ).first()
-    )
-
-
-def _resolve_sector(name, session):
-    if not name or str(name).strip().lower() in ("nan", "none", ""):
-        return None
-    obj = session.query(Sector).filter(Sector.name == str(name).strip()).first()
-    if obj is None:
-        obj = Sector(name=str(name).strip())
-        session.add(obj)
-        session.flush()
+    from app.services.reference_service import get_or_create_country
+    obj, _ = get_or_create_country(name)
     return obj.id
 
 
-def _resolve_industry(name, session):
-    if not name or str(name).strip().lower() in ("nan", "none", ""):
+def _resolve_market(name, country_id=None):
+    if not _valid(name):
         return None
-    obj = session.query(Industry).filter(Industry.name == str(name).strip()).first()
-    return _id_or_none(obj)
+    from app.services.reference_service import get_or_create_market
+    obj, _ = get_or_create_market(name, country_id=country_id)
+    return obj.id
 
 
-def _id_or_none(obj) -> Optional[int]:
-    return obj.id if obj else None
+def _resolve_currency(iso):
+    if not _valid(iso):
+        return None
+    from app.services.reference_service import get_or_create_currency
+    obj, _ = get_or_create_currency(iso)
+    return obj.id
+
+
+def _resolve_instrument_type(name):
+    if not _valid(name):
+        return None
+    from app.services.reference_service import get_or_create_instrument_type
+    obj, _ = get_or_create_instrument_type(name)
+    return obj.id
+
+
+def _resolve_sector(name):
+    if not _valid(name):
+        return None
+    from app.services.reference_service import get_or_create_sector
+    obj, _ = get_or_create_sector(name)
+    return obj.id
+
+
+def _resolve_industry(name, sector_id=None):
+    if not _valid(name):
+        return None
+    from app.services.reference_service import get_or_create_industry
+    obj, _ = get_or_create_industry(name, sector_id=sector_id)
+    return obj.id
+
+
+def _valid(v) -> bool:
+    return bool(v) and str(v).strip().lower() not in ("nan", "none", "")
+
+

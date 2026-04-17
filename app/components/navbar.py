@@ -30,7 +30,8 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenu(
                 label="Datos de mercado",
                 children=[
-                    dbc.DropdownMenuItem("Eventos de mercado",   href="/admin/events"),
+                    dbc.DropdownMenuItem("Eventos de mercado",        href="/admin/events"),
+                    dbc.DropdownMenuItem("Importar eventos",          href="/admin/events/import"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Países",               href="/admin/countries"),
                     dbc.DropdownMenuItem("Monedas",              href="/admin/currencies"),
@@ -39,13 +40,17 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Sectores",             href="/admin/sectors"),
                     dbc.DropdownMenuItem("Industrias",           href="/admin/industries"),
                     dbc.DropdownMenuItem("Fuentes de precios",   href="/admin/price-sources"),
+                    dbc.DropdownMenuItem(divider=True),
+                    dbc.DropdownMenuItem("Mapper de catálogo",  href="/admin/catalog-mapper"),
                 ],
                 nav=True, in_navbar=True,
             ),
             dbc.DropdownMenu(
                 label="Administración",
                 children=[
-                    dbc.DropdownMenuItem("Usuarios", href="/admin/users"),
+                    dbc.DropdownMenuItem("Usuarios",          href="/admin/users"),
+                    dbc.DropdownMenuItem(divider=True),
+                    dbc.DropdownMenuItem("Limpieza de datos", href="/admin/cleanup"),
                 ],
                 nav=True, in_navbar=True,
             ),
