@@ -3,6 +3,7 @@ Servicio de screener.
 Calcula métricas técnicas por activo y las persiste en screener_snapshot.
 El screener consulta exclusivamente esa tabla (sin tocar la API externa).
 """
+import json
 import logging
 from datetime import date, datetime
 
@@ -10,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from app.database import get_session
-from app.models import Asset, Price, ScreenerSnapshot
+from app.models import Asset, Price, RegimeConfig, ScreenerSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,46 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
             best_period = period
 
     return best_period
+
+
+def _get_regime_config() -> tuple[int, int, float]:
+    s = get_session()
+    cfg = s.query(RegimeConfig).filter(RegimeConfig.id == 1).first()
+    if cfg is None:
+        return 50, 200, 2.0
+    return cfg.fast_period, cfg.slow_period, cfg.lateral_band_pct
+
+
+def _compute_regime_zones(df: pd.DataFrame, fast: int, slow: int, band_pct: float) -> list[dict]:
+    if len(df) < slow + 5:
+        return []
+    close = df["close"]
+    fast_ma = close.rolling(fast).mean()
+    slow_ma = close.rolling(slow).mean()
+
+    zones, current_regime = [], None
+    for i in range(slow, len(df)):
+        f, s = fast_ma.iloc[i], slow_ma.iloc[i]
+        if pd.isna(f) or pd.isna(s) or s == 0:
+            continue
+        band = s * band_pct / 100
+        if f > s + band:
+            regime = "bullish"
+        elif f < s - band:
+            regime = "bearish"
+        else:
+            regime = "lateral"
+
+        dt = str(df.iloc[i]["date"])
+        if regime != current_regime:
+            if zones:
+                zones[-1]["end"] = str(df.iloc[i - 1]["date"])
+            zones.append({"start": dt, "end": dt, "regime": regime})
+            current_regime = regime
+
+    if zones:
+        zones[-1]["end"] = str(df.iloc[-1]["date"])
+    return zones
 
 
 def _resample_ohlc(df: pd.DataFrame, freq: str) -> pd.DataFrame:
@@ -105,6 +146,14 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     dd_max1 = float(dd_sorted[0]) if len(dd_sorted) > 0 else None
     dd_max2 = float(dd_sorted[1]) if len(dd_sorted) > 1 else None
     dd_max3 = float(dd_sorted[2]) if len(dd_sorted) > 2 else None
+
+    # --- Régimen de mercado por timeframe ---
+    fast, slow, band = _get_regime_config()
+    rz_d = _compute_regime_zones(df, fast, slow, band)
+    df_w_reg = _resample_ohlc(df, "W")
+    rz_w = _compute_regime_zones(df_w_reg, fast, slow, band)
+    df_m_reg = _resample_ohlc(df, "M")
+    rz_m = _compute_regime_zones(df_m_reg, fast, slow, band)
 
     # --- MA más respetada por timeframe (usa TODOS los datos) ---
     best_sma_d = _find_best_ma(df["close"], df["high"], df["low"], "sma")
@@ -189,6 +238,9 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.best_ema_w = best_ema_w
     snap.best_sma_m = best_sma_m
     snap.best_ema_m = best_ema_m
+    snap.regime_zones_d = json.dumps(rz_d)
+    snap.regime_zones_w = json.dumps(rz_w)
+    snap.regime_zones_m = json.dumps(rz_m)
 
     s.commit()
 

@@ -42,6 +42,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Fuentes de precios",   href="/admin/price-sources"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Mapper de catálogo",  href="/admin/catalog-mapper"),
+                    dbc.DropdownMenuItem("Régimen de mercado",  href="/admin/regime-config"),
                 ],
                 nav=True, in_navbar=True,
             ),

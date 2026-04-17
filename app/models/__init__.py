@@ -10,6 +10,7 @@ from app.models.price import Price
 from app.models.price_source import PriceSource
 from app.models.price_update_log import PriceUpdateLog
 from app.models.market_event import MarketEvent
+from app.models.regime_config import RegimeConfig
 from app.models.screener_snapshot import ScreenerSnapshot
 from app.models.sector import Sector
 from app.models.user import User
@@ -30,4 +31,5 @@ __all__ = [
     "ImportLog",
     "ScreenerSnapshot",
     "MarketEvent",
+    "RegimeConfig",
 ]

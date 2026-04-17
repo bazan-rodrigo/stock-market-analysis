@@ -136,21 +136,29 @@ def load_chart_data(asset_id, current_data):
     country_id = asset.country_id if asset else None
     events = event_svc.get_events_for_asset(int(asset_id), country_id)
 
+    import json as _json
     snap = db.query(ScreenerSnapshot).filter(ScreenerSnapshot.asset_id == int(asset_id)).first()
     best_ma = {}
+    regime_zones = {}
     if snap:
         best_ma = {
             "D": {"sma": snap.best_sma_d, "ema": snap.best_ema_d},
             "W": {"sma": snap.best_sma_w, "ema": snap.best_ema_w},
             "M": {"sma": snap.best_sma_m, "ema": snap.best_ema_m},
         }
+        regime_zones = {
+            "D": _json.loads(snap.regime_zones_d) if snap.regime_zones_d else [],
+            "W": _json.loads(snap.regime_zones_w) if snap.regime_zones_w else [],
+            "M": _json.loads(snap.regime_zones_m) if snap.regime_zones_m else [],
+        }
 
-    return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events, "best_ma": best_ma}, ""
+    return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events,
+            "best_ma": best_ma, "regime_zones": regime_zones}, ""
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -334,10 +342,62 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
       }});
     }});
 
-    /* Posicionamiento inicial: pequeño delay para que el layout de LWC esté listo */
     setTimeout(reposition, 0);
-    /* Re-posicionar al hacer pan/zoom */
     refChart.timeScale().subscribeVisibleLogicalRangeChange(reposition);
+  }};
+
+  window._lwc.drawRegimeZones = function(chart, div, zones, times) {{
+    div.querySelectorAll('.lwc-regime').forEach(function(el) {{ el.remove(); }});
+    if (!zones || !zones.length || !chart || !times || !times.length) return;
+
+    var COLORS = {{
+      bullish: 'rgba(76,175,80,0.10)',
+      bearish: 'rgba(239,83,80,0.10)',
+      lateral: 'rgba(255,235,59,0.06)',
+    }};
+
+    function barIndex(dateStr) {{
+      var lo = 0, hi = times.length - 1;
+      while (lo <= hi) {{
+        var mid = (lo + hi) >> 1;
+        if (times[mid] < dateStr) lo = mid + 1;
+        else if (times[mid] > dateStr) hi = mid - 1;
+        else return mid;
+      }}
+      return lo;
+    }}
+
+    function reposition() {{
+      var vr = chart.timeScale().getVisibleLogicalRange();
+      if (!vr) return;
+      var fromIdx = vr.from, toIdx = vr.to, span = toIdx - fromIdx;
+      if (span <= 0) return;
+      var W = div.clientWidth;
+      zones.forEach(function(z) {{
+        var el = div.querySelector('[data-rz="' + z.start + '"]');
+        if (!el) return;
+        var x1 = (barIndex(z.start) - fromIdx) / span * W;
+        var x2 = (barIndex(z.end)   - fromIdx) / span * W;
+        if (x1 >= W || x2 <= 0) {{ el.style.display = 'none'; return; }}
+        var left = Math.max(0, x1), right = Math.min(W, x2);
+        if (right <= left) {{ el.style.display = 'none'; return; }}
+        el.style.display = '';
+        el.style.left  = left + 'px';
+        el.style.width = (right - left) + 'px';
+      }});
+    }}
+
+    zones.forEach(function(z) {{
+      var el = document.createElement('div');
+      el.className = 'lwc-regime';
+      el.setAttribute('data-rz', z.start);
+      el.style.cssText = 'position:absolute;top:0;height:100%;pointer-events:none;z-index:1;';
+      el.style.backgroundColor = COLORS[z.regime] || 'rgba(128,128,128,0.07)';
+      div.appendChild(el);
+    }});
+
+    setTimeout(reposition, 0);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(reposition);
   }};
 
   /* ── Funciones de render ── */
@@ -625,13 +685,27 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
       window._lwcCharts.forEach(function(c) {{ c.timeScale().fitContent(); }});
     }}
 
-    /* Overlays de eventos usando índices de barra (no timeToCoordinate) */
+    /* Overlays de eventos */
     var evts = st.events || [];
     if (evts.length && st.eventsEnabled !== false) {{
       var allDivs = panels.map(function(p) {{ return window._lwcPanelDivs[p]; }}).filter(Boolean);
       setTimeout(function() {{
         window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts, times);
       }}, 0);
+    }}
+
+    /* Zonas de régimen (solo panel de precio) */
+    var priceDiv = window._lwcPanelDivs && window._lwcPanelDivs['price'];
+    if (priceDiv) {{
+      priceDiv.querySelectorAll('.lwc-regime').forEach(function(el) {{ el.remove(); }});
+      if (st.regimeEnabled !== false) {{
+        var rzones = (st.regimeZones || {{}})[st.freq] || [];
+        if (rzones.length) {{
+          setTimeout(function() {{
+            window._lwc.drawRegimeZones(window._lwcCharts[0], priceDiv, rzones, times);
+          }}, 0);
+        }}
+      }}
     }}
 
     if (window.ResizeObserver) {{
@@ -649,10 +723,12 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, {_J
   window._lwcState = {{
     rawDaily:       chartData.raw_daily,
     assetId:        chartData.asset_id,
-    events:         chartData.events || [],
-    eventsEnabled:  eventsEnabled !== false,
+    events:         chartData.events       || [],
+    regimeZones:    chartData.regime_zones || {{}},
+    eventsEnabled:  eventsEnabled  !== false,
+    regimeEnabled:  regimeEnabled  === true,
     indParams:      indParams,
-    volumeEnabled:  volumeEnabled !== false,
+    volumeEnabled:  volumeEnabled  !== false,
     chartType:      chartType  || 'candlestick',
     freq:           freq       || 'D',
     logScale:       logScale   === 'log',
@@ -682,6 +758,7 @@ clientside_callback(
     State("chart-yscale", "value"),
     State("chart-volume-enabled", "value"),
     State("chart-events-enabled", "value"),
+    State("chart-regime-enabled", "value"),
     *_state_list(State),
     prevent_initial_call=True,
 )
@@ -747,6 +824,30 @@ clientside_callback(
     }""",
     Output("chart-events-dummy", "data"),
     Input("chart-events-enabled", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """function(enabled) {
+        if (!window._lwcState || !window._lwc) return null;
+        window._lwcState.regimeEnabled = enabled === true;
+        var priceDiv = window._lwcPanelDivs && window._lwcPanelDivs['price'];
+        if (!priceDiv) return null;
+        if (!enabled) {
+            priceDiv.querySelectorAll('.lwc-regime').forEach(function(el) { el.remove(); });
+        } else {
+            var st   = window._lwcState;
+            var zones = (st.regimeZones || {})[st.freq] || [];
+            var ohlcv = window._lwc.resample(st.rawDaily, st.freq);
+            var times = ohlcv.map(function(b) { return b.time; });
+            setTimeout(function() {
+                window._lwc.drawRegimeZones(window._lwcCharts[0], priceDiv, zones, times);
+            }, 0);
+        }
+        return null;
+    }""",
+    Output("chart-regime-dummy", "data"),
+    Input("chart-regime-enabled", "value"),
     prevent_initial_call=True,
 )
 

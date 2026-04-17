@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -53,5 +53,10 @@ class ScreenerSnapshot(Base):
     best_ema_w = Column(Integer)
     best_sma_m = Column(Integer)
     best_ema_m = Column(Integer)
+
+    # Zonas de régimen por timeframe (JSON: [{start, end, regime}, ...])
+    regime_zones_d = Column(Text)
+    regime_zones_w = Column(Text)
+    regime_zones_m = Column(Text)
 
     asset = relationship("Asset", back_populates="screener_snapshot")
