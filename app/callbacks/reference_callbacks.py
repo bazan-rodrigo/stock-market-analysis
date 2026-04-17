@@ -255,7 +255,7 @@ def currencies_delete(_, sel_rows, data):
 def load_markets(_):
     markets = svc.get_markets()
     countries = svc.get_countries()
-    data = [{"id": m.id, "name": m.name, "country_name": m.country.name} for m in markets]
+    data = [{"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""} for m in markets]
     country_opts = [{"label": c.name, "value": c.id} for c in countries]
     return data, country_opts
 
@@ -310,7 +310,7 @@ def markets_save(_, name, country_id, editing_id):
         else:
             svc.create_market(name, int(country_id))
         markets = svc.get_markets()
-        data = [{"id": m.id, "name": m.name, "country_name": m.country.name} for m in markets]
+        data = [{"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""} for m in markets]
         return data, "Guardado correctamente.", True, "success"
     except Exception as exc:
         return no_update, str(exc), True, "danger"
