@@ -16,7 +16,6 @@ _TABLES_INFO = [
     ("sectors",           "Sectores"),
     ("countries",         "Países"),
     ("currencies",        "Monedas"),
-    ("price_sources",     "Fuentes de precios"),
 ]
 
 
