@@ -49,17 +49,61 @@ def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids)
     return rows, count_label
 
 
+_scr_state = {"running": False, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False}
+
+
 @callback(
-    Output("scr-recompute-status", "children"),
+    Output("scr-interval",        "disabled"),
+    Output("scr-progress",        "style"),
+    Output("scr-btn-recompute",   "disabled"),
+    Output("scr-recompute-status","children"),
     Input("scr-btn-recompute", "n_clicks"),
     prevent_initial_call=True,
 )
 def recompute_snapshots(_):
-    try:
-        scr_svc.recompute_all_snapshots()
-        return f"Recalculado a las {datetime.now().strftime('%H:%M:%S')}"
-    except Exception as e:
-        return f"Error: {e}"
+    import threading
+    _scr_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
+
+    def _run():
+        def _progress(current, total):
+            _scr_state["current"] = current
+            _scr_state["total"]   = total
+        try:
+            result = scr_svc.recompute_all_snapshots(progress_cb=_progress)
+            n_err = len(result["errors"])
+            _scr_state["has_errors"] = bool(n_err)
+            _scr_state["msg"] = f"Recalculado a las {datetime.now().strftime('%H:%M:%S')} — {result['total'] - n_err}/{result['total']} exitosos"
+        except Exception as exc:
+            _scr_state["error"] = str(exc)
+        finally:
+            _scr_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return False, {"display": "block"}, True, ""
+
+
+@callback(
+    Output("scr-progress",        "value"),
+    Output("scr-progress",        "label"),
+    Output("scr-progress",        "style",    allow_duplicate=True),
+    Output("scr-interval",        "disabled", allow_duplicate=True),
+    Output("scr-btn-recompute",   "disabled", allow_duplicate=True),
+    Output("scr-recompute-status","children", allow_duplicate=True),
+    Input("scr-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def poll_scr_recompute(_):
+    if _scr_state["running"]:
+        current = _scr_state["current"]
+        total   = _scr_state["total"] or 1
+        pct     = int(current / total * 100)
+        label   = f"{current} / {_scr_state['total']}" if _scr_state["total"] else "Iniciando..."
+        return pct, label, {"display": "block"}, False, True, ""
+
+    if _scr_state["error"]:
+        return 0, "", {"display": "none"}, True, False, f"Error: {_scr_state['error']}"
+
+    return 100, "Completo", {"display": "none"}, True, False, _scr_state["msg"]
 
 
 @callback(

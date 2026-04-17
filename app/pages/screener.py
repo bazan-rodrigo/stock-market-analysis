@@ -61,7 +61,7 @@ def layout(**kwargs):
             ),
             dbc.Col(
                 dbc.Button("Recalcular snapshots", id="scr-btn-recompute",
-                           color="secondary", size="sm"),
+                           color="secondary", size="sm", disabled=False),
                 width="auto",
             ),
             dbc.Col(
@@ -73,6 +73,10 @@ def layout(**kwargs):
                 width="auto", className="d-flex align-items-center ms-auto",
             ),
         ], className="mb-2 g-2 align-items-center flex-wrap"),
+
+        dcc.Interval(id="scr-interval", interval=800, disabled=True, n_intervals=0),
+        dbc.Progress(id="scr-progress", value=0, striped=True, animated=True,
+                     label="", className="mb-2", style={"display": "none"}),
 
         # ── Tabla ──────────────────────────────────────────────────────────────
         dash_table.DataTable(
