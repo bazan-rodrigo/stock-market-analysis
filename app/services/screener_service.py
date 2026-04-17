@@ -85,7 +85,8 @@ def _compute_regime_zones(df: pd.DataFrame, fast: int, slow: int, band_pct: floa
         else:
             regime = "lateral"
 
-        dt = str(df.iloc[i]["date"])
+        raw_dt = df.iloc[i]["date"]
+        dt = str(raw_dt.date()) if hasattr(raw_dt, "date") else str(raw_dt)
         if regime != current_regime:
             if zones:
                 zones[-1]["end"] = str(df.iloc[i - 1]["date"])
@@ -93,7 +94,8 @@ def _compute_regime_zones(df: pd.DataFrame, fast: int, slow: int, band_pct: floa
             current_regime = regime
 
     if zones:
-        zones[-1]["end"] = str(df.iloc[-1]["date"])
+        raw_last = df.iloc[-1]["date"]
+        zones[-1]["end"] = str(raw_last.date()) if hasattr(raw_last, "date") else str(raw_last)
     return zones
 
 
@@ -107,7 +109,8 @@ def _resample_ohlc(df: pd.DataFrame, freq: str) -> pd.DataFrame:
         resampled = tmp.resample(rule).agg({"close": "last", "high": "max", "low": "min"}).dropna()
     except ValueError:
         resampled = tmp.resample("ME").agg({"close": "last", "high": "max", "low": "min"}).dropna()
-    return resampled.reset_index(drop=True)
+    resampled.index.name = "date"
+    return resampled.reset_index()  # preserva la columna date
 
 
 def _pct_change(current: float, reference: float) -> float | None:
