@@ -27,24 +27,28 @@ _COLUMNS = [
 _VAR_COLS = ["var_daily", "var_month", "var_quarter", "var_year", "var_52w"]
 _REGIME_COLS = ["regime_d", "regime_w", "regime_m"]
 _REGIME_MAP = {
-    "bullish_nascent": "Alcista naciente",
-    "bullish":         "Alcista",
-    "bullish_strong":  "Alcista fuerte",
-    "lateral_nascent": "Lateral naciente",
-    "lateral":         "Lateral",
-    "bearish_nascent": "Bajista naciente",
-    "bearish":         "Bajista",
-    "bearish_strong":  "Bajista fuerte",
+    "bullish_nascent_strong": "Alcista naciente fuerte",
+    "bullish_nascent":        "Alcista naciente",
+    "bullish_strong":         "Alcista fuerte",
+    "bullish":                "Alcista",
+    "lateral_nascent":        "Lateral naciente",
+    "lateral":                "Lateral",
+    "bearish_nascent_strong": "Bajista naciente fuerte",
+    "bearish_nascent":        "Bajista naciente",
+    "bearish_strong":         "Bajista fuerte",
+    "bearish":                "Bajista",
 }
 _REGIME_COLORS = {
-    "Alcista naciente": "#a5d6a7",
-    "Alcista":          "#4caf50",
-    "Alcista fuerte":   "#2e7d32",
-    "Lateral naciente": "#90caf9",
-    "Lateral":          "#6495ed",
-    "Bajista naciente": "#ef9a9a",
-    "Bajista":          "#ef5350",
-    "Bajista fuerte":   "#b71c1c",
+    "Alcista naciente fuerte": "#66bb6a",
+    "Alcista naciente":        "#a5d6a7",
+    "Alcista fuerte":          "#2e7d32",
+    "Alcista":                 "#4caf50",
+    "Lateral naciente":        "#90caf9",
+    "Lateral":                 "#6495ed",
+    "Bajista naciente fuerte": "#ef5350",
+    "Bajista naciente":        "#ef9a9a",
+    "Bajista fuerte":          "#b71c1c",
+    "Bajista":                 "#ef5350",
 }
 
 

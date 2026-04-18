@@ -860,14 +860,16 @@ clientside_callback(
 
 
 _REGIME_LABELS = {
-    "bullish_nascent": ("Alcista naciente", "#a5d6a7"),
-    "bullish":         ("Alcista",          "#4caf50"),
-    "bullish_strong":  ("Alcista fuerte",   "#2e7d32"),
-    "lateral_nascent": ("Lateral naciente", "#90caf9"),
-    "lateral":         ("Lateral",          "#6495ed"),
-    "bearish_nascent": ("Bajista naciente", "#ef9a9a"),
-    "bearish":         ("Bajista",          "#ef5350"),
-    "bearish_strong":  ("Bajista fuerte",   "#b71c1c"),
+    "bullish_nascent_strong": ("Alcista naciente fuerte", "#66bb6a"),
+    "bullish_nascent":        ("Alcista naciente",        "#a5d6a7"),
+    "bullish_strong":         ("Alcista fuerte",          "#2e7d32"),
+    "bullish":                ("Alcista",                 "#4caf50"),
+    "lateral_nascent":        ("Lateral naciente",        "#90caf9"),
+    "lateral":                ("Lateral",                 "#6495ed"),
+    "bearish_nascent_strong": ("Bajista naciente fuerte", "#ef5350"),
+    "bearish_nascent":        ("Bajista naciente",        "#ef9a9a"),
+    "bearish_strong":         ("Bajista fuerte",          "#b71c1c"),
+    "bearish":                ("Bajista",                 "#ef5350"),
 }
 
 

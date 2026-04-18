@@ -71,11 +71,18 @@ def _date_str(val) -> str:
 
 def _regime_detail(regime: str, bars: int, slope_last: float,
                    threshold_pct: float, nascent_bars: int, strong_mult: float) -> str:
-    if bars < nascent_bars:
-        return f"{regime}_nascent"
-    if abs(slope_last) > threshold_pct * strong_mult:
-        return f"{regime}_strong"
-    return regime
+    is_nascent = bars < nascent_bars
+    is_strong  = abs(slope_last) > threshold_pct * strong_mult
+    if regime in ("bullish", "bearish"):
+        if is_nascent and is_strong:
+            return f"{regime}_nascent_strong"
+        if is_nascent:
+            return f"{regime}_nascent"
+        if is_strong:
+            return f"{regime}_strong"
+        return regime
+    # lateral: no puede ser "fuerte" por definición (pendiente dentro del umbral)
+    return "lateral_nascent" if is_nascent else "lateral"
 
 
 def _compute_regime_zones(
