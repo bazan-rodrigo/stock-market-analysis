@@ -155,14 +155,14 @@ def layout(**kwargs):
             html.Div([
                 dbc.Switch(id="chart-ind-drawdown-1-enabled", value=False,
                            style={"marginBottom": 0}),
-                html.Span("DD %", style={"fontSize": "0.72rem", "color": "#ef5350"}),
+                html.Span("Drawdown %", style={"fontSize": "0.72rem", "color": "#ef5350"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
             # Drawdown markers (pisos históricos sobre el precio)
             html.Div([
                 dbc.Switch(id="chart-dd-enabled", value=False,
                            style={"marginBottom": 0}),
-                html.Span("DD Pisos", style={"fontSize": "0.72rem", "color": "#ef5350"}),
+                html.Span("Drawdown Pisos", style={"fontSize": "0.72rem", "color": "#ef5350"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
             _sep(),
