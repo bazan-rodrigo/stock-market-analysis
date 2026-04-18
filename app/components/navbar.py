@@ -43,6 +43,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Mapper de catálogo",  href="/admin/catalog-mapper"),
                     dbc.DropdownMenuItem("Régimen de mercado",  href="/admin/regime-config"),
+                    dbc.DropdownMenuItem("Drawdowns",           href="/admin/drawdown-config"),
                 ],
                 nav=True, in_navbar=True,
             ),

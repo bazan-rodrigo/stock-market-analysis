@@ -137,10 +137,19 @@ def load_chart_data(asset_id, current_data):
     events = event_svc.get_events_for_asset(int(asset_id), country_id)
 
     import json as _json
+    from app.models import RegimeConfig, DrawdownConfig
+    regime_cfg = db.query(RegimeConfig).filter(RegimeConfig.id == 1).first()
+    regime_ema_periods = {
+        "D": regime_cfg.ema_period_d if regime_cfg else 200,
+        "W": regime_cfg.ema_period_w if regime_cfg else 50,
+        "M": regime_cfg.ema_period_m if regime_cfg else 20,
+    }
+
     snap = db.query(ScreenerSnapshot).filter(ScreenerSnapshot.asset_id == int(asset_id)).first()
     best_ma = {}
     regime_zones = {}
     regime_current = {}
+    dd_events = []
     if snap:
         best_ma = {
             "D": {"sma": snap.best_sma_d, "ema": snap.best_ema_d},
@@ -157,15 +166,18 @@ def load_chart_data(asset_id, current_data):
             "W": snap.regime_w,
             "M": snap.regime_m,
         }
+        dd_events = _json.loads(snap.dd_events) if snap.dd_events else []
 
     return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events,
             "best_ma": best_ma, "regime_zones": regime_zones,
-            "regime_current": regime_current}, ""
+            "regime_current": regime_current,
+            "regime_ema_periods": regime_ema_periods,
+            "dd_events": dd_events}, ""
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -451,12 +463,36 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         priceLineVisible: false, lastValueVisible: !spec.isVolume,
       }});
     }}
-    if (!s) return;
+    if (!s) return null;
     if (spec.data && spec.data.length) s.setData(spec.data);
     if (spec.priceLines) spec.priceLines.forEach(function(pl) {{
       s.createPriceLine({{price: pl.price, color: pl.color, lineWidth: 1,
         lineStyle: LightweightCharts.LineStyle.Dotted,
         axisLabelVisible: true, title: String(pl.price)}});
+    }});
+    return s;
+  }};
+
+  window._lwc.drawRegimeEma = function(pc, zones, times, close, emaPeriod) {{
+    window._lwcRegimeEmaSeries = window._lwcRegimeEmaSeries || [];
+    if (!zones || !zones.length || !pc) return;
+    var emaVals = window._lwc.ema(close, emaPeriod);
+    var COLORS = {{bullish: '#4caf50', lateral: '#6495ed', bearish: '#ef5350'}};
+    zones.forEach(function(zone) {{
+      var color = COLORS[zone.regime] || '#888888';
+      var data = [];
+      for (var i = 0; i < times.length; i++) {{
+        if (times[i] >= zone.start && times[i] <= zone.end && !isNaN(emaVals[i]))
+          data.push({{time: times[i], value: emaVals[i]}});
+      }}
+      if (data.length < 2) return;
+      var s = pc.addLineSeries({{
+        color: color, lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      }});
+      s.setData(data);
+      window._lwcRegimeEmaSeries.push(s);
     }});
   }};
 
@@ -585,10 +621,11 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
 
     /* Serie de precio */
     var pc = window._lwcPanelCharts.price;
+    window._lwcRegimeEmaSeries = [];
     if (st.chartType === 'candlestick') {{
-      window._lwc.addSeries(pc, {{type: 'candlestick', data: ohlcv}});
+      window._lwcPriceSeries = window._lwc.addSeries(pc, {{type: 'candlestick', data: ohlcv}});
     }} else {{
-      window._lwc.addSeries(pc, {{type: 'line', color: '#2196f3', lineWidth: 1.5,
+      window._lwcPriceSeries = window._lwc.addSeries(pc, {{type: 'line', color: '#2196f3', lineWidth: 1.5,
         data: ohlcv.map(function(b) {{ return {{time: b.time, value: b.close}}; }})}});
     }}
 
@@ -701,17 +738,36 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }}, 0);
     }}
 
-    /* Zonas de régimen (solo panel de precio) */
+    /* Zonas de régimen + EMA coloreada (solo panel de precio) */
     var priceDiv = window._lwcPanelDivs && window._lwcPanelDivs['price'];
     if (priceDiv) {{
       priceDiv.querySelectorAll('.lwc-regime').forEach(function(el) {{ el.remove(); }});
-      if (st.regimeEnabled !== false) {{
+      if (st.regimeEnabled) {{
         var rzones = (st.regimeZones || {{}})[st.freq] || [];
         if (rzones.length) {{
+          var emaPeriod = (st.regimeEmaPeriods || {{}})[st.freq] || 200;
+          window._lwc.drawRegimeEma(pc, rzones, times, close, emaPeriod);
           setTimeout(function() {{
             window._lwc.drawRegimeZones(window._lwcCharts[0], priceDiv, rzones, times);
           }}, 0);
         }}
+      }}
+    }}
+
+    /* Marcadores de drawdown */
+    if (st.ddEnabled && st.ddEvents && st.ddEvents.length && window._lwcPriceSeries) {{
+      var markers = [];
+      st.ddEvents.forEach(function(ev) {{
+        if (!ev.trough) return;
+        markers.push({{
+          time: ev.trough, position: 'belowBar',
+          color: '#ef5350', shape: 'arrowUp',
+          text: ev.depth.toFixed(1) + '%', size: 1,
+        }});
+      }});
+      if (markers.length) {{
+        markers.sort(function(a, b) {{ return a.time < b.time ? -1 : 1; }});
+        window._lwcPriceSeries.setMarkers(markers);
       }}
     }}
 
@@ -728,17 +784,20 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
   var indParams = {_js_ind_params()};
 
   window._lwcState = {{
-    rawDaily:       chartData.raw_daily,
-    assetId:        chartData.asset_id,
-    events:         chartData.events       || [],
-    regimeZones:    chartData.regime_zones || {{}},
-    eventsEnabled:  eventsEnabled  !== false,
-    regimeEnabled:  regimeEnabled  === true,
-    indParams:      indParams,
-    volumeEnabled:  volumeEnabled  !== false,
-    chartType:      chartType  || 'candlestick',
-    freq:           freq       || 'D',
-    logScale:       logScale   === 'log',
+    rawDaily:          chartData.raw_daily,
+    assetId:           chartData.asset_id,
+    events:            chartData.events            || [],
+    regimeZones:       chartData.regime_zones      || {{}},
+    regimeEmaPeriods:  chartData.regime_ema_periods || {{}},
+    ddEvents:          chartData.dd_events          || [],
+    eventsEnabled:     eventsEnabled  !== false,
+    regimeEnabled:     regimeEnabled  === true,
+    ddEnabled:         ddEnabled      === true,
+    indParams:         indParams,
+    volumeEnabled:     volumeEnabled  !== false,
+    chartType:         chartType  || 'candlestick',
+    freq:              freq       || 'D',
+    logScale:          logScale   === 'log',
   }};
   window._lwc.fullRender();
   return null;
@@ -766,6 +825,7 @@ clientside_callback(
     State("chart-volume-enabled", "value"),
     State("chart-events-enabled", "value"),
     State("chart-regime-enabled", "value"),
+    State("chart-dd-enabled", "value"),
     *_state_list(State),
     prevent_initial_call=True,
 )
@@ -835,26 +895,16 @@ clientside_callback(
 )
 
 clientside_callback(
-    """function(enabled) {
-        if (!window._lwcState || !window._lwc) return null;
-        window._lwcState.regimeEnabled = enabled === true;
-        var priceDiv = window._lwcPanelDivs && window._lwcPanelDivs['price'];
-        if (!priceDiv) return null;
-        if (!enabled) {
-            priceDiv.querySelectorAll('.lwc-regime').forEach(function(el) { el.remove(); });
-        } else {
-            var st   = window._lwcState;
-            var zones = (st.regimeZones || {})[st.freq] || [];
-            var ohlcv = window._lwc.resample(st.rawDaily, st.freq);
-            var times = ohlcv.map(function(b) { return b.time; });
-            setTimeout(function() {
-                window._lwc.drawRegimeZones(window._lwcCharts[0], priceDiv, zones, times);
-            }, 0);
-        }
-        return null;
-    }""",
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.regimeEnabled=e===true;window._lwc.fullRender();return null;}",
     Output("chart-regime-dummy", "data"),
     Input("chart-regime-enabled", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.ddEnabled=e===true;window._lwc.fullRender();return null;}",
+    Output("chart-dd-dummy", "data"),
+    Input("chart-dd-enabled", "value"),
     prevent_initial_call=True,
 )
 

@@ -174,6 +174,13 @@ def layout(**kwargs):
                 html.Span(id="chart-regime-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            # Drawdowns históricos
+            html.Div([
+                dbc.Switch(id="chart-dd-enabled", value=False,
+                           style={"marginBottom": 0}),
+                html.Span("Drawdowns", style={"fontSize": "0.72rem", "color": "#ef5350"}),
+            ], className="d-flex align-items-center border rounded px-2",
+               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
         # ── Stores ─────────────────────────────────────────────────────────────
@@ -186,6 +193,7 @@ def layout(**kwargs):
         dcc.Store(id="chart-volume-dummy"),
         dcc.Store(id="chart-events-dummy"),
         dcc.Store(id="chart-regime-dummy"),
+        dcc.Store(id="chart-dd-dummy"),
 
         # ── Contenedor del gráfico ─────────────────────────────────────────────
         dcc.Loading(

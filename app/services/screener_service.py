@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from app.database import get_session
-from app.models import Asset, Price, RegimeConfig, ScreenerSnapshot
+from app.models import Asset, DrawdownConfig, Price, RegimeConfig, ScreenerSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,54 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
             best_period = period
 
     return best_period
+
+
+def _get_drawdown_config():
+    s = get_session()
+    cfg = s.query(DrawdownConfig).filter(DrawdownConfig.id == 1).first()
+    if cfg is None:
+        cfg = DrawdownConfig()
+    return cfg
+
+
+def _compute_dd_events(df: pd.DataFrame, min_depth_pct: float) -> list[dict]:
+    """Identifica caídas significativas entre máximos históricos consecutivos."""
+    close = df["close"].values
+    dates = df["date"].values
+    events = []
+    ath = close[0]
+    in_dd = False
+    dd_start_i = trough_i = 0
+
+    for i in range(len(close)):
+        if close[i] >= ath:
+            if in_dd:
+                depth = (close[trough_i] - ath) / ath * 100
+                if depth <= -min_depth_pct:
+                    events.append({
+                        "start":  _date_str(dates[dd_start_i]),
+                        "trough": _date_str(dates[trough_i]),
+                        "end":    _date_str(dates[i]),
+                        "depth":  round(depth, 1),
+                    })
+                in_dd = False
+            ath = close[i]
+        else:
+            if not in_dd:
+                in_dd, dd_start_i, trough_i = True, i, i
+            elif close[i] < close[trough_i]:
+                trough_i = i
+
+    if in_dd:
+        depth = (close[trough_i] - ath) / ath * 100
+        if depth <= -min_depth_pct:
+            events.append({
+                "start":  _date_str(dates[dd_start_i]),
+                "trough": _date_str(dates[trough_i]),
+                "end":    None,
+                "depth":  round(depth, 1),
+            })
+    return events
 
 
 def _get_regime_config():
@@ -211,6 +259,10 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     dd_max2 = float(dd_sorted[1]) if len(dd_sorted) > 1 else None
     dd_max3 = float(dd_sorted[2]) if len(dd_sorted) > 2 else None
 
+    # --- Eventos de drawdown significativos (usa TODOS los datos) ---
+    dd_cfg = _get_drawdown_config()
+    dd_events = _compute_dd_events(df, dd_cfg.min_depth_pct)
+
     # --- Régimen de mercado por timeframe ---
     cfg = _get_regime_config()
     sl, st_pct, cb = cfg.slope_lookback, cfg.slope_threshold_pct, cfg.confirm_bars
@@ -311,6 +363,7 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.regime_d = rz_d[-1]["regime_detail"] if rz_d else None
     snap.regime_w = rz_w[-1]["regime_detail"] if rz_w else None
     snap.regime_m = rz_m[-1]["regime_detail"] if rz_m else None
+    snap.dd_events = json.dumps(dd_events)
 
     s.commit()
 

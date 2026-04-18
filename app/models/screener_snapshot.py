@@ -64,4 +64,7 @@ class ScreenerSnapshot(Base):
     regime_w = Column(String(30))
     regime_m = Column(String(30))
 
+    # Eventos de drawdown significativos (JSON: [{start, trough, end, depth}, ...])
+    dd_events = Column(Text)
+
     asset = relationship("Asset", back_populates="screener_snapshot")
