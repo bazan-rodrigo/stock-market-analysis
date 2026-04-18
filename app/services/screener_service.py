@@ -57,6 +57,19 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
     return best_period
 
 
+def _resample_ohlc(df: pd.DataFrame, freq: str) -> pd.DataFrame:
+    tmp = df.set_index("date")
+    rule = "W" if freq == "W" else "M"
+    agg = {"close": "last", "high": "max", "low": "min"}
+    try:
+        resampled = tmp.resample(rule).agg(agg)
+    except ValueError:
+        resampled = tmp.resample("ME").agg(agg)
+    resampled = resampled.dropna(subset=["close"])
+    resampled.index.name = "date"
+    return resampled.reset_index()
+
+
 def _get_drawdown_config():
     s = get_session()
     cfg = s.query(DrawdownConfig).filter(DrawdownConfig.id == 1).first()
