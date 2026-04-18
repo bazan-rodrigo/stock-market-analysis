@@ -151,11 +151,18 @@ def layout(**kwargs):
                 ("d_period", "%D",   3, 1,  20, 1),
             ]),
             _ind_toggle("ATR", "atr", [("period", "Per", 14, 2, 100, 1)]),
-            # Drawdown (sin params)
+            # Drawdown panel (indicador de panel separado)
             html.Div([
                 dbc.Switch(id="chart-ind-drawdown-1-enabled", value=False,
                            style={"marginBottom": 0}),
-                html.Span("Drawdown", style={"fontSize": "0.72rem", "color": "#ef5350"}),
+                html.Span("DD %", style={"fontSize": "0.72rem", "color": "#ef5350"}),
+            ], className="d-flex align-items-center border rounded px-2",
+               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            # Drawdown markers (pisos históricos sobre el precio)
+            html.Div([
+                dbc.Switch(id="chart-dd-enabled", value=False,
+                           style={"marginBottom": 0}),
+                html.Span("DD Pisos", style={"fontSize": "0.72rem", "color": "#ef5350"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
             _sep(),
@@ -172,13 +179,6 @@ def layout(**kwargs):
                            style={"marginBottom": 0}),
                 html.Span("Régimen", style={"fontSize": "0.72rem", "color": "#9c27b0"}),
                 html.Span(id="chart-regime-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
-            # Drawdowns históricos
-            html.Div([
-                dbc.Switch(id="chart-dd-enabled", value=False,
-                           style={"marginBottom": 0}),
-                html.Span("Drawdowns", style={"fontSize": "0.72rem", "color": "#ef5350"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),

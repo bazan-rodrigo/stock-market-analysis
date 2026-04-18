@@ -756,13 +756,23 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
 
     /* Marcadores de drawdown */
     if (st.ddEnabled && st.ddEvents && st.ddEvents.length && window._lwcPriceSeries) {{
+      /* Mapea fecha exacta al tiempo de barra más cercano (necesario para S/M) */
+      function nearestBarTime(dateStr) {{
+        for (var i = 0; i < times.length; i++) {{
+          if (times[i] >= dateStr) return times[i];
+        }}
+        return times[times.length - 1];
+      }}
       var markers = [];
       st.ddEvents.forEach(function(ev) {{
         if (!ev.trough) return;
         markers.push({{
-          time: ev.trough, position: 'belowBar',
-          color: '#ef5350', shape: 'arrowUp',
-          text: ev.depth.toFixed(1) + '%', size: 1,
+          time: nearestBarTime(ev.trough),
+          position: 'belowBar',
+          color: '#ef5350',
+          shape: 'arrowUp',
+          text: Math.abs(ev.depth).toFixed(1) + '%',
+          size: 1,
         }});
       }});
       if (markers.length) {{
