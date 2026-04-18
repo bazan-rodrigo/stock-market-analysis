@@ -59,9 +59,9 @@ class ScreenerSnapshot(Base):
     regime_zones_w = Column(Text)
     regime_zones_m = Column(Text)
 
-    # Régimen actual por timeframe (bullish | lateral | bearish | None)
-    regime_d = Column(String(10))
-    regime_w = Column(String(10))
-    regime_m = Column(String(10))
+    # Régimen actual por timeframe (ej. bullish_nascent_strong)
+    regime_d = Column(String(30))
+    regime_w = Column(String(30))
+    regime_m = Column(String(30))
 
     asset = relationship("Asset", back_populates="screener_snapshot")

@@ -14,9 +14,9 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("screener_snapshot", sa.Column("regime_d", sa.String(10), nullable=True))
-    op.add_column("screener_snapshot", sa.Column("regime_w", sa.String(10), nullable=True))
-    op.add_column("screener_snapshot", sa.Column("regime_m", sa.String(10), nullable=True))
+    op.add_column("screener_snapshot", sa.Column("regime_d", sa.String(30), nullable=True))
+    op.add_column("screener_snapshot", sa.Column("regime_w", sa.String(30), nullable=True))
+    op.add_column("screener_snapshot", sa.Column("regime_m", sa.String(30), nullable=True))
 
 
 def downgrade():
