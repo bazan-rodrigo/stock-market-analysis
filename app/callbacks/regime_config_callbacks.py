@@ -10,16 +10,26 @@ def _get_config():
 
 
 @callback(
-    Output("regime-fast", "value"),
-    Output("regime-slow", "value"),
-    Output("regime-band", "value"),
-    Input("regime-fast", "id"),
+    Output("regime-ema-d",    "value"),
+    Output("regime-ema-w",    "value"),
+    Output("regime-ema-m",    "value"),
+    Output("regime-slope-lb", "value"),
+    Output("regime-slope-thr","value"),
+    Output("regime-confirm",  "value"),
+    Input("regime-ema-d", "id"),
 )
 def load_config(_):
     cfg = _get_config()
     if cfg is None:
-        return 50, 200, 2.0
-    return cfg.fast_period, cfg.slow_period, cfg.lateral_band_pct
+        return 200, 50, 20, 20, 0.5, 3
+    return (
+        cfg.ema_period_d,
+        cfg.ema_period_w,
+        cfg.ema_period_m,
+        cfg.slope_lookback,
+        cfg.slope_threshold_pct,
+        cfg.confirm_bars,
+    )
 
 
 @callback(
@@ -27,24 +37,34 @@ def load_config(_):
     Output("regime-alert", "is_open"),
     Output("regime-alert", "color"),
     Input("regime-btn-save", "n_clicks"),
-    State("regime-fast", "value"),
-    State("regime-slow", "value"),
-    State("regime-band", "value"),
+    State("regime-ema-d",    "value"),
+    State("regime-ema-w",    "value"),
+    State("regime-ema-m",    "value"),
+    State("regime-slope-lb", "value"),
+    State("regime-slope-thr","value"),
+    State("regime-confirm",  "value"),
     prevent_initial_call=True,
 )
-def save_config(_, fast, slow, band):
-    if not fast or not slow or not band:
+def save_config(_, ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm):
+    if any(v is None for v in [ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm]):
         return "Completá todos los campos.", True, "warning"
-    if int(fast) >= int(slow):
-        return "La SMA rápida debe ser menor que la SMA lenta.", True, "warning"
 
     s = get_session()
     cfg = s.query(RegimeConfig).filter(RegimeConfig.id == 1).first()
     if cfg is None:
         cfg = RegimeConfig(id=1)
         s.add(cfg)
-    cfg.fast_period      = int(fast)
-    cfg.slow_period      = int(slow)
-    cfg.lateral_band_pct = float(band)
+
+    cfg.ema_period_d        = int(ema_d)
+    cfg.ema_period_w        = int(ema_w)
+    cfg.ema_period_m        = int(ema_m)
+    cfg.slope_lookback      = int(slope_lb)
+    cfg.slope_threshold_pct = float(slope_thr)
+    cfg.confirm_bars        = int(confirm)
     s.commit()
-    return "Configuración guardada. Recalculá los snapshots para aplicar los nuevos parámetros.", True, "success"
+
+    return (
+        "Configuración guardada. Recalculá los snapshots para aplicar los nuevos parámetros.",
+        True,
+        "success",
+    )

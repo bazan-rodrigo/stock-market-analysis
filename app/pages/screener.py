@@ -8,6 +8,9 @@ _DD_SM = {"fontSize": "0.78rem"}
 _COLUMNS = [
     {"name": "Ticker",       "id": "ticker"},
     {"name": "Nombre",       "id": "name"},
+    {"name": "Rég. D",       "id": "regime_d"},
+    {"name": "Rég. S",       "id": "regime_w"},
+    {"name": "Rég. M",       "id": "regime_m"},
     {"name": "Var. día %",   "id": "var_daily",   "type": "numeric", "format": {"specifier": ".2f"}},
     {"name": "Var. mes %",   "id": "var_month",   "type": "numeric", "format": {"specifier": ".2f"}},
     {"name": "Var. qtr %",   "id": "var_quarter", "type": "numeric", "format": {"specifier": ".2f"}},
@@ -22,6 +25,8 @@ _COLUMNS = [
 ]
 
 _VAR_COLS = ["var_daily", "var_month", "var_quarter", "var_year", "var_52w"]
+_REGIME_COLS = ["regime_d", "regime_w", "regime_m"]
+_REGIME_MAP = {"bullish": "Alcista", "lateral": "Lateral", "bearish": "Bajista"}
 
 
 def layout(**kwargs):
@@ -103,6 +108,12 @@ def layout(**kwargs):
                     "color": "#ef5350"} for c in _VAR_COLS]
                 + [{"if": {"filter_query": "{dd_current} < 0",
                             "column_id": "dd_current"}, "color": "#ef5350"}]
+                + [{"if": {"filter_query": f'{{{c}}} = "Alcista"', "column_id": c},
+                    "color": "#4caf50", "fontWeight": "bold"} for c in _REGIME_COLS]
+                + [{"if": {"filter_query": f'{{{c}}} = "Bajista"', "column_id": c},
+                    "color": "#ef5350", "fontWeight": "bold"} for c in _REGIME_COLS]
+                + [{"if": {"filter_query": f'{{{c}}} = "Lateral"', "column_id": c},
+                    "color": "#6495ed", "fontWeight": "bold"} for c in _REGIME_COLS]
             ),
         ),
     ])

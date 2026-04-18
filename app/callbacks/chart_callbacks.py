@@ -140,6 +140,7 @@ def load_chart_data(asset_id, current_data):
     snap = db.query(ScreenerSnapshot).filter(ScreenerSnapshot.asset_id == int(asset_id)).first()
     best_ma = {}
     regime_zones = {}
+    regime_current = {}
     if snap:
         best_ma = {
             "D": {"sma": snap.best_sma_d, "ema": snap.best_ema_d},
@@ -151,9 +152,15 @@ def load_chart_data(asset_id, current_data):
             "W": _json.loads(snap.regime_zones_w) if snap.regime_zones_w else [],
             "M": _json.loads(snap.regime_zones_m) if snap.regime_zones_m else [],
         }
+        regime_current = {
+            "D": snap.regime_d,
+            "W": snap.regime_w,
+            "M": snap.regime_m,
+        }
 
     return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events,
-            "best_ma": best_ma, "regime_zones": regime_zones}, ""
+            "best_ma": best_ma, "regime_zones": regime_zones,
+            "regime_current": regime_current}, ""
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
@@ -353,7 +360,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     var COLORS = {{
       bullish: 'rgba(76,175,80,0.10)',
       bearish: 'rgba(239,83,80,0.10)',
-      lateral: 'rgba(255,235,59,0.06)',
+      lateral: 'rgba(100,149,237,0.13)',
     }};
 
     function barIndex(dateStr) {{
@@ -850,6 +857,32 @@ clientside_callback(
     Input("chart-regime-enabled", "value"),
     prevent_initial_call=True,
 )
+
+
+_REGIME_LABELS = {
+    "bullish": ("Alcista", "#4caf50"),
+    "lateral": ("Lateral", "#6495ed"),
+    "bearish": ("Bajista", "#ef5350"),
+}
+
+
+# ─── Etiqueta de régimen actual junto al toggle ────────────────────────────────
+@callback(
+    Output("chart-regime-label", "children"),
+    Output("chart-regime-label", "style"),
+    Input("chart-data", "data"),
+    Input("chart-freq", "value"),
+    prevent_initial_call=True,
+)
+def update_regime_label(chart_data, freq):
+    if not chart_data:
+        return "", {"fontSize": "0.68rem"}
+    rc = chart_data.get("regime_current", {})
+    regime = rc.get(freq or "D")
+    if not regime:
+        return "", {"fontSize": "0.68rem"}
+    label, color = _REGIME_LABELS.get(regime, (regime.capitalize(), "#aaa"))
+    return f"({label})", {"fontSize": "0.68rem", "color": color, "fontWeight": "bold"}
 
 
 # ─── Actualizar SMA-1 / EMA-1 con la MA más respetada ────────────────────────

@@ -171,6 +171,7 @@ def layout(**kwargs):
                 dbc.Switch(id="chart-regime-enabled", value=False,
                            style={"marginBottom": 0}),
                 html.Span("Régimen", style={"fontSize": "0.72rem", "color": "#9c27b0"}),
+                html.Span(id="chart-regime-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),

@@ -57,60 +57,78 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
     return best_period
 
 
-def _get_regime_config() -> tuple[int, int, float]:
+def _get_regime_config():
     s = get_session()
     cfg = s.query(RegimeConfig).filter(RegimeConfig.id == 1).first()
     if cfg is None:
-        return 50, 200, 2.0
-    return cfg.fast_period, cfg.slow_period, cfg.lateral_band_pct
+        cfg = RegimeConfig()
+    return cfg
 
 
-def _compute_regime_zones(df: pd.DataFrame, fast: int, slow: int, band_pct: float) -> list[dict]:
-    if len(df) < slow + 5:
+def _date_str(val) -> str:
+    return str(val.date()) if hasattr(val, "date") else str(val)
+
+
+def _compute_regime_zones(
+    df: pd.DataFrame,
+    ema_period: int,
+    slope_lookback: int,
+    slope_threshold_pct: float,
+    confirm_bars: int,
+) -> list[dict]:
+    min_bars = ema_period + slope_lookback + confirm_bars
+    if len(df) < min_bars:
         return []
+
     close = df["close"]
-    fast_ma = close.rolling(fast).mean()
-    slow_ma = close.rolling(slow).mean()
+    ema   = close.ewm(span=ema_period, adjust=False).mean()
+    slope = (ema - ema.shift(slope_lookback)) / ema.shift(slope_lookback) * 100
 
-    zones, current_regime = [], None
-    for i in range(slow, len(df)):
-        f, s = fast_ma.iloc[i], slow_ma.iloc[i]
-        if pd.isna(f) or pd.isna(s) or s == 0:
-            continue
-        band = s * band_pct / 100
-        if f > s + band:
-            regime = "bullish"
-        elif f < s - band:
-            regime = "bearish"
+    # Regimen crudo por barra
+    raw = []
+    for i in range(len(df)):
+        s, e, c = slope.iloc[i], ema.iloc[i], close.iloc[i]
+        if pd.isna(s) or pd.isna(e):
+            raw.append(None)
+        elif s > slope_threshold_pct and c > e:
+            raw.append("bullish")
+        elif s < -slope_threshold_pct and c < e:
+            raw.append("bearish")
         else:
-            regime = "lateral"
+            raw.append("lateral")
 
-        raw_dt = df.iloc[i]["date"]
-        dt = str(raw_dt.date()) if hasattr(raw_dt, "date") else str(raw_dt)
-        if regime != current_regime:
+    # Confirmacion: solo cambia regimen tras N barras consecutivas
+    confirmed = []
+    current, pending, pending_n = None, None, 0
+    for r in raw:
+        if r is None:
+            confirmed.append(current)
+            continue
+        if r == current:
+            pending, pending_n = None, 0
+            confirmed.append(current)
+        elif r == pending:
+            pending_n += 1
+            if pending_n >= confirm_bars:
+                current, pending, pending_n = pending, None, 0
+            confirmed.append(current)
+        else:
+            pending, pending_n = r, 1
+            confirmed.append(current)
+
+    # Construir zonas
+    zones = []
+    for i, regime in enumerate(confirmed):
+        if regime is None:
+            continue
+        dt = _date_str(df.iloc[i]["date"])
+        if not zones or zones[-1]["regime"] != regime:
             if zones:
-                zones[-1]["end"] = str(df.iloc[i - 1]["date"])
+                zones[-1]["end"] = _date_str(df.iloc[i - 1]["date"])
             zones.append({"start": dt, "end": dt, "regime": regime})
-            current_regime = regime
-
     if zones:
-        raw_last = df.iloc[-1]["date"]
-        zones[-1]["end"] = str(raw_last.date()) if hasattr(raw_last, "date") else str(raw_last)
+        zones[-1]["end"] = _date_str(df.iloc[-1]["date"])
     return zones
-
-
-def _resample_ohlc(df: pd.DataFrame, freq: str) -> pd.DataFrame:
-    """Resamplea OHLC a frecuencia semanal ('W') o mensual ('M')."""
-    tmp = df.copy()
-    tmp["date"] = pd.to_datetime(tmp["date"])
-    tmp = tmp.set_index("date")
-    rule = "W" if freq == "W" else "M"
-    try:
-        resampled = tmp.resample(rule).agg({"close": "last", "high": "max", "low": "min"}).dropna()
-    except ValueError:
-        resampled = tmp.resample("ME").agg({"close": "last", "high": "max", "low": "min"}).dropna()
-    resampled.index.name = "date"
-    return resampled.reset_index()  # preserva la columna date
 
 
 def _pct_change(current: float, reference: float) -> float | None:
@@ -154,12 +172,13 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     dd_max3 = float(dd_sorted[2]) if len(dd_sorted) > 2 else None
 
     # --- Régimen de mercado por timeframe ---
-    fast, slow, band = _get_regime_config()
-    rz_d = _compute_regime_zones(df, fast, slow, band)
+    cfg = _get_regime_config()
+    sl, st_pct, cb = cfg.slope_lookback, cfg.slope_threshold_pct, cfg.confirm_bars
+    rz_d = _compute_regime_zones(df, cfg.ema_period_d, sl, st_pct, cb)
     df_w_reg = _resample_ohlc(df, "W")
-    rz_w = _compute_regime_zones(df_w_reg, fast, slow, band)
+    rz_w = _compute_regime_zones(df_w_reg, cfg.ema_period_w, sl, st_pct, cb)
     df_m_reg = _resample_ohlc(df, "M")
-    rz_m = _compute_regime_zones(df_m_reg, fast, slow, band)
+    rz_m = _compute_regime_zones(df_m_reg, cfg.ema_period_m, sl, st_pct, cb)
 
     # --- MA más respetada por timeframe (usa TODOS los datos) ---
     best_sma_d = _find_best_ma(df["close"], df["high"], df["low"], "sma")
@@ -247,6 +266,9 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.regime_zones_d = json.dumps(rz_d)
     snap.regime_zones_w = json.dumps(rz_w)
     snap.regime_zones_m = json.dumps(rz_m)
+    snap.regime_d = rz_d[-1]["regime"] if rz_d else None
+    snap.regime_w = rz_w[-1]["regime"] if rz_w else None
+    snap.regime_m = rz_m[-1]["regime"] if rz_m else None
 
     s.commit()
 
@@ -342,6 +364,9 @@ def get_screener_data(
                 "vs_sma200": snap.vs_sma200,
                 "dd_current": snap.dd_current,
                 "dd_top3": _fmt_dd_top3(snap.dd_max1, snap.dd_max2, snap.dd_max3),
+                "regime_d": snap.regime_d,
+                "regime_w": snap.regime_w,
+                "regime_m": snap.regime_m,
             }
         )
     return result

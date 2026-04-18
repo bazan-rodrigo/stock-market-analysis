@@ -37,6 +37,9 @@ def load_screener_filter_options(_):
     Input("scr-filter-sector", "value"),
     Input("scr-filter-industry", "value"),
 )
+_REGIME_ES = {"bullish": "Alcista", "lateral": "Lateral", "bearish": "Bajista"}
+
+
 def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids):
     rows = scr_svc.get_screener_data(
         country_ids=country_ids or None,
@@ -45,6 +48,10 @@ def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids)
         sector_ids=sector_ids or None,
         industry_ids=industry_ids or None,
     )
+    for row in rows:
+        row["regime_d"] = _REGIME_ES.get(row.get("regime_d"), "")
+        row["regime_w"] = _REGIME_ES.get(row.get("regime_w"), "")
+        row["regime_m"] = _REGIME_ES.get(row.get("regime_m"), "")
     count_label = f"{len(rows)} resultado{'s' if len(rows) != 1 else ''}"
     return rows, count_label
 

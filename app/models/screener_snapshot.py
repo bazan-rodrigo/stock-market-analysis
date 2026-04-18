@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, Text
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -58,5 +58,10 @@ class ScreenerSnapshot(Base):
     regime_zones_d = Column(Text)
     regime_zones_w = Column(Text)
     regime_zones_m = Column(Text)
+
+    # Régimen actual por timeframe (bullish | lateral | bearish | None)
+    regime_d = Column(String(10))
+    regime_w = Column(String(10))
+    regime_m = Column(String(10))
 
     asset = relationship("Asset", back_populates="screener_snapshot")
