@@ -738,19 +738,12 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }}, 0);
     }}
 
-    /* Zonas de régimen + EMA coloreada (solo panel de precio) */
-    var priceDiv = window._lwcPanelDivs && window._lwcPanelDivs['price'];
-    if (priceDiv) {{
-      priceDiv.querySelectorAll('.lwc-regime').forEach(function(el) {{ el.remove(); }});
-      if (st.regimeEnabled) {{
-        var rzones = (st.regimeZones || {{}})[st.freq] || [];
-        if (rzones.length) {{
-          var emaPeriod = (st.regimeEmaPeriods || {{}})[st.freq] || 200;
-          window._lwc.drawRegimeEma(pc, rzones, times, close, emaPeriod);
-          setTimeout(function() {{
-            window._lwc.drawRegimeZones(window._lwcCharts[0], priceDiv, rzones, times);
-          }}, 0);
-        }}
+    /* EMA de régimen coloreada (sin sombreado de fondo) */
+    if (st.regimeEnabled) {{
+      var rzones = (st.regimeZones || {{}})[st.freq] || [];
+      if (rzones.length) {{
+        var emaPeriod = (st.regimeEmaPeriods || {{}})[st.freq] || 200;
+        window._lwc.drawRegimeEma(pc, rzones, times, close, emaPeriod);
       }}
     }}
 
