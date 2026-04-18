@@ -37,7 +37,16 @@ def load_screener_filter_options(_):
     Input("scr-filter-sector", "value"),
     Input("scr-filter-industry", "value"),
 )
-_REGIME_ES = {"bullish": "Alcista", "lateral": "Lateral", "bearish": "Bajista"}
+_REGIME_ES = {
+    "bullish_nascent": "Alcista naciente",
+    "bullish":         "Alcista",
+    "bullish_strong":  "Alcista fuerte",
+    "lateral_nascent": "Lateral naciente",
+    "lateral":         "Lateral",
+    "bearish_nascent": "Bajista naciente",
+    "bearish":         "Bajista",
+    "bearish_strong":  "Bajista fuerte",
+}
 
 
 def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids):

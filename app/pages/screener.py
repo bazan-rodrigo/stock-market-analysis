@@ -26,7 +26,26 @@ _COLUMNS = [
 
 _VAR_COLS = ["var_daily", "var_month", "var_quarter", "var_year", "var_52w"]
 _REGIME_COLS = ["regime_d", "regime_w", "regime_m"]
-_REGIME_MAP = {"bullish": "Alcista", "lateral": "Lateral", "bearish": "Bajista"}
+_REGIME_MAP = {
+    "bullish_nascent": "Alcista naciente",
+    "bullish":         "Alcista",
+    "bullish_strong":  "Alcista fuerte",
+    "lateral_nascent": "Lateral naciente",
+    "lateral":         "Lateral",
+    "bearish_nascent": "Bajista naciente",
+    "bearish":         "Bajista",
+    "bearish_strong":  "Bajista fuerte",
+}
+_REGIME_COLORS = {
+    "Alcista naciente": "#a5d6a7",
+    "Alcista":          "#4caf50",
+    "Alcista fuerte":   "#2e7d32",
+    "Lateral naciente": "#90caf9",
+    "Lateral":          "#6495ed",
+    "Bajista naciente": "#ef9a9a",
+    "Bajista":          "#ef5350",
+    "Bajista fuerte":   "#b71c1c",
+}
 
 
 def layout(**kwargs):
@@ -108,12 +127,12 @@ def layout(**kwargs):
                     "color": "#ef5350"} for c in _VAR_COLS]
                 + [{"if": {"filter_query": "{dd_current} < 0",
                             "column_id": "dd_current"}, "color": "#ef5350"}]
-                + [{"if": {"filter_query": f'{{{c}}} = "Alcista"', "column_id": c},
-                    "color": "#4caf50", "fontWeight": "bold"} for c in _REGIME_COLS]
-                + [{"if": {"filter_query": f'{{{c}}} = "Bajista"', "column_id": c},
-                    "color": "#ef5350", "fontWeight": "bold"} for c in _REGIME_COLS]
-                + [{"if": {"filter_query": f'{{{c}}} = "Lateral"', "column_id": c},
-                    "color": "#6495ed", "fontWeight": "bold"} for c in _REGIME_COLS]
+                + [
+                    {"if": {"filter_query": f'{{{c}}} = "{label}"', "column_id": c},
+                     "color": color, "fontWeight": "bold"}
+                    for label, color in _REGIME_COLORS.items()
+                    for c in _REGIME_COLS
+                ]
             ),
         ),
     ])

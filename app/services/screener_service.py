@@ -69,12 +69,23 @@ def _date_str(val) -> str:
     return str(val.date()) if hasattr(val, "date") else str(val)
 
 
+def _regime_detail(regime: str, bars: int, slope_last: float,
+                   threshold_pct: float, nascent_bars: int, strong_mult: float) -> str:
+    if bars < nascent_bars:
+        return f"{regime}_nascent"
+    if abs(slope_last) > threshold_pct * strong_mult:
+        return f"{regime}_strong"
+    return regime
+
+
 def _compute_regime_zones(
     df: pd.DataFrame,
     ema_period: int,
     slope_lookback: int,
     slope_threshold_pct: float,
     confirm_bars: int,
+    nascent_bars: int = 20,
+    strong_slope_multiplier: float = 2.0,
 ) -> list[dict]:
     min_bars = ema_period + slope_lookback + confirm_bars
     if len(df) < min_bars:
@@ -116,18 +127,40 @@ def _compute_regime_zones(
             pending, pending_n = r, 1
             confirmed.append(current)
 
-    # Construir zonas
+    # Construir zonas con sub-categoría
     zones = []
     for i, regime in enumerate(confirmed):
         if regime is None:
             continue
         dt = _date_str(df.iloc[i]["date"])
+        sl_val = float(slope.iloc[i]) if not pd.isna(slope.iloc[i]) else 0.0
         if not zones or zones[-1]["regime"] != regime:
             if zones:
-                zones[-1]["end"] = _date_str(df.iloc[i - 1]["date"])
-            zones.append({"start": dt, "end": dt, "regime": regime})
+                prev = zones[-1]
+                prev["end"] = _date_str(df.iloc[i - 1]["date"])
+                prev["regime_detail"] = _regime_detail(
+                    prev["regime"], prev["_bars"], prev["_slope_last"],
+                    slope_threshold_pct, nascent_bars, strong_slope_multiplier,
+                )
+            zones.append({"start": dt, "end": dt, "regime": regime,
+                          "_bars": 1, "_slope_last": sl_val})
+        else:
+            zones[-1]["_bars"] += 1
+            zones[-1]["_slope_last"] = sl_val
+
     if zones:
-        zones[-1]["end"] = _date_str(df.iloc[-1]["date"])
+        last = zones[-1]
+        last["end"] = _date_str(df.iloc[-1]["date"])
+        last["regime_detail"] = _regime_detail(
+            last["regime"], last["_bars"], last["_slope_last"],
+            slope_threshold_pct, nascent_bars, strong_slope_multiplier,
+        )
+
+    # Limpiar campos internos
+    for z in zones:
+        z.pop("_bars", None)
+        z.pop("_slope_last", None)
+
     return zones
 
 
@@ -174,11 +207,13 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     # --- Régimen de mercado por timeframe ---
     cfg = _get_regime_config()
     sl, st_pct, cb = cfg.slope_lookback, cfg.slope_threshold_pct, cfg.confirm_bars
-    rz_d = _compute_regime_zones(df, cfg.ema_period_d, sl, st_pct, cb)
+    nb  = cfg.nascent_bars
+    sm  = cfg.strong_slope_multiplier
+    rz_d = _compute_regime_zones(df, cfg.ema_period_d, sl, st_pct, cb, nb, sm)
     df_w_reg = _resample_ohlc(df, "W")
-    rz_w = _compute_regime_zones(df_w_reg, cfg.ema_period_w, sl, st_pct, cb)
+    rz_w = _compute_regime_zones(df_w_reg, cfg.ema_period_w, sl, st_pct, cb, nb, sm)
     df_m_reg = _resample_ohlc(df, "M")
-    rz_m = _compute_regime_zones(df_m_reg, cfg.ema_period_m, sl, st_pct, cb)
+    rz_m = _compute_regime_zones(df_m_reg, cfg.ema_period_m, sl, st_pct, cb, nb, sm)
 
     # --- MA más respetada por timeframe (usa TODOS los datos) ---
     best_sma_d = _find_best_ma(df["close"], df["high"], df["low"], "sma")
@@ -266,9 +301,9 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.regime_zones_d = json.dumps(rz_d)
     snap.regime_zones_w = json.dumps(rz_w)
     snap.regime_zones_m = json.dumps(rz_m)
-    snap.regime_d = rz_d[-1]["regime"] if rz_d else None
-    snap.regime_w = rz_w[-1]["regime"] if rz_w else None
-    snap.regime_m = rz_m[-1]["regime"] if rz_m else None
+    snap.regime_d = rz_d[-1]["regime_detail"] if rz_d else None
+    snap.regime_w = rz_w[-1]["regime_detail"] if rz_w else None
+    snap.regime_m = rz_m[-1]["regime_detail"] if rz_m else None
 
     s.commit()
 

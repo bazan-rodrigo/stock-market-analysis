@@ -10,18 +10,20 @@ def _get_config():
 
 
 @callback(
-    Output("regime-ema-d",    "value"),
-    Output("regime-ema-w",    "value"),
-    Output("regime-ema-m",    "value"),
-    Output("regime-slope-lb", "value"),
-    Output("regime-slope-thr","value"),
-    Output("regime-confirm",  "value"),
+    Output("regime-ema-d",       "value"),
+    Output("regime-ema-w",       "value"),
+    Output("regime-ema-m",       "value"),
+    Output("regime-slope-lb",    "value"),
+    Output("regime-slope-thr",   "value"),
+    Output("regime-confirm",     "value"),
+    Output("regime-nascent",     "value"),
+    Output("regime-strong-mult", "value"),
     Input("regime-ema-d", "id"),
 )
 def load_config(_):
     cfg = _get_config()
     if cfg is None:
-        return 200, 50, 20, 20, 0.5, 3
+        return 200, 50, 20, 20, 0.5, 3, 20, 2.0
     return (
         cfg.ema_period_d,
         cfg.ema_period_w,
@@ -29,6 +31,8 @@ def load_config(_):
         cfg.slope_lookback,
         cfg.slope_threshold_pct,
         cfg.confirm_bars,
+        cfg.nascent_bars,
+        cfg.strong_slope_multiplier,
     )
 
 
@@ -37,16 +41,18 @@ def load_config(_):
     Output("regime-alert", "is_open"),
     Output("regime-alert", "color"),
     Input("regime-btn-save", "n_clicks"),
-    State("regime-ema-d",    "value"),
-    State("regime-ema-w",    "value"),
-    State("regime-ema-m",    "value"),
-    State("regime-slope-lb", "value"),
-    State("regime-slope-thr","value"),
-    State("regime-confirm",  "value"),
+    State("regime-ema-d",       "value"),
+    State("regime-ema-w",       "value"),
+    State("regime-ema-m",       "value"),
+    State("regime-slope-lb",    "value"),
+    State("regime-slope-thr",   "value"),
+    State("regime-confirm",     "value"),
+    State("regime-nascent",     "value"),
+    State("regime-strong-mult", "value"),
     prevent_initial_call=True,
 )
-def save_config(_, ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm):
-    if any(v is None for v in [ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm]):
+def save_config(_, ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm, nascent, strong_mult):
+    if any(v is None for v in [ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm, nascent, strong_mult]):
         return "Completá todos los campos.", True, "warning"
 
     s = get_session()
@@ -55,12 +61,14 @@ def save_config(_, ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm):
         cfg = RegimeConfig(id=1)
         s.add(cfg)
 
-    cfg.ema_period_d        = int(ema_d)
-    cfg.ema_period_w        = int(ema_w)
-    cfg.ema_period_m        = int(ema_m)
-    cfg.slope_lookback      = int(slope_lb)
-    cfg.slope_threshold_pct = float(slope_thr)
-    cfg.confirm_bars        = int(confirm)
+    cfg.ema_period_d            = int(ema_d)
+    cfg.ema_period_w            = int(ema_w)
+    cfg.ema_period_m            = int(ema_m)
+    cfg.slope_lookback          = int(slope_lb)
+    cfg.slope_threshold_pct     = float(slope_thr)
+    cfg.confirm_bars            = int(confirm)
+    cfg.nascent_bars            = int(nascent)
+    cfg.strong_slope_multiplier = float(strong_mult)
     s.commit()
 
     return (

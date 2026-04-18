@@ -89,6 +89,27 @@ def layout(**kwargs):
                 ),
             ]),
 
+            html.Hr(),
+            html.H5("Sub-categorías de régimen", className="mb-3 text-secondary"),
+            dbc.Row([
+                _field(
+                    "Barras para régimen naciente",
+                    "regime-nascent",
+                    1, 200, 1,
+                    "Una zona de régimen se considera 'naciente' si lleva menos de N barras. "
+                    "Ejemplo: 20 → una tendencia alcista de menos de 20 barras se etiqueta 'Alcista naciente'. "
+                    "Permite distinguir señales recientes (menos confiables) de tendencias establecidas.",
+                ),
+                _field(
+                    "Multiplicador para régimen fuerte",
+                    "regime-strong-mult",
+                    1.0, 10.0, 0.1,
+                    "La pendiente debe superar umbral × multiplicador para clasificar como 'fuerte'. "
+                    "Ejemplo: umbral=0.5% y multiplicador=2 → pendiente > 1% para 'Alcista fuerte'. "
+                    "Valores bajos hacen más fácil alcanzar la categoría fuerte; valores altos la exigen más.",
+                ),
+            ]),
+
             dbc.Button("Guardar configuración", id="regime-btn-save", color="primary", size="sm", className="mt-2"),
             dbc.Alert(id="regime-alert", is_open=False, dismissable=True, className="mt-3"),
         ])),
