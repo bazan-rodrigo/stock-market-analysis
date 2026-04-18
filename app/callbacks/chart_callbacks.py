@@ -307,6 +307,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     }}
 
     function reposition() {{
+      if (window._lwcState && window._lwcState.eventsEnabled === false) return;
       var vr = refChart.timeScale().getVisibleLogicalRange();
       if (!vr) return;
       var fromIdx = vr.from, toIdx = vr.to, span = toIdx - fromIdx;
