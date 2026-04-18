@@ -941,28 +941,23 @@ def update_regime_label(chart_data, freq):
     return f"({label})", {"fontSize": "0.68rem", "color": color, "fontWeight": "bold"}
 
 
-# ─── Actualizar SMA-1 / EMA-1 con la MA más respetada ────────────────────────
+# ─── Actualizar período de SMA-1 / EMA-1 al cambiar activo o frecuencia ──────
+# Solo actualiza el período, nunca el toggle enabled (el usuario lo controla).
 @callback(
-    Output("chart-ind-sma-1-period",  "value"),
-    Output("chart-ind-ema-1-period",  "value"),
-    Output("chart-ind-sma-1-enabled", "value"),
-    Output("chart-ind-ema-1-enabled", "value"),
+    Output("chart-ind-sma-1-period", "value"),
+    Output("chart-ind-ema-1-period", "value"),
     Input("chart-data", "data"),
     Input("chart-freq", "value"),
     prevent_initial_call=True,
 )
 def apply_best_ma(chart_data, freq):
     if not chart_data:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update
     best_ma = chart_data.get("best_ma", {})
     fd = best_ma.get(freq or "D", {})
     sma = fd.get("sma")
     ema = fd.get("ema")
-    if sma is None and ema is None:
-        return no_update, no_update, no_update, no_update
     return (
         sma if sma else no_update,
         ema if ema else no_update,
-        bool(sma),
-        bool(ema),
     )
