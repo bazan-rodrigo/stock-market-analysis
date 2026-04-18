@@ -28,15 +28,6 @@ def load_screener_filter_options(_):
     )
 
 
-@callback(
-    Output("scr-table", "data"),
-    Output("scr-result-count", "children"),
-    Input("scr-filter-country", "value"),
-    Input("scr-filter-market", "value"),
-    Input("scr-filter-itype", "value"),
-    Input("scr-filter-sector", "value"),
-    Input("scr-filter-industry", "value"),
-)
 _REGIME_ES = {
     "bullish_nascent_strong": "Alcista naciente fuerte",
     "bullish_nascent":        "Alcista naciente",
@@ -51,6 +42,15 @@ _REGIME_ES = {
 }
 
 
+@callback(
+    Output("scr-table", "data"),
+    Output("scr-result-count", "children"),
+    Input("scr-filter-country", "value"),
+    Input("scr-filter-market", "value"),
+    Input("scr-filter-itype", "value"),
+    Input("scr-filter-sector", "value"),
+    Input("scr-filter-industry", "value"),
+)
 def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids):
     rows = scr_svc.get_screener_data(
         country_ids=country_ids or None,
