@@ -871,24 +871,19 @@ clientside_callback(
     """function(enabled) {
         if (window._lwcState) window._lwcState.eventsEnabled = enabled !== false;
         if (enabled === false) {
-            document.querySelectorAll('.lwc-ev').forEach(function(el) { el.style.display = 'none'; });
-        } else {
-            var existing = document.querySelectorAll('.lwc-ev');
-            if (existing.length > 0) {
-                existing.forEach(function(el) { el.style.display = ''; });
-            } else if (window._lwc && window._lwcCharts && window._lwcPanelDivs && window._lwcState) {
-                /* Los overlays fueron borrados por un re-render: reconstruir */
-                var st = window._lwcState;
-                var evts = st.events || [];
-                if (evts.length) {
-                    var ohlcv = window._lwc.resample(st.rawDaily, st.freq);
-                    var times = ohlcv.map(function(b) { return b.time; });
-                    var panels = Object.keys(window._lwcPanelDivs);
-                    var allDivs = panels.map(function(p) { return window._lwcPanelDivs[p]; }).filter(Boolean);
-                    setTimeout(function() {
-                        window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts, times);
-                    }, 0);
-                }
+            /* Eliminar del DOM: reposition() no encontrará los elementos y no hará nada */
+            document.querySelectorAll('.lwc-ev').forEach(function(el) { el.remove(); });
+        } else if (window._lwc && window._lwcCharts && window._lwcPanelDivs && window._lwcState) {
+            var st = window._lwcState;
+            var evts = st.events || [];
+            if (evts.length) {
+                var ohlcv = window._lwc.resample(st.rawDaily, st.freq);
+                var times = ohlcv.map(function(b) { return b.time; });
+                var panels = Object.keys(window._lwcPanelDivs);
+                var allDivs = panels.map(function(p) { return window._lwcPanelDivs[p]; }).filter(Boolean);
+                setTimeout(function() {
+                    window._lwc.drawEventOverlays(window._lwcCharts, allDivs, evts, times);
+                }, 0);
             }
         }
         return null;
