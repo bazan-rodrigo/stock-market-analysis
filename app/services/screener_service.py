@@ -58,7 +58,9 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
 
 
 def _resample_ohlc(df: pd.DataFrame, freq: str) -> pd.DataFrame:
-    tmp = df.set_index("date")
+    tmp = df.copy()
+    tmp["date"] = pd.to_datetime(tmp["date"])
+    tmp = tmp.set_index("date")
     rule = "W" if freq == "W" else "M"
     agg = {"close": "last", "high": "max", "low": "min"}
     try:
