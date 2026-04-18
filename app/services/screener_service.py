@@ -234,6 +234,33 @@ def _compute_regime_zones(
     return zones
 
 
+def _rsi(close: pd.Series, period: int = 14) -> float | None:
+    if len(close) < period + 1:
+        return None
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float("inf"))
+    rsi_series = 100 - (100 / (1 + rs))
+    val = rsi_series.iloc[-1]
+    return float(val) if not pd.isna(val) else None
+
+
+def _sma_zscore(close: pd.Series, period: int) -> float | None:
+    """Distancia del último cierre desde la SMA_period, en desviaciones estándar."""
+    if len(close) < period + 1:
+        return None
+    sma = close.rolling(period).mean()
+    std = close.rolling(period).std()
+    last_sma = sma.iloc[-1]
+    last_std = std.iloc[-1]
+    if pd.isna(last_sma) or pd.isna(last_std) or last_std == 0:
+        return None
+    return round((float(close.iloc[-1]) - float(last_sma)) / float(last_std), 2)
+
+
 def _pct_change(current: float, reference: float) -> float | None:
     if reference and reference != 0:
         return round((current - reference) / reference * 100, 2)
@@ -299,6 +326,14 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     best_sma_m = _find_best_ma(df_m["close"], df_m["high"], df_m["low"], "sma")
     best_ema_m = _find_best_ma(df_m["close"], df_m["high"], df_m["low"], "ema")
 
+    # --- Distancia en desv. estándar desde la SMA más respetada por timeframe ---
+    dist_sma_d = _sma_zscore(df["close"], best_sma_d) if best_sma_d else None
+    dist_sma_w = _sma_zscore(df_w["close"], best_sma_w) if best_sma_w else None
+    dist_sma_m = _sma_zscore(df_m["close"], best_sma_m) if best_sma_m else None
+
+    # --- RSI semanal ---
+    rsi_w = _rsi(df_w["close"])
+
     # Para el resto de métricas usar solo los últimos 260 días
     df = df.tail(260).reset_index(drop=True)
 
@@ -329,16 +364,8 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     sma50 = float(sma50_series.iloc[-1]) if not pd.isna(sma50_series.iloc[-1]) else None
     sma200 = float(sma200_series.iloc[-1]) if not pd.isna(sma200_series.iloc[-1]) else None
 
-    # --- RSI (14) ---
-    period = 14
-    delta = close.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, float("inf"))
-    rsi_series = 100 - (100 / (1 + rs))
-    rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else None
+    # --- RSI diario (14) ---
+    rsi = _rsi(close)
 
     # --- Guardar / actualizar snapshot ---
     snap = s.query(ScreenerSnapshot).filter(
@@ -379,6 +406,10 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.regime_w = rz_w[-1]["regime_detail"] if rz_w else None
     snap.regime_m = rz_m[-1]["regime_detail"] if rz_m else None
     snap.dd_events = json.dumps(dd_events)
+    snap.rsi_w = round(rsi_w, 2) if rsi_w is not None else None
+    snap.dist_sma_d = dist_sma_d
+    snap.dist_sma_w = dist_sma_w
+    snap.dist_sma_m = dist_sma_m
 
     s.commit()
 
@@ -399,9 +430,16 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
     return {"total": total, "errors": errors}
 
 
-def _fmt_dd_top3(d1, d2, d3) -> str:
-    parts = [f"{v:.1f}%" for v in [d1, d2, d3] if v is not None]
-    return " / ".join(parts) if parts else ""
+def _fmt_dd_top3_from_events(dd_events_json: str | None) -> str:
+    if not dd_events_json:
+        return ""
+    try:
+        events = json.loads(dd_events_json)
+    except Exception:
+        return ""
+    sorted_events = sorted(events, key=lambda e: e.get("depth", 0))
+    top3 = sorted_events[:3]
+    return " / ".join(f"{e['depth']:.1f}%" for e in top3)
 
 
 def get_screener_data(
@@ -469,11 +507,15 @@ def get_screener_data(
                 "var_year": snap.var_year,
                 "var_52w": snap.var_52w,
                 "rsi": snap.rsi,
+                "rsi_w": snap.rsi_w,
                 "vs_sma20": snap.vs_sma20,
                 "vs_sma50": snap.vs_sma50,
                 "vs_sma200": snap.vs_sma200,
+                "dist_sma_d": snap.dist_sma_d,
+                "dist_sma_w": snap.dist_sma_w,
+                "dist_sma_m": snap.dist_sma_m,
                 "dd_current": snap.dd_current,
-                "dd_top3": _fmt_dd_top3(snap.dd_max1, snap.dd_max2, snap.dd_max3),
+                "dd_top3": _fmt_dd_top3_from_events(snap.dd_events),
                 "regime_d": snap.regime_d,
                 "regime_w": snap.regime_w,
                 "regime_m": snap.regime_m,

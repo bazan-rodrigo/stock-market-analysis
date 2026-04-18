@@ -94,6 +94,25 @@ def load_chart_assets(_):
     return [{"label": f"{a.ticker} - {a.name or a.ticker}", "value": a.id} for a in assets]
 
 
+@callback(
+    Output("chart-asset-select", "value"),
+    Input("url", "search"),
+    prevent_initial_call=True,
+)
+def preselect_asset_from_url(search):
+    if not search:
+        return no_update
+    from urllib.parse import parse_qs
+    params = parse_qs(search.lstrip("?"))
+    asset_ids = params.get("asset_id", [])
+    if not asset_ids:
+        return no_update
+    try:
+        return int(asset_ids[0])
+    except (ValueError, TypeError):
+        return no_update
+
+
 # ─── Mostrar/ocultar params colapsables ───────────────────────────────────────
 for _name, _slot in [(e[1], e[2]) for e in _CANONICAL if e[0] == "enabled" and e[1] in _COLLAPSIBLE]:
     @callback(

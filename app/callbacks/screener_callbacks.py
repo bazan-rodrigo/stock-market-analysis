@@ -63,6 +63,9 @@ def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids)
         row["regime_d"] = _REGIME_ES.get(row.get("regime_d"), "")
         row["regime_w"] = _REGIME_ES.get(row.get("regime_w"), "")
         row["regime_m"] = _REGIME_ES.get(row.get("regime_m"), "")
+        asset_id = row.get("id", "")
+        ticker   = row.get("ticker", "")
+        row["ticker"] = f"[{ticker}](/chart?asset_id={asset_id})"
     count_label = f"{len(rows)} resultado{'s' if len(rows) != 1 else ''}"
     return rows, count_label
 
@@ -124,14 +127,3 @@ def poll_scr_recompute(_):
     return 100, "Completo", {"display": "none"}, True, False, _scr_state["msg"]
 
 
-@callback(
-    Output("screener-redirect", "href"),
-    Input("scr-table", "selected_rows"),
-    State("scr-table", "data"),
-    prevent_initial_call=True,
-)
-def screener_open_chart(sel_rows, data):
-    if not sel_rows:
-        return no_update
-    asset_id = data[sel_rows[0]]["id"]
-    return f"/chart?asset_id={asset_id}"

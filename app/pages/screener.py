@@ -6,25 +6,20 @@ from app.components.table_styles import HEADER, DATA, CELL
 _DD_SM = {"fontSize": "0.78rem"}
 
 _COLUMNS = [
-    {"name": "Ticker",       "id": "ticker"},
-    {"name": "Nombre",       "id": "name"},
-    {"name": "Rég. D",       "id": "regime_d"},
-    {"name": "Rég. S",       "id": "regime_w"},
-    {"name": "Rég. M",       "id": "regime_m"},
-    {"name": "Var. día %",   "id": "var_daily",   "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "Var. mes %",   "id": "var_month",   "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "Var. qtr %",   "id": "var_quarter", "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "Var. año %",   "id": "var_year",    "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "Var. 52s %",   "id": "var_52w",     "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "RSI",          "id": "rsi",         "type": "numeric", "format": {"specifier": ".1f"}},
-    {"name": "vs SMA20 %",   "id": "vs_sma20",    "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "vs SMA50 %",   "id": "vs_sma50",    "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "vs SMA200 %",  "id": "vs_sma200",   "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "DD Actual %",  "id": "dd_current",  "type": "numeric", "format": {"specifier": ".1f"}},
-    {"name": "DD Hist. Máx", "id": "dd_top3"},
+    {"name": "Ticker",        "id": "ticker",     "presentation": "markdown"},
+    {"name": "Nombre",        "id": "name"},
+    {"name": "Rég. D",        "id": "regime_d"},
+    {"name": "Rég. S",        "id": "regime_w"},
+    {"name": "Rég. M",        "id": "regime_m"},
+    {"name": "RSI S",         "id": "rsi_w",      "type": "numeric", "format": {"specifier": ".1f"}},
+    {"name": "σ SMA D",       "id": "dist_sma_d", "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "σ SMA S",       "id": "dist_sma_w", "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "σ SMA M",       "id": "dist_sma_m", "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "DD Actual %",   "id": "dd_current", "type": "numeric", "format": {"specifier": ".1f"}},
+    {"name": "DD Hist. Máx",  "id": "dd_top3"},
 ]
 
-_VAR_COLS = ["var_daily", "var_month", "var_quarter", "var_year", "var_52w"]
+_VAR_COLS = []
 _REGIME_COLS = ["regime_d", "regime_w", "regime_m"]
 _REGIME_MAP = {
     "bullish_nascent_strong": "Alcista naciente fuerte",
@@ -58,8 +53,6 @@ def layout(**kwargs):
         return html.Div()
 
     return html.Div([
-        dcc.Location(id="screener-redirect"),
-
         # ── Barra de filtros ───────────────────────────────────────────────────
         dbc.Row([
             dbc.Col(
@@ -114,23 +107,22 @@ def layout(**kwargs):
             sort_action="native",
             filter_action="native",
             page_size=100,
-            row_selectable="single",
-            selected_rows=[],
             style_table={"overflowX": "auto"},
             style_header=HEADER,
             style_data=DATA,
             style_cell={**CELL, "textAlign": "center"},
             style_cell_conditional=[
-                {"if": {"column_id": c}, "textAlign": "left"}
-                for c in ["ticker", "name"]
+                {"if": {"column_id": "ticker"}, "textAlign": "left", "width": "80px", "minWidth": "80px", "maxWidth": "80px"},
+                {"if": {"column_id": "name"},   "textAlign": "left", "width": "150px", "minWidth": "100px", "maxWidth": "180px",
+                 "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
             ],
             style_data_conditional=(
-                [{"if": {"filter_query": f"{{{c}}} > 0", "column_id": c},
-                  "color": "#4caf50"} for c in _VAR_COLS]
+                [{"if": {"filter_query": "{dd_current} < 0",
+                          "column_id": "dd_current"}, "color": "#ef5350"}]
+                + [{"if": {"filter_query": f"{{{c}}} > 0", "column_id": c},
+                    "color": "#4caf50"} for c in ["dist_sma_d", "dist_sma_w", "dist_sma_m"]]
                 + [{"if": {"filter_query": f"{{{c}}} < 0", "column_id": c},
-                    "color": "#ef5350"} for c in _VAR_COLS]
-                + [{"if": {"filter_query": "{dd_current} < 0",
-                            "column_id": "dd_current"}, "color": "#ef5350"}]
+                    "color": "#ef5350"} for c in ["dist_sma_d", "dist_sma_w", "dist_sma_m"]]
                 + [
                     {"if": {"filter_query": f'{{{c}}} = "{label}"', "column_id": c},
                      "color": color, "fontWeight": "bold"}

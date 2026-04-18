@@ -67,4 +67,12 @@ class ScreenerSnapshot(Base):
     # Eventos de drawdown significativos (JSON: [{start, trough, end, depth}, ...])
     dd_events = Column(Text)
 
+    # RSI semanal
+    rsi_w = Column(Float)
+
+    # Distancia en desviaciones estándar desde la SMA más respetada (por timeframe)
+    dist_sma_d = Column(Float)
+    dist_sma_w = Column(Float)
+    dist_sma_m = Column(Float)
+
     asset = relationship("Asset", back_populates="screener_snapshot")
