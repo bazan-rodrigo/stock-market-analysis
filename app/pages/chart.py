@@ -173,12 +173,20 @@ def layout(**kwargs):
                 html.Span("Eventos", style={"fontSize": "0.72rem", "color": "#ff9800"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
-            # Régimen de mercado
+            # Régimen de Tendencia
             html.Div([
                 dbc.Switch(id="chart-regime-enabled", value=False,
                            style={"marginBottom": 0}),
-                html.Span("Régimen", style={"fontSize": "0.72rem", "color": "#9c27b0"}),
+                html.Span("Tendencia", style={"fontSize": "0.72rem", "color": "#9c27b0"}),
                 html.Span(id="chart-regime-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
+            ], className="d-flex align-items-center border rounded px-2",
+               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            # Volatilidad ATR
+            html.Div([
+                dbc.Switch(id="chart-vol-enabled", value=False,
+                           style={"marginBottom": 0}),
+                html.Span("Volatilidad", style={"fontSize": "0.72rem", "color": "#ff9800"}),
+                html.Span(id="chart-vol-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
@@ -194,6 +202,7 @@ def layout(**kwargs):
         dcc.Store(id="chart-events-dummy"),
         dcc.Store(id="chart-regime-dummy"),
         dcc.Store(id="chart-dd-dummy"),
+        dcc.Store(id="chart-vol-dummy"),
 
         # ── Contenedor del gráfico ─────────────────────────────────────────────
         dcc.Loading(

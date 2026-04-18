@@ -6,6 +6,7 @@ def build_navbar() -> dbc.Navbar:
 
     nav_items = [
         dbc.NavItem(dbc.NavLink("Screener", href="/screener")),
+        dbc.NavItem(dbc.NavLink("Mapa de Mercado", href="/market-map")),
         dbc.NavItem(dbc.NavLink("Gráfico técnico", href="/chart")),
     ]
 
@@ -42,7 +43,8 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Fuentes de precios",   href="/admin/price-sources"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Mapper de catálogo",  href="/admin/catalog-mapper"),
-                    dbc.DropdownMenuItem("Régimen de mercado",  href="/admin/regime-config"),
+                    dbc.DropdownMenuItem("Régimen de Tendencia", href="/admin/regime-config"),
+                    dbc.DropdownMenuItem("Volatilidad ATR",     href="/admin/volatility-config"),
                     dbc.DropdownMenuItem("Drawdowns",           href="/admin/drawdown-config"),
                 ],
                 nav=True, in_navbar=True,

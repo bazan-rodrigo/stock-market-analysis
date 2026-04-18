@@ -168,6 +168,8 @@ def load_chart_data(asset_id, current_data):
     best_ma = {}
     regime_zones = {}
     regime_current = {}
+    vol_zones = {}
+    vol_current = {}
     dd_events = []
     if snap:
         best_ma = {
@@ -185,18 +187,29 @@ def load_chart_data(asset_id, current_data):
             "W": snap.regime_w,
             "M": snap.regime_m,
         }
+        vol_zones = {
+            "D": _json.loads(snap.vol_zones_d) if snap.vol_zones_d else [],
+            "W": _json.loads(snap.vol_zones_w) if snap.vol_zones_w else [],
+            "M": _json.loads(snap.vol_zones_m) if snap.vol_zones_m else [],
+        }
+        vol_current = {
+            "D": snap.vol_d,
+            "W": snap.vol_w,
+            "M": snap.vol_m,
+        }
         dd_events = _json.loads(snap.dd_events) if snap.dd_events else []
 
     return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events,
             "best_ma": best_ma, "regime_zones": regime_zones,
             "regime_current": regime_current,
             "regime_ema_periods": regime_ema_periods,
+            "vol_zones": vol_zones, "vol_current": vol_current,
             "dd_events": dd_events}, ""
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -432,6 +445,63 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       el.setAttribute('data-rz', z.start);
       el.style.cssText = 'position:absolute;top:0;height:100%;pointer-events:none;z-index:1;';
       el.style.backgroundColor = COLORS[z.regime] || 'rgba(128,128,128,0.07)';
+      div.appendChild(el);
+    }});
+
+    setTimeout(reposition, 0);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(reposition);
+  }};
+
+  window._lwc.drawVolZones = function(chart, div, zones, times) {{
+    div.querySelectorAll('.lwc-vol').forEach(function(el) {{ el.remove(); }});
+    if (!zones || !zones.length || !chart || !times || !times.length) return;
+
+    var COLORS = {{
+      baja:    'rgba(2,136,209,0.10)',
+      normal:  'rgba(84,110,122,0.10)',
+      alta:    'rgba(239,108,0,0.13)',
+      extrema: 'rgba(183,28,28,0.16)',
+    }};
+
+    function barIndex(dateStr) {{
+      var lo = 0, hi = times.length - 1;
+      while (lo <= hi) {{
+        var mid = (lo + hi) >> 1;
+        if (times[mid] < dateStr) lo = mid + 1;
+        else if (times[mid] > dateStr) hi = mid - 1;
+        else return mid;
+      }}
+      return lo;
+    }}
+
+    function reposition() {{
+      var vr = chart.timeScale().getVisibleLogicalRange();
+      if (!vr) return;
+      var fromIdx = vr.from, toIdx = vr.to, span = toIdx - fromIdx;
+      if (span <= 0) return;
+      var W = div.clientWidth;
+      zones.forEach(function(z) {{
+        var el = div.querySelector('[data-vz="' + z.start + '"]');
+        if (!el) return;
+        var x1 = (barIndex(z.start) - fromIdx) / span * W;
+        var x2 = (barIndex(z.end)   - fromIdx) / span * W;
+        if (x1 >= W || x2 <= 0) {{ el.style.display = 'none'; return; }}
+        var left = Math.max(0, x1), right = Math.min(W, x2);
+        if (right <= left) {{ el.style.display = 'none'; return; }}
+        el.style.display = '';
+        el.style.left  = left + 'px';
+        el.style.width = (right - left) + 'px';
+      }});
+    }}
+
+    zones.forEach(function(z) {{
+      var el = document.createElement('div');
+      el.className = 'lwc-vol';
+      el.setAttribute('data-vz', z.start);
+      var label = z.vol_regime + ' | ' + z.dur_regime + (z.atr_pct != null ? ' (' + z.atr_pct.toFixed(0) + 'p)' : '');
+      el.title = label;
+      el.style.cssText = 'position:absolute;top:0;height:100%;pointer-events:none;z-index:1;';
+      el.style.backgroundColor = COLORS[z.vol_regime] || 'rgba(128,128,128,0.07)';
       div.appendChild(el);
     }});
 
@@ -767,6 +837,14 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }}
     }}
 
+    /* Zonas de volatilidad ATR */
+    if (st.volEnabled) {{
+      var vzones = (st.volZones || {{}})[st.freq] || [];
+      if (vzones.length && window._lwcPanelDivs.price) {{
+        window._lwc.drawVolZones(pc, window._lwcPanelDivs.price, vzones, times);
+      }}
+    }}
+
     /* Marcadores de drawdown */
     if (st.ddEnabled && st.ddEvents && st.ddEvents.length && window._lwcPriceSeries) {{
       /* Mapea fecha exacta al tiempo de barra más cercano (necesario para S/M) */
@@ -812,10 +890,13 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     events:            chartData.events            || [],
     regimeZones:       chartData.regime_zones      || {{}},
     regimeEmaPeriods:  chartData.regime_ema_periods || {{}},
+    volZones:          chartData.vol_zones          || {{}},
+    volCurrent:        chartData.vol_current        || {{}},
     ddEvents:          chartData.dd_events          || [],
     eventsEnabled:     eventsEnabled  !== false,
     regimeEnabled:     regimeEnabled  === true,
     ddEnabled:         ddEnabled      === true,
+    volEnabled:        volEnabled     === true,
     indParams:         indParams,
     volumeEnabled:     volumeEnabled  !== false,
     chartType:         chartType  || 'candlestick',
@@ -849,6 +930,7 @@ clientside_callback(
     State("chart-events-enabled", "value"),
     State("chart-regime-enabled", "value"),
     State("chart-dd-enabled", "value"),
+    State("chart-vol-enabled", "value"),
     *_state_list(State),
     prevent_initial_call=True,
 )
@@ -926,6 +1008,13 @@ clientside_callback(
     prevent_initial_call=True,
 )
 
+clientside_callback(
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.volEnabled=e===true;window._lwc.fullRender();return null;}",
+    Output("chart-vol-dummy", "data"),
+    Input("chart-vol-enabled", "value"),
+    prevent_initial_call=True,
+)
+
 
 _REGIME_LABELS = {
     "bullish_nascent_strong": ("Alcista naciente fuerte", "#66bb6a"),
@@ -957,6 +1046,42 @@ def update_regime_label(chart_data, freq):
     if not regime:
         return "", {"fontSize": "0.68rem"}
     label, color = _REGIME_LABELS.get(regime, (regime.capitalize(), "#aaa"))
+    return f"({label})", {"fontSize": "0.68rem", "color": color, "fontWeight": "bold"}
+
+
+_VOL_COLORS_CHART = {
+    "extrema": "#ef5350",
+    "alta":    "#ff9800",
+    "normal":  "#90a4ae",
+    "baja":    "#42a5f5",
+}
+_VOL_LABELS_ES = {
+    f"{vr}_{dr}": (f"{vl} | {dl}", clr)
+    for (vr, vl, clr) in [
+        ("extrema", "Extrema", "#ef5350"),
+        ("alta",    "Alta",    "#ff9800"),
+        ("normal",  "Normal",  "#90a4ae"),
+        ("baja",    "Baja",    "#42a5f5"),
+    ]
+    for dr, dl in [("larga", "Larga"), ("media", "Media"), ("corta", "Corta")]
+}
+
+
+@callback(
+    Output("chart-vol-label", "children"),
+    Output("chart-vol-label", "style"),
+    Input("chart-data", "data"),
+    Input("chart-freq", "value"),
+    prevent_initial_call=True,
+)
+def update_vol_label(chart_data, freq):
+    if not chart_data:
+        return "", {"fontSize": "0.68rem"}
+    vc = chart_data.get("vol_current", {})
+    vol = vc.get(freq or "D")
+    if not vol:
+        return "", {"fontSize": "0.68rem"}
+    label, color = _VOL_LABELS_ES.get(vol, (vol.replace("_", " ").capitalize(), "#aaa"))
     return f"({label})", {"fontSize": "0.68rem", "color": color, "fontWeight": "bold"}
 
 
