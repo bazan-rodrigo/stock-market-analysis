@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Asegurar que estamos en la raíz del proyecto
+cd "$(dirname "$0")/.."
+
 echo "=== Instalando MariaDB / MySQL Server ==="
 sudo apt-get update -qq || true
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mariadb-server || \
