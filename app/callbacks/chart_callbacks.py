@@ -840,8 +840,13 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     /* Zonas de volatilidad ATR */
     if (st.volEnabled) {{
       var vzones = (st.volZones || {{}})[st.freq] || [];
-      if (vzones.length && window._lwcPanelDivs.price) {{
-        window._lwc.drawVolZones(pc, window._lwcPanelDivs.price, vzones, times);
+      if (vzones.length) {{
+        if (window._lwcPanelDivs.price) {{
+          window._lwc.drawVolZones(pc, window._lwcPanelDivs.price, vzones, times);
+        }}
+        if (window._lwcPanelCharts.atr && window._lwcPanelDivs.atr) {{
+          window._lwc.drawVolZones(window._lwcPanelCharts.atr, window._lwcPanelDivs.atr, vzones, times);
+        }}
       }}
     }}
 
