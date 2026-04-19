@@ -97,7 +97,6 @@ def load_chart_assets(_):
 @callback(
     Output("chart-asset-select", "value"),
     Input("url", "search"),
-    prevent_initial_call=True,
 )
 def preselect_asset_from_url(search):
     if not search:
