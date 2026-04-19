@@ -1172,22 +1172,53 @@ def update_sr_pivot_label(chart_data):
 
 
 # ─── Actualizar período de SMA-1 / EMA-1 al cambiar activo o frecuencia ──────
-# Solo actualiza el período, nunca el toggle enabled (el usuario lo controla).
+def _ma_dist_label(raw_daily: list, period: int, kind: str) -> str:
+    """Calcula la distancia % entre el precio actual y la SMA/EMA del período dado."""
+    if not raw_daily or not period or period < 2:
+        return ""
+    closes = [b["close"] for b in raw_daily if b.get("close") is not None]
+    if len(closes) < period:
+        return ""
+    last_close = closes[-1]
+    if kind == "sma":
+        ma_val = sum(closes[-period:]) / period
+    else:
+        k = 2 / (period + 1)
+        ema = closes[0]
+        for c in closes[1:]:
+            ema = c * k + ema * (1 - k)
+        ma_val = ema
+    if not ma_val:
+        return ""
+    pct = (last_close - ma_val) / ma_val * 100
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{pct:.1f}%"
+
+
+# Actualiza período (con reset a default cuando no hay snapshot) y label de distancia %.
 @callback(
     Output("chart-ind-sma-1-period", "value"),
     Output("chart-ind-ema-1-period", "value"),
+    Output("chart-sma-best-label",   "children"),
+    Output("chart-ema-best-label",   "children"),
     Input("chart-data", "data"),
     Input("chart-freq", "value"),
     prevent_initial_call=True,
 )
 def apply_best_ma(chart_data, freq):
+    _SMA_DEFAULT = 20
+    _EMA_DEFAULT = 9
     if not chart_data:
-        return no_update, no_update
+        return _SMA_DEFAULT, _EMA_DEFAULT, "", ""
     best_ma = chart_data.get("best_ma", {})
     fd = best_ma.get(freq or "D", {})
-    sma = fd.get("sma")
-    ema = fd.get("ema")
-    return (
-        sma if sma else no_update,
-        ema if ema else no_update,
-    )
+    sma_period = fd.get("sma") or _SMA_DEFAULT
+    ema_period = fd.get("ema") or _EMA_DEFAULT
+    raw = chart_data.get("raw_daily", [])
+    # Para W/M resamplear sería ideal, pero los raw_daily son diarios;
+    # usamos la aproximación de multiplicar el período por días hábiles.
+    _MULT = {"D": 1, "W": 5, "M": 21}
+    mult = _MULT.get(freq or "D", 1)
+    sma_label = _ma_dist_label(raw, sma_period * mult, "sma")
+    ema_label = _ma_dist_label(raw, ema_period * mult, "ema")
+    return sma_period, ema_period, sma_label, ema_label

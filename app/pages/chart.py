@@ -15,9 +15,9 @@ def _sep():
     })
 
 
-def _simple_slot(name, slot, color, default_period):
+def _simple_slot(name, slot, color, default_period, dist_label_id=None):
     """Toggle compacto para SMA/EMA: switch + periodo siempre visible."""
-    return html.Div([
+    children = [
         dbc.Switch(
             id=f"chart-ind-{name}-{slot}-enabled",
             value=False,
@@ -32,8 +32,15 @@ def _simple_slot(name, slot, color, default_period):
             type="number", value=default_period, min=2, max=500, step=1,
             style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "20px"},
         ),
-    ], className="d-flex align-items-center border rounded px-2",
-       style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
+    ]
+    if dist_label_id:
+        children.append(html.Span(
+            id=dist_label_id,
+            style={"fontSize": "0.68rem", "color": "#aaa"},
+        ))
+    return html.Div(children,
+                    className="d-flex align-items-center border rounded px-2",
+                    style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
 
 
 def _ind_toggle(label, name, params):
@@ -127,11 +134,13 @@ def layout(**kwargs):
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
             _sep(),
-            # SMA ×3
-            *[_simple_slot("sma", i + 1, _SMA_COLORS[i], _SMA_DEF[i]) for i in range(3)],
+            # SMA ×3  (slot 1 = mejor MA, muestra distancia % al precio)
+            _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
+            *[_simple_slot("sma", i + 1, _SMA_COLORS[i], _SMA_DEF[i]) for i in range(1, 3)],
             _sep(),
             # EMA ×3
-            *[_simple_slot("ema", i + 1, _EMA_COLORS[i], _EMA_DEF[i]) for i in range(3)],
+            _simple_slot("ema", 1, _EMA_COLORS[0], _EMA_DEF[0], dist_label_id="chart-ema-best-label"),
+            *[_simple_slot("ema", i + 1, _EMA_COLORS[i], _EMA_DEF[i]) for i in range(1, 3)],
             _sep(),
             # Bollinger
             _ind_toggle("Bollinger", "bollinger", [
