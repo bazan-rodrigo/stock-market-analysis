@@ -224,7 +224,7 @@ def render_components(uid_store, ft, all_opts):
 
 # ── Añadir / quitar componente (sincroniza valores actuales al store) ─────────
 @callback(
-    Output("syn-uid-store", "data"),
+    Output("syn-uid-store", "data", allow_duplicate=True),
     Input("syn-btn-add-comp",                              "n_clicks"),
     Input({"type": "syn-remove-comp", "index": ALL},      "n_clicks"),
     State("syn-uid-store",                                 "data"),
