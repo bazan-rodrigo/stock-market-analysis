@@ -16,6 +16,38 @@ def _require_admin():
     return not (current_user.is_authenticated and current_user.is_admin)
 
 
+def _confirm_body(sel_rows, data, name_field="name"):
+    n = len(sel_rows or [])
+    if n == 0:
+        return no_update
+    if n == 1:
+        name = (data[sel_rows[0]] or {}).get(name_field, "")
+        return f"¿Eliminás '{name}'? Esta acción no se puede deshacer."
+    if n <= 5:
+        names = ", ".join((data[i] or {}).get(name_field, str(i)) for i in sel_rows)
+        return f"¿Eliminás {n} registros? ({names})"
+    return f"¿Eliminás {n} registros? Esta acción no se puede deshacer."
+
+
+def _bulk_delete(sel_rows, data, delete_fn, reload_fn, row_mapper):
+    errors, deleted = [], 0
+    for i in sel_rows:
+        try:
+            delete_fn(data[i]["id"])
+            deleted += 1
+        except Exception as exc:
+            errors.append(str(exc))
+    rows = reload_fn()
+    table_data = [row_mapper(r) for r in rows]
+    if errors:
+        msg = f"Eliminados {deleted}. Errores: " + "; ".join(errors)
+        color = "warning" if deleted > 0 else "danger"
+    else:
+        msg = f"{deleted} registro{'s' if deleted != 1 else ''} eliminado{'s' if deleted != 1 else ''} correctamente."
+        color = "success"
+    return table_data, msg, True, color
+
+
 # ===========================================================================
 # PAÍSES
 # ===========================================================================
@@ -90,23 +122,24 @@ def countries_save(n_clicks, name, iso_code, editing_id):
     Input("countries-table", "selected_rows"),
 )
 def countries_row_selection(sel_rows):
-    disabled = not bool(sel_rows)
-    return disabled, disabled
+    return len(sel_rows or []) != 1, not bool(sel_rows)
 
 
 @callback(
     Output("countries-confirm-modal", "is_open"),
+    Output("countries-confirm-body", "children"),
     Input("countries-btn-delete", "n_clicks"),
     Input("countries-btn-confirm-delete", "n_clicks"),
     Input("countries-btn-cancel-delete", "n_clicks"),
+    State("countries-table", "selected_rows"),
+    State("countries-table", "data"),
     prevent_initial_call=True,
 )
-def countries_confirm_modal(n_del, n_confirm, n_cancel):
+def countries_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    t = ctx.triggered_id
-    if t == "countries-btn-delete":
-        return True
-    return False
+    if ctx.triggered_id != "countries-btn-delete":
+        return False, no_update
+    return True, _confirm_body(sel_rows, data)
 
 
 @callback(
@@ -119,17 +152,11 @@ def countries_confirm_modal(n_del, n_confirm, n_cancel):
     State("countries-table", "data"),
     prevent_initial_call=True,
 )
-def countries_delete(n_clicks, sel_rows, data):
+def countries_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    row_id = data[sel_rows[0]]["id"]
-    try:
-        svc.delete_country(row_id)
-        rows = svc.get_countries()
-        table_data = [{"id": r.id, "name": r.name, "iso_code": r.iso_code} for r in rows]
-        return table_data, "Eliminado correctamente.", True, "success"
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
+    _m = lambda r: {"id": r.id, "name": r.name, "iso_code": r.iso_code}
+    return _bulk_delete(sel_rows, data, svc.delete_country, svc.get_countries, _m)
 
 
 # ===========================================================================
@@ -205,20 +232,24 @@ def currencies_save(n_clicks, name, iso_code, editing_id):
     Input("currencies-table", "selected_rows"),
 )
 def currencies_row_selection(sel_rows):
-    d = not bool(sel_rows)
-    return d, d
+    return len(sel_rows or []) != 1, not bool(sel_rows)
 
 
 @callback(
     Output("currencies-confirm-modal", "is_open"),
+    Output("currencies-confirm-body", "children"),
     Input("currencies-btn-delete", "n_clicks"),
     Input("currencies-btn-confirm-delete", "n_clicks"),
     Input("currencies-btn-cancel-delete", "n_clicks"),
+    State("currencies-table", "selected_rows"),
+    State("currencies-table", "data"),
     prevent_initial_call=True,
 )
-def currencies_confirm_modal(n_del, n_confirm, n_cancel):
+def currencies_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    return ctx.triggered_id == "currencies-btn-delete"
+    if ctx.triggered_id != "currencies-btn-delete":
+        return False, no_update
+    return True, _confirm_body(sel_rows, data)
 
 
 @callback(
@@ -234,13 +265,8 @@ def currencies_confirm_modal(n_del, n_confirm, n_cancel):
 def currencies_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    try:
-        svc.delete_currency(data[sel_rows[0]]["id"])
-        rows = svc.get_currencies()
-        table_data = [{"id": r.id, "name": r.name, "iso_code": r.iso_code} for r in rows]
-        return table_data, "Eliminado correctamente.", True, "success"
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
+    _m = lambda r: {"id": r.id, "name": r.name, "iso_code": r.iso_code}
+    return _bulk_delete(sel_rows, data, svc.delete_currency, svc.get_currencies, _m)
 
 
 # ===========================================================================
@@ -330,20 +356,24 @@ def markets_save(_, name, country_id, benchmark_id, editing_id):
     Input("markets-table", "selected_rows"),
 )
 def markets_row_selection(sel_rows):
-    d = not bool(sel_rows)
-    return d, d
+    return len(sel_rows or []) != 1, not bool(sel_rows)
 
 
 @callback(
     Output("markets-confirm-modal", "is_open"),
+    Output("markets-confirm-body", "children"),
     Input("markets-btn-delete", "n_clicks"),
     Input("markets-btn-confirm-delete", "n_clicks"),
     Input("markets-btn-cancel-delete", "n_clicks"),
+    State("markets-table", "selected_rows"),
+    State("markets-table", "data"),
     prevent_initial_call=True,
 )
-def markets_confirm_modal(n_del, n_confirm, n_cancel):
+def markets_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    return ctx.triggered_id == "markets-btn-delete"
+    if ctx.triggered_id != "markets-btn-delete":
+        return False, no_update
+    return True, _confirm_body(sel_rows, data)
 
 
 @callback(
@@ -359,13 +389,8 @@ def markets_confirm_modal(n_del, n_confirm, n_cancel):
 def markets_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    try:
-        svc.delete_market(data[sel_rows[0]]["id"])
-        markets = svc.get_markets()
-        table_data = [{"id": m.id, "name": m.name, "country_name": m.country.name} for m in markets]
-        return table_data, "Eliminado correctamente.", True, "success"
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
+    _m = lambda m: {"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""}
+    return _bulk_delete(sel_rows, data, svc.delete_market, svc.get_markets, _m)
 
 
 # ===========================================================================
@@ -450,20 +475,24 @@ def instrument_types_save(_, name, currency_id, editing_id):
     Input("instrument_types-table", "selected_rows"),
 )
 def instrument_types_row_selection(sel_rows):
-    d = not bool(sel_rows)
-    return d, d
+    return len(sel_rows or []) != 1, not bool(sel_rows)
 
 
 @callback(
     Output("instrument_types-confirm-modal", "is_open"),
+    Output("instrument_types-confirm-body", "children"),
     Input("instrument_types-btn-delete", "n_clicks"),
     Input("instrument_types-btn-confirm-delete", "n_clicks"),
     Input("instrument_types-btn-cancel-delete", "n_clicks"),
+    State("instrument_types-table", "selected_rows"),
+    State("instrument_types-table", "data"),
     prevent_initial_call=True,
 )
-def instrument_types_confirm(n_del, n_confirm, n_cancel):
+def instrument_types_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    return ctx.triggered_id == "instrument_types-btn-delete"
+    if ctx.triggered_id != "instrument_types-btn-delete":
+        return False, no_update
+    return True, _confirm_body(sel_rows, data)
 
 
 @callback(
@@ -479,13 +508,8 @@ def instrument_types_confirm(n_del, n_confirm, n_cancel):
 def instrument_types_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    try:
-        svc.delete_instrument_type(data[sel_rows[0]]["id"])
-        itypes = svc.get_instrument_types()
-        table_data = [{"id": it.id, "name": it.name, "currency_name": it.default_currency.iso_code} for it in itypes]
-        return table_data, "Eliminado correctamente.", True, "success"
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
+    _m = lambda it: {"id": it.id, "name": it.name, "currency_name": it.default_currency.iso_code if it.default_currency else ""}
+    return _bulk_delete(sel_rows, data, svc.delete_instrument_type, svc.get_instrument_types, _m)
 
 
 # ===========================================================================
@@ -554,20 +578,24 @@ def sectors_save(_, name, editing_id):
     Input("sectors-table", "selected_rows"),
 )
 def sectors_row_selection(sel_rows):
-    d = not bool(sel_rows)
-    return d, d
+    return len(sel_rows or []) != 1, not bool(sel_rows)
 
 
 @callback(
     Output("sectors-confirm-modal", "is_open"),
+    Output("sectors-confirm-body", "children"),
     Input("sectors-btn-delete", "n_clicks"),
     Input("sectors-btn-confirm-delete", "n_clicks"),
     Input("sectors-btn-cancel-delete", "n_clicks"),
+    State("sectors-table", "selected_rows"),
+    State("sectors-table", "data"),
     prevent_initial_call=True,
 )
-def sectors_confirm(n_del, n_confirm, n_cancel):
+def sectors_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    return ctx.triggered_id == "sectors-btn-delete"
+    if ctx.triggered_id != "sectors-btn-delete":
+        return False, no_update
+    return True, _confirm_body(sel_rows, data)
 
 
 @callback(
@@ -583,12 +611,8 @@ def sectors_confirm(n_del, n_confirm, n_cancel):
 def sectors_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    try:
-        svc.delete_sector(data[sel_rows[0]]["id"])
-        table_data = [{"id": r.id, "name": r.name} for r in svc.get_sectors()]
-        return table_data, "Eliminado correctamente.", True, "success"
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
+    _m = lambda r: {"id": r.id, "name": r.name}
+    return _bulk_delete(sel_rows, data, svc.delete_sector, svc.get_sectors, _m)
 
 
 # ===========================================================================
@@ -670,20 +694,24 @@ def industries_save(_, name, sector_id, editing_id):
     Input("industries-table", "selected_rows"),
 )
 def industries_row_selection(sel_rows):
-    d = not bool(sel_rows)
-    return d, d
+    return len(sel_rows or []) != 1, not bool(sel_rows)
 
 
 @callback(
     Output("industries-confirm-modal", "is_open"),
+    Output("industries-confirm-body", "children"),
     Input("industries-btn-delete", "n_clicks"),
     Input("industries-btn-confirm-delete", "n_clicks"),
     Input("industries-btn-cancel-delete", "n_clicks"),
+    State("industries-table", "selected_rows"),
+    State("industries-table", "data"),
     prevent_initial_call=True,
 )
-def industries_confirm(n_del, n_confirm, n_cancel):
+def industries_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    return ctx.triggered_id == "industries-btn-delete"
+    if ctx.triggered_id != "industries-btn-delete":
+        return False, no_update
+    return True, _confirm_body(sel_rows, data)
 
 
 @callback(
@@ -699,13 +727,8 @@ def industries_confirm(n_del, n_confirm, n_cancel):
 def industries_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    try:
-        svc.delete_industry(data[sel_rows[0]]["id"])
-        industries = svc.get_industries()
-        table_data = [{"id": i.id, "name": i.name, "sector_name": i.sector.name} for i in industries]
-        return table_data, "Eliminado correctamente.", True, "success"
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
+    _m = lambda i: {"id": i.id, "name": i.name, "sector_name": i.sector.name if i.sector else ""}
+    return _bulk_delete(sel_rows, data, svc.delete_industry, svc.get_industries, _m)
 
 
 # ===========================================================================
@@ -783,20 +806,24 @@ def price_sources_save(_, name, description, active, editing_id):
     Input("price_sources-table", "selected_rows"),
 )
 def price_sources_row_selection(sel_rows):
-    d = not bool(sel_rows)
-    return d, d
+    return len(sel_rows or []) != 1, not bool(sel_rows)
 
 
 @callback(
     Output("price_sources-confirm-modal", "is_open"),
+    Output("price_sources-confirm-body", "children"),
     Input("price_sources-btn-delete", "n_clicks"),
     Input("price_sources-btn-confirm-delete", "n_clicks"),
     Input("price_sources-btn-cancel-delete", "n_clicks"),
+    State("price_sources-table", "selected_rows"),
+    State("price_sources-table", "data"),
     prevent_initial_call=True,
 )
-def price_sources_confirm(n_del, n_confirm, n_cancel):
+def price_sources_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    return ctx.triggered_id == "price_sources-btn-delete"
+    if ctx.triggered_id != "price_sources-btn-delete":
+        return False, no_update
+    return True, _confirm_body(sel_rows, data)
 
 
 @callback(
@@ -812,13 +839,8 @@ def price_sources_confirm(n_del, n_confirm, n_cancel):
 def price_sources_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    try:
-        svc.delete_price_source(data[sel_rows[0]]["id"])
-        rows = svc.get_price_sources()
-        table_data = [{"id": r.id, "name": r.name, "description": r.description or "", "active": "Sí" if r.active else "No"} for r in rows]
-        return table_data, "Eliminado correctamente.", True, "success"
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
+    _m = lambda r: {"id": r.id, "name": r.name, "description": r.description or "", "active": "Sí" if r.active else "No"}
+    return _bulk_delete(sel_rows, data, svc.delete_price_source, svc.get_price_sources, _m)
 
 
 # ===========================================================================
@@ -899,20 +921,24 @@ def users_save(_, username, role, password, active, editing_id):
     Input("users-table", "selected_rows"),
 )
 def users_row_selection(sel_rows):
-    d = not bool(sel_rows)
-    return d, d
+    return len(sel_rows or []) != 1, not bool(sel_rows)
 
 
 @callback(
     Output("users-confirm-modal", "is_open"),
+    Output("users-confirm-body", "children"),
     Input("users-btn-delete", "n_clicks"),
     Input("users-btn-confirm-delete", "n_clicks"),
     Input("users-btn-cancel-delete", "n_clicks"),
+    State("users-table", "selected_rows"),
+    State("users-table", "data"),
     prevent_initial_call=True,
 )
-def users_confirm(n_del, n_confirm, n_cancel):
+def users_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    return ctx.triggered_id == "users-btn-delete"
+    if ctx.triggered_id != "users-btn-delete":
+        return False, no_update
+    return True, _confirm_body(sel_rows, data, name_field="username")
 
 
 @callback(
@@ -928,10 +954,5 @@ def users_confirm(n_del, n_confirm, n_cancel):
 def users_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    try:
-        svc.delete_user(data[sel_rows[0]]["id"])
-        rows = svc.get_users()
-        table_data = [{"id": r.id, "username": r.username, "role": r.role, "active": "Sí" if r.active else "No", "created_at": str(r.created_at.date())} for r in rows]
-        return table_data, "Eliminado correctamente.", True, "success"
-    except Exception as exc:
-        return no_update, str(exc), True, "danger"
+    _m = lambda r: {"id": r.id, "username": r.username, "role": r.role, "active": "Sí" if r.active else "No", "created_at": str(r.created_at.date())}
+    return _bulk_delete(sel_rows, data, svc.delete_user, svc.get_users, _m)

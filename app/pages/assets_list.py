@@ -3,6 +3,15 @@ import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
+_BULK_FIELDS = [
+    {"label": "Benchmark",          "value": "benchmark_id"},
+    {"label": "Mercado",            "value": "market_id"},
+    {"label": "Tipo de instrumento","value": "instrument_type_id"},
+    {"label": "Moneda",             "value": "currency_id"},
+    {"label": "Sector",             "value": "sector_id"},
+    {"label": "Industria",          "value": "industry_id"},
+]
+
 _COLUMNS = [
     {"name": "Ticker", "id": "ticker"},
     {"name": "Nombre", "id": "name"},
@@ -67,11 +76,46 @@ def layout(**kwargs):
             *admin_buttons,
         ], className="d-flex align-items-center mb-3"),
         dbc.Alert(id="assets-alert", is_open=False, dismissable=True),
+        # ── Barra de acción masiva (visible cuando hay 1+ filas seleccionadas) ──
+        dbc.Collapse(
+            dbc.Card(dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label("Campo", className="small fw-semibold mb-0"),
+                        dbc.Select(id="assets-bulk-field", options=_BULK_FIELDS, size="sm"),
+                    ], width="auto"),
+                    dbc.Col([
+                        dbc.Label("Nuevo valor", className="small fw-semibold mb-0"),
+                        dcc.Dropdown(
+                            id="assets-bulk-value",
+                            placeholder="Seleccioná...",
+                            clearable=True,
+                            style={"fontSize": "0.85rem", "minWidth": "220px"},
+                        ),
+                    ], width="auto"),
+                    dbc.Col([
+                        dbc.Label("\u00a0", className="small d-block"),
+                        dbc.Button("Aplicar a seleccionados", id="assets-bulk-apply",
+                                   color="warning", size="sm"),
+                        dbc.Button("Limpiar campo", id="assets-bulk-clear",
+                                   color="outline-secondary", size="sm", className="ms-2"),
+                    ], width="auto"),
+                    dbc.Col([
+                        dbc.Label("\u00a0", className="small d-block"),
+                        html.Span(id="assets-bulk-count", className="text-muted small"),
+                    ], width="auto", className="d-flex align-items-end pb-1"),
+                ], className="g-2 align-items-end"),
+                dbc.Alert(id="assets-bulk-alert", is_open=False, dismissable=True,
+                          className="mt-2 mb-0 py-1 small"),
+            ], className="py-2 px-3"), className="mb-2"),
+            id="assets-bulk-collapse",
+            is_open=False,
+        ),
         dash_table.DataTable(
             id="assets-table",
             columns=_COLUMNS,
             data=[],
-            row_selectable="single",
+            row_selectable="multi",
             selected_rows=[],
             style_table={"overflowX": "auto"},
             style_header=HEADER,
@@ -94,7 +138,7 @@ def layout(**kwargs):
         ], id="assets-modal", is_open=False, size="lg"),
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Confirmar eliminación")),
-            dbc.ModalBody("¿Eliminás este activo y toda su historia de precios?"),
+            dbc.ModalBody(id="assets-confirm-body", children="¿Eliminás este activo y toda su historia de precios?"),
             dbc.ModalFooter([
                 dbc.Button("Sí, eliminar", id="assets-btn-confirm-delete", color="danger"),
                 dbc.Button("Cancelar", id="assets-btn-cancel-delete", color="secondary", className="ms-2"),

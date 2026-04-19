@@ -43,7 +43,7 @@ def make_abm_layout(
                 id=f"{entity_id}-table",
                 columns=table_columns,
                 data=[],
-                row_selectable="single",
+                row_selectable="multi",
                 selected_rows=[],
                 style_table={"overflowX": "auto"},
                 style_header=HEADER,

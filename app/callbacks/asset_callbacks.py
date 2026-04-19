@@ -66,11 +66,14 @@ def load_assets(_):
 @callback(
     Output("assets-btn-edit", "disabled"),
     Output("assets-btn-delete", "disabled"),
+    Output("assets-bulk-collapse", "is_open"),
+    Output("assets-bulk-count", "children"),
     Input("assets-table", "selected_rows"),
 )
 def assets_row_selection(sel_rows):
-    d = not bool(sel_rows)
-    return d, d
+    n = len(sel_rows or [])
+    label = f"{n} seleccionado{'s' if n != 1 else ''}" if n else ""
+    return n != 1, n == 0, n > 0, label
 
 
 @callback(
@@ -331,14 +334,28 @@ def assets_save(
 
 @callback(
     Output("assets-confirm-modal", "is_open"),
+    Output("assets-confirm-body", "children"),
     Input("assets-btn-delete", "n_clicks"),
     Input("assets-btn-confirm-delete", "n_clicks"),
     Input("assets-btn-cancel-delete", "n_clicks"),
+    State("assets-table", "selected_rows"),
+    State("assets-table", "data"),
     prevent_initial_call=True,
 )
-def assets_confirm_modal(n_del, n_confirm, n_cancel):
+def assets_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
     from dash import ctx
-    return ctx.triggered_id == "assets-btn-delete"
+    if ctx.triggered_id != "assets-btn-delete":
+        return False, no_update
+    n = len(sel_rows or [])
+    if n == 1:
+        ticker = (data[sel_rows[0]] or {}).get("ticker", "")
+        body = f"¿Eliminás '{ticker}' y toda su historia de precios?"
+    elif n <= 5:
+        tickers = ", ".join(data[i].get("ticker", "") for i in sel_rows)
+        body = f"¿Eliminás {n} activos y toda su historia de precios? ({tickers})"
+    else:
+        body = f"¿Eliminás {n} activos y toda su historia de precios? Esta acción no se puede deshacer."
+    return True, body
 
 
 @callback(
@@ -354,11 +371,84 @@ def assets_confirm_modal(n_del, n_confirm, n_cancel):
 def assets_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
+    errors, deleted = [], 0
+    for i in sel_rows:
+        try:
+            asset_svc.delete_asset(data[i]["id"])
+            deleted += 1
+        except Exception as exc:
+            errors.append(f"{data[i].get('ticker','?')}: {exc}")
+    rows = [_asset_to_row(a) for a in asset_svc.get_assets()]
+    if errors:
+        msg = f"Eliminados {deleted}. Errores: " + "; ".join(errors)
+        color = "warning" if deleted > 0 else "danger"
+    else:
+        msg = f"{deleted} activo{'s' if deleted != 1 else ''} eliminado{'s' if deleted != 1 else ''} correctamente."
+        color = "success"
+    return rows, msg, True, color
+
+
+# ── Bulk: opciones del campo seleccionado ─────────────────────────────────────
+@callback(
+    Output("assets-bulk-value", "options"),
+    Output("assets-bulk-value", "value"),
+    Input("assets-bulk-field", "value"),
+    prevent_initial_call=True,
+)
+def assets_bulk_field_options(field):
+    from app.database import get_session
+    from app.models import Asset
+    if not field:
+        return [], None
+    if field == "benchmark_id":
+        assets = get_session().query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
+        opts = [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
+    elif field == "market_id":
+        opts = [{"label": m.name, "value": m.id} for m in ref_svc.get_markets()]
+    elif field == "instrument_type_id":
+        opts = [{"label": it.name, "value": it.id} for it in ref_svc.get_instrument_types()]
+    elif field == "currency_id":
+        opts = [{"label": f"{c.iso_code} - {c.name}", "value": c.id} for c in ref_svc.get_currencies()]
+    elif field == "sector_id":
+        opts = [{"label": s.name, "value": s.id} for s in ref_svc.get_sectors()]
+    elif field == "industry_id":
+        opts = [{"label": i.name, "value": i.id} for i in ref_svc.get_industries()]
+    else:
+        opts = []
+    return opts, None
+
+
+# ── Bulk: aplicar / limpiar ───────────────────────────────────────────────────
+@callback(
+    Output("assets-table", "data", allow_duplicate=True),
+    Output("assets-bulk-alert", "children"),
+    Output("assets-bulk-alert", "is_open"),
+    Output("assets-bulk-alert", "color"),
+    Output("assets-table", "selected_rows", allow_duplicate=True),
+    Input("assets-bulk-apply", "n_clicks"),
+    Input("assets-bulk-clear", "n_clicks"),
+    State("assets-bulk-field", "value"),
+    State("assets-bulk-value", "value"),
+    State("assets-table", "selected_rows"),
+    State("assets-table", "data"),
+    prevent_initial_call=True,
+)
+def assets_bulk_action(n_apply, n_clear, field, value, sel_rows, data):
+    from dash import ctx
+    _nu = no_update
+    if not sel_rows or not field:
+        return _nu, "Seleccioná filas y un campo.", True, "warning", _nu
+
+    ids = [data[i]["id"] for i in sel_rows]
+    new_value = None if ctx.triggered_id == "assets-bulk-clear" else (int(value) if value else None)
+
+    if ctx.triggered_id == "assets-bulk-apply" and value is None:
+        return _nu, "Seleccioná un valor para aplicar, o usá 'Limpiar campo' para borrar.", True, "warning", _nu
+
     try:
-        asset_svc.delete_asset(data[sel_rows[0]]["id"])
-        return (
-            [_asset_to_row(a) for a in asset_svc.get_assets()],
-            "Activo eliminado.", True, "success",
-        )
+        updated = asset_svc.bulk_update_assets(ids, field, new_value)
+        action = "limpiado" if ctx.triggered_id == "assets-bulk-clear" else "actualizado"
+        msg = f"Campo {action} en {updated} activo{'s' if updated != 1 else ''}."
+        return [_asset_to_row(a) for a in asset_svc.get_assets()], msg, True, "success", []
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return _nu, str(exc), True, "danger", _nu
