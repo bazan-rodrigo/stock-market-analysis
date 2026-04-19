@@ -194,16 +194,8 @@ def layout(**kwargs):
             html.Div([
                 dbc.Switch(id="chart-sr-pivot-enabled", value=False,
                            style={"marginBottom": 0}),
-                html.Span("Pivots S/R", style={"fontSize": "0.72rem", "color": "#ef9a9a"}),
+                html.Span("Niveles S/R", style={"fontSize": "0.72rem", "color": "#ef9a9a"}),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
-            # Perfil de Volumen
-            html.Div([
-                dbc.Switch(id="chart-sr-vpvr-enabled", value=False,
-                           style={"marginBottom": 0}),
-                html.Span("Perfil Vol.", style={"fontSize": "0.72rem", "color": "#ffb74d"}),
-                html.Span(id="chart-sr-vpvr-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
@@ -221,7 +213,6 @@ def layout(**kwargs):
         dcc.Store(id="chart-dd-dummy"),
         dcc.Store(id="chart-vol-dummy"),
         dcc.Store(id="chart-sr-pivot-dummy"),
-        dcc.Store(id="chart-sr-vpvr-dummy"),
 
         # ── Contenedor del gráfico ─────────────────────────────────────────────
         dcc.Loading(

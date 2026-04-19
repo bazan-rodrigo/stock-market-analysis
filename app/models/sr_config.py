@@ -10,5 +10,3 @@ class SRConfig(Base):
     pivot_window  = Column(Integer, nullable=False, default=5)
     cluster_pct   = Column(Float,   nullable=False, default=0.5)
     min_touches   = Column(Integer, nullable=False, default=2)
-    vpvr_buckets  = Column(Integer, nullable=False, default=100)
-    hvn_factor    = Column(Float,   nullable=False, default=1.0)

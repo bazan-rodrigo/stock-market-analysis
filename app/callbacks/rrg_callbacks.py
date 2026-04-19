@@ -62,7 +62,7 @@ def manage_assets(add_clicks, clear_clicks, remove_clicks, new_id, current):
         current = current or []
         if new_id in current:
             return no_update, no_update
-        return current + [new_id], None   # None limpia el dropdown
+        return current + [new_id], None
 
     if isinstance(trigger, dict) and trigger.get("type") == "rrg-remove":
         return [a for a in (current or []) if a != trigger["index"]], no_update
@@ -70,48 +70,88 @@ def manage_assets(add_clicks, clear_clicks, remove_clicks, new_id, current):
     return no_update, no_update
 
 
-# ── Render principal ──────────────────────────────────────────────────────────
+# ── Cálculo pesado: acceso a BD → Store ──────────────────────────────────────
 @callback(
-    Output("rrg-graph",      "figure"),
-    Output("rrg-asset-list", "children"),
-    Output("rrg-alert",      "children"),
-    Output("rrg-alert",      "is_open"),
-    Input("rrg-selected-assets",   "data"),
-    Input("rrg-benchmark-select",  "value"),
-    Input("rrg-tail",              "value"),
+    Output("rrg-full-data",      "data"),
+    Output("rrg-load-trigger",   "children"),
+    Output("rrg-alert",          "children"),
+    Output("rrg-alert",          "is_open"),
+    Input("rrg-selected-assets", "data"),
+    Input("rrg-benchmark-select", "value"),
 )
-def render_rrg(asset_ids, benchmark_id, tail_weeks):
+def compute_data(asset_ids, benchmark_id):
     if not benchmark_id:
-        return _empty_fig(), html.Div(), "Seleccioná un benchmark para comenzar.", True
+        return None, None, "Seleccioná un benchmark para comenzar.", True
 
     if not asset_ids:
-        return _empty_fig(), html.Div(), "", False
+        return None, None, "", False
 
-    tail_weeks = tail_weeks or 12
-    data = rrg_svc.compute_rrg(asset_ids, benchmark_id, tail_weeks)
+    # Siempre computamos con el trail máximo; el slider sólo recorta
+    data = rrg_svc.compute_rrg(asset_ids, benchmark_id, tail_weeks=rrg_svc._MAX_TRAIL)
 
     skipped = len(asset_ids) - len(data)
     alert_msg = (
-        f"{skipped} activo(s) omitido(s) por datos insuficientes (mínimo ~{52 + tail_weeks} semanas)."
+        f"{skipped} activo(s) omitido(s) por datos insuficientes "
+        f"(mínimo ~{52 + rrg_svc._MAX_TRAIL} semanas)."
         if skipped else ""
     )
 
     if not data:
-        return _empty_fig(), html.Div(), alert_msg or "Sin datos.", True
+        return None, None, alert_msg or "Sin datos.", True
 
-    fig   = _build_figure(data, tail_weeks)
-    table = _build_table(asset_ids, data)
-    return fig, table, alert_msg, bool(skipped)
+    # Guardar junto al benchmark_id para que render_figure pueda armar uirevision
+    payload = {
+        "benchmark_id": benchmark_id,
+        "asset_ids": asset_ids,
+        "data": {str(k): v for k, v in data.items()},
+    }
+    return payload, None, alert_msg, bool(skipped)
+
+
+# ── Render rápido: Store + slider → figura (sin BD) ──────────────────────────
+@callback(
+    Output("rrg-graph",      "figure"),
+    Output("rrg-asset-list", "children"),
+    Input("rrg-full-data",   "data"),
+    Input("rrg-tail",        "value"),
+)
+def render_figure(payload, tail_weeks):
+    tail_weeks = tail_weeks or 12
+
+    if not payload or not payload.get("data"):
+        fig = _empty_fig()
+        # uirevision fijo para que el zoom no se resetee al limpiar
+        fig.update_layout(uirevision="empty")
+        return fig, html.Div()
+
+    benchmark_id = payload["benchmark_id"]
+    asset_ids    = payload["asset_ids"]
+    raw_data     = payload["data"]
+
+    # Recortar trail al valor del slider
+    data = {}
+    for k, info in raw_data.items():
+        trail = info["trail"][-tail_weeks:] if tail_weeks < len(info["trail"]) else info["trail"]
+        if trail:
+            data[int(k)] = {**info, "trail": trail}
+
+    # uirevision basado en benchmark + activos: cambia solo cuando cambia la selección,
+    # NO cuando cambia el slider → zoom se preserva al mover la cola
+    uirev = f"{benchmark_id}_{sorted(asset_ids)}"
+
+    fig   = _build_figure(data, uirev)
+    table = _build_table(asset_ids, raw_data)
+    return fig, table
 
 
 # ── Helpers de figura ─────────────────────────────────────────────────────────
 def _empty_fig() -> go.Figure:
     fig = go.Figure()
-    _apply_layout(fig, [90, 110], [90, 110])
+    _apply_layout(fig, [90, 110], [90, 110], uirevision="empty")
     return fig
 
 
-def _build_figure(data: dict, tail_weeks: int) -> go.Figure:
+def _build_figure(data: dict, uirevision: str) -> go.Figure:
     fig   = go.Figure()
     all_x = [100.0]
     all_y = [100.0]
@@ -129,7 +169,6 @@ def _build_figure(data: dict, tail_weeks: int) -> go.Figure:
         all_y.extend(ys)
 
         n = len(xs)
-        # Opacidad creciente: más antiguo = más transparente
         opacities = [0.15 + 0.85 * (j / max(n - 1, 1)) for j in range(n)]
         sizes     = [3    + 5    * (j / max(n - 1, 1)) for j in range(n)]
 
@@ -138,7 +177,6 @@ def _build_figure(data: dict, tail_weeks: int) -> go.Figure:
             for j in range(n)
         ]
 
-        # Trail: un segmento por tramo para que el grosor varíe según distancia al origen
         rgb = _hex_to_rgb(color)
         for j in range(n - 1):
             mx = (xs[j] + xs[j + 1]) / 2
@@ -165,7 +203,6 @@ def _build_figure(data: dict, tail_weeks: int) -> go.Figure:
                 customdata=[hover[j], hover[j + 1]],
             ))
 
-        # Punto actual: cuadrado con label
         fig.add_trace(go.Scatter(
             x=[xs[-1]], y=[ys[-1]],
             mode="markers+text",
@@ -185,26 +222,24 @@ def _build_figure(data: dict, tail_weeks: int) -> go.Figure:
     x_range = [min(all_x) - pad_x, max(all_x) + pad_x]
     y_range = [min(all_y) - pad_y, max(all_y) + pad_y]
 
-    _apply_layout(fig, x_range, y_range)
+    _apply_layout(fig, x_range, y_range, uirevision)
     return fig
 
 
-def _apply_layout(fig: go.Figure, x_range: list, y_range: list):
+def _apply_layout(fig: go.Figure, x_range: list, y_range: list, uirevision: str = "rrg"):
     cx, cy = 100.0, 100.0
     xlo, xhi = x_range
     ylo, yhi = y_range
 
     shapes = [
-        # Cuadrantes
         dict(type="rect", x0=cx, y0=cy, x1=xhi, y1=yhi,
-             fillcolor="rgba(27,94,32,0.22)",   line_width=0),   # Leading
+             fillcolor="rgba(27,94,32,0.22)",   line_width=0),
         dict(type="rect", x0=xlo, y0=cy, x1=cx, y1=yhi,
-             fillcolor="rgba(13,71,161,0.22)",  line_width=0),   # Improving
+             fillcolor="rgba(13,71,161,0.22)",  line_width=0),
         dict(type="rect", x0=xlo, y0=ylo, x1=cx, y1=cy,
-             fillcolor="rgba(183,28,28,0.22)",  line_width=0),   # Lagging
+             fillcolor="rgba(183,28,28,0.22)",  line_width=0),
         dict(type="rect", x0=cx, y0=ylo, x1=xhi, y1=cy,
-             fillcolor="rgba(230,119,0,0.18)",  line_width=0),   # Weakening
-        # Líneas centrales
+             fillcolor="rgba(230,119,0,0.18)",  line_width=0),
         dict(type="line", x0=cx, y0=ylo, x1=cx, y1=yhi,
              line=dict(color="#4b5563", width=1)),
         dict(type="line", x0=xlo, y0=cy, x1=xhi, y1=cy,
@@ -227,6 +262,7 @@ def _apply_layout(fig: go.Figure, x_range: list, y_range: list):
     ]
 
     fig.update_layout(
+        uirevision=uirevision,
         plot_bgcolor=_BG,
         paper_bgcolor=_BG,
         font=dict(color="#dee2e6", size=11),
@@ -259,11 +295,11 @@ def _apply_layout(fig: go.Figure, x_range: list, y_range: list):
 
 
 # ── Helpers de tabla ──────────────────────────────────────────────────────────
-def _build_table(asset_ids: list, data: dict) -> html.Div:
+def _build_table(asset_ids: list, raw_data: dict) -> html.Div:
     rows = []
     for i, aid in enumerate(asset_ids):
         color = _PALETTE[i % len(_PALETTE)]
-        info  = data.get(aid)
+        info  = raw_data.get(str(aid)) or raw_data.get(aid)
         ticker = info["ticker"] if info else str(aid)
         name   = info["name"]   if info else "—"
         trail  = info["trail"]  if info else []

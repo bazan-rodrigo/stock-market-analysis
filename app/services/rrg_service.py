@@ -34,6 +34,9 @@ def _normalize_rolling(s: pd.Series, window: int) -> pd.Series:
     return (s - roll_mean) / roll_std.replace(0, np.nan) * 10 + 100
 
 
+_MAX_TRAIL = 30   # máximo de semanas que se almacenan en el store
+
+
 def compute_rrg(asset_ids: list[int], benchmark_id: int, tail_weeks: int = 12) -> dict:
     """
     Calcula RS-Ratio y RS-Momentum para cada activo relativo al benchmark.

@@ -635,8 +635,6 @@ def compute_and_save_snapshot(asset_id: int) -> None:
         if sr:
             snap.pivot_resist_pct = sr["pivot_resist_pct"]
             snap.pivot_support_pct = sr["pivot_support_pct"]
-            snap.vpvr_resist_pct = sr["vpvr_resist_pct"]
-            snap.vpvr_support_pct = sr["vpvr_support_pct"]
     except Exception as exc:
         logger.warning("SR compute falló para asset_id=%d: %s", asset_id, exc)
 
@@ -757,8 +755,6 @@ def get_screener_data(
                 "atr_pct_m": snap.atr_pct_m,
                 "pivot_resist_pct": snap.pivot_resist_pct,
                 "pivot_support_pct": snap.pivot_support_pct,
-                "vpvr_resist_pct": snap.vpvr_resist_pct,
-                "vpvr_support_pct": snap.vpvr_support_pct,
                 # IDs de dimensión (usados para calcular scores de grupo)
                 "sector_id":          asset.sector_id,
                 "industry_id":        asset.industry_id,

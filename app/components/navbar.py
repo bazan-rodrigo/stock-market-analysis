@@ -7,7 +7,7 @@ def build_navbar() -> dbc.Navbar:
     nav_items = [
         dbc.NavItem(dbc.NavLink("Screener", href="/screener")),
         dbc.NavItem(dbc.NavLink("Mapa de Mercado", href="/market-map")),
-        dbc.NavItem(dbc.NavLink("RRG", href="/rrg")),
+        dbc.NavItem(dbc.NavLink("Rotación Relativa", href="/rrg")),
         dbc.NavItem(dbc.NavLink("Gráfico técnico", href="/chart")),
         dbc.NavItem(dbc.NavLink("Dispersión", href="/scatter")),
     ]

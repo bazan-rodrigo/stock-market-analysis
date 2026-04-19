@@ -15,21 +15,17 @@ def _get_config():
     Output("sr-pivot-window", "value"),
     Output("sr-cluster-pct",  "value"),
     Output("sr-min-touches",  "value"),
-    Output("sr-vpvr-buckets", "value"),
-    Output("sr-hvn-factor",   "value"),
     Input("sr-lookback", "id"),
 )
 def load_sr_config(_):
     cfg = _get_config()
     if cfg is None:
-        return 252, 5, 0.5, 2, 100, 1.0
+        return 252, 5, 0.5, 2
     return (
         cfg.lookback_days,
         cfg.pivot_window,
         cfg.cluster_pct,
         cfg.min_touches,
-        cfg.vpvr_buckets,
-        cfg.hvn_factor,
     )
 
 
@@ -42,12 +38,10 @@ def load_sr_config(_):
     State("sr-pivot-window", "value"),
     State("sr-cluster-pct",  "value"),
     State("sr-min-touches",  "value"),
-    State("sr-vpvr-buckets", "value"),
-    State("sr-hvn-factor",   "value"),
     prevent_initial_call=True,
 )
-def save_sr_config(_, lookback, window, cluster, touches, vbuckets, hvn):
-    if any(v is None for v in [lookback, window, cluster, touches, vbuckets, hvn]):
+def save_sr_config(_, lookback, window, cluster, touches):
+    if any(v is None for v in [lookback, window, cluster, touches]):
         return "Completá todos los campos.", True, "warning"
 
     s = get_session()
@@ -60,8 +54,6 @@ def save_sr_config(_, lookback, window, cluster, touches, vbuckets, hvn):
     cfg.pivot_window  = int(window)
     cfg.cluster_pct   = float(cluster)
     cfg.min_touches   = int(touches)
-    cfg.vpvr_buckets  = int(vbuckets)
-    cfg.hvn_factor    = float(hvn)
     s.commit()
 
     return (

@@ -10,6 +10,7 @@ def layout(**kwargs):
 
     return html.Div([
         dcc.Store(id="rrg-selected-assets", data=[]),
+        dcc.Store(id="rrg-full-data", data=None),
 
         # ── Controles ────────────────────────────────────────────────────────
         dbc.Row([
@@ -28,6 +29,7 @@ def layout(**kwargs):
                     min=1, max=30, value=12, step=1,
                     marks={1: "1", 5: "5", 10: "10", 20: "20", 30: "30"},
                     tooltip={"placement": "bottom", "always_visible": True},
+                    updatemode="drag",
                 ),
             ], md=3),
             dbc.Col([
@@ -60,15 +62,18 @@ def layout(**kwargs):
             style={"fontSize": "0.85rem", "padding": "6px 12px"},
         ),
 
-        # ── Gráfico ──────────────────────────────────────────────────────────
+        # Spinner solo mientras se cargan datos pesados desde la BD
         dcc.Loading(
-            dcc.Graph(
-                id="rrg-graph",
-                style={"height": "620px"},
-                config={"displayModeBar": False},
-            ),
+            html.Div(id="rrg-load-trigger", style={"display": "none"}),
             type="circle",
             color="#dee2e6",
+        ),
+
+        # ── Gráfico (sin Loading propio: se actualiza instantáneo al cambiar cola) ──
+        dcc.Graph(
+            id="rrg-graph",
+            style={"height": "620px"},
+            config={"displayModeBar": False},
         ),
 
         # ── Tabla de activos seleccionados ───────────────────────────────────
@@ -77,4 +82,5 @@ def layout(**kwargs):
     ], style={"padding": "0 8px"})
 
 
-dash.register_page(__name__, path="/rrg", title="RRG", layout=layout)
+dash.register_page(__name__, path="/rrg",
+                   title="Rotación Relativa (RRG)", layout=layout)

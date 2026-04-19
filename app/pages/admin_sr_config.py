@@ -3,9 +3,8 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 _HELP = (
-    "Pivots S/R: detecta extremos locales (máximos y mínimos) en el precio y agrupa "
-    "niveles cercanos en zonas. Perfil de Volumen (VPVR): identifica los rangos de precio "
-    "donde más volumen se operó (HVN) y el punto de mayor actividad (POC)."
+    "Niveles S/R: detecta extremos locales (máximos y mínimos) en el precio y agrupa "
+    "niveles cercanos en zonas de soporte y resistencia."
 )
 
 
@@ -38,7 +37,7 @@ def layout(**kwargs):
                        "Más días captura niveles históricos más lejanos pero puede incluir zonas ya irrelevantes."),
             ]),
 
-            _section("Pivot S/R — Extremos locales de precio"),
+            _section("Niveles S/R — Extremos locales de precio"),
             dbc.Row([
                 _field("Ventana (barras)", "sr-pivot-window", 2, 30, 1,
                        "Barras a cada lado para considerar un punto como extremo local. "
@@ -51,17 +50,6 @@ def layout(**kwargs):
                 _field("Mín. toques", "sr-min-touches", 1, 10, 1,
                        "Veces mínimas que el precio debe haber tocado un nivel para mostrarlo. "
                        "Con 1 aparece cualquier extremo; con 2+ solo los que el precio respetó más de una vez."),
-            ]),
-
-            _section("Perfil de Volumen (VPVR) — Nodos de alto volumen"),
-            dbc.Row([
-                _field("Buckets de precio", "sr-vpvr-buckets", 20, 500, 10,
-                       "Divide el rango de precios en N franjas y suma el volumen operado en cada una. "
-                       "Más buckets = más granularidad. 100 es un buen balance para la mayoría de activos."),
-                _field("Factor HVN", "sr-hvn-factor", 0.1, 5.0, 0.1,
-                       "Un bucket se considera nodo de alto volumen (HVN) si su volumen supera "
-                       "el promedio × este factor. Factor=1.0 → todos los buckets por encima del promedio. "
-                       "Factor=1.5 → solo los más activos. Mayor factor = menos niveles mostrados."),
             ]),
 
             dbc.Button("Guardar", id="sr-btn-save", color="primary", size="sm", className="mt-1"),
