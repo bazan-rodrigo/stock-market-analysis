@@ -82,21 +82,25 @@ def _build_columns(entity_type: str):
     for a in aliases:
         alias_counts[a.entity_id] = alias_counts.get(a.entity_id, 0) + 1
 
+    _item_style = {"fontSize": "0.82rem", "cursor": "grab", "userSelect": "none"}
+    _tgt_style  = {"fontSize": "0.82rem", "minHeight": "28px"}
+
     src_items = []
     tgt_items = []
     for e in entities:
         src_items.append(html.Div(
-            [html.I(className="fas fa-grip-vertical me-2 text-muted"), html.Span(e.name)],
-            className="mapper-src p-2 mb-1 border rounded",
-            style={"cursor": "grab", "userSelect": "none"},
+            [html.I(className="fas fa-grip-vertical me-1 text-muted"), html.Span(e.name)],
+            className="mapper-src py-1 px-2 mb-1 border rounded",
+            style=_item_style,
             **{"data-id": str(e.id), "data-name": e.name},
         ))
         count = alias_counts.get(e.id, 0)
-        badge = dbc.Badge(str(count), color="info", pill=True, className="ms-2") if count else ""
+        badge = dbc.Badge(str(count), color="info", pill=True, className="ms-1",
+                          style={"fontSize": "0.70rem"}) if count else ""
         tgt_items.append(html.Div(
             [html.Span(e.name), badge],
-            className="mapper-tgt p-2 mb-1 border rounded d-flex justify-content-between align-items-center",
-            style={"minHeight": "38px"},
+            className="mapper-tgt py-1 px-2 mb-1 border rounded d-flex justify-content-between align-items-center",
+            style=_tgt_style,
             **{"data-id": str(e.id), "data-name": e.name},
         ))
 

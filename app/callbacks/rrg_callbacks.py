@@ -135,9 +135,10 @@ def render_figure(payload, tail_weeks):
         if trail:
             data[int(k)] = {**info, "trail": trail}
 
-    # uirevision basado en benchmark + activos: cambia solo cuando cambia la selección,
-    # NO cuando cambia el slider → zoom se preserva al mover la cola
-    uirev = f"{benchmark_id}_{sorted(asset_ids)}"
+    # uirevision incluye tail_weeks: fuerza re-render limpio al cambiar la cola,
+    # evitando que Plotly intente mergear trazas cuando cambia su cantidad y
+    # el gráfico quede en estado corrupto permanentemente.
+    uirev = f"{benchmark_id}_{sorted(asset_ids)}_{tail_weeks}"
 
     fig   = _build_figure(data, uirev)
     table = _build_table(asset_ids, raw_data)
@@ -314,13 +315,12 @@ def _build_table(asset_ids: list, raw_data: dict) -> html.Div:
             })),
             html.Td(ticker,  style={"fontWeight": "bold",  "fontSize": "0.82rem", "paddingLeft": "6px"}),
             html.Td(name,    style={
-                "fontSize": "0.78rem", "color": "#9ca3af",
-                "maxWidth": "220px", "overflow": "hidden",
-                "textOverflow": "ellipsis", "whiteSpace": "nowrap",
+                "color": "#9ca3af", "maxWidth": "180px", "overflow": "hidden",
+                "textOverflow": "ellipsis", "whiteSpace": "nowrap", "paddingRight": "16px",
             }),
-            html.Td(date_lbl, style={"textAlign": "center", "fontSize": "0.75rem", "color": "#9ca3af"}),
-            html.Td(ratio,    style={"textAlign": "center", "fontSize": "0.78rem"}),
-            html.Td(momentum, style={"textAlign": "center", "fontSize": "0.78rem"}),
+            html.Td(date_lbl, style={"textAlign": "center", "color": "#9ca3af", "whiteSpace": "nowrap"}),
+            html.Td(ratio,    style={"textAlign": "center"}),
+            html.Td(momentum, style={"textAlign": "center"}),
             html.Td(
                 dbc.Button("×", id={"type": "rrg-remove", "index": aid},
                            color="link", size="sm",
@@ -332,20 +332,21 @@ def _build_table(asset_ids: list, raw_data: dict) -> html.Div:
         return html.Div()
 
     _th = {"fontSize": "0.72rem", "color": "#6b7280", "fontWeight": "normal",
-           "padding": "4px 6px", "borderBottom": "1px solid #374151"}
+           "padding": "3px 8px", "borderBottom": "1px solid #374151", "whiteSpace": "nowrap"}
 
-    return html.Table([
+    return html.Div(html.Table([
         html.Thead(html.Tr([
-            html.Th("",         style={**_th, "width": "20px"}),
+            html.Th("",         style={**_th, "width": "16px", "padding": "3px 4px"}),
             html.Th("Ticker",   style={**_th, "paddingLeft": "6px"}),
             html.Th("Nombre",   style=_th),
-            html.Th("Semana",   style={**_th, "textAlign": "center", "width": "100px"}),
-            html.Th("RS-Ratio", style={**_th, "textAlign": "center", "width": "80px"}),
-            html.Th("RS-Mom.",  style={**_th, "textAlign": "center", "width": "80px"}),
-            html.Th("",         style={**_th, "width": "30px"}),
+            html.Th("Semana",   style={**_th, "textAlign": "center"}),
+            html.Th("RS-Ratio", style={**_th, "textAlign": "center"}),
+            html.Th("RS-Mom.",  style={**_th, "textAlign": "center"}),
+            html.Th("",         style={**_th, "width": "24px", "padding": "3px 2px"}),
         ])),
         html.Tbody(rows),
-    ], style={"width": "100%", "borderCollapse": "collapse"})
+    ], style={"borderCollapse": "collapse", "fontSize": "0.80rem"}),
+    style={"display": "inline-block", "maxWidth": "100%", "overflowX": "auto"})
 
 
 def _hex_to_rgb(hex_color: str) -> str:

@@ -24,34 +24,36 @@ def layout(**kwargs):
         html.Button(id="mapper-drop-trigger", style={"display": "none"}, n_clicks=0),
 
         dbc.Row([
-            dbc.Col(html.H4("Mapper de Catálogo", className="mb-0"), width="auto"),
+            dbc.Col(html.H5("Mapper de Catálogo", className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small(
-                    "Arrastrá una entidad sobre otra para fusionarlas. "
-                    "La de la derecha es la canónica y sobrevive; la izquierda se elimina.",
+                    "Arrastrá origen → destino para fusionar. El destino sobrevive.",
                     className="text-muted",
-                    style={"fontSize": "0.75rem"},
+                    style={"fontSize": "0.74rem"},
                 ),
                 className="d-flex align-items-center",
             ),
-        ], className="mb-2 align-items-center"),
+        ], className="mb-1 align-items-center"),
 
-        dbc.Tabs(tabs, id="mapper-tabs", active_tab="tab-country", className="mb-2"),
-        dbc.Alert(id="mapper-alert", is_open=False, dismissable=True, className="mb-2",
-                  style={"fontSize": "0.85rem", "padding": "6px 12px"}),
+        dbc.Tabs(tabs, id="mapper-tabs", active_tab="tab-country", className="mb-1"),
+        dbc.Alert(id="mapper-alert", is_open=False, dismissable=True, className="mb-1",
+                  style={"fontSize": "0.82rem", "padding": "4px 10px"}),
 
         dbc.Row([
             dbc.Col([
-                html.Small("Origen — arrastrá", className="text-muted d-block mb-1"),
-                html.Div(id="mapper-source-col", style={"minHeight": "150px"}),
+                html.Small("Origen — arrastrá", className="text-muted d-block mb-1",
+                           style={"fontSize": "0.72rem"}),
+                html.Div(id="mapper-source-col"),
             ], md=5),
             dbc.Col(
-                html.Div("→", style={"fontSize": "1.5rem", "textAlign": "center", "paddingTop": "20px"}),
+                html.Div("→", style={"fontSize": "1.2rem", "textAlign": "center", "paddingTop": "4px",
+                                     "color": "#6b7280"}),
                 md=2,
             ),
             dbc.Col([
-                html.Small("Destino — soltá aquí", className="text-muted d-block mb-1"),
-                html.Div(id="mapper-target-col", style={"minHeight": "150px"}),
+                html.Small("Destino — soltá aquí", className="text-muted d-block mb-1",
+                           style={"fontSize": "0.72rem"}),
+                html.Div(id="mapper-target-col"),
             ], md=5),
         ]),
 
