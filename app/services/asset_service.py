@@ -123,10 +123,34 @@ def toggle_active(asset_id: int) -> Asset:
 
 def delete_asset(asset_id: int) -> None:
     """Borra el activo y toda su historia de precios (cascade en BD)."""
+    from app.models import Market
     s = get_session()
     obj = s.get(Asset, asset_id)
     if obj is None:
         raise ValueError(f"Activo id={asset_id} no encontrado")
+
+    # Verificar que no sea benchmark de otros activos o mercados
+    assets_using = (
+        s.query(Asset.ticker)
+         .filter(Asset.benchmark_id == asset_id, Asset.id != asset_id)
+         .all()
+    )
+    markets_using = (
+        s.query(Market.name)
+         .filter(Market.benchmark_id == asset_id)
+         .all()
+    )
+    dependents = []
+    if assets_using:
+        dependents.append("activos: " + ", ".join(r.ticker for r in assets_using))
+    if markets_using:
+        dependents.append("mercados: " + ", ".join(r.name for r in markets_using))
+    if dependents:
+        raise ValueError(
+            f"No se puede eliminar: '{obj.ticker}' está configurado como benchmark en "
+            + " y ".join(dependents) + ". Reasigná el benchmark antes de borrar."
+        )
+
     s.delete(obj)
     s.commit()
 
