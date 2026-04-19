@@ -4,39 +4,56 @@ from flask_login import current_user
 
 def build_navbar() -> dbc.Navbar:
 
-    nav_items = [
-        dbc.NavItem(dbc.NavLink("Screener", href="/screener")),
-        dbc.NavItem(dbc.NavLink("Mapa de Mercado", href="/market-map")),
-        dbc.NavItem(dbc.NavLink("Rotación Relativa", href="/rrg")),
-        dbc.NavItem(dbc.NavLink("Gráfico técnico", href="/chart")),
-        dbc.NavItem(dbc.NavLink("Correlación", href="/scatter")),
-        dbc.NavItem(dbc.NavLink("Evolución", href="/evolucion")),
-    ]
+    analisis_menu = dbc.DropdownMenu(
+        label="Análisis",
+        children=[
+            dbc.DropdownMenuItem("Screener",           href="/screener"),
+            dbc.DropdownMenuItem("Mapa de Mercado",    href="/market-map"),
+            dbc.DropdownMenuItem("Rotación Relativa",  href="/rrg"),
+            dbc.DropdownMenuItem("Gráfico técnico",    href="/chart"),
+            dbc.DropdownMenuItem("Dispersión",         href="/scatter"),
+            dbc.DropdownMenuItem("Evolución",          href="/evolucion"),
+        ],
+        nav=True, in_navbar=True,
+    )
 
     if current_user.is_authenticated and current_user.is_admin:
-        nav_items += [
+        nav_items = [
+            analisis_menu,
             dbc.DropdownMenu(
                 label="Activos",
                 children=[
                     dbc.DropdownMenuItem("Gestión de activos", href="/assets"),
                     dbc.DropdownMenuItem("Importar activos",   href="/assets/import"),
+                    dbc.DropdownMenuItem(divider=True),
+                    dbc.DropdownMenuItem("Activos sintéticos", href="/admin/synthetic"),
                 ],
                 nav=True, in_navbar=True,
             ),
             dbc.DropdownMenu(
                 label="Precios",
                 children=[
-                    dbc.DropdownMenuItem("Visualizador de precios",   href="/price-viewer"),
-                    dbc.DropdownMenuItem("Actualización de precios",  href="/prices"),
+                    dbc.DropdownMenuItem("Visualizador de precios",  href="/price-viewer"),
+                    dbc.DropdownMenuItem("Actualización de precios", href="/prices"),
                 ],
                 nav=True, in_navbar=True,
             ),
             dbc.DropdownMenu(
-                label="Datos de mercado",
+                label="Configuración",
                 children=[
-                    dbc.DropdownMenuItem("Activos sintéticos",        href="/admin/synthetic"),
-                    dbc.DropdownMenuItem("Eventos de mercado",        href="/admin/events"),
-                    dbc.DropdownMenuItem("Importar eventos",          href="/admin/events/import"),
+                    dbc.DropdownMenuItem("Mapper de catálogo",    href="/admin/catalog-mapper"),
+                    dbc.DropdownMenuItem("Régimen de Tendencia",  href="/admin/regime-config"),
+                    dbc.DropdownMenuItem("Volatilidad ATR",       href="/admin/volatility-config"),
+                    dbc.DropdownMenuItem("Drawdowns",             href="/admin/drawdown-config"),
+                    dbc.DropdownMenuItem("Soporte / Resistencia", href="/admin/sr-config"),
+                ],
+                nav=True, in_navbar=True,
+            ),
+            dbc.DropdownMenu(
+                label="Administración",
+                children=[
+                    dbc.DropdownMenuItem("Eventos de mercado",   href="/admin/events"),
+                    dbc.DropdownMenuItem("Importar eventos",     href="/admin/events/import"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Países",               href="/admin/countries"),
                     dbc.DropdownMenuItem("Monedas",              href="/admin/currencies"),
@@ -46,29 +63,17 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Industrias",           href="/admin/industries"),
                     dbc.DropdownMenuItem("Fuentes de precios",   href="/admin/price-sources"),
                     dbc.DropdownMenuItem(divider=True),
-                    dbc.DropdownMenuItem("Mapper de catálogo",  href="/admin/catalog-mapper"),
-                    dbc.DropdownMenuItem("Régimen de Tendencia", href="/admin/regime-config"),
-                    dbc.DropdownMenuItem("Volatilidad ATR",     href="/admin/volatility-config"),
-                    dbc.DropdownMenuItem("Drawdowns",           href="/admin/drawdown-config"),
-                    dbc.DropdownMenuItem("Soporte / Resistencia", href="/admin/sr-config"),
-                ],
-                nav=True, in_navbar=True,
-            ),
-            dbc.DropdownMenu(
-                label="Administración",
-                children=[
-                    dbc.DropdownMenuItem("Usuarios",          href="/admin/users"),
-                    dbc.DropdownMenuItem(divider=True),
-                    dbc.DropdownMenuItem("Limpieza de datos", href="/admin/cleanup"),
+                    dbc.DropdownMenuItem("Usuarios",             href="/admin/users"),
+                    dbc.DropdownMenuItem("Limpieza de datos",    href="/admin/cleanup"),
                 ],
                 nav=True, in_navbar=True,
             ),
         ]
     else:
-        # Analista: solo puede ver precios
-        nav_items.append(
-            dbc.NavItem(dbc.NavLink("Precios", href="/price-viewer"))
-        )
+        nav_items = [
+            analisis_menu,
+            dbc.NavItem(dbc.NavLink("Precios", href="/price-viewer")),
+        ]
 
     username = current_user.username if current_user.is_authenticated else ""
     user_menu = dbc.DropdownMenu(
