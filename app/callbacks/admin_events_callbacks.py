@@ -61,7 +61,7 @@ def load_events(_):
 )
 def load_form_options(_):
     countries = ref_svc.get_countries()
-    assets    = get_assets(only_active=True)
+    assets    = get_assets()
     return (
         [{"label": c.name, "value": c.id} for c in countries],
         [{"label": f"{a.ticker} – {a.name or a.ticker}", "value": a.id} for a in assets],

@@ -9,7 +9,7 @@ class Currency(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
-    iso_code = Column(String(10), nullable=False, unique=True)
+    iso_code = Column(String(10), nullable=True, unique=True)
 
     instrument_types = relationship("InstrumentType", back_populates="default_currency")
     assets = relationship("Asset", back_populates="currency")

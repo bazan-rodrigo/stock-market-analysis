@@ -39,22 +39,6 @@ def make_abm_layout(
                 className="d-flex align-items-center mb-3",
             ),
             dbc.Alert(id=f"{entity_id}-alert", is_open=False, dismissable=True),
-            dash_table.DataTable(
-                id=f"{entity_id}-table",
-                columns=table_columns,
-                data=[],
-                row_selectable="multi",
-                selected_rows=[],
-                style_table={"overflowX": "auto"},
-                style_header=HEADER,
-                style_data=DATA,
-                style_cell=CELL,
-                style_filter=FILTER,
-                style_data_conditional=SELECTED_ROW,
-                page_size=25,
-                sort_action="native",
-                filter_action="native",
-            ),
             html.Div(
                 [
                     dbc.Button(
@@ -87,7 +71,23 @@ def make_abm_layout(
                         size="sm",
                     ),
                 ],
-                className="mt-2",
+                className="mb-2",
+            ),
+            dash_table.DataTable(
+                id=f"{entity_id}-table",
+                columns=table_columns,
+                data=[],
+                row_selectable="multi",
+                selected_rows=[],
+                style_table={"overflowX": "auto"},
+                style_header=HEADER,
+                style_data=DATA,
+                style_cell=CELL,
+                style_filter=FILTER,
+                style_data_conditional=SELECTED_ROW,
+                page_size=25,
+                sort_action="native",
+                filter_action="native",
             ),
             # Modal formulario
             dbc.Modal(

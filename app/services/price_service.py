@@ -107,6 +107,12 @@ def update_asset_prices(asset_id: int) -> None:
                 "Error calculando snapshot screener para %s: %s", asset.ticker, snap_exc
             )
 
+    except NotImplementedError as exc:
+        s.rollback()
+        error_msg = str(exc)
+        logger.info("Activo %s omitido (fuente no descargable): %s", asset.ticker, error_msg)
+        _save_update_log(asset_id, success=False, error=error_msg, session=s)
+        s.commit()
     except Exception as exc:
         s.rollback()
         error_msg = str(exc)
@@ -123,7 +129,7 @@ def update_all_active_assets(progress_cb=None) -> dict:
     """
     from app.services.synthetic_service import is_synthetic
     s = get_session()
-    all_assets = s.query(Asset).filter(Asset.active == True).all()
+    all_assets = s.query(Asset).all()
 
     regular   = [a for a in all_assets if not is_synthetic(a.id)]
     synthetic = [a for a in all_assets if is_synthetic(a.id)]
@@ -197,7 +203,7 @@ def get_update_logs() -> list[PriceUpdateLog]:
 def get_all_assets_with_log() -> list[dict]:
     """Devuelve todos los activos activos con su último log de actualización (si existe)."""
     s = get_session()
-    assets = s.query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
+    assets = s.query(Asset).order_by(Asset.ticker).all()
     logs = {log.asset_id: log for log in s.query(PriceUpdateLog).all()}
     result = []
     for asset in assets:
@@ -231,7 +237,6 @@ def get_latest_prices_all() -> list[dict]:
         s.query(Price, Asset)
         .join(subq, (Price.asset_id == subq.c.asset_id) & (Price.date == subq.c.max_date))
         .join(Asset, Price.asset_id == Asset.id)
-        .filter(Asset.active == True)
         .order_by(Asset.ticker)
         .all()
     )

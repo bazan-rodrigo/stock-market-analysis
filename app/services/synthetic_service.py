@@ -45,14 +45,14 @@ def get_assets_options_for_synthetic() -> list[dict]:
     if src is None:
         return []
     assets = (s.query(Asset)
-               .filter(Asset.price_source_id == src.id, Asset.active == True)
+               .filter(Asset.price_source_id == src.id)
                .order_by(Asset.ticker).all())
     return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
 
 
 def get_all_assets_options() -> list[dict]:
     s = get_session()
-    assets = s.query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
+    assets = s.query(Asset).order_by(Asset.ticker).all()
     return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
 
 
@@ -71,7 +71,6 @@ def save_formula(
         f = s.query(SyntheticFormula).filter(SyntheticFormula.id == formula_id).first()
         if f is None:
             raise ValueError(f"Fórmula id={formula_id} no encontrada")
-        # Borrar componentes anteriores
         s.query(SyntheticComponent).filter(SyntheticComponent.formula_id == formula_id).delete()
     else:
         existing = s.query(SyntheticFormula).filter(SyntheticFormula.asset_id == asset_id).first()
@@ -81,11 +80,11 @@ def save_formula(
         else:
             f = SyntheticFormula(asset_id=asset_id)
             s.add(f)
-            s.flush()
 
     f.formula_type = formula_type
     f.base_value   = base_value
     f.base_date    = base_date
+    s.flush()  # flush después de asignar atributos para que el INSERT no tenga NULLs
 
     for comp in components:
         s.add(SyntheticComponent(

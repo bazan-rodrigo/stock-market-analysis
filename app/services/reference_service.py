@@ -93,20 +93,20 @@ def get_currencies() -> list[Currency]:
     return _get_all(Currency, get_session())
 
 
-def create_currency(name: str, iso_code: str) -> Currency:
+def create_currency(name: str, iso_code: str = None) -> Currency:
     s = get_session()
-    obj = Currency(name=name.strip(), iso_code=iso_code.strip().upper())
+    obj = Currency(name=name.strip(), iso_code=iso_code.strip().upper() if iso_code else None)
     s.add(obj)
     s.commit()
     s.refresh(obj)
     return obj
 
 
-def update_currency(currency_id: int, name: str, iso_code: str) -> Currency:
+def update_currency(currency_id: int, name: str, iso_code: str = None) -> Currency:
     s = get_session()
     obj = _get_by_id(Currency, currency_id, s)
     obj.name = name.strip()
-    obj.iso_code = iso_code.strip().upper()
+    obj.iso_code = iso_code.strip().upper() if iso_code else None
     s.commit()
     s.refresh(obj)
     return obj
@@ -261,39 +261,38 @@ def delete_industry(industry_id: int) -> None:
 # Fuentes de precios
 # ---------------------------------------------------------------------------
 
-def get_price_sources(only_active: bool = False) -> list[PriceSource]:
+def get_price_sources() -> list[PriceSource]:
     s = get_session()
-    q = s.query(PriceSource)
-    if only_active:
-        q = q.filter(PriceSource.active == True)
-    return q.order_by(PriceSource.name).all()
+    return s.query(PriceSource).order_by(PriceSource.name).all()
 
 
-def create_price_source(name: str, description: str, active: bool) -> PriceSource:
+def create_price_source(name: str, description: str) -> PriceSource:
     s = get_session()
-    obj = PriceSource(name=name.strip(), description=description, active=active)
+    obj = PriceSource(name=name.strip(), description=description)
     s.add(obj)
     s.commit()
     s.refresh(obj)
     return obj
 
 
-def update_price_source(
-    source_id: int, name: str, description: str, active: bool
-) -> PriceSource:
+def update_price_source(source_id: int, name: str, description: str) -> PriceSource:
     s = get_session()
     obj = _get_by_id(PriceSource, source_id, s)
     obj.name = name.strip()
     obj.description = description
-    obj.active = active
     s.commit()
     s.refresh(obj)
     return obj
 
 
+_PROTECTED_SOURCES = {"Yahoo Finance", "Calculado"}
+
+
 def delete_price_source(source_id: int) -> None:
     s = get_session()
     obj = _get_by_id(PriceSource, source_id, s)
+    if obj.name in _PROTECTED_SOURCES:
+        raise ValueError(f"La fuente '{obj.name}' es de sistema y no puede eliminarse.")
     _delete_with_fk_check(obj, s)
     s.commit()
 

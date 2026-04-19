@@ -643,7 +643,7 @@ def compute_and_save_snapshot(asset_id: int) -> None:
 
 def recompute_all_snapshots(progress_cb=None) -> dict:
     s = get_session()
-    asset_ids = [r[0] for r in s.query(Asset.id).filter(Asset.active == True).all()]
+    asset_ids = [r[0] for r in s.query(Asset.id).all()]
     total = len(asset_ids)
     errors = []
     for i, aid in enumerate(asset_ids):
@@ -689,7 +689,6 @@ def get_screener_data(
     q = (
         s.query(Asset, ScreenerSnapshot)
         .join(ScreenerSnapshot, Asset.id == ScreenerSnapshot.asset_id)
-        .filter(Asset.active == True)
     )
 
     if country_ids:

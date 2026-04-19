@@ -203,7 +203,7 @@ def toggle_redownload_modal(n_open, n_confirm, n_cancel):
 )
 def redownload_all(_):
     from app.services.asset_service import get_assets
-    assets = get_assets(only_active=True)
+    assets = get_assets()
     total  = len(assets)
     _prices_state.update({"running": True, "current": 0, "total": total, "msg": "", "error": None, "has_errors": False})
 

@@ -96,10 +96,10 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
         try:
             # Validar fuente
             source_obj = s.query(PriceSource).filter(
-                PriceSource.name == source_name, PriceSource.active == True
+                PriceSource.name == source_name
             ).first()
             if source_obj is None:
-                raise ValueError(f"Fuente '{source_name}' no encontrada o inactiva")
+                raise ValueError(f"Fuente '{source_name}' no encontrada")
 
             # Verificar duplicado
             exists = s.query(Asset).filter(Asset.ticker == ticker).first()

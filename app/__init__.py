@@ -209,6 +209,7 @@ def create_app():
         "app.pages.rrg",
         "app.pages.price_scatter",
         "app.pages.admin_synthetic",
+        "app.pages.evolution",
     ]
 
     import importlib
@@ -245,6 +246,7 @@ def create_app():
         "app.callbacks.rrg_callbacks",
         "app.callbacks.scatter_callbacks",
         "app.callbacks.admin_synthetic_callbacks",
+        "app.callbacks.evolution_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))
@@ -290,7 +292,16 @@ def create_app():
         return _no_update
 
     # -----------------------------------------------------------------
-    # 10. APScheduler
+    # 10. Datos de arranque
+    # -----------------------------------------------------------------
+    from app.services.startup_service import ensure_builtin_data
+    try:
+        ensure_builtin_data()
+    except Exception as exc:
+        logger.warning("No se pudo inicializar datos de arranque: %s", exc)
+
+    # -----------------------------------------------------------------
+    # 11. APScheduler
     # -----------------------------------------------------------------
     from app.services.scheduler_service import start_scheduler
     try:

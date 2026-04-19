@@ -236,8 +236,8 @@ def currencies_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     prevent_initial_call=True,
 )
 def currencies_save(n_clicks, name, iso_code, editing_id):
-    if not name or not iso_code:
-        return no_update, no_update, no_update, no_update, no_update, "Completá todos los campos.", True
+    if not name:
+        return no_update, no_update, no_update, no_update, no_update, "El nombre es obligatorio.", True
     try:
         if editing_id:
             svc.update_currency(editing_id, name, iso_code)
@@ -308,9 +308,9 @@ def load_markets(_):
     from app.models import Asset
     markets   = svc.get_markets()
     countries = svc.get_countries()
-    assets    = get_session().query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
+    assets    = get_session().query(Asset).order_by(Asset.ticker).all()
     data = [{"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""} for m in markets]
-    country_opts   = [{"label": c.name, "value": c.id} for c in countries]
+    country_opts   = [{"label": "— Sin país —", "value": ""}] + [{"label": c.name, "value": c.id} for c in countries]
     benchmark_opts = [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
     return data, country_opts, benchmark_opts
 
@@ -771,7 +771,7 @@ def industries_delete(_, sel_rows, data):
 @callback(Output("price_sources-table", "data"), Input("price_sources-table", "id"))
 def load_price_sources(_):
     rows = svc.get_price_sources()
-    return [{"id": r.id, "name": r.name, "description": r.description or "", "active": "Sí" if r.active else "No"} for r in rows]
+    return [{"id": r.id, "name": r.name, "description": r.description or ""} for r in rows]
 
 
 @callback(
@@ -779,7 +779,6 @@ def load_price_sources(_):
     Output("price_sources-modal-title", "children"),
     Output("price_sources-f-name", "value"),
     Output("price_sources-f-description", "value"),
-    Output("price_sources-f-active", "value"),
     Output("price_sources-editing-id", "data"),
     Input("price_sources-btn-add", "n_clicks"),
     Input("price_sources-btn-edit", "n_clicks"),
@@ -793,15 +792,15 @@ def price_sources_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t == "price_sources-btn-cancel":
-        return False, no_update, no_update, no_update, no_update, None
+        return False, no_update, no_update, no_update, None
     if t == "price_sources-btn-add":
-        return True, "Nueva fuente", "", "", True, None
+        return True, "Nueva fuente", "", "", None
     if t == "price_sources-btn-edit" and sel_rows:
         from app.database import get_session
         from app.models import PriceSource
         ps = get_session().get(PriceSource, data[sel_rows[0]]["id"])
-        return True, "Editar fuente", ps.name, ps.description or "", ps.active, ps.id
-    return no_update, no_update, no_update, no_update, no_update, no_update
+        return True, "Editar fuente", ps.name, ps.description or "", ps.id
+    return no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
@@ -815,21 +814,19 @@ def price_sources_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     Input("price_sources-btn-save", "n_clicks"),
     State("price_sources-f-name", "value"),
     State("price_sources-f-description", "value"),
-    State("price_sources-f-active", "value"),
     State("price_sources-editing-id", "data"),
     prevent_initial_call=True,
 )
-def price_sources_save(_, name, description, active, editing_id):
+def price_sources_save(_, name, description, editing_id):
     if not name:
         return no_update, no_update, no_update, no_update, no_update, "El nombre es obligatorio.", True
     try:
-        active_bool = bool(active)
         if editing_id:
-            svc.update_price_source(editing_id, name, description or "", active_bool)
+            svc.update_price_source(editing_id, name, description or "")
         else:
-            svc.create_price_source(name, description or "", active_bool)
+            svc.create_price_source(name, description or "")
         rows = svc.get_price_sources()
-        data = [{"id": r.id, "name": r.name, "description": r.description or "", "active": "Sí" if r.active else "No"} for r in rows]
+        data = [{"id": r.id, "name": r.name, "description": r.description or ""} for r in rows]
         return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
         return no_update, no_update, no_update, no_update, no_update, str(exc), True
@@ -872,9 +869,13 @@ def price_sources_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
     prevent_initial_call=True,
 )
 def price_sources_delete(_, sel_rows, data):
+    from app.services.reference_service import _PROTECTED_SOURCES
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    _m = lambda r: {"id": r.id, "name": r.name, "description": r.description or "", "active": "Sí" if r.active else "No"}
+    sel_rows = [i for i in sel_rows if data[i].get("name") not in _PROTECTED_SOURCES]
+    if not sel_rows:
+        return no_update, no_update, no_update, no_update
+    _m = lambda r: {"id": r.id, "name": r.name, "description": r.description or ""}
     return _bulk_delete(sel_rows, data, svc.delete_price_source, svc.get_price_sources, _m)
 
 

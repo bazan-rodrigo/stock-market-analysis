@@ -7,16 +7,11 @@ from app.components.abm import make_abm_layout
 _COLUMNS = [
     {"name": "Nombre", "id": "name"},
     {"name": "Descripción", "id": "description"},
-    {"name": "Activa", "id": "active"},
 ]
 
 _FORM = [
     dbc.Row([
         dbc.Col([dbc.Label("Nombre"), dbc.Input(id="price_sources-f-name", placeholder="Yahoo Finance")]),
-        dbc.Col([
-            dbc.Label("Activa"),
-            dbc.Switch(id="price_sources-f-active", value=True, label="Sí"),
-        ]),
     ], className="mb-3"),
     dbc.Row([
         dbc.Col([

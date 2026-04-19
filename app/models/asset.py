@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -31,7 +31,6 @@ class Asset(Base):
     price_source_id = Column(
         Integer, ForeignKey("price_sources.id", ondelete="RESTRICT"), nullable=False
     )
-    active = Column(Boolean, nullable=False, default=True)
     benchmark_id = Column(
         Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
     )

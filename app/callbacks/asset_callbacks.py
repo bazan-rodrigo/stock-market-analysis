@@ -24,14 +24,14 @@ def _asset_to_row(a) -> dict:
 def _get_form_options():
     from app.database import get_session
     from app.models import Asset
-    sources    = ref_svc.get_price_sources(only_active=True)
+    sources    = ref_svc.get_price_sources()
     currencies = ref_svc.get_currencies()
     countries  = ref_svc.get_countries()
     markets    = ref_svc.get_markets()
     itypes     = ref_svc.get_instrument_types()
     sectors    = ref_svc.get_sectors()
     industries = ref_svc.get_industries()
-    all_assets = get_session().query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
+    all_assets = get_session().query(Asset).order_by(Asset.ticker).all()
     return (
         [{"label": s.name, "value": s.id} for s in sources],
         [{"label": f"{c.iso_code} - {c.name}", "value": c.id} for c in currencies],
@@ -401,7 +401,7 @@ def assets_bulk_field_options(field):
     if not field:
         return [], None
     if field == "benchmark_id":
-        assets = get_session().query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
+        assets = get_session().query(Asset).order_by(Asset.ticker).all()
         opts = [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
     elif field == "market_id":
         opts = [{"label": m.name, "value": m.id} for m in ref_svc.get_markets()]

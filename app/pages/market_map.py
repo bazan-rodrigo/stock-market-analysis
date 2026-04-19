@@ -66,9 +66,9 @@ def _build_table(dim_data: dict) -> html.Table:
         html.Thead(html.Tr([
             html.Th("Grupo",   style=_th),
             html.Th("N",       style={**_th, "textAlign": "center", "width": "40px"}),
-            html.Th("Score D", style={**_th, "textAlign": "center", "width": "80px"}),
-            html.Th("Score S", style={**_th, "textAlign": "center", "width": "80px"}),
-            html.Th("Score M", style={**_th, "textAlign": "center", "width": "80px"}),
+            html.Th("Score Diario",   style={**_th, "textAlign": "center", "width": "80px"}),
+            html.Th("Score Semanal", style={**_th, "textAlign": "center", "width": "80px"}),
+            html.Th("Score Mensual", style={**_th, "textAlign": "center", "width": "80px"}),
         ]), style={"borderBottom": "1px solid #444"}),
         html.Tbody(tbody_rows),
     ], style={"width": "100%", "borderCollapse": "collapse"})
@@ -124,9 +124,9 @@ def _build_quadrant_figure(dim_data: dict) -> go.Figure:
         sw_str = f"{g['w']:+.0f}" if g.get("w") is not None else "—"
         hover = (
             f"<b>{g['name']}</b><br>"
-            f"Score D: {sd:+.0f}<br>"
-            f"Score S: {sw_str}<br>"
-            f"Score M: {sm:+.0f}<br>"
+            f"Score Diario: {sd:+.0f}<br>"
+            f"Score Semanal: {sw_str}<br>"
+            f"Score Mensual: {sm:+.0f}<br>"
             f"N activos: {g['n']}<br>"
             f"<i>{quad_label}</i>"
         )
@@ -245,29 +245,10 @@ def layout(**kwargs):
         dbc.Alert(id="market-map-alert", is_open=False, dismissable=True, className="mb-2"),
 
         dbc.Tabs(
-            [dbc.Tab(label=label, tab_id=dim_key) for dim_key, label in _DIMS]
-            + [dbc.Tab(label="Cuadrantes", tab_id="cuadrantes")],
+            [dbc.Tab(label=label, tab_id=dim_key) for dim_key, label in _DIMS],
             id="market-map-tabs",
             active_tab="sector",
             className="mb-0",
-        ),
-
-        # Selector de dimensión (solo visible en la solapa Cuadrantes)
-        html.Div(
-            dbc.Row([
-                dbc.Col([
-                    html.Small("Dimensión", className="text-muted d-block mb-1"),
-                    dcc.Dropdown(
-                        id="market-map-quad-dim",
-                        options=[{"label": label, "value": key} for key, label in _DIMS],
-                        value="sector",
-                        clearable=False,
-                        style={"fontSize": "0.85rem", "width": "200px"},
-                    ),
-                ]),
-            ], className="mt-2 mb-2"),
-            id="market-map-quad-controls",
-            style={"display": "none"},
         ),
 
         dcc.Loading(

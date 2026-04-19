@@ -9,7 +9,7 @@ from app.services.price_service import get_prices_df, get_latest_prices_all
     Input("pv-asset-select", "id"),
 )
 def load_pv_assets(_):
-    assets = get_assets(only_active=True)
+    assets = get_assets()
     return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
 
 

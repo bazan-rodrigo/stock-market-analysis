@@ -14,12 +14,9 @@ from app.sources.registry import get_source
 logger = logging.getLogger(__name__)
 
 
-def get_assets(only_active: bool = False) -> list[Asset]:
+def get_assets() -> list[Asset]:
     s = get_session()
-    q = s.query(Asset)
-    if only_active:
-        q = q.filter(Asset.active == True)
-    return q.order_by(Asset.ticker).all()
+    return s.query(Asset).order_by(Asset.ticker).all()
 
 
 def get_asset_by_id(asset_id: int) -> Asset:
@@ -45,7 +42,6 @@ def create_asset(
     currency_id: Optional[int] = None,
     sector_id: Optional[int] = None,
     industry_id: Optional[int] = None,
-    active: bool = True,
     benchmark_id: Optional[int] = None,
 ) -> Asset:
     s = get_session()
@@ -59,7 +55,6 @@ def create_asset(
         price_source_id=price_source_id,
         sector_id=sector_id,
         industry_id=industry_id,
-        active=active,
         benchmark_id=benchmark_id,
     )
     s.add(obj)
@@ -83,7 +78,6 @@ def update_asset(
     currency_id: Optional[int] = None,
     sector_id: Optional[int] = None,
     industry_id: Optional[int] = None,
-    active: bool = True,
     benchmark_id: Optional[int] = None,
 ) -> Asset:
     s = get_session()
@@ -99,24 +93,12 @@ def update_asset(
     obj.price_source_id = price_source_id
     obj.sector_id = sector_id
     obj.industry_id = industry_id
-    obj.active = active
     obj.benchmark_id = benchmark_id
     try:
         s.commit()
     except IntegrityError as exc:
         s.rollback()
         raise ValueError(f"El ticker '{ticker.upper()}' ya existe") from exc
-    s.refresh(obj)
-    return obj
-
-
-def toggle_active(asset_id: int) -> Asset:
-    s = get_session()
-    obj = s.get(Asset, asset_id)
-    if obj is None:
-        raise ValueError(f"Activo id={asset_id} no encontrado")
-    obj.active = not obj.active
-    s.commit()
     s.refresh(obj)
     return obj
 

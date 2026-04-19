@@ -8,7 +8,7 @@ from app.models import Asset, MarketEvent, Price
 
 def get_all_assets_options() -> list[dict]:
     s = get_session()
-    assets = s.query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
+    assets = s.query(Asset).order_by(Asset.ticker).all()
     return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
 
 

@@ -91,7 +91,7 @@ def _t(d):
     Input("chart-asset-select", "id"),
 )
 def load_chart_assets(_):
-    assets = get_assets(only_active=True)
+    assets = get_assets()
     return [{"label": f"{a.ticker} - {a.name or a.ticker}", "value": a.id} for a in assets]
 
 
