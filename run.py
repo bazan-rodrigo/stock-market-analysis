@@ -14,7 +14,7 @@ if __name__ == "__main__":
 
     print(f"App lista. Servidor en http://0.0.0.0:8050", flush=True)
     dash_app.run(
-        debug=True,
+        debug=False,
         host="0.0.0.0",
         port=8050,
         use_reloader=False,
