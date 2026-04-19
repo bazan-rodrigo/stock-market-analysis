@@ -161,12 +161,17 @@ def create_app():
         return None
 
     # -----------------------------------------------------------------
-    # 5. Ruta de logout
+    # 5. Ruta de logout y health-check
     # -----------------------------------------------------------------
     @server.route("/logout")
     def logout():
         logout_user()
         return redirect("/login")
+
+    @server.route("/health")
+    def health():
+        from flask import jsonify
+        return jsonify({"status": "ok", "authenticated": current_user.is_authenticated})
 
     # -----------------------------------------------------------------
     # 6. Teardown de sesión de BD
@@ -177,47 +182,72 @@ def create_app():
     # -----------------------------------------------------------------
     # 7. Registrar páginas (importar módulos)
     # -----------------------------------------------------------------
-    import app.pages.screener            # noqa: F401
-    import app.pages.market_map          # noqa: F401
-    import app.pages.chart               # noqa: F401
-    import app.pages.assets_list         # noqa: F401
-    import app.pages.assets_import       # noqa: F401
-    import app.pages.prices              # noqa: F401
-    import app.pages.admin_users         # noqa: F401
-    import app.pages.admin_countries     # noqa: F401
-    import app.pages.admin_currencies    # noqa: F401
-    import app.pages.admin_markets       # noqa: F401
-    import app.pages.admin_instrument_types  # noqa: F401
-    import app.pages.admin_sectors       # noqa: F401
-    import app.pages.admin_industries    # noqa: F401
-    import app.pages.admin_price_sources # noqa: F401
-    import app.pages.admin_events          # noqa: F401
-    import app.pages.admin_events_import   # noqa: F401
-    import app.pages.admin_catalog_mapper   # noqa: F401
-    import app.pages.admin_regime_config    # noqa: F401
-    import app.pages.admin_drawdown_config  # noqa: F401
-    import app.pages.admin_volatility_config  # noqa: F401
-    import app.pages.admin_cleanup         # noqa: F401
-    import app.pages.price_viewer          # noqa: F401
+    _PAGES = [
+        "app.pages.screener",
+        "app.pages.market_map",
+        "app.pages.chart",
+        "app.pages.assets_list",
+        "app.pages.assets_import",
+        "app.pages.prices",
+        "app.pages.admin_users",
+        "app.pages.admin_countries",
+        "app.pages.admin_currencies",
+        "app.pages.admin_markets",
+        "app.pages.admin_instrument_types",
+        "app.pages.admin_sectors",
+        "app.pages.admin_industries",
+        "app.pages.admin_price_sources",
+        "app.pages.admin_events",
+        "app.pages.admin_events_import",
+        "app.pages.admin_catalog_mapper",
+        "app.pages.admin_regime_config",
+        "app.pages.admin_drawdown_config",
+        "app.pages.admin_volatility_config",
+        "app.pages.admin_cleanup",
+        "app.pages.price_viewer",
+    ]
+
+    import importlib
+    logger.info("Cargando %d módulos de páginas...", len(_PAGES))
+    for _mod in _PAGES:
+        try:
+            importlib.import_module(_mod)
+            logger.debug("  OK página: %s", _mod)
+        except Exception:
+            logger.exception("  FALLO al cargar página: %s", _mod)
+            raise
+    logger.info("Páginas cargadas OK")
 
     # -----------------------------------------------------------------
     # 8. Registrar callbacks
     # -----------------------------------------------------------------
-    import app.callbacks.reference_callbacks      # noqa: F401
-    import app.callbacks.asset_callbacks          # noqa: F401
-    import app.callbacks.import_callbacks         # noqa: F401
-    import app.callbacks.price_callbacks          # noqa: F401
-    import app.callbacks.chart_callbacks          # noqa: F401
-    import app.callbacks.screener_callbacks       # noqa: F401
-    import app.callbacks.market_map_callbacks    # noqa: F401
-    import app.callbacks.price_viewer_callbacks   # noqa: F401
-    import app.callbacks.admin_events_callbacks     # noqa: F401
-    import app.callbacks.events_import_callbacks   # noqa: F401
-    import app.callbacks.catalog_mapper_callbacks   # noqa: F401
-    import app.callbacks.regime_config_callbacks    # noqa: F401
-    import app.callbacks.drawdown_config_callbacks  # noqa: F401
-    import app.callbacks.volatility_config_callbacks  # noqa: F401
-    import app.callbacks.admin_cleanup_callbacks   # noqa: F401
+    _CALLBACKS = [
+        "app.callbacks.reference_callbacks",
+        "app.callbacks.asset_callbacks",
+        "app.callbacks.import_callbacks",
+        "app.callbacks.price_callbacks",
+        "app.callbacks.chart_callbacks",
+        "app.callbacks.screener_callbacks",
+        "app.callbacks.market_map_callbacks",
+        "app.callbacks.price_viewer_callbacks",
+        "app.callbacks.admin_events_callbacks",
+        "app.callbacks.events_import_callbacks",
+        "app.callbacks.catalog_mapper_callbacks",
+        "app.callbacks.regime_config_callbacks",
+        "app.callbacks.drawdown_config_callbacks",
+        "app.callbacks.volatility_config_callbacks",
+        "app.callbacks.admin_cleanup_callbacks",
+    ]
+
+    logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))
+    for _mod in _CALLBACKS:
+        try:
+            importlib.import_module(_mod)
+            logger.debug("  OK callback: %s", _mod)
+        except Exception:
+            logger.exception("  FALLO al cargar callback: %s", _mod)
+            raise
+    logger.info("Callbacks cargados OK")
 
     # -----------------------------------------------------------------
     # 9. Layout principal

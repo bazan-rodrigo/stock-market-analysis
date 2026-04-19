@@ -31,6 +31,6 @@ def configure_logging() -> None:
     root_logger.addHandler(console_handler)
 
     # Silenciar loggers muy verbosos de librerías externas
-    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    logging.getLogger("werkzeug").setLevel(logging.INFO)   # ver requests HTTP
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
     logging.getLogger("yfinance").setLevel(logging.WARNING)
