@@ -98,7 +98,9 @@ def _get_drawdown_config():
     s = get_session()
     cfg = s.query(DrawdownConfig).filter(DrawdownConfig.id == 1).first()
     if cfg is None:
-        cfg = DrawdownConfig()
+        cfg = DrawdownConfig(id=1, min_depth_pct=20.0)
+        s.add(cfg)
+        s.commit()
     return cfg
 
 
@@ -146,7 +148,19 @@ def _get_regime_config():
     s = get_session()
     cfg = s.query(RegimeConfig).filter(RegimeConfig.id == 1).first()
     if cfg is None:
-        cfg = RegimeConfig()
+        cfg = RegimeConfig(
+            id=1,
+            ema_period_d=200,
+            ema_period_w=50,
+            ema_period_m=20,
+            slope_lookback=20,
+            slope_threshold_pct=0.5,
+            confirm_bars=3,
+            nascent_bars=20,
+            strong_slope_multiplier=2.0,
+        )
+        s.add(cfg)
+        s.commit()
     return cfg
 
 
@@ -154,7 +168,18 @@ def _get_volatility_config():
     s = get_session()
     cfg = s.query(VolatilityConfig).filter(VolatilityConfig.id == 1).first()
     if cfg is None:
-        cfg = VolatilityConfig()
+        cfg = VolatilityConfig(
+            id=1,
+            atr_period=14,
+            pct_low=25.0,
+            pct_high=75.0,
+            pct_extreme=90.0,
+            confirm_bars=3,
+            dur_short_pct=33.0,
+            dur_long_pct=67.0,
+        )
+        s.add(cfg)
+        s.commit()
     return cfg
 
 
