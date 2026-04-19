@@ -1,3 +1,5 @@
+import math
+
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback, no_update, ALL, ctx
 import dash_bootstrap_components as dbc
@@ -136,21 +138,32 @@ def _build_figure(data: dict, tail_weeks: int) -> go.Figure:
             for j in range(n)
         ]
 
-        # Trail: línea + puntos con fade
-        fig.add_trace(go.Scatter(
-            x=xs[:-1], y=ys[:-1],
-            mode="lines+markers",
-            line=dict(color=color, width=1.5),
-            marker=dict(
-                size=sizes[:-1],
-                color=[f"rgba({_hex_to_rgb(color)},{opacities[j]:.2f})" for j in range(n - 1)],
-            ),
-            name=info["ticker"],
-            legendgroup=info["ticker"],
-            showlegend=False,
-            hovertemplate="%{customdata}<extra></extra>",
-            customdata=hover[:-1],
-        ))
+        # Trail: un segmento por tramo para que el grosor varíe según distancia al origen
+        rgb = _hex_to_rgb(color)
+        for j in range(n - 1):
+            mx = (xs[j] + xs[j + 1]) / 2
+            my = (ys[j] + ys[j + 1]) / 2
+            dist = math.hypot(mx - 100.0, my - 100.0)
+            width = max(0.6, min(5.0, 0.6 + dist / 10))
+            seg_opacity = opacities[j]
+            fig.add_trace(go.Scatter(
+                x=[xs[j], xs[j + 1]],
+                y=[ys[j], ys[j + 1]],
+                mode="lines+markers",
+                line=dict(color=f"rgba({rgb},{seg_opacity:.2f})", width=width),
+                marker=dict(
+                    size=[sizes[j], sizes[j + 1]],
+                    color=[
+                        f"rgba({rgb},{opacities[j]:.2f})",
+                        f"rgba({rgb},{opacities[j+1]:.2f})",
+                    ],
+                ),
+                name=info["ticker"],
+                legendgroup=info["ticker"],
+                showlegend=False,
+                hovertemplate="%{customdata}<extra></extra>",
+                customdata=[hover[j], hover[j + 1]],
+            ))
 
         # Punto actual: cuadrado con label
         fig.add_trace(go.Scatter(
