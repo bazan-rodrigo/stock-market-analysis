@@ -41,30 +41,10 @@ def run_migrations() -> None:
         logger.info(result.stdout)
 
 
-def _upsert(session, model, lookup_field: str, lookup_value, **kwargs):
-    """Inserta el registro si no existe. Devuelve el objeto."""
-    obj = session.query(model).filter(
-        getattr(model, lookup_field) == lookup_value
-    ).first()
-    if obj is None:
-        obj = model(**{lookup_field: lookup_value}, **kwargs)
-        session.add(obj)
-        session.flush()
-        logger.info("%s '%s' creado.", model.__name__, lookup_value)
-    return obj
-
 
 def seed_reference_data() -> None:
-    from app.database import get_session
-    from app.models import PriceSource
-
-    s = get_session()
-
-    _upsert(s, PriceSource, "name", "Yahoo Finance",
-            description="Datos de mercado gratuitos via yfinance (Yahoo Finance API).",
-            active=True)
-
-    s.commit()
+    from app.services.startup_service import ensure_builtin_data
+    ensure_builtin_data()
     logger.info("Datos de referencia cargados correctamente.")
 
 
