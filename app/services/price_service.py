@@ -68,8 +68,14 @@ def _save_update_log(asset_id: int, success: bool, error: str | None, session) -
 def update_asset_prices(asset_id: int) -> None:
     """
     Actualiza los precios de un activo.
+    Si el activo es sintético (fuente Calculado), delega al synthetic_service.
     Si falla, registra el error en price_update_log y relanza la excepción.
     """
+    from app.services.synthetic_service import compute_synthetic_prices, is_synthetic
+    if is_synthetic(asset_id):
+        compute_synthetic_prices(asset_id, full=False)
+        return
+
     s = get_session()
     asset = s.get(Asset, asset_id)
     if asset is None:
@@ -112,15 +118,19 @@ def update_asset_prices(asset_id: int) -> None:
 
 def update_all_active_assets(progress_cb=None) -> dict:
     """
-    Actualiza todos los activos activos. Tolerante a fallos individuales.
-    Devuelve un resumen con éxitos y errores.
+    Actualiza todos los activos activos. Primero los regulares, luego los sintéticos.
+    Tolerante a fallos individuales. Devuelve un resumen con éxitos y errores.
     """
+    from app.services.synthetic_service import is_synthetic
     s = get_session()
-    assets = s.query(Asset).filter(Asset.active == True).all()
-    total = len(assets)
-    summary = {"total": total, "success": 0, "errors": []}
+    all_assets = s.query(Asset).filter(Asset.active == True).all()
 
-    for i, asset in enumerate(assets):
+    regular   = [a for a in all_assets if not is_synthetic(a.id)]
+    synthetic = [a for a in all_assets if is_synthetic(a.id)]
+    total     = len(all_assets)
+    summary   = {"total": total, "success": 0, "errors": []}
+
+    for i, asset in enumerate(regular + synthetic):
         if progress_cb:
             progress_cb(i + 1, total)
         try:

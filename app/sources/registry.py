@@ -1,6 +1,7 @@
 from typing import Type
 
 from app.sources.base import PriceSourceBase
+from app.sources.calculated import CalculatedSource
 from app.sources.yahoo import YahooFinanceSource
 
 _REGISTRY: dict[str, Type[PriceSourceBase]] = {}
@@ -24,3 +25,4 @@ def available_source_names() -> list[str]:
 
 # Registro de fuentes disponibles
 register(YahooFinanceSource)
+register(CalculatedSource)

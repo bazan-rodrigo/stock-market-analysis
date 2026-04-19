@@ -33,6 +33,7 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenu(
                 label="Datos de mercado",
                 children=[
+                    dbc.DropdownMenuItem("Activos sintéticos",        href="/admin/synthetic"),
                     dbc.DropdownMenuItem("Eventos de mercado",        href="/admin/events"),
                     dbc.DropdownMenuItem("Importar eventos",          href="/admin/events/import"),
                     dbc.DropdownMenuItem(divider=True),
