@@ -9,7 +9,7 @@ def build_navbar() -> dbc.Navbar:
         dbc.NavItem(dbc.NavLink("Mapa de Mercado", href="/market-map")),
         dbc.NavItem(dbc.NavLink("Rotación Relativa", href="/rrg")),
         dbc.NavItem(dbc.NavLink("Gráfico técnico", href="/chart")),
-        dbc.NavItem(dbc.NavLink("Dispersión", href="/scatter")),
+        dbc.NavItem(dbc.NavLink("Correlación", href="/scatter")),
     ]
 
     if current_user.is_authenticated and current_user.is_admin:

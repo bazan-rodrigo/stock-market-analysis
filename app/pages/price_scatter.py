@@ -19,6 +19,17 @@ def layout(**kwargs):
                 ),
             ], md=4),
             dbc.Col([
+                dbc.Button(
+                    "⇄",
+                    id="scatter-swap-btn",
+                    color="secondary",
+                    size="sm",
+                    className="mt-3",
+                    title="Intercambiar activos",
+                    style={"fontSize": "1rem", "lineHeight": 1},
+                ),
+            ], width="auto", className="d-flex align-items-end pb-1"),
+            dbc.Col([
                 html.Small("Activo 2 (eje Y)", className="text-muted d-block mb-1"),
                 dcc.Dropdown(
                     id="scatter-asset2",
@@ -35,7 +46,7 @@ def layout(**kwargs):
                     inline=True,
                     style={"fontSize": "0.85rem"},
                 ),
-            ], md=4),
+            ]),
         ], className="mb-3 g-2 align-items-end"),
 
         dcc.Loading(
@@ -58,4 +69,4 @@ def layout(**kwargs):
     ], style={"padding": "0 8px"})
 
 
-dash.register_page(__name__, path="/scatter", title="Dispersión", layout=layout)
+dash.register_page(__name__, path="/scatter", title="Correlación de precios", layout=layout)

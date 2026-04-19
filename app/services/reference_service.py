@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _get_all(model: Type, session: Session) -> list:
-    return session.query(model).order_by(model.id).all()
+    return session.query(model).order_by(model.name).all()
 
 
 def _get_by_id(model: Type, entity_id: int, session: Session):
@@ -266,7 +266,7 @@ def get_price_sources(only_active: bool = False) -> list[PriceSource]:
     q = s.query(PriceSource)
     if only_active:
         q = q.filter(PriceSource.active == True)
-    return q.order_by(PriceSource.id).all()
+    return q.order_by(PriceSource.name).all()
 
 
 def create_price_source(name: str, description: str, active: bool) -> PriceSource:

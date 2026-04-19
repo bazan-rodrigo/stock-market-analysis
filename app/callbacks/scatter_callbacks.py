@@ -3,7 +3,7 @@ from datetime import date as _date
 
 import numpy as np
 import plotly.graph_objects as go
-from dash import Input, Output, callback, html
+from dash import Input, Output, State, callback, html, no_update
 import dash_bootstrap_components as dbc
 
 import app.services.scatter_service as svc
@@ -20,6 +20,20 @@ _RED     = "#ef4444"
 def load_options(_):
     opts = svc.get_all_assets_options()
     return opts, opts
+
+
+@callback(
+    Output("scatter-asset1", "value", allow_duplicate=True),
+    Output("scatter-asset2", "value", allow_duplicate=True),
+    Input("scatter-swap-btn", "n_clicks"),
+    State("scatter-asset1", "value"),
+    State("scatter-asset2", "value"),
+    prevent_initial_call=True,
+)
+def swap_assets(_, a1, a2):
+    if a1 is None and a2 is None:
+        return no_update, no_update
+    return a2, a1
 
 
 @callback(
