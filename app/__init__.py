@@ -207,6 +207,7 @@ def create_app():
         "app.pages.admin_cleanup",
         "app.pages.price_viewer",
         "app.pages.rrg",
+        "app.pages.price_scatter",
     ]
 
     import importlib
@@ -241,6 +242,7 @@ def create_app():
         "app.callbacks.admin_sr_config_callbacks",
         "app.callbacks.admin_cleanup_callbacks",
         "app.callbacks.rrg_callbacks",
+        "app.callbacks.scatter_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))
