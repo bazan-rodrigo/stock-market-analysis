@@ -29,6 +29,26 @@ def _confirm_body(sel_rows, data, name_field="name"):
     return f"¿Eliminás {n} registros? Esta acción no se puede deshacer."
 
 
+def _register_select_all(entity_id):
+    @callback(
+        Output(f"{entity_id}-table", "selected_rows"),
+        Input(f"{entity_id}-btn-select-all", "n_clicks"),
+        Input(f"{entity_id}-btn-deselect-all", "n_clicks"),
+        State(f"{entity_id}-table", "data"),
+        prevent_initial_call=True,
+    )
+    def _cb(n_sel, n_desel, data):
+        from dash import ctx
+        if ctx.triggered_id == f"{entity_id}-btn-deselect-all":
+            return []
+        return list(range(len(data or [])))
+
+
+for _eid in ("countries", "currencies", "markets", "instrument_types",
+             "sectors", "industries", "price_sources", "users"):
+    _register_select_all(_eid)
+
+
 def _bulk_delete(sel_rows, data, delete_fn, reload_fn, row_mapper):
     errors, deleted = [], 0
     for i in sel_rows:

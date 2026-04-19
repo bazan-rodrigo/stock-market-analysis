@@ -411,6 +411,8 @@ def assets_bulk_field_options(field):
         opts = [{"label": f"{c.iso_code} - {c.name}", "value": c.id} for c in ref_svc.get_currencies()]
     elif field == "sector_id":
         opts = [{"label": s.name, "value": s.id} for s in ref_svc.get_sectors()]
+    elif field == "country_id":
+        opts = [{"label": c.name, "value": c.id} for c in ref_svc.get_countries()]
     elif field == "industry_id":
         opts = [{"label": i.name, "value": i.id} for i in ref_svc.get_industries()]
     else:
@@ -452,3 +454,17 @@ def assets_bulk_action(n_apply, n_clear, field, value, sel_rows, data):
         return [_asset_to_row(a) for a in asset_svc.get_assets()], msg, True, "success", []
     except Exception as exc:
         return _nu, str(exc), True, "danger", _nu
+
+
+@callback(
+    Output("assets-table", "selected_rows", allow_duplicate=True),
+    Input("assets-btn-select-all", "n_clicks"),
+    Input("assets-btn-deselect-all", "n_clicks"),
+    State("assets-table", "data"),
+    prevent_initial_call=True,
+)
+def assets_select_all(n_sel, n_desel, data):
+    from dash import ctx
+    if ctx.triggered_id == "assets-btn-deselect-all":
+        return []
+    return list(range(len(data or [])))

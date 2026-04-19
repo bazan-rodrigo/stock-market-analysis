@@ -157,7 +157,7 @@ def delete_asset(asset_id: int) -> None:
 
 def bulk_update_assets(asset_ids: list[int], field: str, value) -> int:
     """Actualiza un campo específico en múltiples activos. Retorna cantidad actualizada."""
-    _ALLOWED = {"benchmark_id", "market_id", "instrument_type_id", "currency_id", "sector_id", "industry_id"}
+    _ALLOWED = {"benchmark_id", "market_id", "country_id", "instrument_type_id", "currency_id", "sector_id", "industry_id"}
     if field not in _ALLOWED:
         raise ValueError(f"Campo '{field}' no permitido para edición masiva.")
     s = get_session()

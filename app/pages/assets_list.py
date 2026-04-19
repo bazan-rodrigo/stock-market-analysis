@@ -6,6 +6,7 @@ from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 _BULK_FIELDS = [
     {"label": "Benchmark",          "value": "benchmark_id"},
     {"label": "Mercado",            "value": "market_id"},
+    {"label": "País",               "value": "country_id"},
     {"label": "Tipo de instrumento","value": "instrument_type_id"},
     {"label": "Moneda",             "value": "currency_id"},
     {"label": "Sector",             "value": "sector_id"},
@@ -66,7 +67,7 @@ def layout(**kwargs):
         admin_buttons = [
             dbc.Button("+ Nuevo activo", id="assets-btn-add", color="primary", size="sm", className="me-2"),
             dbc.Button("Editar", id="assets-btn-edit", color="secondary", size="sm", disabled=True, className="me-2"),
-            dbc.Button("Eliminar", id="assets-btn-delete", color="danger", size="sm", disabled=True),
+            dbc.Button("Eliminar", id="assets-btn-delete", color="danger", size="sm", disabled=True, className="me-2"),
         ]
 
     return html.Div([
@@ -74,6 +75,8 @@ def layout(**kwargs):
         html.Div([
             html.H3("Activos", className="d-inline-block me-3"),
             *admin_buttons,
+            dbc.Button("Sel. todos", id="assets-btn-select-all", color="outline-secondary", size="sm", className="me-1"),
+            dbc.Button("Desel. todos", id="assets-btn-deselect-all", color="outline-secondary", size="sm"),
         ], className="d-flex align-items-center mb-3"),
         dbc.Alert(id="assets-alert", is_open=False, dismissable=True),
         # ── Barra de acción masiva (visible cuando hay 1+ filas seleccionadas) ──
