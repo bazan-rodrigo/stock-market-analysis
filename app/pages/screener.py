@@ -121,6 +121,11 @@ def layout(**kwargs):
             page_size=100,
             tooltip_delay=0,
             tooltip_duration=None,
+            tooltip_header={
+                "dist_sma_d": {"value": "Distancia en desvíos estándar (σ) entre el precio y la SMA que ese activo respeta más en el timeframe diario. ±1σ es normal, ±2σ es inusual, ±3σ es extremo.", "type": "text"},
+                "dist_sma_w": {"value": "Distancia en desvíos estándar (σ) entre el precio y la SMA que ese activo respeta más en el timeframe semanal. ±1σ es normal, ±2σ es inusual, ±3σ es extremo.", "type": "text"},
+                "dist_sma_m": {"value": "Distancia en desvíos estándar (σ) entre el precio y la SMA que ese activo respeta más en el timeframe mensual. ±1σ es normal, ±2σ es inusual, ±3σ es extremo.", "type": "text"},
+            },
             style_table={"overflowX": "auto"},
             style_header=HEADER,
             style_data=DATA,
