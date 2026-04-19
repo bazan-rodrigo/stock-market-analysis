@@ -1,3 +1,6 @@
+from collections import defaultdict
+from datetime import date as _date
+
 import numpy as np
 import plotly.graph_objects as go
 from dash import Input, Output, callback, html
@@ -5,7 +8,8 @@ import dash_bootstrap_components as dbc
 
 import app.services.scatter_service as svc
 
-_BG = "#111827"
+_BG      = "#111827"
+_RED     = "#ef4444"
 
 
 @callback(
@@ -44,6 +48,8 @@ def render_scatter(asset1_id, asset2_id, show_events_opt):
 
     label1 = svc.get_asset_label(asset1_id)
     label2 = svc.get_asset_label(asset2_id)
+    tick1  = label1.split(" — ")[0]
+    tick2  = label2.split(" — ")[0]
 
     xs    = [p["p1"]   for p in pairs]
     ys    = [p["p2"]   for p in pairs]
@@ -51,56 +57,114 @@ def render_scatter(asset1_id, asset2_id, show_events_opt):
     n     = len(pairs)
 
     hover = [
-        f"<b>{dates[i]}</b><br>{label1.split(' — ')[0]}: {xs[i]:.6g}"
-        f"<br>{label2.split(' — ')[0]}: {ys[i]:.6g}"
+        f"<b>{dates[i]}</b><br>{tick1}: {xs[i]:.6g}<br>{tick2}: {ys[i]:.6g}"
         for i in range(n)
     ]
 
+    # ── Eventos y cobertura de fechas ─────────────────────────────────────────
+    show_events = "events" in (show_events_opt or [])
+    events = svc.get_events_with_coords(asset1_id, asset2_id, pairs) if show_events else []
+
+    event_color_for_date: dict[str, str] = {}
+    for ev in events:
+        sd = _date.fromisoformat(ev["start_date"])
+        ed = _date.fromisoformat(ev["end_date"])
+        for p in pairs:
+            if sd <= _date.fromisoformat(p["date"]) <= ed:
+                event_color_for_date[p["date"]] = ev["color"]
+
+    last_date = dates[-1]
+
+    # Índices por grupo (el último punto va siempre en rojo, separado)
+    normal_idx: list[int] = []
+    event_by_color: dict[str, list[int]] = defaultdict(list)
+
+    for i in range(n - 1):
+        d = dates[i]
+        if d in event_color_for_date:
+            event_by_color[event_color_for_date[d]].append(i)
+        else:
+            normal_idx.append(i)
+
+    # ── Figura ────────────────────────────────────────────────────────────────
     fig = go.Figure()
 
-    fig.add_trace(go.Scatter(
-        x=xs, y=ys,
-        mode="markers",
-        marker=dict(
-            size=5,
-            color=list(range(n)),
-            colorscale="Plasma",
-            opacity=0.75,
-            showscale=True,
-            colorbar=dict(
-                title=dict(text="Tiempo", side="right", font=dict(size=10)),
-                tickvals=[0, n - 1],
-                ticktext=[dates[0], dates[-1]],
-                tickfont=dict(size=9),
-                thickness=12,
-                len=0.6,
+    # 1) Puntos normales con gradiente de tiempo
+    if normal_idx:
+        fig.add_trace(go.Scatter(
+            x=[xs[i] for i in normal_idx],
+            y=[ys[i] for i in normal_idx],
+            mode="markers",
+            marker=dict(
+                size=5,
+                color=normal_idx,           # índice original → gradiente continuo
+                colorscale="Plasma",
+                opacity=0.7,
+                showscale=True,
+                cmin=0, cmax=n - 1,         # ancla el rango al total
+                colorbar=dict(
+                    title=dict(text="Tiempo", side="right", font=dict(size=10)),
+                    tickvals=[0, n - 1],
+                    ticktext=[dates[0], dates[-1]],
+                    tickfont=dict(size=9),
+                    thickness=12,
+                    len=0.6,
+                ),
             ),
+            hovertemplate="%{customdata}<extra></extra>",
+            customdata=[hover[i] for i in normal_idx],
+            showlegend=False,
+        ))
+
+    # 2) Puntos dentro de eventos (color del evento, borde para distinguirlos)
+    for color, indices in event_by_color.items():
+        fig.add_trace(go.Scatter(
+            x=[xs[i] for i in indices],
+            y=[ys[i] for i in indices],
+            mode="markers",
+            marker=dict(
+                size=7, color=color, opacity=0.9,
+                line=dict(color="#ffffff", width=0.8),
+            ),
+            hovertemplate="%{customdata}<extra></extra>",
+            customdata=[hover[i] for i in indices],
+            showlegend=False,
+        ))
+
+    # 3) Último punto en rojo
+    fig.add_trace(go.Scatter(
+        x=[xs[-1]], y=[ys[-1]],
+        mode="markers+text",
+        marker=dict(
+            size=11, color=_RED, symbol="circle",
+            line=dict(color="#ffffff", width=1.5),
         ),
-        hovertemplate="%{customdata}<extra></extra>",
-        customdata=hover,
+        text=[last_date],
+        textposition="top right",
+        textfont=dict(color=_RED, size=8),
+        hovertemplate=hover[-1] + "<extra></extra>",
         showlegend=False,
     ))
 
-    if "events" in (show_events_opt or []):
-        events = svc.get_events_with_coords(asset1_id, asset2_id, pairs)
-        for ev in events:
-            fig.add_trace(go.Scatter(
-                x=[ev["p1"]], y=[ev["p2"]],
-                mode="markers+text",
-                marker=dict(
-                    size=14, color=ev["color"], symbol="star",
-                    line=dict(color="#1f2937", width=1),
-                ),
-                text=[ev["name"]],
-                textposition="top center",
-                textfont=dict(color=ev["color"], size=8),
-                hovertemplate=(
-                    f"<b>{ev['name']}</b><br>"
-                    f"{ev['start_date']} → {ev['end_date']}"
-                    "<extra></extra>"
-                ),
-                showlegend=False,
-            ))
+    # 4) Marcadores de eventos (estrella en la coordenada del día central)
+    for ev in events:
+        fig.add_trace(go.Scatter(
+            x=[ev["p1"]], y=[ev["p2"]],
+            mode="markers+text",
+            marker=dict(
+                size=14, color=ev["color"], symbol="star",
+                line=dict(color="#1f2937", width=1),
+            ),
+            text=[ev["name"]],
+            textposition="top center",
+            textfont=dict(color=ev["color"], size=8),
+            hovertemplate=(
+                f"<b>{ev['name']}</b><br>"
+                f"{ev['start_date']} → {ev['end_date']}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        ))
 
     fig.update_layout(
         plot_bgcolor=_BG,
