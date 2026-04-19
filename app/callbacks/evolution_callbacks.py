@@ -262,7 +262,7 @@ def render_chart(series, base_date):
     visible = [s for s in series if s.get("visible", True)]
     if not visible:
         fig = go.Figure()
-        _style_fig(fig)
+        _style_fig(fig, "")
         return fig, no_update, False
 
     asset_ids = [s["asset_id"] for s in visible]
@@ -277,39 +277,53 @@ def render_chart(series, base_date):
 
     if not price_data:
         fig = go.Figure()
-        _style_fig(fig)
+        _style_fig(fig, "")
         return fig, "No hay precios en común para las series seleccionadas.", True
 
-    color_map = {s["asset_id"]: s.get("color", "#888") for s in visible}
+    color_map   = {s["asset_id"]: s.get("color", "#888") for s in visible}
+    primary_id  = next((s["asset_id"] for s in visible if s.get("group") == "primary"), None)
+
+    # Título dinámico
+    primary_series = next((s for s in visible if s.get("group") == "primary"), None)
+    if primary_series:
+        title = f"Evolución de {primary_series['ticker']} y sus componentes (base 100)"
+    else:
+        title = "Evolución relativa (base 100)"
 
     fig = go.Figure()
     for s in visible:
-        aid = s["asset_id"]
-        pd  = price_data.get(aid)
+        aid       = s["asset_id"]
+        pd        = price_data.get(aid)
         if pd is None:
             continue
+        is_primary = aid == primary_id
         fig.add_trace(go.Scatter(
             x=pd["dates"],
             y=pd["values"],
             mode="lines",
             name=pd["ticker"],
-            line={"color": color_map.get(aid, "#888"), "width": 1.5},
+            line={
+                "color": color_map.get(aid, "#888"),
+                "width": 2.5 if is_primary else 1.5,
+            },
             hovertemplate="%{x}<br>%{y:.2f}<extra>" + pd["ticker"] + "</extra>",
         ))
 
-    fig.add_hline(y=100, line_dash="dot", line_color="#555", line_width=1)
-    _style_fig(fig)
+    fig.add_hline(y=100, line_dash="dot", line_color="#888", line_width=1)
+    _style_fig(fig, title)
     return fig, no_update, False
 
 
-def _style_fig(fig):
+def _style_fig(fig, title: str = ""):
     fig.update_layout(
+        title={"text": title, "font": {"size": 13}, "x": 0.5, "xanchor": "center"},
         paper_bgcolor="#1e2126",
         plot_bgcolor="#1e2126",
         font_color="#dee2e6",
-        margin={"l": 50, "r": 20, "t": 20, "b": 40},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.01,
-                "xanchor": "left", "x": 0},
+        margin={"l": 50, "r": 20, "t": 45, "b": 40},
+        legend={"orientation": "v", "yanchor": "top", "y": 0.99,
+                "xanchor": "left", "x": 0.01,
+                "bgcolor": "rgba(30,33,38,0.7)", "borderwidth": 0},
         hovermode="x unified",
         xaxis={"gridcolor": "#2c3038", "showspikes": True},
         yaxis={"gridcolor": "#2c3038", "ticksuffix": ""},
