@@ -3,8 +3,9 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 _HELP = (
-    "Identifica grandes caídas históricas: desde un ATH hasta recuperación. "
+    "Identifica grandes caídas históricas: desde un máximo histórico (ATH) hasta la recuperación. "
     "En el gráfico se muestran como triángulos rojos en el mínimo de cada caída. "
+    "En el screener aparece la profundidad del drawdown actual y los 3 peores históricos. "
     "Recalculá los snapshots para aplicar cambios."
 )
 
@@ -23,12 +24,13 @@ def layout(**kwargs):
                 dbc.Col([
                     dbc.Label("Profundidad mínima (%)", className="small fw-semibold mb-0"),
                     dbc.Input(id="dd-min-depth", type="number", min=1, max=90, step=0.5, size="sm"),
-                    dbc.Tooltip(
-                        "Solo se registran caídas que superen este % desde el ATH previo. "
-                        "Acciones individuales: 20–30 %. Índices: 10–15 %. Cripto: 40–50 %.",
-                        target="dd-min-depth", placement="top",
+                    html.Small(
+                        "Caídas menores a este % desde el ATH previo se ignoran. "
+                        "Valores sugeridos: acciones individuales 20–30 %, índices 10–15 %, cripto 40–50 %. "
+                        "Un valor bajo registra más eventos; uno alto solo captura crisis significativas.",
+                        className="text-muted d-block mt-1", style={"fontSize": "0.72rem", "lineHeight": "1.3"},
                     ),
-                ], md=3, className="mb-2"),
+                ], md=5, className="mb-2"),
             ]),
 
             dbc.Button("Guardar", id="dd-btn-save", color="primary", size="sm", className="mt-1"),

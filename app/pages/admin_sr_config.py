@@ -9,12 +9,12 @@ _HELP = (
 )
 
 
-def _field(label, id_, min_, max_, step, tooltip):
+def _field(label, id_, min_, max_, step, desc):
     return dbc.Col([
         dbc.Label(label, className="small fw-semibold mb-0"),
         dbc.Input(id=id_, type="number", min=min_, max=max_, step=step, size="sm"),
-        dbc.Tooltip(tooltip, target=id_, placement="top"),
-    ], md=3, className="mb-2")
+        html.Small(desc, className="text-muted d-block mt-1", style={"fontSize": "0.72rem", "lineHeight": "1.3"}),
+    ], md=4, className="mb-3")
 
 
 def _section(title):
@@ -34,25 +34,34 @@ def layout(**kwargs):
             _section("General"),
             dbc.Row([
                 _field("Lookback (días)", "sr-lookback", 50, 1000, 1,
-                       "Barras diarias a analizar. 252 ≈ 1 año de trading."),
+                       "Cantidad de barras diarias hacia atrás a analizar. 252 ≈ 1 año de trading. "
+                       "Más días captura niveles históricos más lejanos pero puede incluir zonas ya irrelevantes."),
             ]),
 
-            _section("Pivot S/R"),
+            _section("Pivot S/R — Extremos locales de precio"),
             dbc.Row([
                 _field("Ventana (barras)", "sr-pivot-window", 2, 30, 1,
-                       "Barras a cada lado para identificar un extremo local. Más alto = niveles más significativos."),
+                       "Barras a cada lado para considerar un punto como extremo local. "
+                       "Ej: ventana=5 → el máximo debe ser el más alto en ±5 velas. "
+                       "Más alto = niveles más significativos pero menos frecuentes."),
                 _field("Agrupamiento (%)", "sr-cluster-pct", 0.1, 5.0, 0.1,
-                       "Niveles dentro de este % se fusionan en uno solo."),
+                       "Niveles dentro de este porcentaje de diferencia se fusionan en una sola zona. "
+                       "Ej: 0.5% → niveles a $100 y $100.40 se unen. "
+                       "Valores bajos = zonas más precisas; altos = zonas más amplias."),
                 _field("Mín. toques", "sr-min-touches", 1, 10, 1,
-                       "Cantidad mínima de veces que el precio debe tocar un nivel para considerarlo válido."),
+                       "Veces mínimas que el precio debe haber tocado un nivel para mostrarlo. "
+                       "Con 1 aparece cualquier extremo; con 2+ solo los que el precio respetó más de una vez."),
             ]),
 
-            _section("Perfil de Volumen (VPVR)"),
+            _section("Perfil de Volumen (VPVR) — Nodos de alto volumen"),
             dbc.Row([
                 _field("Buckets de precio", "sr-vpvr-buckets", 20, 500, 10,
-                       "Cantidad de rangos de precio para distribuir el volumen. Más = más granular."),
+                       "Divide el rango de precios en N franjas y suma el volumen operado en cada una. "
+                       "Más buckets = más granularidad. 100 es un buen balance para la mayoría de activos."),
                 _field("Factor HVN", "sr-hvn-factor", 0.1, 5.0, 0.1,
-                       "Un bucket es HVN si su volumen supera la media × este factor. Mayor = menos niveles."),
+                       "Un bucket se considera nodo de alto volumen (HVN) si su volumen supera "
+                       "el promedio × este factor. Factor=1.0 → todos los buckets por encima del promedio. "
+                       "Factor=1.5 → solo los más activos. Mayor factor = menos niveles mostrados."),
             ]),
 
             dbc.Button("Guardar", id="sr-btn-save", color="primary", size="sm", className="mt-1"),

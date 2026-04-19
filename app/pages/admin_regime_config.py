@@ -11,11 +11,11 @@ _HELP_ALGO = (
 )
 
 
-def _field(label, id_, min_, max_, step, tooltip):
+def _field(label, id_, min_, max_, step, desc):
     return dbc.Col([
         dbc.Label(label, className="small fw-semibold mb-0"),
         dbc.Input(id=id_, type="number", min=min_, max=max_, step=step, size="sm"),
-        dbc.Tooltip(tooltip, target=id_, placement="top"),
+        html.Small(desc, className="text-muted d-block mt-1", style={"fontSize": "0.72rem", "lineHeight": "1.3"}),
     ], md=3, className="mb-2")
 
 
