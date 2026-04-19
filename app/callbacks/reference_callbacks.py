@@ -91,16 +91,15 @@ def load_countries(_):
     Input("countries-btn-add", "n_clicks"),
     Input("countries-btn-edit", "n_clicks"),
     Input("countries-btn-cancel", "n_clicks"),
-    Input("countries-btn-save", "n_clicks"),
     State("countries-table", "selected_rows"),
     State("countries-table", "data"),
     State("countries-editing-id", "data"),
     prevent_initial_call=True,
 )
-def countries_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def countries_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     trigger = ctx.triggered_id
-    if trigger in ("countries-btn-cancel", "countries-btn-save"):
+    if trigger == "countries-btn-cancel":
         return False, no_update, no_update, no_update, None
     if trigger == "countries-btn-add":
         return True, "Nuevo país", "", "", None
@@ -115,6 +114,9 @@ def countries_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id)
     Output("countries-alert", "children"),
     Output("countries-alert", "is_open"),
     Output("countries-alert", "color"),
+    Output("countries-modal", "is_open", allow_duplicate=True),
+    Output("countries-modal-error", "children"),
+    Output("countries-modal-error", "is_open"),
     Input("countries-btn-save", "n_clicks"),
     State("countries-f-name", "value"),
     State("countries-f-iso_code", "value"),
@@ -123,7 +125,7 @@ def countries_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id)
 )
 def countries_save(n_clicks, name, iso_code, editing_id):
     if not name or not iso_code:
-        return no_update, "Completá todos los campos.", True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, "Completá todos los campos.", True
     try:
         if editing_id:
             svc.update_country(editing_id, name, iso_code)
@@ -131,9 +133,9 @@ def countries_save(n_clicks, name, iso_code, editing_id):
             svc.create_country(name, iso_code)
         rows = svc.get_countries()
         data = [{"id": r.id, "name": r.name, "iso_code": r.iso_code} for r in rows]
-        return data, "Guardado correctamente.", True, "success"
+        return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, str(exc), True
 
 
 @callback(
@@ -201,16 +203,15 @@ def load_currencies(_):
     Input("currencies-btn-add", "n_clicks"),
     Input("currencies-btn-edit", "n_clicks"),
     Input("currencies-btn-cancel", "n_clicks"),
-    Input("currencies-btn-save", "n_clicks"),
     State("currencies-table", "selected_rows"),
     State("currencies-table", "data"),
     State("currencies-editing-id", "data"),
     prevent_initial_call=True,
 )
-def currencies_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def currencies_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
-    if t in ("currencies-btn-cancel", "currencies-btn-save"):
+    if t == "currencies-btn-cancel":
         return False, no_update, no_update, no_update, None
     if t == "currencies-btn-add":
         return True, "Nueva moneda", "", "", None
@@ -225,6 +226,9 @@ def currencies_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id
     Output("currencies-alert", "children"),
     Output("currencies-alert", "is_open"),
     Output("currencies-alert", "color"),
+    Output("currencies-modal", "is_open", allow_duplicate=True),
+    Output("currencies-modal-error", "children"),
+    Output("currencies-modal-error", "is_open"),
     Input("currencies-btn-save", "n_clicks"),
     State("currencies-f-name", "value"),
     State("currencies-f-iso_code", "value"),
@@ -233,7 +237,7 @@ def currencies_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id
 )
 def currencies_save(n_clicks, name, iso_code, editing_id):
     if not name or not iso_code:
-        return no_update, "Completá todos los campos.", True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, "Completá todos los campos.", True
     try:
         if editing_id:
             svc.update_currency(editing_id, name, iso_code)
@@ -241,9 +245,9 @@ def currencies_save(n_clicks, name, iso_code, editing_id):
             svc.create_currency(name, iso_code)
         rows = svc.get_currencies()
         data = [{"id": r.id, "name": r.name, "iso_code": r.iso_code} for r in rows]
-        return data, "Guardado correctamente.", True, "success"
+        return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, str(exc), True
 
 
 @callback(
@@ -321,16 +325,15 @@ def load_markets(_):
     Input("markets-btn-add", "n_clicks"),
     Input("markets-btn-edit", "n_clicks"),
     Input("markets-btn-cancel", "n_clicks"),
-    Input("markets-btn-save", "n_clicks"),
     State("markets-table", "selected_rows"),
     State("markets-table", "data"),
     State("markets-editing-id", "data"),
     prevent_initial_call=True,
 )
-def markets_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def markets_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
-    if t in ("markets-btn-cancel", "markets-btn-save"):
+    if t == "markets-btn-cancel":
         return False, no_update, no_update, no_update, no_update, None
     if t == "markets-btn-add":
         return True, "Nuevo mercado", "", None, None, None
@@ -347,6 +350,9 @@ def markets_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
     Output("markets-alert", "children"),
     Output("markets-alert", "is_open"),
     Output("markets-alert", "color"),
+    Output("markets-modal", "is_open", allow_duplicate=True),
+    Output("markets-modal-error", "children"),
+    Output("markets-modal-error", "is_open"),
     Input("markets-btn-save", "n_clicks"),
     State("markets-f-name", "value"),
     State("markets-f-country_id", "value"),
@@ -355,19 +361,20 @@ def markets_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
     prevent_initial_call=True,
 )
 def markets_save(_, name, country_id, benchmark_id, editing_id):
-    if not name or not country_id:
-        return no_update, "Completá todos los campos.", True, "danger"
+    if not name:
+        return no_update, no_update, no_update, no_update, no_update, "El nombre es obligatorio.", True
     try:
+        cid = int(country_id) if country_id else None
         bm = int(benchmark_id) if benchmark_id else None
         if editing_id:
-            svc.update_market(editing_id, name, int(country_id), bm)
+            svc.update_market(editing_id, name, cid, bm)
         else:
-            svc.create_market(name, int(country_id), bm)
+            svc.create_market(name, cid, bm)
         markets = svc.get_markets()
         data = [{"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""} for m in markets]
-        return data, "Guardado correctamente.", True, "success"
+        return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, str(exc), True
 
 
 @callback(
@@ -442,16 +449,15 @@ def load_instrument_types(_):
     Input("instrument_types-btn-add", "n_clicks"),
     Input("instrument_types-btn-edit", "n_clicks"),
     Input("instrument_types-btn-cancel", "n_clicks"),
-    Input("instrument_types-btn-save", "n_clicks"),
     State("instrument_types-table", "selected_rows"),
     State("instrument_types-table", "data"),
     State("instrument_types-editing-id", "data"),
     prevent_initial_call=True,
 )
-def instrument_types_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def instrument_types_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
-    if t in ("instrument_types-btn-cancel", "instrument_types-btn-save"):
+    if t == "instrument_types-btn-cancel":
         return False, no_update, no_update, no_update, None
     if t == "instrument_types-btn-add":
         return True, "Nuevo tipo de instrumento", "", None, None
@@ -468,6 +474,9 @@ def instrument_types_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, edit
     Output("instrument_types-alert", "children"),
     Output("instrument_types-alert", "is_open"),
     Output("instrument_types-alert", "color"),
+    Output("instrument_types-modal", "is_open", allow_duplicate=True),
+    Output("instrument_types-modal-error", "children"),
+    Output("instrument_types-modal-error", "is_open"),
     Input("instrument_types-btn-save", "n_clicks"),
     State("instrument_types-f-name", "value"),
     State("instrument_types-f-default_currency_id", "value"),
@@ -476,7 +485,7 @@ def instrument_types_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, edit
 )
 def instrument_types_save(_, name, currency_id, editing_id):
     if not name or not currency_id:
-        return no_update, "Completá todos los campos.", True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, "Completá todos los campos.", True
     try:
         if editing_id:
             svc.update_instrument_type(editing_id, name, int(currency_id))
@@ -484,9 +493,9 @@ def instrument_types_save(_, name, currency_id, editing_id):
             svc.create_instrument_type(name, int(currency_id))
         itypes = svc.get_instrument_types()
         data = [{"id": it.id, "name": it.name, "currency_name": it.default_currency.iso_code} for it in itypes]
-        return data, "Guardado correctamente.", True, "success"
+        return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, str(exc), True
 
 
 @callback(
@@ -549,16 +558,15 @@ def load_sectors(_):
     Input("sectors-btn-add", "n_clicks"),
     Input("sectors-btn-edit", "n_clicks"),
     Input("sectors-btn-cancel", "n_clicks"),
-    Input("sectors-btn-save", "n_clicks"),
     State("sectors-table", "selected_rows"),
     State("sectors-table", "data"),
     State("sectors-editing-id", "data"),
     prevent_initial_call=True,
 )
-def sectors_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def sectors_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
-    if t in ("sectors-btn-cancel", "sectors-btn-save"):
+    if t == "sectors-btn-cancel":
         return False, no_update, no_update, None
     if t == "sectors-btn-add":
         return True, "Nuevo sector", "", None
@@ -573,6 +581,9 @@ def sectors_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
     Output("sectors-alert", "children"),
     Output("sectors-alert", "is_open"),
     Output("sectors-alert", "color"),
+    Output("sectors-modal", "is_open", allow_duplicate=True),
+    Output("sectors-modal-error", "children"),
+    Output("sectors-modal-error", "is_open"),
     Input("sectors-btn-save", "n_clicks"),
     State("sectors-f-name", "value"),
     State("sectors-editing-id", "data"),
@@ -580,16 +591,16 @@ def sectors_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
 )
 def sectors_save(_, name, editing_id):
     if not name:
-        return no_update, "Completá el nombre.", True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, "Completá el nombre.", True
     try:
         if editing_id:
             svc.update_sector(editing_id, name)
         else:
             svc.create_sector(name)
         data = [{"id": r.id, "name": r.name} for r in svc.get_sectors()]
-        return data, "Guardado correctamente.", True, "success"
+        return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, str(exc), True
 
 
 @callback(
@@ -661,16 +672,15 @@ def load_industries(_):
     Input("industries-btn-add", "n_clicks"),
     Input("industries-btn-edit", "n_clicks"),
     Input("industries-btn-cancel", "n_clicks"),
-    Input("industries-btn-save", "n_clicks"),
     State("industries-table", "selected_rows"),
     State("industries-table", "data"),
     State("industries-editing-id", "data"),
     prevent_initial_call=True,
 )
-def industries_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def industries_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
-    if t in ("industries-btn-cancel", "industries-btn-save"):
+    if t == "industries-btn-cancel":
         return False, no_update, no_update, no_update, None
     if t == "industries-btn-add":
         return True, "Nueva industria", "", None, None
@@ -687,6 +697,9 @@ def industries_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id
     Output("industries-alert", "children"),
     Output("industries-alert", "is_open"),
     Output("industries-alert", "color"),
+    Output("industries-modal", "is_open", allow_duplicate=True),
+    Output("industries-modal-error", "children"),
+    Output("industries-modal-error", "is_open"),
     Input("industries-btn-save", "n_clicks"),
     State("industries-f-name", "value"),
     State("industries-f-sector_id", "value"),
@@ -695,7 +708,7 @@ def industries_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id
 )
 def industries_save(_, name, sector_id, editing_id):
     if not name or not sector_id:
-        return no_update, "Completá todos los campos.", True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, "Completá todos los campos.", True
     try:
         if editing_id:
             svc.update_industry(editing_id, name, int(sector_id))
@@ -703,9 +716,9 @@ def industries_save(_, name, sector_id, editing_id):
             svc.create_industry(name, int(sector_id))
         industries = svc.get_industries()
         data = [{"id": i.id, "name": i.name, "sector_name": i.sector.name} for i in industries]
-        return data, "Guardado correctamente.", True, "success"
+        return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, str(exc), True
 
 
 @callback(
@@ -771,16 +784,15 @@ def load_price_sources(_):
     Input("price_sources-btn-add", "n_clicks"),
     Input("price_sources-btn-edit", "n_clicks"),
     Input("price_sources-btn-cancel", "n_clicks"),
-    Input("price_sources-btn-save", "n_clicks"),
     State("price_sources-table", "selected_rows"),
     State("price_sources-table", "data"),
     State("price_sources-editing-id", "data"),
     prevent_initial_call=True,
 )
-def price_sources_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def price_sources_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
-    if t in ("price_sources-btn-cancel", "price_sources-btn-save"):
+    if t == "price_sources-btn-cancel":
         return False, no_update, no_update, no_update, no_update, None
     if t == "price_sources-btn-add":
         return True, "Nueva fuente", "", "", True, None
@@ -797,6 +809,9 @@ def price_sources_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing
     Output("price_sources-alert", "children"),
     Output("price_sources-alert", "is_open"),
     Output("price_sources-alert", "color"),
+    Output("price_sources-modal", "is_open", allow_duplicate=True),
+    Output("price_sources-modal-error", "children"),
+    Output("price_sources-modal-error", "is_open"),
     Input("price_sources-btn-save", "n_clicks"),
     State("price_sources-f-name", "value"),
     State("price_sources-f-description", "value"),
@@ -806,7 +821,7 @@ def price_sources_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing
 )
 def price_sources_save(_, name, description, active, editing_id):
     if not name:
-        return no_update, "El nombre es obligatorio.", True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, "El nombre es obligatorio.", True
     try:
         active_bool = bool(active)
         if editing_id:
@@ -815,9 +830,9 @@ def price_sources_save(_, name, description, active, editing_id):
             svc.create_price_source(name, description or "", active_bool)
         rows = svc.get_price_sources()
         data = [{"id": r.id, "name": r.name, "description": r.description or "", "active": "Sí" if r.active else "No"} for r in rows]
-        return data, "Guardado correctamente.", True, "success"
+        return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, str(exc), True
 
 
 @callback(
@@ -884,16 +899,15 @@ def load_users(_):
     Input("users-btn-add", "n_clicks"),
     Input("users-btn-edit", "n_clicks"),
     Input("users-btn-cancel", "n_clicks"),
-    Input("users-btn-save", "n_clicks"),
     State("users-table", "selected_rows"),
     State("users-table", "data"),
     State("users-editing-id", "data"),
     prevent_initial_call=True,
 )
-def users_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def users_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
-    if t in ("users-btn-cancel", "users-btn-save"):
+    if t == "users-btn-cancel":
         return False, no_update, no_update, no_update, no_update, no_update, None
     if t == "users-btn-add":
         return True, "Nuevo usuario", "", "analyst", "", True, None
@@ -910,6 +924,9 @@ def users_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
     Output("users-alert", "children"),
     Output("users-alert", "is_open"),
     Output("users-alert", "color"),
+    Output("users-modal", "is_open", allow_duplicate=True),
+    Output("users-modal-error", "children"),
+    Output("users-modal-error", "is_open"),
     Input("users-btn-save", "n_clicks"),
     State("users-f-username", "value"),
     State("users-f-role", "value"),
@@ -920,9 +937,9 @@ def users_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
 )
 def users_save(_, username, role, password, active, editing_id):
     if not username or not role:
-        return no_update, "Completá los campos obligatorios.", True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, "Completá los campos obligatorios.", True
     if not editing_id and not password:
-        return no_update, "La contraseña es obligatoria para nuevos usuarios.", True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, "La contraseña es obligatoria para nuevos usuarios.", True
     try:
         if editing_id:
             svc.update_user(editing_id, username, role, bool(active), password or None)
@@ -930,9 +947,9 @@ def users_save(_, username, role, password, active, editing_id):
             svc.create_user(username, password, role)
         rows = svc.get_users()
         data = [{"id": r.id, "username": r.username, "role": r.role, "active": "Sí" if r.active else "No", "created_at": str(r.created_at.date())} for r in rows]
-        return data, "Guardado correctamente.", True, "success"
+        return data, "Guardado correctamente.", True, "success", False, "", False
     except Exception as exc:
-        return no_update, str(exc), True, "danger"
+        return no_update, no_update, no_update, no_update, no_update, str(exc), True
 
 
 @callback(

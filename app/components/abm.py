@@ -93,7 +93,16 @@ def make_abm_layout(
             dbc.Modal(
                 [
                     dbc.ModalHeader(dbc.ModalTitle(id=f"{entity_id}-modal-title")),
-                    dbc.ModalBody(form_fields),
+                    dbc.ModalBody(
+                        (form_fields if isinstance(form_fields, list) else [form_fields]) + [
+                            dbc.Alert(
+                                id=f"{entity_id}-modal-error",
+                                is_open=False,
+                                color="danger",
+                                className="mt-2 mb-0 small py-1",
+                            ),
+                        ]
+                    ),
                     dbc.ModalFooter(
                         [
                             dbc.Button(
