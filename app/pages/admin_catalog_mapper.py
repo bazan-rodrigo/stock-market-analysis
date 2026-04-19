@@ -27,7 +27,8 @@ def layout(**kwargs):
             dbc.Col(html.H5("Mapper de Catálogo", className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small(
-                    "Arrastrá origen → destino para fusionar. El destino sobrevive.",
+                    "Arrastrá una entidad sobre otra para fusionarlas. "
+                    "La de la derecha es la canónica y sobrevive; la izquierda se elimina.",
                     className="text-muted",
                     style={"fontSize": "0.74rem"},
                 ),
