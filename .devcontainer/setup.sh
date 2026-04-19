@@ -2,7 +2,7 @@
 set -e
 
 echo "=== Instalando MariaDB / MySQL Server ==="
-sudo apt-get update -qq
+sudo apt-get update -qq || true
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mariadb-server || \
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mysql-server
 
