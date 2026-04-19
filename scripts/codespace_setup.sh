@@ -62,12 +62,12 @@ fi
 
 # ─── 5. Dependencias Python ───────────────────────────────────────────────
 step "Verificando dependencias Python..."
-if python -c "import dash, flask, sqlalchemy, alembic, yfinance" &>/dev/null; then
+if python -c "import dash, flask, sqlalchemy, alembic, yfinance, plotly, numpy, pandas, apscheduler" &>/dev/null; then
     ok "Dependencias Python ya instaladas"
 else
     echo "    Instalando requirements..."
     pip install -r requirements.txt -q
-    if python -c "import dash, flask, sqlalchemy, alembic, yfinance" &>/dev/null; then
+    if python -c "import dash, flask, sqlalchemy, alembic, yfinance, plotly, numpy, pandas, apscheduler" &>/dev/null; then
         ok "Dependencias instaladas correctamente"
     else
         fail "Error al instalar dependencias"
