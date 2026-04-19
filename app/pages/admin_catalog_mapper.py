@@ -23,29 +23,35 @@ def layout(**kwargs):
         html.Div(id="mapper-dnd-dummy", style={"display": "none"}),
         html.Button(id="mapper-drop-trigger", style={"display": "none"}, n_clicks=0),
 
-        html.H3("Mapper de Catálogo", className="mb-1"),
-        html.P(
-            "Arrastrá una entidad de la columna izquierda sobre una de la derecha "
-            "para fusionarlas. La de la derecha es la canónica y sobrevive; "
-            "la de la izquierda será eliminada.",
-            className="text-muted mb-3",
-        ),
+        dbc.Row([
+            dbc.Col(html.H4("Mapper de Catálogo", className="mb-0"), width="auto"),
+            dbc.Col(
+                html.Small(
+                    "Arrastrá una entidad sobre otra para fusionarlas. "
+                    "La de la derecha es la canónica y sobrevive; la izquierda se elimina.",
+                    className="text-muted",
+                    style={"fontSize": "0.75rem"},
+                ),
+                className="d-flex align-items-center",
+            ),
+        ], className="mb-2 align-items-center"),
 
-        dbc.Tabs(tabs, id="mapper-tabs", active_tab="tab-country", className="mb-3"),
-        dbc.Alert(id="mapper-alert", is_open=False, dismissable=True, className="mb-3"),
+        dbc.Tabs(tabs, id="mapper-tabs", active_tab="tab-country", className="mb-2"),
+        dbc.Alert(id="mapper-alert", is_open=False, dismissable=True, className="mb-2",
+                  style={"fontSize": "0.85rem", "padding": "6px 12px"}),
 
         dbc.Row([
             dbc.Col([
-                html.H6("Origen — arrastrá", className="text-muted mb-2"),
-                html.Div(id="mapper-source-col", style={"minHeight": "200px"}),
+                html.Small("Origen — arrastrá", className="text-muted d-block mb-1"),
+                html.Div(id="mapper-source-col", style={"minHeight": "150px"}),
             ], md=5),
             dbc.Col(
-                html.Div("→", style={"fontSize": "2rem", "textAlign": "center", "paddingTop": "28px"}),
+                html.Div("→", style={"fontSize": "1.5rem", "textAlign": "center", "paddingTop": "20px"}),
                 md=2,
             ),
             dbc.Col([
-                html.H6("Destino — soltá aquí", className="text-muted mb-2"),
-                html.Div(id="mapper-target-col", style={"minHeight": "200px"}),
+                html.Small("Destino — soltá aquí", className="text-muted d-block mb-1"),
+                html.Div(id="mapper-target-col", style={"minHeight": "150px"}),
             ], md=5),
         ]),
 

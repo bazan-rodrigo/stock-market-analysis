@@ -730,10 +730,20 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
 
     /* SMA */
     var smaColors = ['#ff9800','#e91e63','#4caf50'];
+    var bestMaFreq = (st.bestMa || {{}})[st.freq] || {{}};
+    var lastClose = close[close.length - 1];
     ip.sma.forEach(function(s, i) {{
       if (!s.enabled) return;
       var vals = window._lwc.sma(close, s.period);
-      window._lwc.addSeries(pc, {{type:'line', name:'SMA '+s.period,
+      var name = 'SMA ' + s.period;
+      if (s.period === bestMaFreq.sma) {{
+        var lastMa = vals[vals.length - 1];
+        if (!isNaN(lastMa) && lastMa > 0) {{
+          var pct = (lastClose - lastMa) / lastMa * 100;
+          name += ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)';
+        }}
+      }}
+      window._lwc.addSeries(pc, {{type:'line', name: name,
         color: smaColors[i], lineWidth: 1.5,
         data: toData(vals)}});
     }});
@@ -743,7 +753,15 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     ip.ema.forEach(function(s, i) {{
       if (!s.enabled) return;
       var vals = window._lwc.ema(close, s.period);
-      window._lwc.addSeries(pc, {{type:'line', name:'EMA '+s.period,
+      var name = 'EMA ' + s.period;
+      if (s.period === bestMaFreq.ema) {{
+        var lastMa = vals[vals.length - 1];
+        if (!isNaN(lastMa) && lastMa > 0) {{
+          var pct = (lastClose - lastMa) / lastMa * 100;
+          name += ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)';
+        }}
+      }}
+      window._lwc.addSeries(pc, {{type:'line', name: name,
         color: emaColors[i], lineWidth: 1.5, dashed: true,
         data: toData(vals)}});
     }});
@@ -897,6 +915,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     volZones:          chartData.vol_zones          || {{}},
     volCurrent:        chartData.vol_current        || {{}},
     ddEvents:          chartData.dd_events          || [],
+    bestMa:            chartData.best_ma            || {{}},
     eventsEnabled:     eventsEnabled  !== false,
     regimeEnabled:     regimeEnabled  === true,
     ddEnabled:         ddEnabled      === true,
