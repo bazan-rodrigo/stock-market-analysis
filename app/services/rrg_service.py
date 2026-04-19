@@ -98,3 +98,28 @@ def get_all_assets_options() -> list[dict]:
     s = get_session()
     assets = s.query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
     return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
+
+
+def get_assets_for_benchmark(benchmark_id: int) -> list[int]:
+    """
+    Retorna IDs de activos activos cuyo benchmark_id coincide con el dado,
+    o cuyo mercado tiene ese benchmark, excluyendo el propio benchmark.
+    """
+    from app.models import Market
+    from sqlalchemy import or_
+
+    s = get_session()
+    markets_with_bm = [
+        m.id for m in s.query(Market).filter(Market.benchmark_id == benchmark_id).all()
+    ]
+    filters = [Asset.benchmark_id == benchmark_id]
+    if markets_with_bm:
+        filters.append(Asset.market_id.in_(markets_with_bm))
+
+    assets = (
+        s.query(Asset.id)
+         .filter(Asset.active == True, Asset.id != benchmark_id, or_(*filters))
+         .order_by(Asset.ticker)
+         .all()
+    )
+    return [a.id for a in assets]

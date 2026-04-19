@@ -25,6 +25,18 @@ def load_rrg_options(_):
     return opts, opts
 
 
+# ── Auto-carga al elegir benchmark ───────────────────────────────────────────
+@callback(
+    Output("rrg-selected-assets", "data", allow_duplicate=True),
+    Input("rrg-benchmark-select", "value"),
+    prevent_initial_call=True,
+)
+def auto_load_benchmark_assets(benchmark_id):
+    if not benchmark_id:
+        return []
+    return rrg_svc.get_assets_for_benchmark(benchmark_id)
+
+
 # ── Gestión de activos seleccionados ─────────────────────────────────────────
 @callback(
     Output("rrg-selected-assets",  "data"),
