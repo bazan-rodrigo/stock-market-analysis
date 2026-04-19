@@ -23,6 +23,7 @@ TEMPLATE_COLUMNS = [
     "moneda_iso",
     "sector",
     "industria",
+    "benchmark_ticker",
 ]
 
 
@@ -30,6 +31,9 @@ def generate_template() -> bytes:
     """Exporta los activos actuales de la BD como Excel descargable."""
     s = get_session()
     assets = s.query(Asset).order_by(Asset.ticker).all()
+
+    # Mapa id → ticker para resolver benchmark
+    ticker_by_id = {a.id: a.ticker for a in assets}
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -46,6 +50,7 @@ def generate_template() -> bytes:
             a.currency.iso_code          if a.currency        else "",
             a.sector.name                if a.sector          else "",
             a.industry.name              if a.industry        else "",
+            ticker_by_id.get(a.benchmark_id, "") if a.benchmark_id else "",
         ])
     buf = BytesIO()
     wb.save(buf)
@@ -73,6 +78,9 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
     results = []
     s = get_session()
     total = len(df)
+
+    # benchmark_ticker de cada fila, para la segunda pasada
+    pending_benchmarks: list[tuple[str, str]] = []  # [(ticker, benchmark_ticker)]
 
     for i, (_, row) in enumerate(df.iterrows()):
         if progress_cb:
@@ -142,6 +150,10 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             status = "imported"
             detail = "Importado correctamente"
 
+            bm_ticker = _first_nonempty(row.get("benchmark_ticker"))
+            if bm_ticker:
+                pending_benchmarks.append((ticker, bm_ticker))
+
         except _Skipped:
             pass
         except Exception as exc:
@@ -168,7 +180,41 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
 
         results.append({"ticker": ticker, "status": status, "detail": detail})
 
+    # Segunda pasada: asignar benchmarks una vez que todos los activos están creados
+    if pending_benchmarks:
+        result_map = {r["ticker"]: r for r in results}
+        for ticker, bm_ticker in pending_benchmarks:
+            try:
+                asset = s.query(Asset).filter(Asset.ticker == ticker).first()
+                bm    = s.query(Asset).filter(Asset.ticker == bm_ticker).first()
+                if asset is None:
+                    continue
+                if bm is None:
+                    detail = result_map[ticker]["detail"]
+                    result_map[ticker]["detail"] = f"{detail} (benchmark '{bm_ticker}' no encontrado)"
+                    _update_log(s, ticker, result_map[ticker]["status"],
+                                result_map[ticker]["detail"])
+                else:
+                    asset.benchmark_id = bm.id
+                    s.commit()
+            except Exception as exc:
+                s.rollback()
+                logger.warning("Error asignando benchmark %s → %s: %s", ticker, bm_ticker, exc)
+
     return results
+
+
+def _update_log(s, ticker: str, status: str, detail: str) -> None:
+    try:
+        log = s.query(ImportLog).filter(ImportLog.ticker == ticker).first()
+        if log:
+            log.status = status
+            log.detail = detail
+            log.attempted_at = datetime.utcnow()
+            s.commit()
+    except Exception as exc:
+        s.rollback()
+        logger.warning("Error actualizando log %s: %s", ticker, exc)
 
 
 def get_import_logs() -> list[ImportLog]:
