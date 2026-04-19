@@ -22,13 +22,16 @@ def _asset_to_row(a) -> dict:
 
 
 def _get_form_options():
-    sources = ref_svc.get_price_sources(only_active=True)
+    from app.database import get_session
+    from app.models import Asset
+    sources    = ref_svc.get_price_sources(only_active=True)
     currencies = ref_svc.get_currencies()
-    countries = ref_svc.get_countries()
-    markets = ref_svc.get_markets()
-    itypes = ref_svc.get_instrument_types()
-    sectors = ref_svc.get_sectors()
+    countries  = ref_svc.get_countries()
+    markets    = ref_svc.get_markets()
+    itypes     = ref_svc.get_instrument_types()
+    sectors    = ref_svc.get_sectors()
     industries = ref_svc.get_industries()
+    all_assets = get_session().query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
     return (
         [{"label": s.name, "value": s.id} for s in sources],
         [{"label": f"{c.iso_code} - {c.name}", "value": c.id} for c in currencies],
@@ -37,6 +40,7 @@ def _get_form_options():
         [{"label": it.name, "value": it.id} for it in itypes],
         [{"label": "", "value": ""}] + [{"label": s.name, "value": s.id} for s in sectors],
         [{"label": "", "value": ""}] + [{"label": i.name, "value": i.id} for i in industries],
+        [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in all_assets],
     )
 
 
@@ -88,6 +92,8 @@ def assets_row_selection(sel_rows):
     Output("assets-f-sector_id", "value"),
     Output("assets-f-industry_id", "options"),
     Output("assets-f-industry_id", "value"),
+    Output("assets-f-benchmark_id", "options"),
+    Output("assets-f-benchmark_id", "value"),
     Output("assets-editing-id", "data"),
     Output("assets-autocomplete-alert", "children"),
     Output("assets-autocomplete-alert", "is_open"),
@@ -115,14 +121,14 @@ def assets_modal(
     from dash import ctx
     t = ctx.triggered_id
     _nu = no_update
-    src_opts, cur_opts, country_opts, market_opts, itype_opts, sector_opts, ind_opts = _get_form_options()
+    src_opts, cur_opts, country_opts, market_opts, itype_opts, sector_opts, ind_opts, bm_opts = _get_form_options()
 
     if t == "assets-btn-cancel":
-        return False, *([_nu] * 22)
+        return False, *([_nu] * 24)
 
     if t == "assets-btn-autocomplete":
         if not ticker or not source_id:
-            return (*([_nu] * 20), "Ingresá el ticker y seleccioná la fuente antes de autocompletar.", True, _nu, False)
+            return (*([_nu] * 22), "Ingresá el ticker y seleccioná la fuente antes de autocompletar.", True, _nu, False)
         try:
             meta = asset_svc.autocomplete_from_source(ticker, int(source_id))
 
@@ -177,7 +183,7 @@ def assets_modal(
 
             # Recargar opciones actualizadas
             _, cur_opts_new, country_opts_new, market_opts_new, itype_opts_new, \
-                sector_opts_new, ind_opts_new = _get_form_options()
+                sector_opts_new, ind_opts_new, bm_opts_new = _get_form_options()
 
             msg = "Autocompletado. Revisá los campos antes de guardar."
             if created:
@@ -193,12 +199,13 @@ def assets_modal(
                 itype_opts_new, itype_id_new,
                 sector_opts_new, sector_obj_id or _nu,
                 ind_opts_new, industry_obj_id or _nu,
+                bm_opts_new, _nu,
                 _nu,
                 msg, True,
                 _nu, False,
             )
         except Exception as exc:
-            return (*([_nu] * 19), str(exc), True, _nu, False)
+            return (*([_nu] * 21), str(exc), True, _nu, False)
 
     if t == "assets-btn-add":
         return (
@@ -211,6 +218,7 @@ def assets_modal(
             itype_opts, None,
             sector_opts, None,
             ind_opts, None,
+            bm_opts, None,
             None,
             _nu, False,
             "", False,
@@ -228,12 +236,13 @@ def assets_modal(
             itype_opts, a.instrument_type_id,
             sector_opts, a.sector_id,
             ind_opts, a.industry_id,
+            bm_opts, a.benchmark_id,
             a.id,
             _nu, False,
             "", False,
         )
 
-    return (False, *([_nu] * 22))
+    return (False, *([_nu] * 24))
 
 
 @callback(
@@ -254,12 +263,13 @@ def assets_modal(
     State("assets-f-price_source_id", "value"),
     State("assets-f-sector_id", "value"),
     State("assets-f-industry_id", "value"),
+    State("assets-f-benchmark_id", "value"),
     State("assets-editing-id", "data"),
     prevent_initial_call=True,
 )
 def assets_save(
     _, ticker, name, country_id, market_id, itype_id, currency_id,
-    source_id, sector_id, industry_id, editing_id
+    source_id, sector_id, industry_id, benchmark_id, editing_id
 ):
     _nu = no_update
 
@@ -292,6 +302,7 @@ def assets_save(
             price_source_id=int(source_id),
             sector_id=_int(sector_id),
             industry_id=_int(industry_id),
+            benchmark_id=_int(benchmark_id),
         )
         if editing_id:
             asset_svc.update_asset(editing_id, **kwargs)

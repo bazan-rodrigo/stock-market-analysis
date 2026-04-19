@@ -12,6 +12,9 @@ class Market(Base):
     country_id = Column(
         Integer, ForeignKey("countries.id", ondelete="RESTRICT"), nullable=True
     )
+    benchmark_id = Column(
+        Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
+    )
 
     country = relationship("Country", back_populates="markets")
-    assets = relationship("Asset", back_populates="market")
+    assets  = relationship("Asset", back_populates="market", foreign_keys="[Asset.market_id]")

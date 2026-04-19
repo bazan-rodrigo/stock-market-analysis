@@ -32,9 +32,12 @@ class Asset(Base):
         Integer, ForeignKey("price_sources.id", ondelete="RESTRICT"), nullable=False
     )
     active = Column(Boolean, nullable=False, default=True)
+    benchmark_id = Column(
+        Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
+    )
 
     country = relationship("Country", back_populates="assets")
-    market = relationship("Market", back_populates="assets")
+    market  = relationship("Market", back_populates="assets", foreign_keys="[Asset.market_id]")
     instrument_type = relationship("InstrumentType", back_populates="assets")
     currency = relationship("Currency", back_populates="assets")
     sector = relationship("Sector", back_populates="assets")

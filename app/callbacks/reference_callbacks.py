@@ -250,14 +250,19 @@ def currencies_delete(_, sel_rows, data):
 @callback(
     Output("markets-table", "data"),
     Output("markets-f-country_id", "options"),
+    Output("markets-f-benchmark_id", "options"),
     Input("markets-table", "id"),
 )
 def load_markets(_):
-    markets = svc.get_markets()
+    from app.database import get_session
+    from app.models import Asset
+    markets   = svc.get_markets()
     countries = svc.get_countries()
+    assets    = get_session().query(Asset).filter(Asset.active == True).order_by(Asset.ticker).all()
     data = [{"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""} for m in markets]
-    country_opts = [{"label": c.name, "value": c.id} for c in countries]
-    return data, country_opts
+    country_opts   = [{"label": c.name, "value": c.id} for c in countries]
+    benchmark_opts = [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
+    return data, country_opts, benchmark_opts
 
 
 @callback(
@@ -265,6 +270,7 @@ def load_markets(_):
     Output("markets-modal-title", "children"),
     Output("markets-f-name", "value"),
     Output("markets-f-country_id", "value"),
+    Output("markets-f-benchmark_id", "value"),
     Output("markets-editing-id", "data"),
     Input("markets-btn-add", "n_clicks"),
     Input("markets-btn-edit", "n_clicks"),
@@ -279,15 +285,15 @@ def markets_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t in ("markets-btn-cancel", "markets-btn-save"):
-        return False, no_update, no_update, no_update, None
+        return False, no_update, no_update, no_update, no_update, None
     if t == "markets-btn-add":
-        return True, "Nuevo mercado", "", None, None
+        return True, "Nuevo mercado", "", None, None, None
     if t == "markets-btn-edit" and sel_rows:
         from app.database import get_session
         from app.models import Market
         m = get_session().get(Market, data[sel_rows[0]]["id"])
-        return True, "Editar mercado", m.name, m.country_id, m.id
-    return no_update, no_update, no_update, no_update, no_update
+        return True, "Editar mercado", m.name, m.country_id, m.benchmark_id, m.id
+    return no_update, no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
@@ -298,17 +304,19 @@ def markets_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
     Input("markets-btn-save", "n_clicks"),
     State("markets-f-name", "value"),
     State("markets-f-country_id", "value"),
+    State("markets-f-benchmark_id", "value"),
     State("markets-editing-id", "data"),
     prevent_initial_call=True,
 )
-def markets_save(_, name, country_id, editing_id):
+def markets_save(_, name, country_id, benchmark_id, editing_id):
     if not name or not country_id:
         return no_update, "Completá todos los campos.", True, "danger"
     try:
+        bm = int(benchmark_id) if benchmark_id else None
         if editing_id:
-            svc.update_market(editing_id, name, int(country_id))
+            svc.update_market(editing_id, name, int(country_id), bm)
         else:
-            svc.create_market(name, int(country_id))
+            svc.create_market(name, int(country_id), bm)
         markets = svc.get_markets()
         data = [{"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""} for m in markets]
         return data, "Guardado correctamente.", True, "success"

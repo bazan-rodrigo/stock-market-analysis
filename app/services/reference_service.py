@@ -127,20 +127,21 @@ def get_markets() -> list[Market]:
     return _get_all(Market, get_session())
 
 
-def create_market(name: str, country_id: int) -> Market:
+def create_market(name: str, country_id: int, benchmark_id: int | None = None) -> Market:
     s = get_session()
-    obj = Market(name=name.strip(), country_id=country_id)
+    obj = Market(name=name.strip(), country_id=country_id, benchmark_id=benchmark_id)
     s.add(obj)
     s.commit()
     s.refresh(obj)
     return obj
 
 
-def update_market(market_id: int, name: str, country_id: int) -> Market:
+def update_market(market_id: int, name: str, country_id: int, benchmark_id: int | None = None) -> Market:
     s = get_session()
     obj = _get_by_id(Market, market_id, s)
     obj.name = name.strip()
     obj.country_id = country_id
+    obj.benchmark_id = benchmark_id
     s.commit()
     s.refresh(obj)
     return obj

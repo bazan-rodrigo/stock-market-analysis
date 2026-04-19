@@ -35,7 +35,12 @@ def _build_asset_form():
         ], className="mb-3"),
         dbc.Row([
             dbc.Col([dbc.Label("Industria"), dbc.Select(id="assets-f-industry_id", options=[])]),
-        ]),
+            dbc.Col([
+                dbc.Label("Benchmark"),
+                dcc.Dropdown(id="assets-f-benchmark_id", placeholder="Sin benchmark (opcional)",
+                             clearable=True, style={"fontSize": "0.9rem"}),
+            ]),
+        ], className="mb-3"),
         dbc.Alert(id="assets-form-error", is_open=False, color="danger", className="mt-2"),
         dbc.Alert(id="assets-autocomplete-alert", is_open=False, color="info", className="mt-2"),
     ])

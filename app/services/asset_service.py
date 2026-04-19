@@ -46,6 +46,7 @@ def create_asset(
     sector_id: Optional[int] = None,
     industry_id: Optional[int] = None,
     active: bool = True,
+    benchmark_id: Optional[int] = None,
 ) -> Asset:
     s = get_session()
     obj = Asset(
@@ -59,6 +60,7 @@ def create_asset(
         sector_id=sector_id,
         industry_id=industry_id,
         active=active,
+        benchmark_id=benchmark_id,
     )
     s.add(obj)
     try:
@@ -82,6 +84,7 @@ def update_asset(
     sector_id: Optional[int] = None,
     industry_id: Optional[int] = None,
     active: bool = True,
+    benchmark_id: Optional[int] = None,
 ) -> Asset:
     s = get_session()
     obj = s.get(Asset, asset_id)
@@ -97,6 +100,7 @@ def update_asset(
     obj.sector_id = sector_id
     obj.industry_id = industry_id
     obj.active = active
+    obj.benchmark_id = benchmark_id
     try:
         s.commit()
     except IntegrityError as exc:

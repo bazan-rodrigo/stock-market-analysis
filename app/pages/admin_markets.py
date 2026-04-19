@@ -1,6 +1,6 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import html
+from dash import dcc, html
 
 from app.components.abm import make_abm_layout
 
@@ -13,6 +13,13 @@ _FORM = [
     dbc.Row([
         dbc.Col([dbc.Label("Nombre"), dbc.Input(id="markets-f-name", placeholder="NYSE")]),
         dbc.Col([dbc.Label("País"), dbc.Select(id="markets-f-country_id", options=[])]),
+    ], className="mb-3"),
+    dbc.Row([
+        dbc.Col([
+            dbc.Label("Benchmark"),
+            dcc.Dropdown(id="markets-f-benchmark_id", placeholder="Sin benchmark (opcional)",
+                         clearable=True, style={"fontSize": "0.9rem"}),
+        ]),
     ]),
 ]
 
