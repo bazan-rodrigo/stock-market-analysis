@@ -18,6 +18,7 @@ import pandas as pd
 from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df
 import app.services.event_service as event_svc
+import app.services.sr_service as sr_svc
 
 
 # ─── Configuración de slots ───────────────────────────────────────────────────
@@ -198,17 +199,21 @@ def load_chart_data(asset_id, current_data):
         }
         dd_events = _json.loads(snap.dd_events) if snap.dd_events else []
 
+    sr_data = sr_svc.compute_sr_for_asset(int(asset_id)) or {}
+
     return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events,
             "best_ma": best_ma, "regime_zones": regime_zones,
             "regime_current": regime_current,
             "regime_ema_periods": regime_ema_periods,
             "vol_zones": vol_zones, "vol_current": vol_current,
-            "dd_events": dd_events}, ""
+            "dd_events": dd_events,
+            "sr_pivots": sr_data.get("sr_pivots"),
+            "sr_vpvr": sr_data.get("sr_vpvr")}, ""
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, srVpvrEnabled, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -867,6 +872,66 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }}
     }}
 
+    /* Pivots S/R */
+    if (st.srPivotEnabled && st.srPivots && window._lwcPriceSeries) {{
+      var pivots = st.srPivots;
+      (pivots.resist || []).forEach(function(lvl) {{
+        window._lwcPriceSeries.createPriceLine({{
+          price: lvl.price,
+          color: 'rgba(239, 83, 80, 0.85)',
+          lineWidth: lvl.touches >= 3 ? 2 : 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: 'R' + lvl.touches,
+        }});
+      }});
+      (pivots.support || []).forEach(function(lvl) {{
+        window._lwcPriceSeries.createPriceLine({{
+          price: lvl.price,
+          color: 'rgba(102, 187, 106, 0.85)',
+          lineWidth: lvl.touches >= 3 ? 2 : 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: 'S' + lvl.touches,
+        }});
+      }});
+    }}
+
+    /* Perfil de Volumen (VPVR) */
+    if (st.srVpvrEnabled && st.srVpvr && window._lwcPriceSeries) {{
+      var vpvr = st.srVpvr;
+      if (vpvr.poc_price) {{
+        window._lwcPriceSeries.createPriceLine({{
+          price: vpvr.poc_price,
+          color: 'rgba(255, 235, 59, 0.95)',
+          lineWidth: 2,
+          lineStyle: 0,
+          axisLabelVisible: true,
+          title: 'POC',
+        }});
+      }}
+      (vpvr.hvn_above || []).forEach(function(lvl) {{
+        if (lvl.is_poc) return;
+        window._lwcPriceSeries.createPriceLine({{
+          price: lvl.price_mid,
+          color: 'rgba(255, 152, 0, 0.5)',
+          lineWidth: 1,
+          lineStyle: 1,
+          axisLabelVisible: false,
+        }});
+      }});
+      (vpvr.hvn_below || []).forEach(function(lvl) {{
+        if (lvl.is_poc) return;
+        window._lwcPriceSeries.createPriceLine({{
+          price: lvl.price_mid,
+          color: 'rgba(33, 150, 243, 0.5)',
+          lineWidth: 1,
+          lineStyle: 1,
+          axisLabelVisible: false,
+        }});
+      }});
+    }}
+
     /* Marcadores de drawdown */
     if (st.ddEnabled && st.ddEvents && st.ddEvents.length && window._lwcPriceSeries) {{
       /* Mapea fecha exacta al tiempo de barra más cercano (necesario para S/M) */
@@ -916,10 +981,14 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     volCurrent:        chartData.vol_current        || {{}},
     ddEvents:          chartData.dd_events          || [],
     bestMa:            chartData.best_ma            || {{}},
+    srPivots:          chartData.sr_pivots          || null,
+    srVpvr:            chartData.sr_vpvr            || null,
     eventsEnabled:     eventsEnabled  !== false,
     regimeEnabled:     regimeEnabled  === true,
     ddEnabled:         ddEnabled      === true,
     volEnabled:        volEnabled     === true,
+    srPivotEnabled:    srPivotEnabled === true,
+    srVpvrEnabled:     srVpvrEnabled  === true,
     indParams:         indParams,
     volumeEnabled:     volumeEnabled  !== false,
     chartType:         chartType  || 'candlestick',
@@ -954,6 +1023,8 @@ clientside_callback(
     State("chart-regime-enabled", "value"),
     State("chart-dd-enabled", "value"),
     State("chart-vol-enabled", "value"),
+    State("chart-sr-pivot-enabled", "value"),
+    State("chart-sr-vpvr-enabled", "value"),
     *_state_list(State),
     prevent_initial_call=True,
 )
@@ -1106,6 +1177,54 @@ def update_vol_label(chart_data, freq):
         return "", {"fontSize": "0.68rem"}
     label, color = _VOL_LABELS_ES.get(vol, (vol.replace("_", " ").capitalize(), "#aaa"))
     return f"({label})", {"fontSize": "0.68rem", "color": color, "fontWeight": "bold"}
+
+
+clientside_callback(
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.srPivotEnabled=e===true;window._lwc.fullRender();return null;}",
+    Output("chart-sr-pivot-dummy", "data"),
+    Input("chart-sr-pivot-enabled", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.srVpvrEnabled=e===true;window._lwc.fullRender();return null;}",
+    Output("chart-sr-vpvr-dummy", "data"),
+    Input("chart-sr-vpvr-enabled", "value"),
+    prevent_initial_call=True,
+)
+
+
+def _fmt_sr_label(resist_pct, support_pct):
+    parts = []
+    if resist_pct is not None:
+        parts.append(f"↑+{resist_pct:.1f}%")
+    if support_pct is not None:
+        parts.append(f"↓{support_pct:.1f}%")
+    return " ".join(parts) if parts else ""
+
+
+@callback(
+    Output("chart-sr-pivot-label", "children"),
+    Input("chart-data", "data"),
+    prevent_initial_call=True,
+)
+def update_sr_pivot_label(chart_data):
+    if not chart_data:
+        return ""
+    p = chart_data.get("sr_pivots") or {}
+    return _fmt_sr_label(p.get("nearest_resist_pct"), p.get("nearest_support_pct"))
+
+
+@callback(
+    Output("chart-sr-vpvr-label", "children"),
+    Input("chart-data", "data"),
+    prevent_initial_call=True,
+)
+def update_sr_vpvr_label(chart_data):
+    if not chart_data:
+        return ""
+    v = chart_data.get("sr_vpvr") or {}
+    return _fmt_sr_label(v.get("nearest_resist_pct"), v.get("nearest_support_pct"))
 
 
 # ─── Actualizar período de SMA-1 / EMA-1 al cambiar activo o frecuencia ──────

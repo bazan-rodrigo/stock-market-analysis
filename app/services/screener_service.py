@@ -12,6 +12,7 @@ import pandas as pd
 
 from app.database import get_session
 from app.models import Asset, DrawdownConfig, Price, RegimeConfig, ScreenerSnapshot, VolatilityConfig
+from app.services import sr_service
 
 logger = logging.getLogger(__name__)
 
@@ -628,6 +629,17 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.atr_pct_w = _atr_pct_last(vz_w)
     snap.atr_pct_m = _atr_pct_last(vz_m)
 
+    # --- S/R pivots y VPVR ---
+    try:
+        sr = sr_service.compute_sr_for_asset(asset_id)
+        if sr:
+            snap.pivot_resist_pct = sr["pivot_resist_pct"]
+            snap.pivot_support_pct = sr["pivot_support_pct"]
+            snap.vpvr_resist_pct = sr["vpvr_resist_pct"]
+            snap.vpvr_support_pct = sr["vpvr_support_pct"]
+    except Exception as exc:
+        logger.warning("SR compute falló para asset_id=%d: %s", asset_id, exc)
+
     s.commit()
 
 
@@ -743,6 +755,10 @@ def get_screener_data(
                 "atr_pct_d": snap.atr_pct_d,
                 "atr_pct_w": snap.atr_pct_w,
                 "atr_pct_m": snap.atr_pct_m,
+                "pivot_resist_pct": snap.pivot_resist_pct,
+                "pivot_support_pct": snap.pivot_support_pct,
+                "vpvr_resist_pct": snap.vpvr_resist_pct,
+                "vpvr_support_pct": snap.vpvr_support_pct,
                 # IDs de dimensión (usados para calcular scores de grupo)
                 "sector_id":          asset.sector_id,
                 "industry_id":        asset.industry_id,

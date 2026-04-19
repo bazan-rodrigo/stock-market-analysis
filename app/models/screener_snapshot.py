@@ -91,4 +91,12 @@ class ScreenerSnapshot(Base):
     atr_pct_w = Column(Float)
     atr_pct_m = Column(Float)
 
+    # Distancia % al pivot S/R más cercano (positivo = arriba, negativo = abajo)
+    pivot_resist_pct = Column(Float)
+    pivot_support_pct = Column(Float)
+
+    # Distancia % al HVN más cercano del perfil de volumen
+    vpvr_resist_pct = Column(Float)
+    vpvr_support_pct = Column(Float)
+
     asset = relationship("Asset", back_populates="screener_snapshot")

@@ -13,6 +13,7 @@ from app.models.market_event import MarketEvent
 from app.models.drawdown_config import DrawdownConfig
 from app.models.regime_config import RegimeConfig
 from app.models.volatility_config import VolatilityConfig
+from app.models.sr_config import SRConfig
 from app.models.screener_snapshot import ScreenerSnapshot
 from app.models.sector import Sector
 from app.models.user import User
@@ -36,4 +37,5 @@ __all__ = [
     "DrawdownConfig",
     "RegimeConfig",
     "VolatilityConfig",
+    "SRConfig",
 ]

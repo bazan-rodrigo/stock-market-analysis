@@ -203,6 +203,7 @@ def create_app():
         "app.pages.admin_regime_config",
         "app.pages.admin_drawdown_config",
         "app.pages.admin_volatility_config",
+        "app.pages.admin_sr_config",
         "app.pages.admin_cleanup",
         "app.pages.price_viewer",
         "app.pages.rrg",
@@ -237,6 +238,7 @@ def create_app():
         "app.callbacks.regime_config_callbacks",
         "app.callbacks.drawdown_config_callbacks",
         "app.callbacks.volatility_config_callbacks",
+        "app.callbacks.admin_sr_config_callbacks",
         "app.callbacks.admin_cleanup_callbacks",
         "app.callbacks.rrg_callbacks",
     ]
