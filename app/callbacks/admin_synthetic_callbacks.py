@@ -1,99 +1,99 @@
-from dash import Input, Output, State, callback, ctx, html, no_update
+from dash import ALL, Input, Output, State, callback, ctx, dcc, html, no_update
 import dash_bootstrap_components as dbc
 
 import app.services.synthetic_service as svc
+from app.pages.admin_synthetic import _help_card, _th, _td_s
 
-_th = {"fontSize": "0.78rem", "color": "#aaa", "fontWeight": "normal",
-       "padding": "6px 8px", "borderBottom": "1px solid #374151"}
-_td = {"fontSize": "0.82rem", "padding": "5px 8px", "borderBottom": "1px solid #1f2937"}
+_ROLE_OPTS = [
+    {"label": "Numerador",   "value": "numerator"},
+    {"label": "Denominador", "value": "denominator"},
+]
 
 
-# ── Cargar dropdowns ──────────────────────────────────────────────────────────
+# ── Cachear opciones de activos ───────────────────────────────────────────────
 @callback(
-    Output("syn-f-asset",       "options"),
-    Output("syn-f-numerator",   "options"),
-    Output("syn-f-denominator", "options"),
+    Output("syn-all-opts", "data"),
     Input("syn-modal", "is_open"),
 )
-def load_dropdowns(is_open):
+def cache_asset_opts(is_open):
     if not is_open:
-        return no_update, no_update, no_update
-    syn_opts = svc.get_assets_options_for_synthetic()
-    all_opts = svc.get_all_assets_options()
-    return syn_opts, all_opts, all_opts
+        return no_update
+    return svc.get_all_assets_options()
 
 
-# ── Preview de fórmula ────────────────────────────────────────────────────────
 @callback(
-    Output("syn-formula-preview", "children"),
-    Input("syn-f-asset",       "value"),
-    Input("syn-f-numerator",   "value"),
-    Input("syn-f-denominator", "value"),
-    State("syn-f-asset",       "options"),
-    State("syn-f-numerator",   "options"),
-    State("syn-f-denominator", "options"),
+    Output("syn-f-asset", "options"),
+    Input("syn-modal", "is_open"),
 )
-def update_preview(asset_id, num_id, den_id, asset_opts, num_opts, den_opts):
-    def label(val, opts):
-        if not val or not opts:
-            return "?"
-        for o in opts:
-            if o["value"] == val:
-                return o["label"].split(" — ")[0]
-        return "?"
-
-    a = label(asset_id, asset_opts)
-    n = label(num_id,   num_opts)
-    d = label(den_id,   den_opts)
-    return f"Fórmula: {a} = {n} / {d}"
+def load_synthetic_opts(is_open):
+    if not is_open:
+        return no_update
+    return svc.get_assets_options_for_synthetic()
 
 
-# ── Tabla de configuraciones ──────────────────────────────────────────────────
+# ── Card de ayuda + parámetros de índice ─────────────────────────────────────
+@callback(
+    Output("syn-formula-help",  "children"),
+    Output("syn-index-params",  "style"),
+    Input("syn-formula-type",   "value"),
+)
+def update_help(ft):
+    show_index = {"display": "block"} if ft == "index" else {"display": "none"}
+    return _help_card(ft), show_index
+
+
+# ── Tabla principal ───────────────────────────────────────────────────────────
 @callback(
     Output("syn-table-container", "children"),
-    Input("syn-alert", "is_open"),
-    Input("syn-modal", "is_open"),
+    Input("syn-alert",  "is_open"),
+    Input("syn-modal",  "is_open"),
 )
-def load_table(_alert, _modal):
-    configs = svc.get_all_configs()
-    if not configs:
-        return html.P("Sin activos sintéticos configurados.", className="text-muted mt-2",
-                      style={"fontSize": "0.82rem"})
+def load_table(_a, _m):
+    formulas = svc.get_all_formulas()
+    if not formulas:
+        return html.P("Sin activos sintéticos configurados.",
+                      className="text-muted mt-2", style={"fontSize": "0.82rem"})
 
+    _TYPE_LABELS = {
+        "ratio":        "Ratio",
+        "weighted_avg": "Prom. ponderado",
+        "weighted_sum": "Suma ponderada",
+        "index":        "Índice base",
+    }
     rows = []
-    for cfg in configs:
-        a   = cfg.asset.ticker       if cfg.asset       else "—"
-        n   = cfg.numerator.ticker   if cfg.numerator   else "—"
-        d   = cfg.denominator.ticker if cfg.denominator else "—"
-        name = cfg.asset.name if cfg.asset else ""
+    for f in formulas:
         rows.append(html.Tr([
-            html.Td(f"{a}", style=_td),
-            html.Td(name,  style={**_td, "color": "#9ca3af", "fontSize": "0.78rem"}),
-            html.Td(f"{n} / {d}", style=_td),
-            html.Td(
-                dbc.ButtonGroup([
-                    dbc.Button("Editar",    id={"type": "syn-edit",    "index": cfg.id},
-                               color="link", size="sm", style={"fontSize": "0.75rem"}),
-                    dbc.Button("Δ Calcular", id={"type": "syn-calc-delta", "index": cfg.id},
-                               color="link", size="sm",
-                               style={"fontSize": "0.75rem", "color": "#38bdf8"}),
-                    dbc.Button("↺ Completo", id={"type": "syn-calc-full", "index": cfg.id},
-                               color="link", size="sm",
-                               style={"fontSize": "0.75rem", "color": "#fb923c"}),
-                    dbc.Button("Eliminar",  id={"type": "syn-delete",  "index": cfg.id},
-                               color="link", size="sm",
-                               style={"fontSize": "0.75rem", "color": "#ef4444"}),
-                ]),
-                style=_td,
-            ),
+            html.Td(f.asset.ticker if f.asset else "—", style=_td_s),
+            html.Td(f.asset.name   if f.asset else "—",
+                    style={**_td_s, "color": "#9ca3af", "fontSize": "0.76rem"}),
+            html.Td(_TYPE_LABELS.get(f.formula_type, f.formula_type), style=_td_s),
+            html.Td(svc.formula_preview_str(f),
+                    style={**_td_s, "fontFamily": "monospace", "fontSize": "0.74rem",
+                           "color": "#94a3b8", "maxWidth": "280px",
+                           "overflow": "hidden", "textOverflow": "ellipsis",
+                           "whiteSpace": "nowrap"}),
+            html.Td(dbc.ButtonGroup([
+                dbc.Button("Editar",     id={"type": "syn-edit",  "index": f.id},
+                           color="link", size="sm", style={"fontSize": "0.74rem"}),
+                dbc.Button("Δ Calcular", id={"type": "syn-delta", "index": f.id},
+                           color="link", size="sm",
+                           style={"fontSize": "0.74rem", "color": "#38bdf8"}),
+                dbc.Button("↺ Completo", id={"type": "syn-full",  "index": f.id},
+                           color="link", size="sm",
+                           style={"fontSize": "0.74rem", "color": "#fb923c"}),
+                dbc.Button("Eliminar",   id={"type": "syn-delete","index": f.id},
+                           color="link", size="sm",
+                           style={"fontSize": "0.74rem", "color": "#ef4444"}),
+            ]), style=_td_s),
         ]))
 
     return html.Table([
         html.Thead(html.Tr([
-            html.Th("Ticker",    style=_th),
-            html.Th("Nombre",    style=_th),
-            html.Th("Fórmula",   style=_th),
-            html.Th("Acciones",  style=_th),
+            html.Th("Ticker",   style=_th),
+            html.Th("Nombre",   style=_th),
+            html.Th("Tipo",     style=_th),
+            html.Th("Fórmula",  style=_th),
+            html.Th("Acciones", style=_th),
         ])),
         html.Tbody(rows),
     ], style={"width": "100%", "borderCollapse": "collapse"})
@@ -101,39 +101,231 @@ def load_table(_alert, _modal):
 
 # ── Abrir / cerrar modal ──────────────────────────────────────────────────────
 @callback(
-    Output("syn-modal",       "is_open"),
-    Output("syn-modal-title", "children"),
-    Output("syn-f-asset",     "value"),
-    Output("syn-f-numerator", "value"),
-    Output("syn-f-denominator", "value"),
-    Output("syn-editing-id",  "data"),
-    Output("syn-modal-error", "is_open", allow_duplicate=True),
+    Output("syn-modal",        "is_open"),
+    Output("syn-modal-title",  "children"),
+    Output("syn-formula-type", "value"),
+    Output("syn-f-asset",      "value"),
+    Output("syn-base-value",   "value"),
+    Output("syn-base-date",    "date"),
+    Output("syn-editing-id",   "data"),
+    Output("syn-uid-store",    "data"),
+    Output("syn-modal-error",  "is_open", allow_duplicate=True),
     Input("syn-btn-add",    "n_clicks"),
     Input("syn-btn-cancel", "n_clicks"),
-    Input({"type": "syn-edit", "index": __import__('dash').ALL}, "n_clicks"),
+    Input({"type": "syn-edit", "index": ALL}, "n_clicks"),
     State("syn-editing-id", "data"),
     prevent_initial_call=True,
 )
 def toggle_modal(n_add, n_cancel, n_edit, editing_id):
     trigger = ctx.triggered_id
+    _empty_store = {"uids": [], "counter": 0, "initial_values": {}}
 
     if trigger == "syn-btn-cancel":
-        return False, no_update, no_update, no_update, no_update, None, False
+        return False, no_update, no_update, no_update, no_update, no_update, None, _empty_store, False
 
     if trigger == "syn-btn-add":
-        return True, "Nuevo activo sintético", None, None, None, None, False
+        return True, "Nueva fórmula sintética", None, None, 100, None, None, _empty_store, False
 
     if isinstance(trigger, dict) and trigger.get("type") == "syn-edit":
-        cfg_id = trigger["index"]
-        configs = svc.get_all_configs()
-        cfg = next((c for c in configs if c.id == cfg_id), None)
-        if cfg is None:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
-        return (True, "Editar activo sintético",
-                cfg.asset_id, cfg.numerator_asset_id, cfg.denominator_asset_id,
-                cfg.id, False)
+        f = next((x for x in svc.get_all_formulas() if x.id == trigger["index"]), None)
+        if f is None:
+            return no_update, no_update, no_update, no_update, no_update, no_update, \
+                   no_update, no_update, no_update
 
-    return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        # Reconstruir uid-store con componentes existentes
+        uids, ivs = [], {}
+        for idx, c in enumerate(f.components):
+            uids.append(idx)
+            ivs[str(idx)] = {
+                "asset_id": c.asset_id,
+                "role":     c.role,
+                "weight":   c.weight,
+            }
+        store = {"uids": uids, "counter": len(uids), "initial_values": ivs}
+        bd = str(f.base_date) if f.base_date else None
+        return (True, "Editar fórmula sintética",
+                f.formula_type, f.asset_id, f.base_value or 100, bd,
+                f.id, store, False)
+
+    return no_update, no_update, no_update, no_update, no_update, no_update, \
+           no_update, no_update, no_update
+
+
+# ── Render componentes ────────────────────────────────────────────────────────
+@callback(
+    Output("syn-comp-header", "children"),
+    Output("syn-comp-rows",   "children"),
+    Input("syn-uid-store",    "data"),
+    Input("syn-formula-type", "value"),
+    State("syn-all-opts",     "data"),
+)
+def render_components(uid_store, ft, all_opts):
+    uids = uid_store.get("uids", [])
+    ivs  = uid_store.get("initial_values", {})
+    is_ratio = (ft == "ratio")
+    opts = all_opts or []
+
+    # Cabecera de columnas
+    w_col = {"width": "80px", "minWidth": "80px"}
+    header = dbc.Row([
+        dbc.Col(html.Small("Activo", className="text-muted"), md=True),
+        dbc.Col(html.Small("Rol",    className="text-muted"),
+                md=3, style={} if is_ratio else {"display": "none"}),
+        dbc.Col(html.Small("Peso",   className="text-muted"), style=w_col),
+        dbc.Col(style={"width": "32px", "minWidth": "32px"}),
+    ], className="g-1 mb-1")
+
+    rows = []
+    for uid in uids:
+        iv = ivs.get(str(uid), {})
+        role_col = dbc.Col(
+            dcc.Dropdown(
+                id={"type": "syn-comp-role", "index": uid},
+                options=_ROLE_OPTS,
+                value=iv.get("role", "numerator" if is_ratio else "component"),
+                clearable=False,
+                style={"fontSize": "0.80rem"},
+            ),
+            md=3, style={} if is_ratio else {"display": "none"},
+        )
+        rows.append(dbc.Row([
+            dbc.Col(
+                dcc.Dropdown(
+                    id={"type": "syn-comp-asset", "index": uid},
+                    options=opts,
+                    value=iv.get("asset_id"),
+                    placeholder="Activo...",
+                    style={"fontSize": "0.80rem"},
+                ),
+                md=True,
+            ),
+            role_col,
+            dbc.Col(
+                dbc.Input(
+                    id={"type": "syn-comp-weight", "index": uid},
+                    type="number",
+                    value=iv.get("weight", 1.0),
+                    min=0, step=0.01,
+                    style={"fontSize": "0.80rem"},
+                ),
+                style=w_col,
+            ),
+            dbc.Col(
+                dbc.Button("×", id={"type": "syn-remove-comp", "index": uid},
+                           color="link", size="sm",
+                           style={"color": "#ef4444", "padding": "0 6px",
+                                  "lineHeight": 1, "fontSize": "1rem"}),
+                style={"width": "32px", "minWidth": "32px"},
+            ),
+        ], className="g-1 mb-1 align-items-center"))
+
+    return header, rows
+
+
+# ── Añadir / quitar componente (sincroniza valores actuales al store) ─────────
+@callback(
+    Output("syn-uid-store", "data"),
+    Input("syn-btn-add-comp",                              "n_clicks"),
+    Input({"type": "syn-remove-comp", "index": ALL},      "n_clicks"),
+    State("syn-uid-store",                                 "data"),
+    State({"type": "syn-comp-asset",  "index": ALL},      "value"),
+    State({"type": "syn-comp-role",   "index": ALL},      "value"),
+    State({"type": "syn-comp-weight", "index": ALL},      "value"),
+    prevent_initial_call=True,
+)
+def update_comp_store(add_clicks, remove_clicks, store, assets, roles, weights):
+    trigger  = ctx.triggered_id
+    uids     = store.get("uids", [])
+    counter  = store.get("counter", 0)
+
+    # Sincronizar valores actuales del DOM al store
+    ivs = {}
+    for i, uid in enumerate(uids):
+        ivs[str(uid)] = {
+            "asset_id": assets[i] if i < len(assets) else None,
+            "role":     roles[i]  if i < len(roles)  else "component",
+            "weight":   weights[i] if i < len(weights) else 1.0,
+        }
+
+    if trigger == "syn-btn-add-comp":
+        ivs[str(counter)] = {"asset_id": None, "role": "component", "weight": 1.0}
+        uids = uids + [counter]
+        counter += 1
+
+    elif isinstance(trigger, dict) and trigger.get("type") == "syn-remove-comp":
+        rem = trigger["index"]
+        uids = [u for u in uids if u != rem]
+        ivs.pop(str(rem), None)
+
+    return {"uids": uids, "counter": counter, "initial_values": ivs}
+
+
+# ── Preview de fórmula en texto ───────────────────────────────────────────────
+@callback(
+    Output("syn-formula-preview", "children"),
+    Input("syn-uid-store",                             "data"),
+    Input("syn-formula-type",                          "value"),
+    Input("syn-f-asset",                               "value"),
+    Input("syn-base-value",                            "value"),
+    Input("syn-base-date",                             "date"),
+    State({"type": "syn-comp-asset",  "index": ALL},  "value"),
+    State({"type": "syn-comp-role",   "index": ALL},  "value"),
+    State({"type": "syn-comp-weight", "index": ALL},  "value"),
+    State("syn-all-opts",                              "data"),
+    State("syn-f-asset",                               "options"),
+)
+def update_preview(uid_store, ft, dest_id, base_val, base_date,
+                   assets, roles, weights, all_opts, dest_opts):
+    if not ft:
+        return "— seleccioná un tipo de fórmula —"
+
+    def ticker(aid, opts):
+        if not aid or not opts:
+            return "?"
+        for o in opts:
+            if o["value"] == aid:
+                return o["label"].split(" — ")[0]
+        return "?"
+
+    uids = uid_store.get("uids", [])
+    dest = ticker(dest_id, dest_opts or [])
+
+    parts_n, parts_d, parts_c = [], [], []
+    for i, uid in enumerate(uids):
+        aid = assets[i] if i < len(assets) else None
+        role = roles[i] if i < len(roles) else "component"
+        w = float(weights[i]) if (i < len(weights) and weights[i] is not None) else 1.0
+        t = ticker(aid, all_opts)
+        label = f"{w:g}×{t}" if w != 1 else t
+        if role == "numerator":
+            parts_n.append(label)
+        elif role == "denominator":
+            parts_d.append(label)
+        else:
+            parts_c.append((w, label))
+
+    if ft == "ratio":
+        n_str = " + ".join(parts_n) or "?"
+        d_str = " + ".join(parts_d) or "?"
+        return f"{dest} = ({n_str}) / ({d_str})"
+
+    if ft == "weighted_avg":
+        total_w = sum(w for w, _ in parts_c) or 1
+        c_str = " + ".join(lbl for _, lbl in parts_c) or "?"
+        return f"{dest} = ({c_str}) / {total_w:g}"
+
+    if ft == "weighted_sum":
+        c_str = " + ".join(lbl for _, lbl in parts_c) or "?"
+        return f"{dest} = {c_str}"
+
+    if ft == "index":
+        total_w = sum(w for w, _ in parts_c) or 1
+        c_str = " + ".join(f"{lbl}/P₀" for _, lbl in parts_c) or "?"
+        bv = base_val or 100
+        bd = base_date or "?"
+        return f"{dest} = {bv:g} × ({c_str}) / {total_w:g}   [base: {bd}]"
+
+    return "—"
 
 
 # ── Guardar ───────────────────────────────────────────────────────────────────
@@ -144,22 +336,56 @@ def toggle_modal(n_add, n_cancel, n_edit, editing_id):
     Output("syn-modal",       "is_open",   allow_duplicate=True),
     Output("syn-modal-error", "children"),
     Output("syn-modal-error", "is_open"),
-    Input("syn-btn-save",   "n_clicks"),
+    Input("syn-btn-save",  "n_clicks"),
+    State("syn-uid-store",                             "data"),
+    State({"type": "syn-comp-asset",  "index": ALL},  "value"),
+    State({"type": "syn-comp-role",   "index": ALL},  "value"),
+    State({"type": "syn-comp-weight", "index": ALL},  "value"),
+    State("syn-formula-type", "value"),
     State("syn-f-asset",      "value"),
-    State("syn-f-numerator",  "value"),
-    State("syn-f-denominator","value"),
+    State("syn-base-value",   "value"),
+    State("syn-base-date",    "date"),
     State("syn-editing-id",   "data"),
     prevent_initial_call=True,
 )
-def save_config(_, asset_id, num_id, den_id, editing_id):
-    if not asset_id or not num_id or not den_id:
-        return no_update, no_update, no_update, no_update, "Completá todos los campos.", True
-    if num_id == den_id:
-        return no_update, no_update, no_update, no_update, \
-               "Numerador y denominador no pueden ser el mismo activo.", True
+def save(_, uid_store, assets, roles, weights, ft, dest_id,
+         base_val, base_date, editing_id):
+    no_err = (no_update, no_update, no_update, no_update, "", False)
+
+    if not ft:
+        return *no_err[:4], "Seleccioná un tipo de fórmula.", True
+    if not dest_id:
+        return *no_err[:4], "Seleccioná el activo destino.", True
+
+    uids = uid_store.get("uids", [])
+    if not uids:
+        return *no_err[:4], "Agregá al menos un componente.", True
+
+    if ft == "index" and not base_date:
+        return *no_err[:4], "La fecha base es obligatoria para el tipo Índice.", True
+
+    components = []
+    for i, uid in enumerate(uids):
+        aid = assets[i] if i < len(assets) else None
+        if not aid:
+            return *no_err[:4], f"Seleccioná el activo del componente {i + 1}.", True
+        role = (roles[i] if i < len(roles) else None) or "component"
+        w    = float(weights[i]) if (i < len(weights) and weights[i] is not None) else 1.0
+        components.append({"asset_id": aid, "role": role, "weight": w})
+
+    from datetime import date as _date
+    bd = _date.fromisoformat(base_date) if base_date else None
+
     try:
-        svc.save_config(asset_id, num_id, den_id)
-        return "Configuración guardada.", True, "success", False, "", False
+        svc.save_formula(
+            asset_id=dest_id,
+            formula_type=ft,
+            components=components,
+            base_value=float(base_val) if base_val else None,
+            base_date=bd,
+            formula_id=editing_id,
+        )
+        return "Fórmula guardada.", True, "success", False, "", False
     except Exception as exc:
         return no_update, no_update, no_update, no_update, str(exc), True
 
@@ -169,16 +395,16 @@ def save_config(_, asset_id, num_id, den_id, editing_id):
     Output("syn-alert", "children", allow_duplicate=True),
     Output("syn-alert", "is_open",  allow_duplicate=True),
     Output("syn-alert", "color",    allow_duplicate=True),
-    Input({"type": "syn-delete", "index": __import__('dash').ALL}, "n_clicks"),
+    Input({"type": "syn-delete", "index": ALL}, "n_clicks"),
     prevent_initial_call=True,
 )
-def delete_config(n_clicks):
+def delete(n_clicks):
     trigger = ctx.triggered_id
     if not isinstance(trigger, dict) or not any(n_clicks):
         return no_update, no_update, no_update
     try:
-        svc.delete_config(trigger["index"])
-        return "Configuración eliminada.", True, "success"
+        svc.delete_formula(trigger["index"])
+        return "Fórmula eliminada.", True, "success"
     except Exception as exc:
         return str(exc), True, "danger"
 
@@ -188,7 +414,7 @@ def delete_config(n_clicks):
     Output("syn-alert", "children", allow_duplicate=True),
     Output("syn-alert", "is_open",  allow_duplicate=True),
     Output("syn-alert", "color",    allow_duplicate=True),
-    Input({"type": "syn-calc-delta", "index": __import__('dash').ALL}, "n_clicks"),
+    Input({"type": "syn-delta", "index": ALL}, "n_clicks"),
     prevent_initial_call=True,
 )
 def calc_delta(n_clicks):
@@ -196,11 +422,10 @@ def calc_delta(n_clicks):
     if not isinstance(trigger, dict) or not any(n_clicks):
         return no_update, no_update, no_update
     try:
-        configs = svc.get_all_configs()
-        cfg = next((c for c in configs if c.id == trigger["index"]), None)
-        if cfg is None:
-            return "Configuración no encontrada.", True, "danger"
-        count = svc.compute_synthetic_prices(cfg.asset_id, full=False)
+        f = next((x for x in svc.get_all_formulas() if x.id == trigger["index"]), None)
+        if f is None:
+            return "Fórmula no encontrada.", True, "danger"
+        count = svc.compute_synthetic_prices(f.asset_id, full=False)
         return f"Delta calculado: {count} precios insertados.", True, "success"
     except Exception as exc:
         return str(exc), True, "danger"
@@ -211,7 +436,7 @@ def calc_delta(n_clicks):
     Output("syn-alert", "children", allow_duplicate=True),
     Output("syn-alert", "is_open",  allow_duplicate=True),
     Output("syn-alert", "color",    allow_duplicate=True),
-    Input({"type": "syn-calc-full", "index": __import__('dash').ALL}, "n_clicks"),
+    Input({"type": "syn-full", "index": ALL}, "n_clicks"),
     prevent_initial_call=True,
 )
 def calc_full(n_clicks):
@@ -219,11 +444,10 @@ def calc_full(n_clicks):
     if not isinstance(trigger, dict) or not any(n_clicks):
         return no_update, no_update, no_update
     try:
-        configs = svc.get_all_configs()
-        cfg = next((c for c in configs if c.id == trigger["index"]), None)
-        if cfg is None:
-            return "Configuración no encontrada.", True, "danger"
-        count = svc.compute_synthetic_prices(cfg.asset_id, full=True)
+        f = next((x for x in svc.get_all_formulas() if x.id == trigger["index"]), None)
+        if f is None:
+            return "Fórmula no encontrada.", True, "danger"
+        count = svc.compute_synthetic_prices(f.asset_id, full=True)
         return f"Recalculado completo: {count} precios insertados.", True, "success"
     except Exception as exc:
         return str(exc), True, "danger"

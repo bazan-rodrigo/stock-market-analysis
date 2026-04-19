@@ -76,7 +76,7 @@ def update_asset_prices(asset_id: int) -> None:
         compute_synthetic_prices(asset_id, full=False)
         return
 
-    s = get_session()
+    s  = get_session()
     asset = s.get(Asset, asset_id)
     if asset is None:
         raise ValueError(f"Activo id={asset_id} no encontrado")
