@@ -12,7 +12,7 @@ def layout(**kwargs):
         dcc.Store(id="rrg-selected-assets", data=[]),
         dcc.Store(id="rrg-full-data", data=None),
 
-        # ── Controles ────────────────────────────────────────────────────────
+        # ── Controles superiores: benchmark + cola ────────────────────────
         dbc.Row([
             dbc.Col([
                 html.Small("Benchmark", className="text-muted d-block mb-1"),
@@ -21,7 +21,7 @@ def layout(**kwargs):
                     placeholder="Seleccionar benchmark...",
                     style={"fontSize": "0.85rem"},
                 ),
-            ], md=3),
+            ], md=4),
             dbc.Col([
                 html.Small("Cola (semanas)", className="text-muted d-block mb-1"),
                 dcc.Slider(
@@ -36,18 +36,7 @@ def layout(**kwargs):
                     },
                     updatemode="drag",
                 ),
-            ], md=3),
-            dbc.Col([
-                html.Small("Agregar activo", className="text-muted d-block mb-1"),
-                dbc.InputGroup([
-                    dcc.Dropdown(
-                        id="rrg-asset-add-select",
-                        placeholder="Buscar activo...",
-                        style={"flex": 1, "fontSize": "0.85rem"},
-                    ),
-                    dbc.Button("+", id="rrg-btn-add", color="primary", size="sm"),
-                ], size="sm"),
-            ], md=4),
+            ], md=5),
             dbc.Col([
                 dbc.Button(
                     "Limpiar",
@@ -56,7 +45,7 @@ def layout(**kwargs):
                     size="sm",
                     className="mt-3 w-100",
                 ),
-            ], md=2),
+            ], md=3),
         ], className="mb-3 g-2 align-items-end"),
 
         dbc.Alert(
@@ -67,22 +56,45 @@ def layout(**kwargs):
             style={"fontSize": "0.85rem", "padding": "6px 12px"},
         ),
 
-        # Spinner solo mientras se cargan datos pesados desde la BD
         dcc.Loading(
             html.Div(id="rrg-load-trigger", style={"display": "none"}),
             type="circle",
             color="#dee2e6",
         ),
 
-        # ── Gráfico (sin Loading propio: se actualiza instantáneo al cambiar cola) ──
-        dcc.Graph(
-            id="rrg-graph",
-            style={"height": "620px"},
-            config={"displayModeBar": False},
-        ),
+        # ── Gráfico + panel lateral ───────────────────────────────────────
+        dbc.Row([
+            # Gráfico
+            dbc.Col([
+                dcc.Graph(
+                    id="rrg-graph",
+                    style={"height": "600px"},
+                    config={
+                        "displayModeBar": True,
+                        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                        "scrollZoom": True,
+                    },
+                ),
+            ], md=9),
 
-        # ── Tabla de activos seleccionados ───────────────────────────────────
-        html.Div(id="rrg-asset-list", className="mt-2"),
+            # Panel lateral: agregar activo + tabla
+            dbc.Col([
+                html.Small("Agregar activo", className="text-muted d-block mb-1"),
+                dbc.InputGroup([
+                    dcc.Dropdown(
+                        id="rrg-asset-add-select",
+                        placeholder="Buscar activo...",
+                        style={"flex": 1, "fontSize": "0.85rem"},
+                    ),
+                    dbc.Button("+", id="rrg-btn-add", color="primary", size="sm"),
+                ], size="sm", className="mb-3"),
+
+                html.Div(
+                    id="rrg-asset-list",
+                    style={"overflowY": "auto", "maxHeight": "520px"},
+                ),
+            ], md=3),
+        ], className="g-2"),
 
     ], style={"padding": "0 8px"})
 
