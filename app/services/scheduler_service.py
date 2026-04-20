@@ -57,3 +57,36 @@ def shutdown_scheduler() -> None:
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
         logger.info("Scheduler detenido")
+
+
+def get_status() -> dict:
+    if _scheduler is None or not _scheduler.running:
+        return {"running": False, "next_run": None, "hour": None, "minute": None}
+    job = _scheduler.get_job("daily_price_update")
+    next_run = str(job.next_run_time)[:19] if job and job.next_run_time else "—"
+    trigger = job.trigger if job else None
+    hour = minute = None
+    if trigger:
+        for field in trigger.fields:
+            if field.name == "hour":
+                hour = str(field)
+            if field.name == "minute":
+                minute = str(field)
+    return {"running": True, "next_run": next_run, "hour": hour, "minute": minute}
+
+
+def update_schedule(hour: int, minute: int) -> None:
+    global _scheduler
+    if _scheduler is None or not _scheduler.running:
+        raise RuntimeError("El scheduler no está corriendo.")
+    _scheduler.reschedule_job(
+        "daily_price_update",
+        trigger=CronTrigger(hour=hour, minute=minute),
+    )
+    logger.info("Horario del scheduler actualizado: %02d:%02d UTC", hour, minute)
+
+
+def run_now() -> None:
+    if _scheduler is None or not _scheduler.running:
+        raise RuntimeError("El scheduler no está corriendo.")
+    _scheduler.get_job("daily_price_update").modify(next_run_time=__import__("datetime").datetime.utcnow())

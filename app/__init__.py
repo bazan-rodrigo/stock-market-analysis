@@ -210,6 +210,7 @@ def create_app():
         "app.pages.price_scatter",
         "app.pages.admin_synthetic",
         "app.pages.evolution",
+        "app.pages.admin_scheduler",
     ]
 
     import importlib
@@ -247,6 +248,7 @@ def create_app():
         "app.callbacks.scatter_callbacks",
         "app.callbacks.admin_synthetic_callbacks",
         "app.callbacks.evolution_callbacks",
+        "app.callbacks.admin_scheduler_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))

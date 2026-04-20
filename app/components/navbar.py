@@ -64,6 +64,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Fuentes de precios",   href="/admin/price-sources"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Usuarios",             href="/admin/users"),
+                    dbc.DropdownMenuItem("Scheduler",            href="/admin/scheduler"),
                     dbc.DropdownMenuItem("Limpieza de datos",    href="/admin/cleanup"),
                 ],
                 nav=True, in_navbar=True,
