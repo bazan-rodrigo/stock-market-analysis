@@ -1,4 +1,4 @@
-from datetime import date as _date
+from datetime import date as _date, timedelta
 
 _PALETTE = [
     "#60a5fa", "#34d399", "#f87171", "#fbbf24", "#a78bfa",
@@ -52,7 +52,77 @@ def get_related_assets(asset_id: int) -> dict:
     return result
 
 
-def get_normalized_prices(asset_ids: list, base_date: _date = None) -> dict:
+def get_assets_by_filters(
+    country_ids=None,
+    currency_ids=None,
+    instrument_type_ids=None,
+    sector_ids=None,
+    industry_ids=None,
+    market_ids=None,
+) -> list[dict]:
+    from app.database import get_session
+    from app.models import Asset
+
+    s = get_session()
+    q = s.query(Asset)
+    if country_ids:
+        q = q.filter(Asset.country_id.in_(country_ids))
+    if currency_ids:
+        q = q.filter(Asset.currency_id.in_(currency_ids))
+    if instrument_type_ids:
+        q = q.filter(Asset.instrument_type_id.in_(instrument_type_ids))
+    if sector_ids:
+        q = q.filter(Asset.sector_id.in_(sector_ids))
+    if industry_ids:
+        q = q.filter(Asset.industry_id.in_(industry_ids))
+    if market_ids:
+        q = q.filter(Asset.market_id.in_(market_ids))
+
+    return [{"asset_id": a.id, "ticker": a.ticker, "name": a.name or a.ticker}
+            for a in q.order_by(Asset.ticker).all()]
+
+
+def get_events_for_assets(asset_ids: list) -> list[dict]:
+    from app.database import get_session
+    from app.models import Asset, MarketEvent
+    from sqlalchemy import or_
+
+    if not asset_ids:
+        return []
+    s = get_session()
+    assets = [s.get(Asset, aid) for aid in asset_ids]
+    country_ids = list({a.country_id for a in assets if a and a.country_id})
+
+    conditions = [MarketEvent.scope == "global"]
+    for aid in asset_ids:
+        conditions.append(MarketEvent.asset_id == aid)
+    for cid in country_ids:
+        conditions.append(
+            (MarketEvent.scope == "country") & (MarketEvent.country_id == cid)
+        )
+
+    events = (s.query(MarketEvent)
+               .filter(or_(*conditions))
+               .order_by(MarketEvent.start_date)
+               .all())
+    seen, result = set(), []
+    for ev in events:
+        if ev.id not in seen:
+            seen.add(ev.id)
+            result.append({
+                "name":  ev.name,
+                "start": str(ev.start_date),
+                "end":   str(ev.end_date),
+                "color": ev.color or "#ff9800",
+            })
+    return result
+
+
+def get_normalized_prices(
+    asset_ids: list,
+    base_date: _date = None,
+    end_date: _date = None,
+) -> dict:
     from app.database import get_session
     from app.models import Asset, Price
 
@@ -93,6 +163,8 @@ def get_normalized_prices(asset_ids: list, base_date: _date = None) -> dict:
         effective_base = candidates[-1] if candidates else common_dates[0]
 
     display_dates = [d for d in common_dates if d >= effective_base]
+    if end_date:
+        display_dates = [d for d in display_dates if d <= end_date]
     if not display_dates:
         return {}
 
@@ -104,8 +176,8 @@ def get_normalized_prices(asset_ids: list, base_date: _date = None) -> dict:
         ticker, name = asset_info[aid]
         result[aid] = {
             "ticker": ticker,
-            "name": name,
-            "dates": [str(d) for d in display_dates],
+            "name":   name,
+            "dates":  [str(d) for d in display_dates],
             "values": [pm[d] / base_price * 100 for d in display_dates],
             "base_date": str(effective_base),
         }
