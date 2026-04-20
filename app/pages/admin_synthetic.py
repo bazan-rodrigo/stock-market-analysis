@@ -1,6 +1,6 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import dcc, html, dash_table
+from dash import dcc, html
 
 _FORMULA_TYPES = [
     {"label": "Ratio (cociente ponderado)",     "value": "ratio"},
@@ -111,7 +111,6 @@ def layout(**kwargs):
     modal = dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle(id="syn-modal-title")),
         dbc.ModalBody([
-            # Tipo de fórmula
             dbc.Row([
                 dbc.Col([
                     dbc.Label("Tipo de fórmula", style={"fontSize": "0.82rem", "fontWeight": "bold"}),
@@ -125,10 +124,8 @@ def layout(**kwargs):
                 ]),
             ], className="mb-2"),
 
-            # Card de ayuda (cambia con el tipo)
             html.Div(id="syn-formula-help"),
 
-            # Activo destino
             dbc.Row([
                 dbc.Col([
                     dbc.Label("Activo destino (fuente Calculado)", style={"fontSize": "0.82rem"}),
@@ -137,7 +134,6 @@ def layout(**kwargs):
                 ]),
             ], className="mb-3"),
 
-            # Parámetros de índice (solo visible para 'index')
             html.Div([
                 dbc.Row([
                     dbc.Col([
@@ -156,7 +152,6 @@ def layout(**kwargs):
                 ], className="mb-3"),
             ], id="syn-index-params", style={"display": "none"}),
 
-            # Componentes
             dbc.Label("Componentes", style={"fontSize": "0.82rem", "fontWeight": "bold"}),
             html.Div(id="syn-comp-header", className="mb-1"),
             html.Div(id="syn-comp-rows"),
@@ -164,7 +159,6 @@ def layout(**kwargs):
                        color="link", size="sm",
                        style={"fontSize": "0.80rem", "paddingLeft": 0}),
 
-            # Preview de fórmula
             html.Div(id="syn-formula-preview",
                      className="mt-2 p-2",
                      style={"backgroundColor": "#111827", "borderRadius": "4px",
@@ -175,41 +169,20 @@ def layout(**kwargs):
                       className="mt-2 mb-0 small py-1"),
         ]),
         dbc.ModalFooter([
-            dbc.Button("Guardar", id="syn-btn-save", color="primary"),
+            dbc.Button("Guardar",  id="syn-btn-save",   color="primary"),
             dbc.Button("Cancelar", id="syn-btn-cancel", color="secondary", className="ms-2"),
         ]),
     ], id="syn-modal", is_open=False, size="lg")
 
     return html.Div([
-        dcc.Store(id="syn-editing-id",  data=None),
-        dcc.Store(id="syn-uid-store",   data={"uids": [], "counter": 0, "initial_values": {}}),
-        dcc.Store(id="syn-all-opts",    data=[]),
+        dcc.Store(id="syn-editing-id",   data=None),
+        dcc.Store(id="syn-uid-store",    data={"uids": [], "counter": 0, "initial_values": {}}),
+        dcc.Store(id="syn-all-opts",     data=[]),
+        dcc.Store(id="syn-selected-ids", data=[]),
+        dcc.Store(id="syn-formula-ids",  data=[]),
         dcc.Download(id="syn-download"),
 
-        dbc.Row([
-            dbc.Col(html.H4("Activos Sintéticos", className="mb-0"), width="auto"),
-            dbc.Col(dbc.Button("+ Nuevo", id="syn-btn-add", color="primary", size="sm"),
-                    className="d-flex align-items-center"),
-            dbc.Col(dbc.Button("Exportar fórmulas", id="syn-btn-export",
-                               color="secondary", size="sm", outline=True),
-                    className="d-flex align-items-center"),
-            dbc.Col(
-                dcc.Upload(
-                    dbc.Button("Importar fórmulas", color="secondary", size="sm", outline=True),
-                    id="syn-upload",
-                    accept=".xlsx",
-                    multiple=False,
-                ),
-                className="d-flex align-items-center",
-            ),
-        ], className="mb-3 align-items-center g-2"),
-
-        dbc.Alert(id="syn-alert", is_open=False, dismissable=True, className="mb-3"),
-
-        html.Div(id="syn-import-results", className="mb-3"),
-
-        html.Div(id="syn-table-container"),
-
+        # ── Descripción ───────────────────────────────────────────────────
         dbc.Card(dbc.CardBody([
             html.P([
                 html.Strong("Activos sintéticos: ", style={"color": "#e5e7eb"}),
@@ -219,8 +192,62 @@ def layout(**kwargs):
                 ". Disponibles cuatro tipos de fórmula: Ratio, Promedio ponderado, "
                 "Suma ponderada e Índice base.",
             ], className="mb-0", style={"fontSize": "0.78rem", "color": "#d1d5db"}),
-        ]), className="mt-3",
+        ]), className="mb-3",
            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+
+        # ── Fila 1: creación e importación ────────────────────────────────
+        dbc.Row([
+            dbc.Col(html.H4("Activos Sintéticos", className="mb-0"), width="auto"),
+            dbc.Col(dbc.Button("+ Nuevo", id="syn-btn-add",
+                               color="primary", size="sm"),
+                    className="d-flex align-items-center"),
+            dbc.Col(dbc.Button("Exportar fórmulas", id="syn-btn-export",
+                               color="secondary", size="sm", outline=True),
+                    className="d-flex align-items-center"),
+            dbc.Col(
+                dcc.Upload(
+                    dbc.Button("Importar fórmulas", color="secondary", size="sm", outline=True),
+                    id="syn-upload", accept=".xlsx", multiple=False,
+                ),
+                className="d-flex align-items-center",
+            ),
+        ], className="mb-2 align-items-center g-2"),
+
+        # ── Fila 2: acciones sobre selección ─────────────────────────────
+        html.Div([
+            dbc.Button("Editar",    id="syn-btn-edit-sel",
+                       color="secondary", size="sm", disabled=True, className="me-1"),
+            dbc.Button("Δ Calcular", id="syn-btn-calc-sel",
+                       color="outline-info", size="sm", disabled=True, className="me-1"),
+            dbc.Tooltip(
+                "Calcula solo los precios nuevos (incremental). "
+                "Más rápido; mantiene el historial existente.",
+                target="syn-btn-calc-sel", placement="bottom",
+                style={"maxWidth": "230px", "fontSize": "0.78rem",
+                       "backgroundColor": "#1f2937", "color": "#dee2e6",
+                       "border": "1px solid #374151"},
+            ),
+            dbc.Button("↺ Completo", id="syn-btn-full-sel",
+                       color="outline-warning", size="sm", disabled=True, className="me-1"),
+            dbc.Tooltip(
+                "Borra y recalcula TODOS los precios desde el inicio. "
+                "Más lento pero garantiza consistencia total.",
+                target="syn-btn-full-sel", placement="bottom",
+                style={"maxWidth": "230px", "fontSize": "0.78rem",
+                       "backgroundColor": "#1f2937", "color": "#dee2e6",
+                       "border": "1px solid #374151"},
+            ),
+            dbc.Button("Eliminar",  id="syn-btn-delete-sel",
+                       color="danger", size="sm", disabled=True, className="me-3"),
+            dbc.Button("Sel. todos",   id="syn-btn-select-all",
+                       color="outline-secondary", size="sm", className="me-1"),
+            dbc.Button("Desel. todos", id="syn-btn-deselect-all",
+                       color="outline-secondary", size="sm"),
+        ], className="mb-3 d-flex align-items-center"),
+
+        dbc.Alert(id="syn-alert", is_open=False, dismissable=True, className="mb-3"),
+        html.Div(id="syn-import-results", className="mb-3"),
+        html.Div(id="syn-table-container"),
 
         modal,
     ], style={"padding": "0 8px"})
