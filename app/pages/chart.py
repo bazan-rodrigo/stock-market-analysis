@@ -203,7 +203,7 @@ def layout(**kwargs):
             html.Div([
                 dbc.Switch(id="chart-sr-pivot-enabled", value=False,
                            style={"marginBottom": 0}),
-                html.Span("Niveles S/R", style={"fontSize": "0.72rem", "color": "#ef9a9a"}),
+                html.Span("Soportes / Resistencias", style={"fontSize": "0.72rem", "color": "#ef9a9a"}),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center border rounded px-2",
                style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
