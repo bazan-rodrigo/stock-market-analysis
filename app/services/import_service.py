@@ -122,14 +122,15 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             # Resolver FKs — Excel tiene prioridad, meta de la fuente como fallback
             country_val  = _first_nonempty(row.get("pais_iso"),         getattr(meta, "country",       None))
             market_val   = _first_nonempty(row.get("mercado"),           getattr(meta, "exchange_name", None), getattr(meta, "exchange", None))
-            currency_val = _first_nonempty(row.get("moneda"),             getattr(meta, "currency_iso",  None))
+            currency_val = row.get("moneda", "")
+            currency_iso = getattr(meta, "currency_iso", None)
             itype_val    = _first_nonempty(row.get("tipo_instrumento"),  getattr(meta, "quote_type",    None))
             sector_val   = _first_nonempty(row.get("sector"),            getattr(meta, "sector",        None))
             industry_val = _first_nonempty(row.get("industria"),         getattr(meta, "industry",      None))
 
             country_id  = _resolve_country(country_val)
             market_id   = _resolve_market(market_val)
-            currency_id = _resolve_currency(currency_val)
+            currency_id = _resolve_currency(currency_val, currency_iso)
             itype_id    = _resolve_instrument_type(itype_val)
             sector_id   = _resolve_sector(sector_val)
             industry_id = _resolve_industry(industry_val, sector_id)
@@ -259,12 +260,15 @@ def _resolve_market(name, country_id=None):
     return obj.id
 
 
-def _resolve_currency(name):
-    if not _valid(name):
-        return None
-    from app.services.reference_service import get_or_create_currency_by_name
-    obj, _ = get_or_create_currency_by_name(name)
-    return obj.id
+def _resolve_currency(name, iso=None):
+    from app.services.reference_service import get_or_create_currency, get_or_create_currency_by_name
+    if _valid(name):
+        obj, _ = get_or_create_currency_by_name(name)
+        return obj.id
+    if _valid(iso):
+        obj, _ = get_or_create_currency(iso)
+        return obj.id
+    return None
 
 
 def _resolve_instrument_type(name):
