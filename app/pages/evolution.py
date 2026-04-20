@@ -67,7 +67,7 @@ def layout(**kwargs):
                     ),
                 ], md=2),
                 dbc.Col([
-                    html.Small("Eventos", className="text-muted d-block mb-1"),
+                    html.Small("Eventos de Mercado", className="text-muted d-block mb-1"),
                     dbc.Switch(id="evol-show-events", value=False,
                                label="Mostrar eventos"),
                 ], md=2, className="d-flex flex-column justify-content-start"),

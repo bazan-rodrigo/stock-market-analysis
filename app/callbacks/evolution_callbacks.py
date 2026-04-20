@@ -368,10 +368,17 @@ def render_chart(series, date_from, date_to, show_events):
 
     fig.add_hline(y=100, line_dash="dot", line_color="#555", line_width=1)
 
-    # Eventos
+    # Eventos de Mercado — solo los que se solapan con el rango visible
     if show_events:
+        all_dates = [d for v in price_data.values() for d in v["dates"]]
+        chart_start = min(all_dates) if all_dates else None
+        chart_end   = max(all_dates) if all_dates else None
         events = svc.get_events_for_assets(asset_ids)
         for ev in events:
+            if chart_start and ev["end"] < chart_start:
+                continue
+            if chart_end and ev["start"] > chart_end:
+                continue
             fig.add_vrect(
                 x0=ev["start"], x1=ev["end"],
                 fillcolor=ev["color"], opacity=0.12,
