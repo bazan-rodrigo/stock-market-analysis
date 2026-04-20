@@ -39,7 +39,7 @@ def _asset_to_row(a, aliases: dict) -> dict:
             a.market.name if a.market else "", "market", a.market_id, aliases),
         "instrument_type_name": _with_alias(
             a.instrument_type.name if a.instrument_type else "", "instrument_type", a.instrument_type_id, aliases),
-        "currency_iso": a.currency.iso_code if a.currency else "",
+        "currency_name": a.currency.name if a.currency else "",
         "sector_name": _with_alias(
             a.sector.name if a.sector else "", "sector", a.sector_id, aliases),
         "benchmark_ticker": a.benchmark.ticker if a.benchmark else "",
@@ -60,7 +60,7 @@ def _get_form_options():
     all_assets = get_session().query(Asset).order_by(Asset.ticker).all()
     return (
         [{"label": s.name, "value": s.id} for s in sources],
-        [{"label": f"{c.iso_code} - {c.name}", "value": c.id} for c in currencies],
+        [{"label": c.name, "value": c.id} for c in currencies],
         [{"label": c.name, "value": c.id} for c in countries],
         [{"label": m.name, "value": m.id} for m in markets],
         [{"label": it.name, "value": it.id} for it in itypes],

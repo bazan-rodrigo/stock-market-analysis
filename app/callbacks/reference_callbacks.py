@@ -438,10 +438,10 @@ def load_instrument_types(_):
     itypes = svc.get_instrument_types()
     currencies = svc.get_currencies()
     data = [
-        {"id": it.id, "name": it.name, "currency_name": it.default_currency.iso_code if it.default_currency else ""}
+        {"id": it.id, "name": it.name, "currency_name": it.default_currency.name if it.default_currency else ""}
         for it in itypes
     ]
-    currency_opts = [{"label": f"{c.iso_code} - {c.name}", "value": c.id} for c in currencies]
+    currency_opts = [{"label": c.name, "value": c.id} for c in currencies]
     return data, currency_opts
 
 
@@ -542,7 +542,7 @@ def instrument_types_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
 def instrument_types_delete(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    _m = lambda it: {"id": it.id, "name": it.name, "currency_name": it.default_currency.iso_code if it.default_currency else ""}
+    _m = lambda it: {"id": it.id, "name": it.name, "currency_name": it.default_currency.name if it.default_currency else ""}
     return _bulk_delete(sel_rows, data, svc.delete_instrument_type, svc.get_instrument_types, _m)
 
 

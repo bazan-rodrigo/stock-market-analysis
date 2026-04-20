@@ -19,7 +19,7 @@ _COLUMNS = [
     {"name": "País",      "id": "country_name"},
     {"name": "Mercado",   "id": "market_name"},
     {"name": "Tipo",      "id": "instrument_type_name"},
-    {"name": "Moneda",    "id": "currency_iso"},
+    {"name": "Moneda",    "id": "currency_name"},
     {"name": "Sector",    "id": "sector_name"},
     {"name": "Benchmark", "id": "benchmark_ticker"},
     {"name": "Fuente",    "id": "source_name"},

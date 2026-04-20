@@ -20,7 +20,7 @@ TEMPLATE_COLUMNS = [
     "pais_iso",
     "mercado",
     "tipo_instrumento",
-    "moneda_iso",
+    "moneda",
     "sector",
     "industria",
     "benchmark_ticker",
@@ -47,7 +47,7 @@ def generate_template() -> bytes:
             a.country.iso_code           if a.country         else "",
             a.market.name                if a.market          else "",
             a.instrument_type.name       if a.instrument_type else "",
-            a.currency.iso_code          if a.currency        else "",
+            a.currency.name              if a.currency        else "",
             a.sector.name                if a.sector          else "",
             a.industry.name              if a.industry        else "",
             ticker_by_id.get(a.benchmark_id, "") if a.benchmark_id else "",
@@ -122,7 +122,7 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             # Resolver FKs — Excel tiene prioridad, meta de la fuente como fallback
             country_val  = _first_nonempty(row.get("pais_iso"),         getattr(meta, "country",       None))
             market_val   = _first_nonempty(row.get("mercado"),           getattr(meta, "exchange_name", None), getattr(meta, "exchange", None))
-            currency_val = _first_nonempty(row.get("moneda_iso"),        getattr(meta, "currency_iso",  None))
+            currency_val = _first_nonempty(row.get("moneda"),             getattr(meta, "currency_iso",  None))
             itype_val    = _first_nonempty(row.get("tipo_instrumento"),  getattr(meta, "quote_type",    None))
             sector_val   = _first_nonempty(row.get("sector"),            getattr(meta, "sector",        None))
             industry_val = _first_nonempty(row.get("industria"),         getattr(meta, "industry",      None))
@@ -259,11 +259,11 @@ def _resolve_market(name, country_id=None):
     return obj.id
 
 
-def _resolve_currency(iso):
-    if not _valid(iso):
+def _resolve_currency(name):
+    if not _valid(name):
         return None
-    from app.services.reference_service import get_or_create_currency
-    obj, _ = get_or_create_currency(iso)
+    from app.services.reference_service import get_or_create_currency_by_name
+    obj, _ = get_or_create_currency_by_name(name)
     return obj.id
 
 

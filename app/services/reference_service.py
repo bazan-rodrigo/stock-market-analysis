@@ -411,6 +411,19 @@ def get_or_create_currency(iso_code: str) -> tuple:
     return obj, True
 
 
+def get_or_create_currency_by_name(name: str) -> tuple:
+    s = get_session()
+    value = name.strip()
+    existing = s.query(Currency).filter(Currency.name.ilike(value)).first()
+    if existing:
+        return existing, False
+    obj = Currency(name=value, iso_code=None)
+    s.add(obj)
+    s.commit()
+    s.refresh(obj)
+    return obj, True
+
+
 def get_or_create_market(name: str, country_id: int = None) -> tuple:
     s = get_session()
     value = name.strip()
