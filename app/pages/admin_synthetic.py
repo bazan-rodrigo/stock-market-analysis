@@ -217,7 +217,7 @@ def layout(**kwargs):
         html.Div([
             dbc.Button("Editar",    id="syn-btn-edit-sel",
                        color="secondary", size="sm", disabled=True, className="me-1"),
-            dbc.Button("Δ Calcular", id="syn-btn-calc-sel",
+            dbc.Button("Calcular Delta", id="syn-btn-calc-sel",
                        color="outline-info", size="sm", disabled=True, className="me-1"),
             dbc.Tooltip(
                 "Calcula solo los precios nuevos (incremental). "
@@ -227,7 +227,7 @@ def layout(**kwargs):
                        "backgroundColor": "#1f2937", "color": "#dee2e6",
                        "border": "1px solid #374151"},
             ),
-            dbc.Button("↺ Completo", id="syn-btn-full-sel",
+            dbc.Button("Calcular Completo", id="syn-btn-full-sel",
                        color="outline-warning", size="sm", disabled=True, className="me-1"),
             dbc.Tooltip(
                 "Borra y recalcula TODOS los precios desde el inicio. "
@@ -243,7 +243,15 @@ def layout(**kwargs):
                        color="outline-secondary", size="sm", className="me-1"),
             dbc.Button("Desel. todos", id="syn-btn-deselect-all",
                        color="outline-secondary", size="sm"),
-        ], className="mb-3 d-flex align-items-center"),
+        ], className="mb-2 d-flex align-items-center"),
+
+        # Indicador de procesamiento
+        dcc.Loading(
+            html.Div(id="syn-calc-status",
+                     style={"fontSize": "0.82rem", "color": "#94a3b8",
+                            "minHeight": "24px", "padding": "2px 0"}),
+            type="circle", color="#dee2e6",
+        ),
 
         dbc.Alert(id="syn-alert", is_open=False, dismissable=True, className="mb-3"),
         html.Div(id="syn-import-results", className="mb-3"),

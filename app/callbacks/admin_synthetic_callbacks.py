@@ -486,53 +486,53 @@ def delete_selected(_, selected_ids):
 # ── Calcular delta (seleccionados) ────────────────────────────────────────────
 
 @callback(
-    Output("syn-alert", "children", allow_duplicate=True),
-    Output("syn-alert", "is_open",  allow_duplicate=True),
-    Output("syn-alert", "color",    allow_duplicate=True),
+    Output("syn-alert",       "children",  allow_duplicate=True),
+    Output("syn-alert",       "is_open",   allow_duplicate=True),
+    Output("syn-alert",       "color",     allow_duplicate=True),
+    Output("syn-calc-status", "children",  allow_duplicate=True),
     Input("syn-btn-calc-sel", "n_clicks"),
     State("syn-selected-ids", "data"),
     prevent_initial_call=True,
 )
 def calc_delta_selected(_, selected_ids):
     if not selected_ids:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
+    formulas = [x for x in svc.get_all_formulas() if x.id in selected_ids]
     total, errors = 0, []
-    for fid in selected_ids:
+    for f in formulas:
         try:
-            f = next((x for x in svc.get_all_formulas() if x.id == fid), None)
-            if f:
-                total += svc.compute_synthetic_prices(f.asset_id, full=False)
+            total += svc.compute_synthetic_prices(f.asset_id, full=False)
         except Exception as exc:
-            errors.append(str(exc))
+            errors.append(f"{f.asset.ticker if f.asset else f.id}: {exc}")
     if errors:
-        return "; ".join(errors), True, "danger"
-    return f"Delta calculado: {total} precio(s) insertado(s).", True, "success"
+        return "; ".join(errors), True, "danger", ""
+    return f"Delta calculado: {total} precio(s) insertado(s).", True, "success", ""
 
 
 # ── Calcular completo (seleccionados) ─────────────────────────────────────────
 
 @callback(
-    Output("syn-alert", "children", allow_duplicate=True),
-    Output("syn-alert", "is_open",  allow_duplicate=True),
-    Output("syn-alert", "color",    allow_duplicate=True),
+    Output("syn-alert",       "children",  allow_duplicate=True),
+    Output("syn-alert",       "is_open",   allow_duplicate=True),
+    Output("syn-alert",       "color",     allow_duplicate=True),
+    Output("syn-calc-status", "children",  allow_duplicate=True),
     Input("syn-btn-full-sel", "n_clicks"),
     State("syn-selected-ids", "data"),
     prevent_initial_call=True,
 )
 def calc_full_selected(_, selected_ids):
     if not selected_ids:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
+    formulas = [x for x in svc.get_all_formulas() if x.id in selected_ids]
     total, errors = 0, []
-    for fid in selected_ids:
+    for f in formulas:
         try:
-            f = next((x for x in svc.get_all_formulas() if x.id == fid), None)
-            if f:
-                total += svc.compute_synthetic_prices(f.asset_id, full=True)
+            total += svc.compute_synthetic_prices(f.asset_id, full=True)
         except Exception as exc:
-            errors.append(str(exc))
+            errors.append(f"{f.asset.ticker if f.asset else f.id}: {exc}")
     if errors:
-        return "; ".join(errors), True, "danger"
-    return f"Recálculo completo: {total} precio(s) insertado(s).", True, "success"
+        return "; ".join(errors), True, "danger", ""
+    return f"Recálculo completo: {total} precio(s) insertado(s).", True, "success", ""
 
 
 # ── Exportar fórmulas ─────────────────────────────────────────────────────────
