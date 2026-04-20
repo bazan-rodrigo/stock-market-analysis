@@ -5,8 +5,9 @@ from dash import dcc, html
 from app.components.abm import make_abm_layout
 
 _COLUMNS = [
-    {"name": "Nombre", "id": "name"},
-    {"name": "País", "id": "country_name"},
+    {"name": "Nombre",     "id": "name"},
+    {"name": "País",       "id": "country_name"},
+    {"name": "Benchmark",  "id": "benchmark_ticker"},
 ]
 
 _FORM = [

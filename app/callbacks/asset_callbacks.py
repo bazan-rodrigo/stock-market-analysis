@@ -42,6 +42,7 @@ def _asset_to_row(a, aliases: dict) -> dict:
         "currency_iso": a.currency.iso_code if a.currency else "",
         "sector_name": _with_alias(
             a.sector.name if a.sector else "", "sector", a.sector_id, aliases),
+        "benchmark_ticker": a.benchmark.ticker if a.benchmark else "",
         "source_name": a.price_source.name,
     }
 

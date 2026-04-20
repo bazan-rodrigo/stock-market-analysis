@@ -309,7 +309,12 @@ def load_markets(_):
     markets   = svc.get_markets()
     countries = svc.get_countries()
     assets    = get_session().query(Asset).order_by(Asset.ticker).all()
-    data = [{"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""} for m in markets]
+    data = [{
+        "id":               m.id,
+        "name":             m.name,
+        "country_name":     m.country.name if m.country else "",
+        "benchmark_ticker": m.benchmark.ticker if m.benchmark else "",
+    } for m in markets]
     country_opts   = [{"label": "— Sin país —", "value": ""}] + [{"label": c.name, "value": c.id} for c in countries]
     benchmark_opts = [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
     return data, country_opts, benchmark_opts
