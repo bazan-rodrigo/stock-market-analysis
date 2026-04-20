@@ -28,7 +28,12 @@ def layout(**kwargs):
                     id="rrg-tail",
                     min=1, max=30, value=12, step=1,
                     marks={1: "1", 5: "5", 10: "10", 20: "20", 30: "30"},
-                    tooltip={"placement": "bottom", "always_visible": True},
+                    tooltip={
+                        "placement": "bottom",
+                        "always_visible": True,
+                        "style": {"color": "#dee2e6", "background": "#374151",
+                                  "borderRadius": "4px", "padding": "2px 8px"},
+                    },
                     updatemode="drag",
                 ),
             ], md=3),

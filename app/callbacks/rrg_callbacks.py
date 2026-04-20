@@ -65,6 +65,8 @@ def manage_assets(add_clicks, clear_clicks, remove_clicks, new_id, current):
         return current + [new_id], None
 
     if isinstance(trigger, dict) and trigger.get("type") == "rrg-remove":
+        if not any(n for n in remove_clicks if n):
+            return no_update, no_update
         return [a for a in (current or []) if a != trigger["index"]], no_update
 
     return no_update, no_update

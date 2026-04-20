@@ -16,5 +16,6 @@ class Market(Base):
         Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
     )
 
-    country = relationship("Country", back_populates="markets")
-    assets  = relationship("Asset", back_populates="market", foreign_keys="[Asset.market_id]")
+    country   = relationship("Country", back_populates="markets")
+    assets    = relationship("Asset", back_populates="market", foreign_keys="[Asset.market_id]")
+    benchmark = relationship("Asset", foreign_keys=[benchmark_id])

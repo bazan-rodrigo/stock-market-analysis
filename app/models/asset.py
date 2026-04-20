@@ -42,6 +42,7 @@ class Asset(Base):
     sector = relationship("Sector", back_populates="assets")
     industry = relationship("Industry", back_populates="assets")
     price_source = relationship("PriceSource", back_populates="assets")
+    benchmark    = relationship("Asset", foreign_keys=[benchmark_id], remote_side="Asset.id")
 
     prices = relationship(
         "Price", back_populates="asset", cascade="all, delete-orphan"
