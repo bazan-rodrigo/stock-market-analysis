@@ -24,7 +24,7 @@ def _with_alias(canonical: str, entity_type: str, entity_id, aliases: dict) -> s
         return canonical
     native = aliases.get((entity_type, entity_id))
     if native and native.lower() != canonical.lower():
-        return f"{native} ({canonical})"
+        return f"{native} (Canónico: {canonical})"
     return canonical
 
 
