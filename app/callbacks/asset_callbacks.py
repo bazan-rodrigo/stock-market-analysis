@@ -7,16 +7,41 @@ import app.services.price_service as price_svc
 import app.services.reference_service as ref_svc
 
 
-def _asset_to_row(a) -> dict:
+def _load_aliases() -> dict:
+    """Retorna {(entity_type, entity_id): primer_alias} para mostrar nombre nativo."""
+    from app.database import get_session
+    from app.models import CatalogAlias
+    aliases = {}
+    for ca in get_session().query(CatalogAlias).all():
+        key = (ca.entity_type, ca.entity_id)
+        if key not in aliases:
+            aliases[key] = ca.source_value
+    return aliases
+
+
+def _with_alias(canonical: str, entity_type: str, entity_id, aliases: dict) -> str:
+    if not canonical or entity_id is None:
+        return canonical
+    native = aliases.get((entity_type, entity_id))
+    if native and native.lower() != canonical.lower():
+        return f"{native} ({canonical})"
+    return canonical
+
+
+def _asset_to_row(a, aliases: dict) -> dict:
     return {
         "id": a.id,
         "ticker": a.ticker,
         "name": a.name,
-        "country_name": a.country.name if a.country else "",
-        "market_name": a.market.name if a.market else "",
-        "instrument_type_name": a.instrument_type.name if a.instrument_type else "",
+        "country_name": _with_alias(
+            a.country.name if a.country else "", "country", a.country_id, aliases),
+        "market_name": _with_alias(
+            a.market.name if a.market else "", "market", a.market_id, aliases),
+        "instrument_type_name": _with_alias(
+            a.instrument_type.name if a.instrument_type else "", "instrument_type", a.instrument_type_id, aliases),
         "currency_iso": a.currency.iso_code if a.currency else "",
-        "sector_name": a.sector.name if a.sector else "",
+        "sector_name": _with_alias(
+            a.sector.name if a.sector else "", "sector", a.sector_id, aliases),
         "source_name": a.price_source.name,
     }
 
@@ -60,7 +85,8 @@ def _match_option(opts: list, name: str | None):
     Input("assets-table", "id"),
 )
 def load_assets(_):
-    return [_asset_to_row(a) for a in asset_svc.get_assets()]
+    aliases = _load_aliases()
+    return [_asset_to_row(a, aliases) for a in asset_svc.get_assets()]
 
 
 @callback(
@@ -320,8 +346,9 @@ def assets_save(
             ).start()
             msg = f"{ticker.upper()} creado. Descarga de precios iniciada en background."
 
+        aliases = _load_aliases()
         return (
-            [_asset_to_row(a) for a in asset_svc.get_assets()],
+            [_asset_to_row(a, aliases) for a in asset_svc.get_assets()],
             msg, True, "success",
             False,   # cerrar modal
             "", False,
@@ -378,7 +405,8 @@ def assets_delete(_, sel_rows, data):
             deleted += 1
         except Exception as exc:
             errors.append(f"{data[i].get('ticker','?')}: {exc}")
-    rows = [_asset_to_row(a) for a in asset_svc.get_assets()]
+    aliases = _load_aliases()
+    rows = [_asset_to_row(a, aliases) for a in asset_svc.get_assets()]
     if errors:
         msg = f"Eliminados {deleted}. Errores: " + "; ".join(errors)
         color = "warning" if deleted > 0 else "danger"
@@ -451,7 +479,8 @@ def assets_bulk_action(n_apply, n_clear, field, value, sel_rows, data):
         updated = asset_svc.bulk_update_assets(ids, field, new_value)
         action = "limpiado" if ctx.triggered_id == "assets-bulk-clear" else "actualizado"
         msg = f"Campo {action} en {updated} activo{'s' if updated != 1 else ''}."
-        return [_asset_to_row(a) for a in asset_svc.get_assets()], msg, True, "success", []
+        aliases = _load_aliases()
+        return [_asset_to_row(a, aliases) for a in asset_svc.get_assets()], msg, True, "success", []
     except Exception as exc:
         return _nu, str(exc), True, "danger", _nu
 
