@@ -10,21 +10,28 @@ def layout(**kwargs):
     if not current_user.is_authenticated:
         return html.Div()
 
-    today     = date.today()
-    one_year  = today - timedelta(days=365)
+    today    = date.today()
+    one_year = today - timedelta(days=365)
+
+    _radio_opts = [
+        {"label": "Por activo",    "value": "activo"},
+        {"label": "Por benchmark", "value": "benchmark"},
+        {"label": "Por sintético", "value": "sintetico"},
+        {"label": "Por grupos",    "value": "grupos"},
+    ]
 
     return html.Div([
         dcc.Store(id="evol-series",      data=[]),
         dcc.Store(id="evol-pending-add", data=None),
 
-        # ── Modal: agregar activos relacionados ───────────────────────────
+        # ── Modal: activos relacionados ───────────────────────────────────
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle(id="evol-rel-modal-title")),
             dbc.ModalBody(id="evol-rel-modal-body"),
             dbc.ModalFooter([
                 dbc.Button("Sí, agregar relacionados", id="evol-rel-btn-yes",
                            color="primary", size="sm"),
-                dbc.Button("Solo el activo",           id="evol-rel-btn-no",
+                dbc.Button("Solo el activo", id="evol-rel-btn-no",
                            color="secondary", size="sm", className="ms-2"),
             ]),
         ], id="evol-rel-modal", is_open=False),
@@ -34,36 +41,33 @@ def layout(**kwargs):
 
         # ── Panel de controles ────────────────────────────────────────────
         dbc.Card(dbc.CardBody([
-            # Fila 1: selector individual + fechas + eventos
+
+            # Fila 1: modo + fechas + eventos + limpiar
             dbc.Row([
                 dbc.Col([
-                    html.Small("Activo", className="text-muted d-block mb-1"),
-                    dbc.InputGroup([
-                        dcc.Dropdown(
-                            id="evol-add-select",
-                            placeholder="Buscar activo...",
-                            style={"fontSize": "0.85rem", "flex": "1 1 auto"},
-                        ),
-                        dbc.Button("Agregar", id="evol-btn-add",
-                                   color="primary", size="sm"),
-                    ]),
+                    html.Small("Modo de selección", className="text-muted d-block mb-1"),
+                    dbc.RadioItems(
+                        id="evol-mode",
+                        options=_radio_opts,
+                        value="activo",
+                        inline=True,
+                        inputStyle={"marginRight": "4px"},
+                        labelStyle={"marginRight": "14px", "fontSize": "0.83rem",
+                                    "cursor": "pointer"},
+                    ),
                 ], md=4),
                 dbc.Col([
                     html.Small("Fecha desde", className="text-muted d-block mb-1"),
                     dcc.DatePickerSingle(
-                        id="evol-date-from",
-                        date=one_year.isoformat(),
-                        display_format="YYYY-MM-DD",
-                        style={"fontSize": "0.85rem"},
+                        id="evol-date-from", date=one_year.isoformat(),
+                        display_format="YYYY-MM-DD", style={"fontSize": "0.85rem"},
                     ),
                 ], md=2),
                 dbc.Col([
                     html.Small("Fecha hasta", className="text-muted d-block mb-1"),
                     dcc.DatePickerSingle(
-                        id="evol-date-to",
-                        date=today.isoformat(),
-                        display_format="YYYY-MM-DD",
-                        style={"fontSize": "0.85rem"},
+                        id="evol-date-to", date=today.isoformat(),
+                        display_format="YYYY-MM-DD", style={"fontSize": "0.85rem"},
                     ),
                 ], md=2),
                 dbc.Col([
@@ -78,39 +82,80 @@ def layout(**kwargs):
                 ], md=2, className="d-flex flex-column justify-content-start"),
             ], className="mb-3 g-2 align-items-end"),
 
-            # Fila 2: filtros de grupo
-            dbc.Row([
-                dbc.Col(html.Small("Agregar por grupo:", className="text-muted"),
-                        width=12, className="mb-1"),
-                dbc.Col([
-                    dcc.Dropdown(id="evol-f-country",  placeholder="País",
-                                 multi=True, style={"fontSize": "0.78rem"}),
-                ], md=2),
-                dbc.Col([
-                    dcc.Dropdown(id="evol-f-currency", placeholder="Moneda",
-                                 multi=True, style={"fontSize": "0.78rem"}),
-                ], md=2),
-                dbc.Col([
-                    dcc.Dropdown(id="evol-f-itype",    placeholder="Tipo",
-                                 multi=True, style={"fontSize": "0.78rem"}),
-                ], md=2),
-                dbc.Col([
-                    dcc.Dropdown(id="evol-f-sector",   placeholder="Sector",
-                                 multi=True, style={"fontSize": "0.78rem"}),
-                ], md=2),
-                dbc.Col([
-                    dcc.Dropdown(id="evol-f-industry", placeholder="Industria",
-                                 multi=True, style={"fontSize": "0.78rem"}),
-                ], md=2),
-                dbc.Col([
-                    dcc.Dropdown(id="evol-f-market",   placeholder="Mercado",
-                                 multi=True, style={"fontSize": "0.78rem"}),
-                ], md=1),
-                dbc.Col([
-                    dbc.Button("Agregar grupo", id="evol-btn-add-group",
-                               color="secondary", size="sm"),
-                ], md=1, className="d-flex align-items-end"),
-            ], className="g-2"),
+            # Fila 2: panel dinámico según modo
+            # — Por activo —
+            html.Div([
+                dbc.InputGroup([
+                    dcc.Dropdown(
+                        id="evol-add-select",
+                        placeholder="Buscar activo...",
+                        style={"fontSize": "0.85rem", "flex": "1 1 auto"},
+                    ),
+                    dbc.Button("Agregar", id="evol-btn-add",
+                               color="primary", size="sm"),
+                ]),
+            ], id="evol-panel-activo"),
+
+            # — Por benchmark —
+            html.Div([
+                dbc.InputGroup([
+                    dcc.Dropdown(
+                        id="evol-bm-select",
+                        placeholder="Seleccionar benchmark...",
+                        style={"fontSize": "0.85rem", "flex": "1 1 auto"},
+                    ),
+                    dbc.Button("Agregar", id="evol-btn-add-bm",
+                               color="primary", size="sm"),
+                ]),
+            ], id="evol-panel-benchmark", style={"display": "none"}),
+
+            # — Por sintético —
+            html.Div([
+                dbc.InputGroup([
+                    dcc.Dropdown(
+                        id="evol-syn-select",
+                        placeholder="Seleccionar sintético...",
+                        style={"fontSize": "0.85rem", "flex": "1 1 auto"},
+                    ),
+                    dbc.Button("Agregar", id="evol-btn-add-syn",
+                               color="primary", size="sm"),
+                ]),
+            ], id="evol-panel-sintetico", style={"display": "none"}),
+
+            # — Por grupos —
+            html.Div([
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Dropdown(id="evol-f-country",  placeholder="País",
+                                     multi=True, style={"fontSize": "0.78rem"}),
+                    ], md=2),
+                    dbc.Col([
+                        dcc.Dropdown(id="evol-f-currency", placeholder="Moneda",
+                                     multi=True, style={"fontSize": "0.78rem"}),
+                    ], md=2),
+                    dbc.Col([
+                        dcc.Dropdown(id="evol-f-itype",    placeholder="Tipo",
+                                     multi=True, style={"fontSize": "0.78rem"}),
+                    ], md=2),
+                    dbc.Col([
+                        dcc.Dropdown(id="evol-f-sector",   placeholder="Sector",
+                                     multi=True, style={"fontSize": "0.78rem"}),
+                    ], md=2),
+                    dbc.Col([
+                        dcc.Dropdown(id="evol-f-industry", placeholder="Industria",
+                                     multi=True, style={"fontSize": "0.78rem"}),
+                    ], md=2),
+                    dbc.Col([
+                        dcc.Dropdown(id="evol-f-market",   placeholder="Mercado",
+                                     multi=True, style={"fontSize": "0.78rem"}),
+                    ], md=1),
+                    dbc.Col([
+                        dbc.Button("Agregar", id="evol-btn-add-group",
+                                   color="primary", size="sm"),
+                    ], md=1, className="d-flex align-items-end"),
+                ], className="g-2"),
+            ], id="evol-panel-grupos", style={"display": "none"}),
+
         ]), className="mb-3"),
 
         # ── Gráfico + lista de series ─────────────────────────────────────

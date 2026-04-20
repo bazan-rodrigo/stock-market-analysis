@@ -9,17 +9,19 @@ import app.services.reference_service as ref_svc
 from app.services.asset_service import get_assets
 
 
-# ── Poblar dropdowns de activos y filtros de grupo ────────────────────────────
+# ── Poblar dropdowns ──────────────────────────────────────────────────────────
 
 @callback(
-    Output("evol-add-select",  "options"),
-    Output("evol-f-country",   "options"),
-    Output("evol-f-currency",  "options"),
-    Output("evol-f-itype",     "options"),
-    Output("evol-f-sector",    "options"),
-    Output("evol-f-industry",  "options"),
-    Output("evol-f-market",    "options"),
-    Input("evol-add-select",   "id"),
+    Output("evol-add-select", "options"),
+    Output("evol-bm-select",  "options"),
+    Output("evol-syn-select", "options"),
+    Output("evol-f-country",  "options"),
+    Output("evol-f-currency", "options"),
+    Output("evol-f-itype",    "options"),
+    Output("evol-f-sector",   "options"),
+    Output("evol-f-industry", "options"),
+    Output("evol-f-market",   "options"),
+    Input("evol-add-select",  "id"),
 )
 def load_options(_):
     assets     = get_assets()
@@ -30,15 +32,36 @@ def load_options(_):
     industries = ref_svc.get_industries()
     markets    = ref_svc.get_markets()
 
-    asset_opts   = [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
-    country_opts = [{"label": c.name, "value": c.id} for c in countries]
-    cur_opts     = [{"label": c.name, "value": c.id} for c in currencies]
-    itype_opts   = [{"label": it.name, "value": it.id} for it in itypes]
-    sector_opts  = [{"label": s.name, "value": s.id} for s in sectors]
-    ind_opts     = [{"label": i.name, "value": i.id} for i in industries]
-    market_opts  = [{"label": m.name, "value": m.id} for m in markets]
+    return (
+        [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets],
+        svc.get_benchmark_assets_options(),
+        svc.get_synthetic_assets_options(),
+        [{"label": c.name, "value": c.id} for c in countries],
+        [{"label": c.name, "value": c.id} for c in currencies],
+        [{"label": it.name, "value": it.id} for it in itypes],
+        [{"label": s.name, "value": s.id} for s in sectors],
+        [{"label": i.name, "value": i.id} for i in industries],
+        [{"label": m.name, "value": m.id} for m in markets],
+    )
 
-    return asset_opts, country_opts, cur_opts, itype_opts, sector_opts, ind_opts, market_opts
+
+# ── Mostrar panel según modo ──────────────────────────────────────────────────
+
+@callback(
+    Output("evol-panel-activo",    "style"),
+    Output("evol-panel-benchmark", "style"),
+    Output("evol-panel-sintetico", "style"),
+    Output("evol-panel-grupos",    "style"),
+    Input("evol-mode", "value"),
+)
+def switch_panel(mode):
+    show, hide = {}, {"display": "none"}
+    return (
+        show if mode == "activo"    else hide,
+        show if mode == "benchmark" else hide,
+        show if mode == "sintetico" else hide,
+        show if mode == "grupos"    else hide,
+    )
 
 
 # ── Agregar activo individual ─────────────────────────────────────────────────
@@ -51,15 +74,40 @@ def load_options(_):
     Output("evol-series",          "data",     allow_duplicate=True),
     Output("evol-alert",           "children", allow_duplicate=True),
     Output("evol-alert",           "is_open",  allow_duplicate=True),
-    Input("evol-btn-add",  "n_clicks"),
+    Input("evol-btn-add",   "n_clicks"),
     State("evol-add-select", "value"),
-    State("evol-series",      "data"),
+    State("evol-series",     "data"),
     prevent_initial_call=True,
 )
 def add_individual(n_clicks, asset_id, series):
     if not n_clicks or asset_id is None:
         return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    return _add_single_asset(asset_id, series)
 
+
+# ── Agregar sintético ─────────────────────────────────────────────────────────
+
+@callback(
+    Output("evol-pending-add",     "data",     allow_duplicate=True),
+    Output("evol-rel-modal",       "is_open",  allow_duplicate=True),
+    Output("evol-rel-modal-title", "children", allow_duplicate=True),
+    Output("evol-rel-modal-body",  "children", allow_duplicate=True),
+    Output("evol-series",          "data",     allow_duplicate=True),
+    Output("evol-alert",           "children", allow_duplicate=True),
+    Output("evol-alert",           "is_open",  allow_duplicate=True),
+    Input("evol-btn-add-syn", "n_clicks"),
+    State("evol-syn-select",  "value"),
+    State("evol-series",      "data"),
+    prevent_initial_call=True,
+)
+def add_synthetic(n_clicks, asset_id, series):
+    if not n_clicks or asset_id is None:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    return _add_single_asset(asset_id, series)
+
+
+def _add_single_asset(asset_id, series):
+    """Lógica compartida entre 'por activo' y 'por sintético'."""
     existing_ids = {s["asset_id"] for s in series}
     if asset_id in existing_ids:
         return no_update, no_update, no_update, no_update, no_update, \
@@ -70,11 +118,11 @@ def add_individual(n_clicks, asset_id, series):
 
     if related["is_synthetic"] or related["is_benchmark"]:
         if related["is_synthetic"]:
-            rel_ids   = related["component_ids"]
-            rel_type  = "componentes de la fórmula sintética"
+            rel_ids  = related["component_ids"]
+            rel_type = "componentes de la fórmula sintética"
         else:
-            rel_ids   = related["referenced_ids"]
-            rel_type  = "activos que usan este benchmark"
+            rel_ids  = related["referenced_ids"]
+            rel_type = "activos que usan este benchmark"
 
         rel_labels = []
         for rid in rel_ids[:10]:
@@ -89,7 +137,6 @@ def add_individual(n_clicks, asset_id, series):
         ])
         return asset_id, True, f"Agregar: {ticker}", body, no_update, no_update, False
 
-    # Sin relacionados → agregar directamente
     color_idx = len(series)
     new_series = series + [{
         "asset_id": asset_id, "ticker": ticker, "name": name,
@@ -97,6 +144,43 @@ def add_individual(n_clicks, asset_id, series):
         "color": svc.assign_color(color_idx),
     }]
     return None, False, no_update, no_update, new_series, no_update, False
+
+
+# ── Agregar por benchmark ─────────────────────────────────────────────────────
+
+@callback(
+    Output("evol-series", "data",     allow_duplicate=True),
+    Output("evol-alert",  "children", allow_duplicate=True),
+    Output("evol-alert",  "is_open",  allow_duplicate=True),
+    Input("evol-btn-add-bm", "n_clicks"),
+    State("evol-bm-select",  "value"),
+    State("evol-series",     "data"),
+    prevent_initial_call=True,
+)
+def add_by_benchmark(n_clicks, benchmark_id, series):
+    if not n_clicks or not benchmark_id:
+        return no_update, no_update, no_update
+
+    assets = svc.get_assets_for_benchmark(benchmark_id)
+    if not assets:
+        return no_update, "No hay activos asociados a ese benchmark.", True
+
+    existing   = {s["asset_id"] for s in series}
+    color_base = len(series)
+    added = []
+    for a in assets:
+        if a["asset_id"] in existing:
+            continue
+        added.append({
+            "asset_id": a["asset_id"], "ticker": a["ticker"], "name": a["name"],
+            "group": "group", "visible": True,
+            "color": svc.assign_color(color_base + len(added)),
+        })
+
+    if not added:
+        return no_update, "Todos los activos de ese benchmark ya están en la lista.", True
+
+    return series + added, f"{len(added)} activo(s) agregado(s).", True
 
 
 # ── Decisión del modal de relacionados ────────────────────────────────────────
@@ -115,9 +199,9 @@ def resolve_modal(yes, no_btn, asset_id, series):
     if not asset_id:
         return no_update, False, None
 
-    trigger     = ctx.triggered_id
-    existing    = {s["asset_id"] for s in series}
-    color_base  = len(series)
+    trigger    = ctx.triggered_id
+    existing   = {s["asset_id"] for s in series}
+    color_base = len(series)
 
     ticker, name = svc.get_asset_label(asset_id)
     new_entries = [{
@@ -145,7 +229,7 @@ def resolve_modal(yes, no_btn, asset_id, series):
 # ── Agregar por grupo ─────────────────────────────────────────────────────────
 
 @callback(
-    Output("evol-series", "data",    allow_duplicate=True),
+    Output("evol-series", "data",     allow_duplicate=True),
     Output("evol-alert",  "children", allow_duplicate=True),
     Output("evol-alert",  "is_open",  allow_duplicate=True),
     Input("evol-btn-add-group", "n_clicks"),
@@ -162,8 +246,7 @@ def add_group(n_clicks, countries, currencies, itypes, sectors, industries, mark
     if not n_clicks:
         return no_update, no_update, no_update
 
-    filters = [countries, currencies, itypes, sectors, industries, markets]
-    if not any(filters):
+    if not any([countries, currencies, itypes, sectors, industries, markets]):
         return no_update, "Seleccioná al menos un filtro.", True
 
     assets = svc.get_assets_by_filters(
@@ -177,19 +260,16 @@ def add_group(n_clicks, countries, currencies, itypes, sectors, industries, mark
     if not assets:
         return no_update, "No hay activos que coincidan con los filtros.", True
 
-    existing = {s["asset_id"] for s in series}
+    existing   = {s["asset_id"] for s in series}
     color_base = len(series)
     added = []
-    for i, a in enumerate(assets):
+    for a in assets:
         if a["asset_id"] in existing:
             continue
         added.append({
-            "asset_id": a["asset_id"],
-            "ticker":   a["ticker"],
-            "name":     a["name"],
-            "group":    "group",
-            "visible":  True,
-            "color":    svc.assign_color(color_base + len(added)),
+            "asset_id": a["asset_id"], "ticker": a["ticker"], "name": a["name"],
+            "group": "group", "visible": True,
+            "color": svc.assign_color(color_base + len(added)),
         })
 
     if not added:
@@ -249,11 +329,7 @@ def toggle_individual(n_clicks_list, series):
 
 # ── Renderizar lista de series (compacta, derecha) ────────────────────────────
 
-_GROUP_LABEL = {
-    "manual":  "",
-    "related": "rel",
-    "group":   "grp",
-}
+_GROUP_LABEL = {"manual": "", "related": "rel", "group": "grp"}
 
 
 @callback(
@@ -276,10 +352,8 @@ def render_series_list(series):
         rows.append(dbc.Row([
             dbc.Col(html.Div(style={
                 "width": "10px", "height": "10px",
-                "backgroundColor": color,
-                "borderRadius": "2px",
-                "marginTop": "2px",
-                "opacity": opacity,
+                "backgroundColor": color, "borderRadius": "2px",
+                "marginTop": "2px", "opacity": opacity,
             }), width="auto"),
             dbc.Col(html.Span(
                 s["ticker"] + (f" [{_GROUP_LABEL[group]}]" if _GROUP_LABEL.get(group) else ""),
@@ -310,13 +384,13 @@ def render_series_list(series):
 # ── Renderizar gráfico ────────────────────────────────────────────────────────
 
 @callback(
-    Output("evol-graph",        "figure"),
-    Output("evol-alert",        "children", allow_duplicate=True),
-    Output("evol-alert",        "is_open",  allow_duplicate=True),
-    Input("evol-series",        "data"),
-    Input("evol-date-from",     "date"),
-    Input("evol-date-to",       "date"),
-    Input("evol-show-events",   "value"),
+    Output("evol-graph",      "figure"),
+    Output("evol-alert",      "children", allow_duplicate=True),
+    Output("evol-alert",      "is_open",  allow_duplicate=True),
+    Input("evol-series",      "data"),
+    Input("evol-date-from",   "date"),
+    Input("evol-date-to",     "date"),
+    Input("evol-show-events", "value"),
     prevent_initial_call=True,
 )
 def render_chart(series, date_from, date_to, show_events):
@@ -370,11 +444,10 @@ def render_chart(series, date_from, date_to, show_events):
 
     # Eventos de Mercado — solo los que se solapan con el rango visible
     if show_events:
-        all_dates = [d for v in price_data.values() for d in v["dates"]]
+        all_dates   = [d for v in price_data.values() for d in v["dates"]]
         chart_start = min(all_dates) if all_dates else None
         chart_end   = max(all_dates) if all_dates else None
-        events = svc.get_events_for_assets(asset_ids)
-        for ev in events:
+        for ev in svc.get_events_for_assets(asset_ids):
             if chart_start and ev["end"] < chart_start:
                 continue
             if chart_end and ev["start"] > chart_end:
@@ -389,12 +462,9 @@ def render_chart(series, date_from, date_to, show_events):
                 annotation_font_color=ev["color"],
             )
 
-    # Título dinámico
-    tickers = [price_data[s["asset_id"]]["ticker"]
-               for s in visible if s["asset_id"] in price_data]
     base_str = str(bd) if bd else (
         min(v["base_date"] for v in price_data.values()) if price_data else "")
-    title = f"Evolución relativa (base 100 — {base_str})" if tickers else ""
+    title = f"Evolución relativa (base 100 — {base_str})" if price_data else ""
 
     fig.update_layout(
         title={"text": title, "font": {"size": 12}, "x": 0.5, "xanchor": "center"},

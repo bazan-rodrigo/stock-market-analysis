@@ -52,6 +52,41 @@ def get_related_assets(asset_id: int) -> dict:
     return result
 
 
+def get_benchmark_assets_options() -> list[dict]:
+    from app.database import get_session
+    from app.models import Asset, Market
+    s = get_session()
+    bm_ids = (
+        {r[0] for r in s.query(Asset.benchmark_id).filter(Asset.benchmark_id.isnot(None)).distinct()} |
+        {r[0] for r in s.query(Market.benchmark_id).filter(Market.benchmark_id.isnot(None)).distinct()}
+    )
+    assets = s.query(Asset).filter(Asset.id.in_(bm_ids)).order_by(Asset.ticker).all()
+    return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
+
+
+def get_synthetic_assets_options() -> list[dict]:
+    from app.database import get_session
+    from app.models import Asset, PriceSource
+    s = get_session()
+    src = s.query(PriceSource).filter(PriceSource.name == "Calculado").first()
+    if not src:
+        return []
+    assets = s.query(Asset).filter(Asset.price_source_id == src.id).order_by(Asset.ticker).all()
+    return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
+
+
+def get_assets_for_benchmark(benchmark_id: int) -> list[dict]:
+    from app.database import get_session
+    from app.models import Asset, Market
+    s = get_session()
+    direct     = s.query(Asset).filter(Asset.benchmark_id == benchmark_id).all()
+    market_ids = [m.id for m in s.query(Market).filter(Market.benchmark_id == benchmark_id).all()]
+    via_market = s.query(Asset).filter(Asset.market_id.in_(market_ids)).all() if market_ids else []
+    merged = {a.id: a for a in direct + via_market}
+    return [{"asset_id": a.id, "ticker": a.ticker, "name": a.name or a.ticker}
+            for a in sorted(merged.values(), key=lambda x: x.ticker)]
+
+
 def get_assets_by_filters(
     country_ids=None,
     currency_ids=None,
