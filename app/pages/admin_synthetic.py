@@ -1,6 +1,6 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import dcc, html
+from dash import dcc, html, dash_table
 
 _FORMULA_TYPES = [
     {"label": "Ratio (cociente ponderado)",     "value": "ratio"},
@@ -183,15 +183,30 @@ def layout(**kwargs):
     return html.Div([
         dcc.Store(id="syn-editing-id",  data=None),
         dcc.Store(id="syn-uid-store",   data={"uids": [], "counter": 0, "initial_values": {}}),
-        dcc.Store(id="syn-all-opts",    data=[]),   # opciones de activos cacheadas
+        dcc.Store(id="syn-all-opts",    data=[]),
+        dcc.Download(id="syn-download"),
 
         dbc.Row([
             dbc.Col(html.H4("Activos Sintéticos", className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nuevo", id="syn-btn-add", color="primary", size="sm"),
                     className="d-flex align-items-center"),
+            dbc.Col(dbc.Button("Exportar fórmulas", id="syn-btn-export",
+                               color="secondary", size="sm", outline=True),
+                    className="d-flex align-items-center"),
+            dbc.Col(
+                dcc.Upload(
+                    dbc.Button("Importar fórmulas", color="secondary", size="sm", outline=True),
+                    id="syn-upload",
+                    accept=".xlsx",
+                    multiple=False,
+                ),
+                className="d-flex align-items-center",
+            ),
         ], className="mb-3 align-items-center g-2"),
 
         dbc.Alert(id="syn-alert", is_open=False, dismissable=True, className="mb-3"),
+
+        html.Div(id="syn-import-results", className="mb-3"),
 
         html.Div(id="syn-table-container"),
 

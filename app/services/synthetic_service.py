@@ -306,3 +306,134 @@ def formula_preview_str(formula: SyntheticFormula) -> str:
         return f"{ticker} = {bv} × ({' + '.join(parts)}) / {total_w:.4g}   [base: {bd}]"
 
     return ticker
+
+
+# ── Exportación / Importación de fórmulas ────────────────────────────────────
+
+def export_formulas_excel() -> bytes:
+    """Exporta todas las fórmulas sintéticas como Excel (una fila por componente)."""
+    import openpyxl
+    from io import BytesIO
+
+    formulas = get_all_formulas()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Fórmulas"
+    ws.append([
+        "synthetic_ticker", "formula_type", "base_value", "base_date",
+        "component_ticker", "role", "weight",
+    ])
+    for f in formulas:
+        syn_ticker = f.asset.ticker if f.asset else ""
+        for c in f.components:
+            comp_ticker = c.asset.ticker if c.asset else ""
+            ws.append([
+                syn_ticker,
+                f.formula_type,
+                f.base_value if f.base_value is not None else "",
+                str(f.base_date) if f.base_date else "",
+                comp_ticker,
+                c.role,
+                c.weight,
+            ])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def import_formulas_excel(file_bytes: bytes) -> list[dict]:
+    """
+    Importa fórmulas desde Excel.
+    Garantías:
+    - El activo sintético debe existir con fuente Calculado.
+    - Todos los componentes deben existir como activos.
+    - Si la fórmula ya existe para el activo, se reemplaza.
+    Devuelve lista de resultados por synthetic_ticker.
+    """
+    import pandas as pd
+    from io import BytesIO
+    from datetime import date as _date
+
+    try:
+        df = pd.read_excel(BytesIO(file_bytes), dtype=str)
+    except Exception as exc:
+        raise ValueError(f"Error leyendo el archivo: {exc}") from exc
+
+    df.columns = [c.strip().lower() for c in df.columns]
+    required = {"synthetic_ticker", "formula_type", "component_ticker", "role", "weight"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Columnas faltantes: {missing}")
+
+    s = get_session()
+
+    # Agrupar por synthetic_ticker
+    grouped: dict[str, list] = {}
+    for _, row in df.iterrows():
+        syn = str(row.get("synthetic_ticker", "")).strip().upper()
+        if not syn:
+            continue
+        grouped.setdefault(syn, []).append(row)
+
+    results = []
+    for syn_ticker, rows in grouped.items():
+        status, detail = "error", ""
+        try:
+            # Verificar que el activo sintético existe con fuente Calculado
+            syn_asset = s.query(Asset).filter(Asset.ticker == syn_ticker).first()
+            if syn_asset is None:
+                raise ValueError(f"Activo '{syn_ticker}' no encontrado")
+            src = syn_asset.price_source
+            if src is None or src.name != "Calculado":
+                raise ValueError(
+                    f"Activo '{syn_ticker}' no tiene fuente 'Calculado' (tiene '{src.name if src else 'ninguna'}')"
+                )
+
+            # Tomar metadatos de la primera fila
+            first = rows[0]
+            ft = str(first.get("formula_type", "")).strip()
+            if ft not in ("ratio", "weighted_avg", "weighted_sum", "index"):
+                raise ValueError(f"Tipo de fórmula inválido: '{ft}'")
+
+            bv_raw = str(first.get("base_value", "")).strip()
+            base_value = float(bv_raw) if bv_raw and bv_raw.lower() not in ("nan", "") else None
+
+            bd_raw = str(first.get("base_date", "")).strip()
+            try:
+                base_date = _date.fromisoformat(bd_raw[:10]) if bd_raw and bd_raw.lower() not in ("nan", "") else None
+            except ValueError:
+                base_date = None
+
+            # Resolver componentes
+            components = []
+            for row in rows:
+                comp_ticker = str(row.get("component_ticker", "")).strip().upper()
+                role        = str(row.get("role", "component")).strip()
+                weight_raw  = str(row.get("weight", "1")).strip()
+                try:
+                    weight = float(weight_raw)
+                except ValueError:
+                    weight = 1.0
+
+                comp_asset = s.query(Asset).filter(Asset.ticker == comp_ticker).first()
+                if comp_asset is None:
+                    raise ValueError(f"Componente '{comp_ticker}' no encontrado")
+                components.append({"asset_id": comp_asset.id, "role": role, "weight": weight})
+
+            save_formula(
+                asset_id=syn_asset.id,
+                formula_type=ft,
+                components=components,
+                base_value=base_value,
+                base_date=base_date,
+            )
+            status = "imported"
+            detail = f"{len(components)} componente(s) importado(s)"
+        except Exception as exc:
+            status = "error"
+            detail = str(exc)
+            logger.warning("Import fórmula %s: %s", syn_ticker, exc)
+
+        results.append({"ticker": syn_ticker, "status": status, "detail": detail})
+
+    return results

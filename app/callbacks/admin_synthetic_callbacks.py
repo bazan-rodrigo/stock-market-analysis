@@ -1,3 +1,5 @@
+import base64
+
 from dash import ALL, Input, Output, State, callback, ctx, dcc, html, no_update
 import dash_bootstrap_components as dbc
 
@@ -429,6 +431,69 @@ def calc_delta(n_clicks):
         return f"Delta calculado: {count} precios insertados.", True, "success"
     except Exception as exc:
         return str(exc), True, "danger"
+
+
+# ── Exportar fórmulas ────────────────────────────────────────────────────────
+
+@callback(
+    Output("syn-download", "data"),
+    Input("syn-btn-export", "n_clicks"),
+    prevent_initial_call=True,
+)
+def export_formulas(n_clicks):
+    if not n_clicks:
+        return no_update
+    content = svc.export_formulas_excel()
+    return dcc.send_bytes(content, "formulas_sinteticas.xlsx")
+
+
+# ── Importar fórmulas ─────────────────────────────────────────────────────────
+
+@callback(
+    Output("syn-import-results", "children"),
+    Output("syn-alert",          "children",  allow_duplicate=True),
+    Output("syn-alert",          "is_open",   allow_duplicate=True),
+    Output("syn-alert",          "color",     allow_duplicate=True),
+    Input("syn-upload",          "contents"),
+    State("syn-upload",          "filename"),
+    prevent_initial_call=True,
+)
+def import_formulas(contents, filename):
+    if contents is None:
+        return no_update, no_update, no_update, no_update
+
+    try:
+        _header, encoded = contents.split(",", 1)
+        file_bytes = base64.b64decode(encoded)
+        results = svc.import_formulas_excel(file_bytes)
+    except Exception as exc:
+        return no_update, str(exc), True, "danger"
+
+    imported = [r for r in results if r["status"] == "imported"]
+    errors   = [r for r in results if r["status"] == "error"]
+
+    _STATUS_COLOR = {"imported": "#4ade80", "error": "#f87171"}
+    rows = [
+        html.Tr([
+            html.Td(r["ticker"], style=_td_s),
+            html.Td(r["status"].capitalize(),
+                    style={**_td_s, "color": _STATUS_COLOR.get(r["status"], "#9ca3af")}),
+            html.Td(r["detail"], style={**_td_s, "fontSize": "0.75rem", "color": "#9ca3af"}),
+        ])
+        for r in results
+    ]
+    table = html.Table([
+        html.Thead(html.Tr([
+            html.Th("Ticker",  style=_th),
+            html.Th("Estado",  style=_th),
+            html.Th("Detalle", style=_th),
+        ])),
+        html.Tbody(rows),
+    ], style={"width": "100%", "borderCollapse": "collapse"})
+
+    msg   = f"Importación: {len(imported)} exitosa(s), {len(errors)} error(es)."
+    color = "success" if not errors else ("warning" if imported else "danger")
+    return table, msg, True, color
 
 
 # ── Calcular completo ─────────────────────────────────────────────────────────
