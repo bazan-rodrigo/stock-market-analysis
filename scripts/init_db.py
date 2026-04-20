@@ -6,7 +6,8 @@ Uso:
 
 Qué hace:
   1. Aplica las migraciones de Alembic (crea todas las tablas).
-  2. Inserta la fuente de precios Yahoo Finance.
+  2. Inserta las fuentes de precio de sistema: "Yahoo Finance" y "Calculado"
+     (fuente interna para activos sintéticos). Idempotente.
   3. Crea el usuario admin inicial.
 
 Seguro para ejecutar múltiples veces: verifica existencia antes de insertar.
