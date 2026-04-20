@@ -173,12 +173,12 @@ def layout(**kwargs):
                     ),
                     type="circle", color="#dee2e6",
                 ),
-            ], md=9),
+            ]),
             dbc.Col([
                 html.Div(id="evol-series-list",
                          style={"maxHeight": "540px", "overflowY": "auto",
-                                "fontSize": "0.78rem"}),
-            ], md=3),
+                                "fontSize": "0.78rem", "whiteSpace": "nowrap"}),
+            ], width="auto"),
         ]),
     ], style={"padding": "0 8px"})
 
