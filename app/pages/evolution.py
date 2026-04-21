@@ -160,6 +160,11 @@ def layout(**kwargs):
             ], className="g-2 align-items-end"),
         ]), className="mb-3"),
 
+        # ── Lista de series (chips horizontales) ─────────────────────────
+        html.Div(id="evol-series-list",
+                 style={"marginBottom": "8px", "display": "flex", "flexWrap": "wrap",
+                        "gap": "4px", "fontSize": "0.78rem"}),
+
         # ── Gráfico ───────────────────────────────────────────────────────
         dcc.Loading(
             dcc.Graph(
@@ -173,11 +178,6 @@ def layout(**kwargs):
             ),
             type="circle", color="#dee2e6",
         ),
-
-        # ── Lista de series (chips horizontales) ─────────────────────────
-        html.Div(id="evol-series-list",
-                 style={"marginTop": "8px", "display": "flex", "flexWrap": "wrap",
-                        "gap": "4px", "fontSize": "0.78rem"}),
     ], style={"padding": "0 8px"})
 
 
