@@ -41,15 +41,14 @@ _GS_DIMS = [
     ("market_id",          "market_name"),
 ]
 
-_MA_PERIODS = [10, 20, 50, 100, 200]
+_MA_PERIODS = [5, 8, 10, 13, 15, 21, 25, 30, 34, 50, 55, 89, 100, 144, 200, 233]
 
 
 def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str = "sma") -> int | None:
     """
     Devuelve el período de SMA/EMA que el precio respeta más como soporte/resistencia.
-    Métrica: el precio permanece del mismo lado de la MA durante más tiempo relativo
-    a su propio período. score = (barras_válidas / cruces) / period.
-    Un MA respetada es cruzada pocas veces en relación a su longitud.
+    Métrica: tasa de rebote = velas_que_tocaron_y_aguantaron / velas_que_tocaron.
+    Sin sesgo de período: compara la fracción de veces que el precio rebotó al tocar la MA.
     """
     best_period = None
     best_score  = -1.0
@@ -61,15 +60,24 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
         ma = close.rolling(period).mean() if kind == "sma" \
              else close.ewm(span=period, adjust=False).mean()
 
-        above = (close >= ma).dropna()
-        if len(above) < 2:
+        total_touches  = 0
+        bounces_held   = 0
+        for i in range(period, len(close)):
+            ma_val = ma.iloc[i]
+            if pd.isna(ma_val):
+                continue
+            if low.iloc[i] <= ma_val <= high.iloc[i]:
+                total_touches += 1
+                prev_c = close.iloc[i - 1]
+                curr_c = close.iloc[i]
+                if (prev_c >= ma_val and curr_c >= ma_val) or \
+                   (prev_c <= ma_val and curr_c <= ma_val):
+                    bounces_held += 1
+
+        if total_touches < 5:
             continue
 
-        n_crosses = int((above != above.shift()).iloc[1:].sum())
-        if n_crosses == 0:
-            continue
-
-        score = (len(above) / n_crosses) / period
+        score = bounces_held / total_touches
         if score > best_score:
             best_score  = score
             best_period = period
