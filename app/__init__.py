@@ -211,6 +211,7 @@ def create_app():
         "app.pages.price_scatter",
         "app.pages.admin_synthetic",
         "app.pages.evolution",
+        "app.pages.pair_analysis",
         "app.pages.admin_scheduler",
     ]
 
@@ -249,6 +250,7 @@ def create_app():
         "app.callbacks.scatter_callbacks",
         "app.callbacks.admin_synthetic_callbacks",
         "app.callbacks.evolution_callbacks",
+        "app.callbacks.pair_analysis_callbacks",
         "app.callbacks.admin_scheduler_callbacks",
         "app.callbacks.admin_sql_callbacks",
     ]

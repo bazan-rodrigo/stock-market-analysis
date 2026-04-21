@@ -13,6 +13,7 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenuItem("Gráfico técnico",    href="/chart"),
             dbc.DropdownMenuItem("Correlación de Precios", href="/scatter"),
             dbc.DropdownMenuItem("Evolución",          href="/evolucion"),
+            dbc.DropdownMenuItem("Análisis de Pares",  href="/par"),
         ],
         nav=True, in_navbar=True,
     )
