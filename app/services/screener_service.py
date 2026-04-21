@@ -62,17 +62,22 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
         else:
             ma = close.ewm(span=period, adjust=False).mean()
 
-        score = 0
+        touches = 0
+        opportunities = 0
         for i in range(period, len(close) - 1):
             ma_val = ma.iloc[i]
             if pd.isna(ma_val):
                 continue
+            opportunities += 1
             if low.iloc[i] <= ma_val <= high.iloc[i]:
                 prev_c = close.iloc[i - 1]
                 curr_c = close.iloc[i]
                 if (prev_c >= ma_val and curr_c >= ma_val) or (prev_c <= ma_val and curr_c <= ma_val):
-                    score += 1
+                    touches += 1
 
+        if opportunities == 0:
+            continue
+        score = touches / opportunities
         if score > best_score:
             best_score  = score
             best_period = period

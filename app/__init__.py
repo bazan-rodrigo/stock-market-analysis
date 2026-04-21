@@ -205,6 +205,7 @@ def create_app():
         "app.pages.admin_volatility_config",
         "app.pages.admin_sr_config",
         "app.pages.admin_cleanup",
+        "app.pages.admin_sql",
         "app.pages.price_viewer",
         "app.pages.rrg",
         "app.pages.price_scatter",
@@ -249,6 +250,7 @@ def create_app():
         "app.callbacks.admin_synthetic_callbacks",
         "app.callbacks.evolution_callbacks",
         "app.callbacks.admin_scheduler_callbacks",
+        "app.callbacks.admin_sql_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))

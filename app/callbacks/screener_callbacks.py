@@ -4,6 +4,20 @@ from datetime import datetime
 import app.services.reference_service as ref_svc
 import app.services.screener_service as scr_svc
 
+
+def _gs_label(score) -> str | None:
+    if score is None:
+        return None
+    if score >= 50:
+        return "Alcista"
+    if score >= 20:
+        return "Mejorando"
+    if score <= -50:
+        return "Bajista"
+    if score <= -20:
+        return "Deteriorando"
+    return "Lateral"
+
 _REGIME_ES = {
     "bullish_nascent_strong": "Alcista naciente fuerte",
     "bullish_nascent":        "Alcista naciente",
@@ -102,12 +116,22 @@ def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids)
         ticker   = row.get("ticker", "")
         row["ticker"] = f"[{ticker}](/chart?asset_id={asset_id})"
 
-        # Scores de grupo
+        # Desvíos SMA con período entre paréntesis
+        for tf in ("d", "w", "m"):
+            val  = row.get(f"dist_sma_{tf}")
+            best = row.get(f"best_sma_{tf}")
+            if val is not None:
+                sign = "+" if val > 0 else ""
+                period = f" (SMA{best})" if best else ""
+                row[f"dist_sma_{tf}"] = f"{sign}{val:.2f}{period}"
+
+        # Scores de grupo → texto de categoría
         for dim_id, prefix in _DIM_PREFIX.items():
             gid = row.get(dim_id)
             for tf in ("d", "w", "m"):
-                col = f"{prefix}_{tf}"
-                row[col] = group_scores.get((dim_id, gid, tf)) if gid is not None else None
+                col   = f"{prefix}_{tf}"
+                score = group_scores.get((dim_id, gid, tf)) if gid is not None else None
+                row[col] = _gs_label(score)
 
         # Tooltip con nombre completo (para la columna truncada)
         full_name = row.get("name") or ""

@@ -34,3 +34,4 @@ def configure_logging() -> None:
     logging.getLogger("werkzeug").setLevel(logging.INFO)   # ver requests HTTP
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
     logging.getLogger("yfinance").setLevel(logging.WARNING)
+    logging.getLogger("peewee").setLevel(logging.WARNING)

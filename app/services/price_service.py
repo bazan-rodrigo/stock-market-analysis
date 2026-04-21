@@ -71,15 +71,16 @@ def update_asset_prices(asset_id: int) -> None:
     Si el activo es sintético (fuente Calculado), delega al synthetic_service.
     Si falla, registra el error en price_update_log y relanza la excepción.
     """
-    from app.services.synthetic_service import compute_synthetic_prices, is_synthetic
-    if is_synthetic(asset_id):
-        compute_synthetic_prices(asset_id, full=False)
-        return
+    from app.services.synthetic_service import compute_synthetic_prices
 
     s  = get_session()
     asset = s.get(Asset, asset_id)
     if asset is None:
         raise ValueError(f"Activo id={asset_id} no encontrado")
+
+    if asset.price_source.name == "Calculado":
+        compute_synthetic_prices(asset_id, full=False)
+        return
 
     source = get_source(asset.price_source.name)
     last_date = _get_last_price_date(asset_id, s)

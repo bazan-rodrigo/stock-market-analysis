@@ -18,29 +18,29 @@ _COLUMNS = [
     {"name": "RSI D",        "id": "rsi",        "type": "numeric", "format": {"specifier": ".0f"}},
     {"name": "RSI S",        "id": "rsi_w",      "type": "numeric", "format": {"specifier": ".0f"}},
     {"name": "RSI M",        "id": "rsi_m",      "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "σ SMA D",      "id": "dist_sma_d", "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "σ SMA S",      "id": "dist_sma_w", "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "σ SMA M",      "id": "dist_sma_m", "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "σ SMA D",      "id": "dist_sma_d"},
+    {"name": "σ SMA S",      "id": "dist_sma_w"},
+    {"name": "σ SMA M",      "id": "dist_sma_m"},
     {"name": "DD %",         "id": "dd_current", "type": "numeric", "format": {"specifier": ".1f"}},
     {"name": "DD Hist.",     "id": "dd_top3"},
-    {"name": "S/R Res%",     "id": "pivot_resist_pct",  "type": "numeric", "format": {"specifier": ".1f"}},
-    {"name": "S/R Sop%",     "id": "pivot_support_pct", "type": "numeric", "format": {"specifier": ".1f"}},
+    {"name": "Resistencia %", "id": "pivot_resist_pct",  "type": "numeric", "format": {"specifier": ".1f"}},
+    {"name": "Soporte %",     "id": "pivot_support_pct", "type": "numeric", "format": {"specifier": ".1f"}},
     # Scores de grupo por dimensión y timeframe
-    {"name": "Sec D",  "id": "gs_sector_d",   "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Sec S",  "id": "gs_sector_w",   "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Sec M",  "id": "gs_sector_m",   "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Ind D",  "id": "gs_industry_d", "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Ind S",  "id": "gs_industry_w", "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Ind M",  "id": "gs_industry_m", "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "País D", "id": "gs_country_d",  "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "País S", "id": "gs_country_w",  "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "País M", "id": "gs_country_m",  "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Tipo D", "id": "gs_itype_d",    "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Tipo S", "id": "gs_itype_w",    "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Tipo M", "id": "gs_itype_m",    "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Mdo D",  "id": "gs_market_d",   "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Mdo S",  "id": "gs_market_w",   "type": "numeric", "format": {"specifier": ".0f"}},
-    {"name": "Mdo M",  "id": "gs_market_m",   "type": "numeric", "format": {"specifier": ".0f"}},
+    {"name": "Sec D",  "id": "gs_sector_d"},
+    {"name": "Sec S",  "id": "gs_sector_w"},
+    {"name": "Sec M",  "id": "gs_sector_m"},
+    {"name": "Ind D",  "id": "gs_industry_d"},
+    {"name": "Ind S",  "id": "gs_industry_w"},
+    {"name": "Ind M",  "id": "gs_industry_m"},
+    {"name": "País D", "id": "gs_country_d"},
+    {"name": "País S", "id": "gs_country_w"},
+    {"name": "País M", "id": "gs_country_m"},
+    {"name": "Tipo D", "id": "gs_itype_d"},
+    {"name": "Tipo S", "id": "gs_itype_w"},
+    {"name": "Tipo M", "id": "gs_itype_m"},
+    {"name": "Mdo D",  "id": "gs_market_d"},
+    {"name": "Mdo S",  "id": "gs_market_w"},
+    {"name": "Mdo M",  "id": "gs_market_m"},
 ]
 
 _REGIME_COLS = ["regime_d", "regime_w", "regime_m"]
@@ -67,15 +67,18 @@ _VOL_COLORS = {
     "Baja | Larga":     "#0277bd", "Baja | Media":     "#0288d1", "Baja | Corta":     "#039be5",
 }
 
-# Reglas de color para los group-score columns (positivo → verde, negativo → rojo)
-_GS_STYLE = [cond
+_GS_LABEL_COLORS = {
+    "Alcista":     "#4caf50",
+    "Mejorando":   "#a5d6a7",
+    "Lateral":     "#90a4ae",
+    "Deteriorando":"#ef9a9a",
+    "Bajista":     "#ef5350",
+}
+
+_GS_STYLE = [
+    {"if": {"filter_query": f'{{{col}}} = "{label}"', "column_id": col}, "color": color}
     for col in _GS_COLS
-    for cond in [
-        {"if": {"filter_query": f"{{{col}}} > 20",  "column_id": col}, "color": "#a5d6a7"},
-        {"if": {"filter_query": f"{{{col}}} < -20", "column_id": col}, "color": "#ef9a9a"},
-        {"if": {"filter_query": f"{{{col}}} >= 50", "column_id": col}, "color": "#4caf50"},
-        {"if": {"filter_query": f"{{{col}}} <= -50","column_id": col}, "color": "#ef5350"},
-    ]
+    for label, color in _GS_LABEL_COLORS.items()
 ]
 
 # Ancho compacto para columnas de score de grupo
@@ -146,9 +149,9 @@ def layout(**kwargs):
             style_data_conditional=(
                 [{"if": {"filter_query": "{dd_current} < 0", "column_id": "dd_current"},
                   "color": "#ef5350"}]
-                + [{"if": {"filter_query": f"{{{c}}} > 0", "column_id": c}, "color": "#4caf50"}
+                + [{"if": {"filter_query": f'{{{c}}} contains "+"', "column_id": c}, "color": "#4caf50"}
                    for c in ["dist_sma_d", "dist_sma_w", "dist_sma_m"]]
-                + [{"if": {"filter_query": f"{{{c}}} < 0", "column_id": c}, "color": "#ef5350"}
+                + [{"if": {"filter_query": f'{{{c}}} contains "-"', "column_id": c}, "color": "#ef5350"}
                    for c in ["dist_sma_d", "dist_sma_w", "dist_sma_m"]]
                 + [{"if": {"filter_query": f"{{{c}}} >= 70", "column_id": c}, "color": "#ef5350"}
                    for c in ["rsi", "rsi_w", "rsi_m"]]
