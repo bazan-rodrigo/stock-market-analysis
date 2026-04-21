@@ -341,44 +341,46 @@ def render_series_list(series):
         return html.P("Sin series.", className="text-muted",
                       style={"fontSize": "0.78rem"})
 
-    rows = []
+    chips = []
     for s in series:
         aid     = s["asset_id"]
         visible = s.get("visible", True)
         color   = s.get("color", "#888")
         group   = s.get("group", "manual")
         opacity = 1.0 if visible else 0.35
+        label   = s["ticker"] + (f" [{_GROUP_LABEL[group]}]" if _GROUP_LABEL.get(group) else "")
 
-        rows.append(dbc.Row([
-            dbc.Col(html.Div(style={
-                "width": "10px", "height": "10px",
+        chips.append(html.Div([
+            html.Div(style={
+                "width": "8px", "height": "8px", "flexShrink": "0",
                 "backgroundColor": color, "borderRadius": "2px",
-                "marginTop": "2px", "opacity": opacity,
-            }), width="auto"),
-            dbc.Col(html.Span(
-                s["ticker"] + (f" [{_GROUP_LABEL[group]}]" if _GROUP_LABEL.get(group) else ""),
-                style={"opacity": opacity, "whiteSpace": "nowrap",
-                       "overflow": "hidden", "textOverflow": "ellipsis",
-                       "maxWidth": "110px", "display": "inline-block"},
-                title=s.get("name", ""),
-            ), style={"paddingLeft": "2px"}),
-            dbc.Col(dbc.ButtonGroup([
-                dbc.Button(
-                    html.I(className=f"fa {'fa-eye' if visible else 'fa-eye-slash'}"),
-                    id={"type": "evol-toggle", "index": aid},
-                    color="link", size="sm", className="p-0 me-1",
-                    style={"color": color if visible else "#555", "fontSize": "0.7rem"},
-                ),
-                dbc.Button(
-                    html.I(className="fa fa-times"),
-                    id={"type": "evol-remove", "index": aid},
-                    color="link", size="sm", className="p-0",
-                    style={"color": "#dc3545", "fontSize": "0.7rem"},
-                ),
-            ]), width="auto"),
-        ], className="mb-1 align-items-center g-0 flex-nowrap"))
+                "opacity": str(opacity),
+            }),
+            html.Span(label,
+                      style={"opacity": str(opacity), "marginLeft": "4px",
+                             "whiteSpace": "nowrap"},
+                      title=s.get("name", "")),
+            dbc.Button(
+                html.I(className=f"fa {'fa-eye' if visible else 'fa-eye-slash'}"),
+                id={"type": "evol-toggle", "index": aid},
+                color="link", size="sm", className="p-0",
+                style={"color": color if visible else "#555", "fontSize": "0.7rem",
+                       "marginLeft": "4px", "lineHeight": "1"},
+            ),
+            dbc.Button(
+                html.I(className="fa fa-times"),
+                id={"type": "evol-remove", "index": aid},
+                color="link", size="sm", className="p-0",
+                style={"color": "#dc3545", "fontSize": "0.7rem",
+                       "marginLeft": "2px", "lineHeight": "1"},
+            ),
+        ], style={
+            "display": "inline-flex", "alignItems": "center",
+            "border": "1px solid #374151", "borderRadius": "4px",
+            "padding": "2px 6px", "backgroundColor": "#1f2937",
+        }))
 
-    return html.Div(rows)
+    return chips
 
 
 # ── Renderizar gráfico ────────────────────────────────────────────────────────

@@ -46,38 +46,30 @@ _MA_PERIODS = [10, 20, 50, 100, 200]
 
 def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str = "sma") -> int | None:
     """
-    Devuelve el período de SMA/EMA que el precio respeta más.
-    Un 'respeto' es cuando la vela toca la MA (rango incluye el valor) y el cierre
-    permanece del mismo lado que el cierre anterior (rebote, no cruce limpio).
+    Devuelve el período de SMA/EMA que el precio respeta más como soporte/resistencia.
+    Métrica: el precio permanece del mismo lado de la MA durante más tiempo relativo
+    a su propio período. score = (barras_válidas / cruces) / period.
+    Un MA respetada es cruzada pocas veces en relación a su longitud.
     """
     best_period = None
-    best_score  = -1
+    best_score  = -1.0
 
     for period in _MA_PERIODS:
         if len(close) < period * 2:
             continue
 
-        if kind == "sma":
-            ma = close.rolling(period).mean()
-        else:
-            ma = close.ewm(span=period, adjust=False).mean()
+        ma = close.rolling(period).mean() if kind == "sma" \
+             else close.ewm(span=period, adjust=False).mean()
 
-        touches = 0
-        opportunities = 0
-        for i in range(period, len(close) - 1):
-            ma_val = ma.iloc[i]
-            if pd.isna(ma_val):
-                continue
-            opportunities += 1
-            if low.iloc[i] <= ma_val <= high.iloc[i]:
-                prev_c = close.iloc[i - 1]
-                curr_c = close.iloc[i]
-                if (prev_c >= ma_val and curr_c >= ma_val) or (prev_c <= ma_val and curr_c <= ma_val):
-                    touches += 1
-
-        if opportunities == 0:
+        above = (close >= ma).dropna()
+        if len(above) < 2:
             continue
-        score = touches / opportunities
+
+        n_crosses = int((above != above.shift()).iloc[1:].sum())
+        if n_crosses == 0:
+            continue
+
+        score = (len(above) / n_crosses) / period
         if score > best_score:
             best_score  = score
             best_period = period

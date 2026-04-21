@@ -114,8 +114,8 @@ def execute_sql(_, sql, session_id):
             note = f"+{len(data)} más" if len(data) == _MAX_ROWS else ""
             status = f"{len(data)} filas{('  ·  ' + note) if note else ''}"
             table = _build_table(cols, data)
-            _set_pending(session_id, False)
-            return table, status, _style("ok"), True, True, len(data) > 0
+            pending = _has_pending(session_id)
+            return table, status, _style("ok"), not pending, not pending, len(data) == 0
 
         else:
             rowcount = result.rowcount

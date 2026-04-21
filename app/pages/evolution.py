@@ -76,105 +76,108 @@ def layout(**kwargs):
             ], className="g-2 align-items-end"),
         ]), className="mb-3"),
 
-        # ── Gráfico | combo + limpiar + lista ────────────────────────────
-        dbc.Row([
-            dbc.Col([
-                dcc.Loading(
-                    dcc.Graph(
-                        id="evol-graph",
-                        style={"height": "540px"},
-                        config={
-                            "displayModeBar": True,
-                            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-                            "scrollZoom": True,
-                        },
-                    ),
-                    type="circle", color="#dee2e6",
-                ),
-            ]),
-            dbc.Col([
-                # Panel dinámico según modo
-                # — Por activo —
-                html.Div([
-                    dbc.InputGroup([
-                        dcc.Dropdown(
-                            id="evol-add-select",
-                            placeholder="Buscar activo...",
-                            style={"fontSize": "0.85rem", "flex": "1 1 auto"},
-                        ),
-                        dbc.Button("Agregar", id="evol-btn-add",
-                                   color="primary", size="sm"),
-                    ]),
-                ], id="evol-panel-activo"),
-
-                # — Por benchmark —
-                html.Div([
-                    dbc.InputGroup([
-                        dcc.Dropdown(
-                            id="evol-bm-select",
-                            placeholder="Seleccionar benchmark...",
-                            style={"fontSize": "0.85rem", "flex": "1 1 auto"},
-                        ),
-                        dbc.Button("Agregar", id="evol-btn-add-bm",
-                                   color="primary", size="sm"),
-                    ]),
-                ], id="evol-panel-benchmark", style={"display": "none"}),
-
-                # — Por sintético —
-                html.Div([
-                    dbc.InputGroup([
-                        dcc.Dropdown(
-                            id="evol-syn-select",
-                            placeholder="Seleccionar sintético...",
-                            style={"fontSize": "0.85rem", "flex": "1 1 auto"},
-                        ),
-                        dbc.Button("Agregar", id="evol-btn-add-syn",
-                                   color="primary", size="sm"),
-                    ]),
-                ], id="evol-panel-sintetico", style={"display": "none"}),
-
-                # — Por grupos —
-                html.Div([
-                    dbc.Row([
-                        dbc.Col([
-                            dcc.Dropdown(id="evol-f-country",  placeholder="País",
-                                         multi=True, style={"fontSize": "0.78rem"}),
-                        ], md=6),
-                        dbc.Col([
-                            dcc.Dropdown(id="evol-f-currency", placeholder="Moneda",
-                                         multi=True, style={"fontSize": "0.78rem"}),
-                        ], md=6),
-                        dbc.Col([
-                            dcc.Dropdown(id="evol-f-itype",    placeholder="Tipo",
-                                         multi=True, style={"fontSize": "0.78rem"}),
-                        ], md=6),
-                        dbc.Col([
-                            dcc.Dropdown(id="evol-f-sector",   placeholder="Sector",
-                                         multi=True, style={"fontSize": "0.78rem"}),
-                        ], md=6),
-                        dbc.Col([
-                            dcc.Dropdown(id="evol-f-industry", placeholder="Industria",
-                                         multi=True, style={"fontSize": "0.78rem"}),
-                        ], md=6),
-                        dbc.Col([
-                            dcc.Dropdown(id="evol-f-market",   placeholder="Mercado",
-                                         multi=True, style={"fontSize": "0.78rem"}),
-                        ], md=6),
-                        dbc.Col([
-                            dbc.Button("Agregar", id="evol-btn-add-group",
+        # ── Panel de agregar + limpiar (sobre el gráfico) ─────────────────
+        dbc.Card(dbc.CardBody([
+            dbc.Row([
+                dbc.Col([
+                    # — Por activo —
+                    html.Div([
+                        dbc.InputGroup([
+                            dcc.Dropdown(
+                                id="evol-add-select",
+                                placeholder="Buscar activo...",
+                                style={"fontSize": "0.85rem", "flex": "1 1 auto"},
+                            ),
+                            dbc.Button("Agregar", id="evol-btn-add",
                                        color="primary", size="sm"),
-                        ], md=12, className="d-flex align-items-end mt-1"),
-                    ], className="g-2"),
-                ], id="evol-panel-grupos", style={"display": "none"}),
+                        ]),
+                    ], id="evol-panel-activo"),
 
-                dbc.Button("Limpiar todo", id="evol-btn-clear",
-                           color="outline-danger", size="sm", className="mt-2 mb-2"),
+                    # — Por benchmark —
+                    html.Div([
+                        dbc.InputGroup([
+                            dcc.Dropdown(
+                                id="evol-bm-select",
+                                placeholder="Seleccionar benchmark...",
+                                style={"fontSize": "0.85rem", "flex": "1 1 auto"},
+                            ),
+                            dbc.Button("Agregar", id="evol-btn-add-bm",
+                                       color="primary", size="sm"),
+                        ]),
+                    ], id="evol-panel-benchmark", style={"display": "none"}),
 
-                html.Div(id="evol-series-list",
-                         style={"maxHeight": "480px", "overflowY": "auto",
-                                "fontSize": "0.78rem", "whiteSpace": "nowrap"}),
-            ], width="auto"),
-        ]),
+                    # — Por sintético —
+                    html.Div([
+                        dbc.InputGroup([
+                            dcc.Dropdown(
+                                id="evol-syn-select",
+                                placeholder="Seleccionar sintético...",
+                                style={"fontSize": "0.85rem", "flex": "1 1 auto"},
+                            ),
+                            dbc.Button("Agregar", id="evol-btn-add-syn",
+                                       color="primary", size="sm"),
+                        ]),
+                    ], id="evol-panel-sintetico", style={"display": "none"}),
+
+                    # — Por grupos —
+                    html.Div([
+                        dbc.Row([
+                            dbc.Col([
+                                dcc.Dropdown(id="evol-f-country",  placeholder="País",
+                                             multi=True, style={"fontSize": "0.78rem"}),
+                            ], md=3),
+                            dbc.Col([
+                                dcc.Dropdown(id="evol-f-currency", placeholder="Moneda",
+                                             multi=True, style={"fontSize": "0.78rem"}),
+                            ], md=3),
+                            dbc.Col([
+                                dcc.Dropdown(id="evol-f-itype",    placeholder="Tipo",
+                                             multi=True, style={"fontSize": "0.78rem"}),
+                            ], md=3),
+                            dbc.Col([
+                                dcc.Dropdown(id="evol-f-sector",   placeholder="Sector",
+                                             multi=True, style={"fontSize": "0.78rem"}),
+                            ], md=3),
+                            dbc.Col([
+                                dcc.Dropdown(id="evol-f-industry", placeholder="Industria",
+                                             multi=True, style={"fontSize": "0.78rem"}),
+                            ], md=3),
+                            dbc.Col([
+                                dcc.Dropdown(id="evol-f-market",   placeholder="Mercado",
+                                             multi=True, style={"fontSize": "0.78rem"}),
+                            ], md=3),
+                            dbc.Col([
+                                dbc.Button("Agregar", id="evol-btn-add-group",
+                                           color="primary", size="sm"),
+                            ], md=2, className="d-flex align-items-end"),
+                        ], className="g-2 align-items-end"),
+                    ], id="evol-panel-grupos", style={"display": "none"}),
+                ]),
+                dbc.Col([
+                    dbc.Button("Limpiar todo", id="evol-btn-clear",
+                               color="outline-danger", size="sm"),
+                ], width="auto", className="d-flex align-items-end"),
+            ], className="g-2 align-items-end"),
+        ]), className="mb-3"),
+
+        # ── Gráfico ───────────────────────────────────────────────────────
+        dcc.Loading(
+            dcc.Graph(
+                id="evol-graph",
+                style={"height": "540px"},
+                config={
+                    "displayModeBar": True,
+                    "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                    "scrollZoom": True,
+                },
+            ),
+            type="circle", color="#dee2e6",
+        ),
+
+        # ── Lista de series (chips horizontales) ─────────────────────────
+        html.Div(id="evol-series-list",
+                 style={"marginTop": "8px", "display": "flex", "flexWrap": "wrap",
+                        "gap": "4px", "fontSize": "0.78rem"}),
     ], style={"padding": "0 8px"})
 
 
