@@ -11,7 +11,6 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenuItem("Mapa de Mercado",    href="/market-map"),
             dbc.DropdownMenuItem("Rotación Relativa",  href="/rrg"),
             dbc.DropdownMenuItem("Gráfico técnico",    href="/chart"),
-            dbc.DropdownMenuItem("Correlación de Precios", href="/scatter"),
             dbc.DropdownMenuItem("Evolución",          href="/evolucion"),
             dbc.DropdownMenuItem("Análisis de Pares",  href="/par"),
         ],
