@@ -11,6 +11,8 @@ def layout(**kwargs):
     _radio_sm = {"fontSize": "0.80rem"}
 
     return html.Div([
+        dcc.Store(id="scatter-data"),
+
         # ── Fila 1: activos ──────────────────────────────────────────────────
         dbc.Row([
             dbc.Col([
@@ -83,26 +85,14 @@ def layout(**kwargs):
             ], id="scatter-poly-degree-col", width="auto",
                style={"display": "none"}),
             dbc.Col([
-                html.Small("R²", className="text-muted d-block mb-1"),
+                html.Small("Escala logarítmica", className="text-muted d-block mb-1"),
                 dbc.Switch(
-                    id="scatter-show-r2",
-                    value=True,
-                    style={"marginBottom": 0},
+                    id="scatter-log-axes",
+                    value=False,
+                    label="Ambos ejes",
+                    style={"fontSize": "0.82rem", "marginBottom": 0},
                 ),
             ], width="auto", className="d-flex flex-column justify-content-start"),
-            dbc.Col([
-                html.Small("Escala logarítmica", className="text-muted d-block mb-1"),
-                dbc.Checklist(
-                    id="scatter-log-axes",
-                    options=[
-                        {"label": " Eje X", "value": "x"},
-                        {"label": " Eje Y", "value": "y"},
-                    ],
-                    value=[],
-                    inline=True,
-                    style={"fontSize": "0.82rem"},
-                ),
-            ]),
         ], className="mb-3 g-2 align-items-end"),
 
         dcc.Loading(
