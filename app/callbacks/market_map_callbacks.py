@@ -3,12 +3,19 @@ import dash_bootstrap_components as dbc
 
 import app.services.screener_service as scr_svc
 from app.pages.market_map import _build_table, _build_quadrant_figure
+from app.utils import safe_callback
+
+
+def _map_error(exc):
+    return dbc.Alert(f"Error al cargar el mapa: {exc}", color="danger",
+                     className="mt-3", style={"fontSize": "0.85rem"})
 
 
 @callback(
     Output("market-map-content", "children"),
     Input("market-map-tabs", "active_tab"),
 )
+@safe_callback(_map_error)
 def render_map(active_tab):
     if not active_tab:
         return html.Div()

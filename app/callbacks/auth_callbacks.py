@@ -3,6 +3,7 @@ from flask_login import login_user
 
 from app.database import get_session
 from app.models import User
+from app.utils import safe_callback
 
 
 @callback(
@@ -16,6 +17,7 @@ from app.models import User
     State("login-password", "value"),
     prevent_initial_call=True,
 )
+@safe_callback(lambda exc: (no_update, f"Error inesperado al iniciar sesión: {exc}", True))
 def handle_login(n_clicks, user_submit, pass_submit, username, password):
     if not username or not password:
         return no_update, "Ingresá usuario y contraseña.", True

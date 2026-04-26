@@ -6,10 +6,16 @@ from dash import Input, Output, State, callback, clientside_callback, no_update
 import dash_bootstrap_components as dbc
 
 import app.services.scatter_service as svc
+from app.utils import safe_callback
 
 _BG          = "#111827"
 _RED         = "#ef4444"
 _TREND_COLOR = "#facc15"
+
+
+def _scatter_error(exc):
+    return None, dbc.Alert(f"Error al cargar datos: {exc}", color="danger",
+                           className="mt-2 py-1", style={"fontSize": "0.82rem"})
 
 
 @callback(
@@ -56,6 +62,7 @@ clientside_callback(
     Input("scatter-asset2",      "value"),
     Input("scatter-show-events", "value"),
 )
+@safe_callback(_scatter_error)
 def store_scatter_data(asset1_id, asset2_id, show_events_opt):
     if not asset1_id or not asset2_id:
         return None, ""

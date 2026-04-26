@@ -1,7 +1,14 @@
+import logging
+
 from dash import Input, Output, State, callback
 
 from app.database import get_session
 from app.models import VolatilityConfig
+from app.utils import safe_callback
+
+logger = logging.getLogger(__name__)
+
+_DEFAULTS = (14, 3, 25.0, 75.0, 90.0, 33.0, 67.0)
 
 
 def _get_config():
@@ -20,18 +27,22 @@ def _get_config():
     Input("vol-atr-period", "id"),
 )
 def load_vol_config(_):
-    cfg = _get_config()
-    if cfg is None:
-        return 14, 3, 25.0, 75.0, 90.0, 33.0, 67.0
-    return (
-        cfg.atr_period,
-        cfg.confirm_bars,
-        cfg.pct_low,
-        cfg.pct_high,
-        cfg.pct_extreme,
-        cfg.dur_short_pct,
-        cfg.dur_long_pct,
-    )
+    try:
+        cfg = _get_config()
+        if cfg is None:
+            return _DEFAULTS
+        return (
+            cfg.atr_period,
+            cfg.confirm_bars,
+            cfg.pct_low,
+            cfg.pct_high,
+            cfg.pct_extreme,
+            cfg.dur_short_pct,
+            cfg.dur_long_pct,
+        )
+    except Exception:
+        logger.exception("Error cargando VolatilityConfig")
+        return _DEFAULTS
 
 
 @callback(
@@ -48,6 +59,7 @@ def load_vol_config(_):
     State("vol-dur-long",   "value"),
     prevent_initial_call=True,
 )
+@safe_callback(lambda exc: (f"Error inesperado: {exc}", True, "danger"))
 def save_vol_config(_, atr_period, confirm, pct_low, pct_high, pct_extreme, dur_short, dur_long):
     if any(v is None for v in [atr_period, confirm, pct_low, pct_high, pct_extreme, dur_short, dur_long]):
         return "Completá todos los campos.", True, "warning"

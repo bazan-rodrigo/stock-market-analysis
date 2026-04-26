@@ -1,7 +1,14 @@
+import logging
+
 from dash import Input, Output, State, callback
 
 from app.database import get_session
 from app.models import RegimeConfig
+from app.utils import safe_callback
+
+logger = logging.getLogger(__name__)
+
+_DEFAULTS = (200, 50, 20, 20, 0.5, 3, 20, 2.0)
 
 
 def _get_config():
@@ -21,19 +28,23 @@ def _get_config():
     Input("regime-ema-d", "id"),
 )
 def load_config(_):
-    cfg = _get_config()
-    if cfg is None:
-        return 200, 50, 20, 20, 0.5, 3, 20, 2.0
-    return (
-        cfg.ema_period_d,
-        cfg.ema_period_w,
-        cfg.ema_period_m,
-        cfg.slope_lookback,
-        cfg.slope_threshold_pct,
-        cfg.confirm_bars,
-        cfg.nascent_bars,
-        cfg.strong_slope_multiplier,
-    )
+    try:
+        cfg = _get_config()
+        if cfg is None:
+            return _DEFAULTS
+        return (
+            cfg.ema_period_d,
+            cfg.ema_period_w,
+            cfg.ema_period_m,
+            cfg.slope_lookback,
+            cfg.slope_threshold_pct,
+            cfg.confirm_bars,
+            cfg.nascent_bars,
+            cfg.strong_slope_multiplier,
+        )
+    except Exception:
+        logger.exception("Error cargando RegimeConfig")
+        return _DEFAULTS
 
 
 @callback(
@@ -51,6 +62,7 @@ def load_config(_):
     State("regime-strong-mult", "value"),
     prevent_initial_call=True,
 )
+@safe_callback(lambda exc: (f"Error inesperado: {exc}", True, "danger"))
 def save_config(_, ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm, nascent, strong_mult):
     if any(v is None for v in [ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm, nascent, strong_mult]):
         return "Completá todos los campos.", True, "warning"

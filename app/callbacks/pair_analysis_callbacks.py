@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import app.services.pair_analysis_service as svc
 import app.services.scatter_service as scatter_svc
 from app.services.asset_service import get_assets
+from app.utils import safe_callback
 
 
 # ── Poblar dropdowns ──────────────────────────────────────────────────────────
@@ -50,6 +51,11 @@ clientside_callback(
 
 # ── Scatter data store (se recalcula al cambiar activos o eventos) ────────────
 
+def _scatter_error(exc):
+    return None, dbc.Alert(f"Error al cargar datos: {exc}", color="danger",
+                           className="mt-2 py-1", style={"fontSize": "0.82rem"})
+
+
 @callback(
     Output("pair-scatter-data",  "data"),
     Output("pair-scatter-stats", "children"),
@@ -57,6 +63,7 @@ clientside_callback(
     Input("pair-asset2",       "value"),
     Input("pair-show-events",  "value"),
 )
+@safe_callback(_scatter_error)
 def store_scatter_data(asset1_id, asset2_id, show_events_opt):
     if not asset1_id or not asset2_id:
         return None, ""
@@ -367,6 +374,7 @@ function(scatterData, trendType, polyDegree, logScale) {
     State("pair-log-scale",    "value"),
     prevent_initial_call=True,
 )
+@safe_callback(lambda exc: (go.Figure(), go.Figure(), f"Error inesperado: {exc}", True))
 def update_charts(n_clicks, asset1, asset2, date_from, date_to, log_scale):
     empty = go.Figure()
 

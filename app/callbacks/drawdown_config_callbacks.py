@@ -1,7 +1,12 @@
+import logging
+
 from dash import Input, Output, State, callback
 
 from app.database import get_session
 from app.models import DrawdownConfig
+from app.utils import safe_callback
+
+logger = logging.getLogger(__name__)
 
 
 @callback(
@@ -9,9 +14,13 @@ from app.models import DrawdownConfig
     Input("dd-min-depth", "id"),
 )
 def load_config(_):
-    s = get_session()
-    cfg = s.query(DrawdownConfig).filter(DrawdownConfig.id == 1).first()
-    return cfg.min_depth_pct if cfg else 20.0
+    try:
+        s = get_session()
+        cfg = s.query(DrawdownConfig).filter(DrawdownConfig.id == 1).first()
+        return cfg.min_depth_pct if cfg else 20.0
+    except Exception:
+        logger.exception("Error cargando DrawdownConfig")
+        return 20.0
 
 
 @callback(
@@ -22,6 +31,7 @@ def load_config(_):
     State("dd-min-depth", "value"),
     prevent_initial_call=True,
 )
+@safe_callback(lambda exc: (f"Error inesperado: {exc}", True, "danger"))
 def save_config(_, min_depth):
     if min_depth is None:
         return "Completá el campo.", True, "warning"

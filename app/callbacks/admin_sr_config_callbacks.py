@@ -1,13 +1,19 @@
+import logging
+
 from dash import Input, Output, State, callback
 
 from app.database import get_session
 from app.models import SRConfig
+from app.utils import safe_callback
+
+logger = logging.getLogger(__name__)
+
+_DEFAULTS = (252, 5, 0.5, 2)
 
 
 def _get_config():
     s = get_session()
-    cfg = s.query(SRConfig).filter(SRConfig.id == 1).first()
-    return cfg
+    return s.query(SRConfig).filter(SRConfig.id == 1).first()
 
 
 @callback(
@@ -18,15 +24,19 @@ def _get_config():
     Input("sr-lookback", "id"),
 )
 def load_sr_config(_):
-    cfg = _get_config()
-    if cfg is None:
-        return 252, 5, 0.5, 2
-    return (
-        cfg.lookback_days,
-        cfg.pivot_window,
-        cfg.cluster_pct,
-        cfg.min_touches,
-    )
+    try:
+        cfg = _get_config()
+        if cfg is None:
+            return _DEFAULTS
+        return (
+            cfg.lookback_days,
+            cfg.pivot_window,
+            cfg.cluster_pct,
+            cfg.min_touches,
+        )
+    except Exception:
+        logger.exception("Error cargando SRConfig")
+        return _DEFAULTS
 
 
 @callback(
@@ -40,6 +50,7 @@ def load_sr_config(_):
     State("sr-min-touches",  "value"),
     prevent_initial_call=True,
 )
+@safe_callback(lambda exc: (f"Error inesperado: {exc}", True, "danger"))
 def save_sr_config(_, lookback, window, cluster, touches):
     if any(v is None for v in [lookback, window, cluster, touches]):
         return "Completá todos los campos.", True, "warning"

@@ -3,6 +3,7 @@ from datetime import datetime
 
 import app.services.reference_service as ref_svc
 import app.services.screener_service as scr_svc
+from app.utils import safe_callback
 
 
 def _gs_label(score) -> str | None:
@@ -80,6 +81,7 @@ def load_screener_filter_options(_):
     Input("scr-filter-sector", "value"),
     Input("scr-filter-industry", "value"),
 )
+@safe_callback(lambda exc: ([], [], f"Error al cargar datos: {exc}"))
 def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids):
     # Cargar todos los activos (sin filtrar) para calcular scores de grupo completos
     all_rows = scr_svc.get_screener_data()
