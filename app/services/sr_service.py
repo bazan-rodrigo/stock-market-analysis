@@ -65,45 +65,32 @@ def _compute_pivots(df: pd.DataFrame, window: int, cluster_pct: float, min_touch
     )
 
 
-def compute_sr_for_asset(asset_id: int) -> dict | None:
+def compute_sr_from_df(df: pd.DataFrame, cfg=None) -> dict | None:
     """
-    Calcula niveles de S/R (pivots y VPVR) para un activo.
-    Retorna dict con datos completos para el gráfico y los % para el screener.
+    Calcula S/R desde un DataFrame ya cargado (evita query redundante a DB).
+    df debe tener columnas: date, close, high, low.
     """
-    s = get_session()
-    rows = (
-        s.query(Price)
-        .filter(Price.asset_id == asset_id)
-        .order_by(Price.date.asc())
-        .all()
-    )
-    if not rows:
-        return None
+    if cfg is None:
+        cfg = _get_sr_config()
 
-    cfg = _get_sr_config()
-    df = pd.DataFrame([{
-        "date": r.date,
-        "close": float(r.close) if r.close else None,
-        "high": float(r.high) if r.high else None,
-        "low": float(r.low) if r.low else None,
-        "volume": int(r.volume or 0),
-    } for r in rows]).dropna(subset=["close", "high", "low"])
-
+    df = df[["date", "close", "high", "low"]].copy()
+    df = df.dropna(subset=["close", "high", "low"])
+    df["close"] = df["close"].astype(float)
+    df["high"]  = df["high"].astype(float)
+    df["low"]   = df["low"].astype(float)
     df = df.tail(cfg.lookback_days).reset_index(drop=True)
 
     if len(df) < cfg.pivot_window * 2 + 2:
         return None
 
     last_close = float(df["close"].iloc[-1])
-
-    # ── Pivots ────────────────────────────────────────────────────────────────
     resist_levels, support_levels = _compute_pivots(
         df, cfg.pivot_window, cfg.cluster_pct, cfg.min_touches
     )
-    resist_above = [r for r in resist_levels if r["price"] > last_close]
+    resist_above  = [r for r in resist_levels  if r["price"] > last_close]
     support_below = [r for r in support_levels if r["price"] < last_close]
 
-    nearest_resist = min(resist_above, key=lambda x: x["price"]) if resist_above else None
+    nearest_resist  = min(resist_above,  key=lambda x: x["price"]) if resist_above  else None
     nearest_support = max(support_below, key=lambda x: x["price"]) if support_below else None
 
     pivot_resist_pct = (
@@ -125,3 +112,27 @@ def compute_sr_for_asset(asset_id: int) -> dict | None:
             "nearest_support_pct": pivot_support_pct,
         },
     }
+
+
+def compute_sr_for_asset(asset_id: int) -> dict | None:
+    """
+    Calcula niveles de S/R para un activo cargando precios desde DB.
+    Retorna dict con datos completos para el gráfico y los % para el screener.
+    """
+    s = get_session()
+    rows = (
+        s.query(Price)
+        .filter(Price.asset_id == asset_id)
+        .order_by(Price.date.asc())
+        .all()
+    )
+    if not rows:
+        return None
+
+    df = pd.DataFrame([{
+        "date":  r.date,
+        "close": float(r.close) if r.close else None,
+        "high":  float(r.high)  if r.high  else None,
+        "low":   float(r.low)   if r.low   else None,
+    } for r in rows])
+    return compute_sr_from_df(df)

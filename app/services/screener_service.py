@@ -52,6 +52,7 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
     """
     best_period = None
     best_score  = -1.0
+    prev_c = close.shift(1)
 
     for period in _MA_PERIODS:
         if len(close) < period * 2:
@@ -60,22 +61,15 @@ def _find_best_ma(close: pd.Series, high: pd.Series, low: pd.Series, kind: str =
         ma = close.rolling(period).mean() if kind == "sma" \
              else close.ewm(span=period, adjust=False).mean()
 
-        total_touches  = 0
-        bounces_held   = 0
-        for i in range(period, len(close)):
-            ma_val = ma.iloc[i]
-            if pd.isna(ma_val):
-                continue
-            if low.iloc[i] <= ma_val <= high.iloc[i]:
-                total_touches += 1
-                prev_c = close.iloc[i - 1]
-                curr_c = close.iloc[i]
-                if (prev_c >= ma_val and curr_c >= ma_val) or \
-                   (prev_c <= ma_val and curr_c <= ma_val):
-                    bounces_held += 1
+        valid         = ma.notna()
+        touched       = valid & (low <= ma) & (ma <= high)
+        total_touches = int(touched.sum())
 
         if total_touches < 5:
             continue
+
+        bounce       = ((prev_c >= ma) & (close >= ma)) | ((prev_c <= ma) & (close <= ma))
+        bounces_held = int((touched & bounce).sum())
 
         score = bounces_held / total_touches
         if score > best_score:
@@ -459,7 +453,14 @@ def _closest_price_on_or_before(df: pd.DataFrame, target: date) -> float | None:
     return float(subset.iloc[-1]["close"])
 
 
-def compute_and_save_snapshot(asset_id: int) -> None:
+def compute_and_save_snapshot(
+    asset_id: int,
+    *,
+    _dd_cfg=None,
+    _regime_cfg=None,
+    _vol_cfg=None,
+    _sr_cfg=None,
+) -> None:
     s = get_session()
     # Cargar TODOS los precios para drawdown histórico correcto
     rows = (
@@ -486,11 +487,11 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     dd_max3 = float(dd_sorted[2]) if len(dd_sorted) > 2 else None
 
     # --- Eventos de drawdown significativos (usa TODOS los datos) ---
-    dd_cfg = _get_drawdown_config()
+    dd_cfg = _dd_cfg if _dd_cfg is not None else _get_drawdown_config()
     dd_events = _compute_dd_events(df, dd_cfg.min_depth_pct)
 
     # --- Régimen de mercado por timeframe ---
-    cfg = _get_regime_config()
+    cfg = _regime_cfg if _regime_cfg is not None else _get_regime_config()
     sl, st_pct, cb = cfg.slope_lookback, cfg.slope_threshold_pct, cfg.confirm_bars
     nb  = cfg.nascent_bars
     sm  = cfg.strong_slope_multiplier
@@ -501,7 +502,7 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     rz_m = _compute_regime_zones(df_m_reg, cfg.ema_period_m, sl, st_pct, cb, nb, sm)
 
     # --- Régimen de volatilidad ATR por timeframe ---
-    vcfg = _get_volatility_config()
+    vcfg = _vol_cfg if _vol_cfg is not None else _get_volatility_config()
     _vol_args = dict(
         atr_period=vcfg.atr_period,
         confirm_bars=vcfg.confirm_bars,
@@ -518,20 +519,18 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     # --- MA más respetada por timeframe (usa TODOS los datos) ---
     best_sma_d = _find_best_ma(df["close"], df["high"], df["low"], "sma")
     best_ema_d = _find_best_ma(df["close"], df["high"], df["low"], "ema")
-    df_w = _resample_ohlc(df, "W")
-    best_sma_w = _find_best_ma(df_w["close"], df_w["high"], df_w["low"], "sma")
-    best_ema_w = _find_best_ma(df_w["close"], df_w["high"], df_w["low"], "ema")
-    df_m = _resample_ohlc(df, "M")
-    best_sma_m = _find_best_ma(df_m["close"], df_m["high"], df_m["low"], "sma")
-    best_ema_m = _find_best_ma(df_m["close"], df_m["high"], df_m["low"], "ema")
+    best_sma_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "sma")
+    best_ema_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "ema")
+    best_sma_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "sma")
+    best_ema_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "ema")
 
     # --- Distancia en desv. estándar desde la SMA más respetada por timeframe ---
     dist_sma_d = _sma_zscore(df["close"], best_sma_d) if best_sma_d else None
-    dist_sma_w = _sma_zscore(df_w["close"], best_sma_w) if best_sma_w else None
-    dist_sma_m = _sma_zscore(df_m["close"], best_sma_m) if best_sma_m else None
+    dist_sma_w = _sma_zscore(df_w_reg["close"], best_sma_w) if best_sma_w else None
+    dist_sma_m = _sma_zscore(df_m_reg["close"], best_sma_m) if best_sma_m else None
 
     # --- RSI semanal y mensual ---
-    rsi_w = _rsi(df_w["close"])
+    rsi_w = _rsi(df_w_reg["close"])
     rsi_m = _rsi(df_m_reg["close"])
 
     # Para el resto de métricas usar solo los últimos 260 días
@@ -634,9 +633,9 @@ def compute_and_save_snapshot(asset_id: int) -> None:
     snap.atr_pct_w = _atr_pct_last(vz_w)
     snap.atr_pct_m = _atr_pct_last(vz_m)
 
-    # --- S/R pivots y VPVR ---
+    # --- S/R pivots (usa el df ya cargado, sin nueva query a DB) ---
     try:
-        sr = sr_service.compute_sr_for_asset(asset_id)
+        sr = sr_service.compute_sr_from_df(df, cfg=_sr_cfg)
         if sr:
             snap.pivot_resist_pct = sr["pivot_resist_pct"]
             snap.pivot_support_pct = sr["pivot_support_pct"]
@@ -651,11 +650,24 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
     asset_ids = [r[0] for r in s.query(Asset.id).all()]
     total = len(asset_ids)
     errors = []
+
+    # Cargar configs una sola vez para todos los snapshots
+    dd_cfg     = _get_drawdown_config()
+    regime_cfg = _get_regime_config()
+    vol_cfg    = _get_volatility_config()
+    sr_cfg     = sr_service._get_sr_config()
+
     for i, aid in enumerate(asset_ids):
         if progress_cb:
             progress_cb(i + 1, total)
         try:
-            compute_and_save_snapshot(aid)
+            compute_and_save_snapshot(
+                aid,
+                _dd_cfg=dd_cfg,
+                _regime_cfg=regime_cfg,
+                _vol_cfg=vol_cfg,
+                _sr_cfg=sr_cfg,
+            )
         except Exception as exc:
             logger.warning("Error snapshot activo id=%d: %s", aid, exc)
             errors.append(aid)
