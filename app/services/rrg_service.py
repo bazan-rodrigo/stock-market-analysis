@@ -37,10 +37,15 @@ def _normalize_rolling(s: pd.Series, window: int) -> pd.Series:
 _MAX_TRAIL = 30   # máximo de semanas que se almacenan en el store
 
 
-def compute_rrg(asset_ids: list[int], benchmark_id: int, tail_weeks: int = 12) -> dict:
+def compute_rrg(
+    asset_ids: list[int], benchmark_id: int, tail_weeks: int = 12
+) -> tuple[dict, list[dict]]:
     """
     Calcula RS-Ratio y RS-Momentum para cada activo relativo al benchmark.
-    Retorna dict {asset_id: {ticker, name, trail: [{ratio, momentum, date}]}}
+
+    Retorna (data, warnings):
+      data:     {asset_id: {ticker, name, trail: [{ratio, momentum, date}]}}
+      warnings: [{"id": int, "ticker": str, "reason": str}]
     """
     s = get_session()
     all_ids = list(set(list(asset_ids) + [benchmark_id]))
@@ -48,21 +53,30 @@ def compute_rrg(asset_ids: list[int], benchmark_id: int, tail_weeks: int = 12) -
 
     bench_weekly = _load_weekly(benchmark_id)
     if bench_weekly.empty:
-        return {}
+        return {}, []
 
     min_bars = _NORM_WINDOW + tail_weeks + _EMA_PERIOD
 
-    result = {}
+    result   = {}
+    warnings = []
     for aid in asset_ids:
         if aid == benchmark_id:
             continue
+        asset_obj = assets.get(aid)
+        ticker    = asset_obj.ticker if asset_obj else f"id={aid}"
         try:
             asset_weekly = _load_weekly(aid)
             if asset_weekly.empty:
+                warnings.append({"id": aid, "ticker": ticker, "reason": "sin precios disponibles"})
                 continue
 
             df = pd.DataFrame({"asset": asset_weekly, "bench": bench_weekly}).dropna()
             if len(df) < min_bars:
+                warnings.append({
+                    "id":     aid,
+                    "ticker": ticker,
+                    "reason": f"historial insuficiente ({len(df)} sem., mín. {min_bars})",
+                })
                 logger.debug("RRG: datos insuficientes para id=%d (%d semanas, mín %d)", aid, len(df), min_bars)
                 continue
 
@@ -74,14 +88,18 @@ def compute_rrg(asset_ids: list[int], benchmark_id: int, tail_weeks: int = 12) -
 
             combined = pd.DataFrame({"ratio": rs_ratio, "momentum": rs_momentum}).dropna()
             if len(combined) < tail_weeks:
+                warnings.append({
+                    "id":     aid,
+                    "ticker": ticker,
+                    "reason": "datos normalizados insuficientes tras el cálculo",
+                })
                 continue
 
-            trail     = combined.tail(tail_weeks)
-            asset_obj = assets.get(aid)
+            trail = combined.tail(tail_weeks)
 
             result[aid] = {
-                "ticker": asset_obj.ticker if asset_obj else str(aid),
-                "name":   asset_obj.name   if asset_obj else str(aid),
+                "ticker": ticker,
+                "name":   asset_obj.name if asset_obj else ticker,
                 "trail": [
                     {
                         "ratio":    round(float(row["ratio"]),    3),
@@ -92,9 +110,10 @@ def compute_rrg(asset_ids: list[int], benchmark_id: int, tail_weeks: int = 12) -
                 ],
             }
         except Exception as exc:
+            warnings.append({"id": aid, "ticker": ticker, "reason": f"error inesperado — {exc}"})
             logger.warning("RRG: error activo id=%d: %s", aid, exc)
 
-    return result
+    return result, warnings
 
 
 def get_all_assets_options() -> list[dict]:

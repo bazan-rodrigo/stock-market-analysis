@@ -1,3 +1,4 @@
+import logging
 import math
 
 import plotly.graph_objects as go
@@ -6,6 +7,8 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 import app.services.rrg_service as rrg_svc
+
+logger = logging.getLogger(__name__)
 
 _PALETTE = [
     "#00e676", "#40c4ff", "#ff6d00", "#ea80fc", "#ffff00",
@@ -78,36 +81,47 @@ def manage_assets(add_clicks, clear_clicks, remove_clicks, new_id, current):
     Output("rrg-load-trigger",   "children"),
     Output("rrg-alert",          "children"),
     Output("rrg-alert",          "is_open"),
+    Output("rrg-alert",          "color"),
     Input("rrg-selected-assets", "data"),
     Input("rrg-benchmark-select", "value"),
 )
 def compute_data(asset_ids, benchmark_id):
-    if not benchmark_id:
-        return None, None, "Seleccioná un benchmark para comenzar.", True
+    try:
+        if not benchmark_id:
+            return None, None, "Seleccioná un benchmark para comenzar.", True, "info"
 
-    if not asset_ids:
-        return None, None, "", False
+        if not asset_ids:
+            return None, None, "", False, "info"
 
-    # Siempre computamos con el trail máximo; el slider sólo recorta
-    data = rrg_svc.compute_rrg(asset_ids, benchmark_id, tail_weeks=rrg_svc._MAX_TRAIL)
+        data, warnings = rrg_svc.compute_rrg(asset_ids, benchmark_id, tail_weeks=rrg_svc._MAX_TRAIL)
 
-    skipped = len(asset_ids) - len(data)
-    alert_msg = (
-        f"{skipped} activo(s) omitido(s) por datos insuficientes "
-        f"(mínimo ~{52 + rrg_svc._MAX_TRAIL} semanas)."
-        if skipped else ""
-    )
+        skipped_labels = {str(w["id"]): w["ticker"] for w in warnings}
 
-    if not data:
-        return None, None, alert_msg or "Sin datos.", True
+        if warnings:
+            items = [html.Li(f"{w['ticker']}: {w['reason']}") for w in warnings]
+            alert_msg = html.Div([
+                html.Strong(f"{len(warnings)} activo(s) omitido(s):"),
+                html.Ul(items, style={"marginBottom": 0, "paddingLeft": "1.2rem", "marginTop": "4px"}),
+            ])
+            alert_color = "warning"
+        else:
+            alert_msg = ""
+            alert_color = "info"
 
-    # Guardar junto al benchmark_id para que render_figure pueda armar uirevision
-    payload = {
-        "benchmark_id": benchmark_id,
-        "asset_ids": asset_ids,
-        "data": {str(k): v for k, v in data.items()},
-    }
-    return payload, None, alert_msg, bool(skipped)
+        if not data:
+            return None, None, alert_msg or "Sin datos para mostrar.", True, "warning" if warnings else "danger"
+
+        payload = {
+            "benchmark_id":   benchmark_id,
+            "asset_ids":      asset_ids,
+            "data":           {str(k): v for k, v in data.items()},
+            "skipped_labels": skipped_labels,
+        }
+        return payload, None, alert_msg, bool(warnings), alert_color
+
+    except Exception as exc:
+        logger.exception("RRG compute_data: error inesperado")
+        return None, None, f"Error inesperado al calcular RRG: {exc}", True, "danger"
 
 
 # ── Render rápido: Store + slider → figura (sin BD) ──────────────────────────
@@ -126,9 +140,10 @@ def render_figure(payload, tail_weeks):
         fig.update_layout(uirevision="empty")
         return fig, html.Div()
 
-    benchmark_id = payload["benchmark_id"]
-    asset_ids    = payload["asset_ids"]
-    raw_data     = payload["data"]
+    benchmark_id   = payload["benchmark_id"]
+    asset_ids      = payload["asset_ids"]
+    raw_data       = payload["data"]
+    skipped_labels = payload.get("skipped_labels", {})
 
     # Recortar trail al valor del slider
     data = {}
@@ -143,7 +158,7 @@ def render_figure(payload, tail_weeks):
     uirev = f"{benchmark_id}_{sorted(asset_ids)}_{tail_weeks}"
 
     fig   = _build_figure(data, uirev)
-    table = _build_table(asset_ids, raw_data)
+    table = _build_table(asset_ids, raw_data, skipped_labels)
     return fig, table
 
 
@@ -298,17 +313,23 @@ def _apply_layout(fig: go.Figure, x_range: list, y_range: list, uirevision: str 
 
 
 # ── Helpers de tabla ──────────────────────────────────────────────────────────
-def _build_table(asset_ids: list, raw_data: dict) -> html.Div:
+def _build_table(asset_ids: list, raw_data: dict, skipped_labels: dict = None) -> html.Div:
+    skipped_labels = skipped_labels or {}
     rows = []
     for i, aid in enumerate(asset_ids):
-        color = _PALETTE[i % len(_PALETTE)]
-        info  = raw_data.get(str(aid)) or raw_data.get(aid)
-        ticker = info["ticker"] if info else str(aid)
-        name   = info["name"]   if info else "—"
-        trail  = info["trail"]  if info else []
+        color   = _PALETTE[i % len(_PALETTE)]
+        info    = raw_data.get(str(aid)) or raw_data.get(aid)
+        skipped = info is None
+        ticker  = info["ticker"] if info else skipped_labels.get(str(aid), str(aid))
+        name    = info["name"]   if info else "—"
+        trail   = info["trail"]  if info else []
         ratio    = f"{trail[-1]['ratio']:.2f}"    if trail else "—"
         momentum = f"{trail[-1]['momentum']:.2f}" if trail else "—"
         date_lbl = trail[-1]["date"]               if trail else "—"
+
+        row_style = {"borderBottom": "1px solid #1f2937"}
+        if skipped:
+            row_style["opacity"] = "0.45"
 
         rows.append(html.Tr([
             html.Td(html.Div(style={
@@ -328,7 +349,7 @@ def _build_table(asset_ids: list, raw_data: dict) -> html.Div:
                            color="link", size="sm",
                            style={"color": "#ef5350", "padding": "0 4px", "lineHeight": 1}),
             ),
-        ], style={"borderBottom": "1px solid #1f2937"}))
+        ], style=row_style))
 
     if not rows:
         return html.Div()
