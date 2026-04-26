@@ -179,7 +179,7 @@ def handle_remove_divisor(n_cancel, n_confirm, divisor_id):
         CurrencyConversionDivisor.id == divisor_id
     ).first()
     if div:
-        svc.delete_synthetics_for_asset(div.divisor_asset_id)
+        svc.delete_synthetics_for_asset(div.divisor_asset_id, role="denominator")
     svc.remove_divisor(divisor_id)
     return False, None, _build_divisors_table(), _build_stats(), False, "Eliminar"
 

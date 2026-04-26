@@ -10,7 +10,7 @@ import app.services.reference_service as ref_svc
 
 def _post_save_sync(asset_id: int, new_currency_id: int | None, old_currency_id: int | None) -> None:
     if old_currency_id is not None and old_currency_id != new_currency_id:
-        conversion_svc.delete_synthetics_for_asset(asset_id)
+        conversion_svc.delete_synthetics_for_asset(asset_id, role="numerator")
     conversion_svc.sync_for_asset(asset_id)
 
 

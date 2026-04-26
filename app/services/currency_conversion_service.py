@@ -172,48 +172,36 @@ def _ensure_synthetic(base: Asset, div_asset: Asset, calc_src_id: int) -> tuple[
     return s.query(Asset).filter(Asset.ticker == ticker).first(), True
 
 
-def delete_synthetics_for_asset(asset_id: int) -> int:
+def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
     """
-    Elimina los sintéticos de conversión donde asset_id es componente (base o divisor).
+    Elimina sintéticos ratio donde asset_id aparece como componente.
+
+    role:
+      'denominator' → solo sintéticos donde este activo es el divisor
+                       (usar al eliminar un config de divisor)
+      'numerator'   → solo sintéticos donde este activo es la base
+                       (usar al eliminar/cambiar moneda de un activo base)
+      'any'         → ambos roles (usar al eliminar el activo completamente)
+
     Debe llamarse ANTES de eliminar el activo (FK RESTRICT en SyntheticComponent).
     Retorna la cantidad de sintéticos eliminados.
     """
-    s               = get_session()
-    all_divisor_ids = {d.divisor_asset_id for d in get_divisors()}
-    configured_curs = {d.currency_id      for d in get_divisors()}
+    s = get_session()
 
-    comp_rows = (s.query(SyntheticComponent)
-                  .filter(SyntheticComponent.asset_id == asset_id)
+    q = s.query(SyntheticComponent).filter(SyntheticComponent.asset_id == asset_id)
+    if role != "any":
+        q = q.filter(SyntheticComponent.role == role)
+
+    formula_ids = {c.formula_id for c in q.all()}
+    if not formula_ids:
+        return 0
+
+    formulas = (s.query(SyntheticFormula)
+                  .filter(SyntheticFormula.id.in_(formula_ids),
+                          SyntheticFormula.formula_type == "ratio")
                   .all())
 
-    to_delete: set[int] = set()
-    for comp in comp_rows:
-        formula = (s.query(SyntheticFormula)
-                    .filter(SyntheticFormula.id == comp.formula_id,
-                            SyntheticFormula.formula_type == "ratio")
-                    .first())
-        if not formula:
-            continue
-
-        all_comps = (s.query(SyntheticComponent)
-                      .filter(SyntheticComponent.formula_id == formula.id)
-                      .all())
-        num_ids = {c.asset_id for c in all_comps if c.role == "numerator"}
-        den_ids = {c.asset_id for c in all_comps if c.role == "denominator"}
-
-        # Es sintético de conversión si el denominador es un divisor conocido
-        # o el numerador tiene una moneda configurada
-        is_conv = bool(den_ids & all_divisor_ids)
-        if not is_conv and configured_curs:
-            for nid in num_ids:
-                a = s.query(Asset).filter(Asset.id == nid).first()
-                if a and a.currency_id in configured_curs:
-                    is_conv = True
-                    break
-
-        if is_conv:
-            to_delete.add(formula.asset_id)
-
+    to_delete = {f.asset_id for f in formulas}
     count = 0
     for aid in to_delete:
         syn = s.query(Asset).filter(Asset.id == aid).first()
