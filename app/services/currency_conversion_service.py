@@ -46,10 +46,11 @@ def get_divisors(currency_id: int | None = None) -> list[CurrencyConversionDivis
     return q.all()
 
 
-def get_base_assets_for_currency(currency_id: int) -> list[Asset]:
+def get_base_assets_for_currency(currency_id: int, cal_id: int | None = None) -> list[Asset]:
     """Activos con la moneda dada que no son sintéticos (fuente ≠ Calculado)."""
-    s      = get_session()
-    cal_id = _calculado_source_id()
+    s = get_session()
+    if cal_id is None:
+        cal_id = _calculado_source_id()
     q = s.query(Asset).filter(Asset.currency_id == currency_id)
     if cal_id:
         q = q.filter(Asset.price_source_id != cal_id)
@@ -62,7 +63,8 @@ def get_stats() -> list[dict]:
     if not all_divisors:
         return []
 
-    # Agrupar por moneda
+    cal_id = _calculado_source_id()  # una sola vez para todas las monedas
+
     by_currency: dict = {}
     for d in all_divisors:
         by_currency.setdefault(d.currency, []).append(d)
@@ -70,7 +72,7 @@ def get_stats() -> list[dict]:
     s = get_session()
     result = []
     for currency, divisors in by_currency.items():
-        base_assets = get_base_assets_for_currency(currency.id)
+        base_assets = get_base_assets_for_currency(currency.id, cal_id=cal_id)
         pairs = [
             (b, d) for b in base_assets for d in divisors
             if b.id != d.divisor_asset_id
@@ -117,20 +119,15 @@ def remove_divisor(divisor_id: int) -> None:
 def count_synthetics_for_divisor(divisor_asset_id: int) -> int:
     """Cuenta sintéticos donde divisor_asset_id es el denominador."""
     s = get_session()
-    formula_ids = [
-        row[0] for row in (
-            s.query(SyntheticComponent.formula_id)
-             .filter(SyntheticComponent.asset_id == divisor_asset_id,
-                     SyntheticComponent.role == "denominator")
-             .all()
-        )
-    ]
-    if not formula_ids:
-        return 0
-    return (s.query(SyntheticFormula)
-              .filter(SyntheticFormula.id.in_(formula_ids),
-                      SyntheticFormula.formula_type == "ratio")
-              .count())
+    return (
+        s.query(SyntheticFormula)
+         .join(SyntheticComponent,
+               SyntheticComponent.formula_id == SyntheticFormula.id)
+         .filter(SyntheticComponent.asset_id == divisor_asset_id,
+                 SyntheticComponent.role == "denominator",
+                 SyntheticFormula.formula_type == "ratio")
+         .count()
+    )
 
 
 # ── creación de sintéticos ────────────────────────────────────────────────────
@@ -169,7 +166,7 @@ def _ensure_synthetic(base: Asset, div_asset: Asset, calc_src_id: int) -> tuple[
     s.commit()
 
     logger.info("Sintético creado: %s = %s / %s", ticker, base.ticker, div_asset.ticker)
-    return s.query(Asset).filter(Asset.ticker == ticker).first(), True
+    return syn, True
 
 
 def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
@@ -188,30 +185,33 @@ def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
     """
     s = get_session()
 
-    q = s.query(SyntheticComponent).filter(SyntheticComponent.asset_id == asset_id)
+    # Seleccionar solo formula_id — evita cargar objetos completos
+    q = s.query(SyntheticComponent.formula_id).filter(
+        SyntheticComponent.asset_id == asset_id
+    )
     if role != "any":
         q = q.filter(SyntheticComponent.role == role)
-
-    formula_ids = {c.formula_id for c in q.all()}
+    formula_ids = {row[0] for row in q.all()}
     if not formula_ids:
         return 0
 
-    formulas = (s.query(SyntheticFormula)
-                  .filter(SyntheticFormula.id.in_(formula_ids),
-                          SyntheticFormula.formula_type == "ratio")
-                  .all())
+    # Seleccionar solo asset_id de las fórmulas ratio
+    to_delete = {
+        row[0] for row in
+        s.query(SyntheticFormula.asset_id)
+         .filter(SyntheticFormula.id.in_(formula_ids),
+                 SyntheticFormula.formula_type == "ratio")
+         .all()
+    }
+    if not to_delete:
+        return 0
 
-    to_delete = {f.asset_id for f in formulas}
-    count = 0
-    for aid in to_delete:
-        syn = s.query(Asset).filter(Asset.id == aid).first()
-        if syn:
-            s.delete(syn)
-            count += 1
-
-    if count:
-        s.commit()
-    return count
+    # Bulk load + bulk delete (1 query en lugar de N)
+    synthetics = s.query(Asset).filter(Asset.id.in_(to_delete)).all()
+    for syn in synthetics:
+        s.delete(syn)
+    s.commit()
+    return len(synthetics)
 
 
 def sync_for_asset(asset_id: int) -> dict:
@@ -275,7 +275,7 @@ def sync_all(progress_cb=None) -> dict:
 
     pairs = []
     for currency_id, divisors in by_currency.items():
-        for base in get_base_assets_for_currency(currency_id):
+        for base in get_base_assets_for_currency(currency_id, cal_id=cal_id):
             for div in divisors:
                 if base.id != div.divisor_asset_id:
                     pairs.append((base, div))
