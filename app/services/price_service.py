@@ -246,56 +246,61 @@ def update_all_active_assets(progress_cb=None) -> dict:
         [(a, yf_last_dates[a.id]) for a in yf_assets]
     )
 
+    # Colectar (id, ticker) antes del loop: los commits expiran los objetos ORM
+    # y acceder a sus atributos después podría fallar si fueron eliminados en otro thread.
+    yf_pairs        = [(a.id, a.ticker) for a in yf_assets]
+    other_pairs     = [(a.id, a.ticker) for a in other_regular + synthetic]
+
     done = 0
-    for asset in yf_assets:
+    for asset_id, asset_ticker in yf_pairs:
         done += 1
         if progress_cb:
             progress_cb(done, total)
-        if asset.id in prefetched:
+        if asset_id in prefetched:
             # Usar datos del batch
             try:
-                df = prefetched[asset.id]
+                df = prefetched[asset_id]
                 if df.empty:
                     raise ValueError(
-                        f"No se encontraron datos de precio para '{asset.ticker}'. "
+                        f"No se encontraron datos de precio para '{asset_ticker}'. "
                         "Verificá que el ticker sea válido en Yahoo Finance."
                     )
-                last_date = yf_last_dates[asset.id]
+                last_date = yf_last_dates[asset_id]
                 if last_date is not None:
-                    _delete_from_date(asset.id, last_date, s)
-                count = _upsert_prices(asset.id, df, s)
-                _save_update_log(asset.id, success=True, error=None, session=s)
+                    _delete_from_date(asset_id, last_date, s)
+                count = _upsert_prices(asset_id, df, s)
+                _save_update_log(asset_id, success=True, error=None, session=s)
                 s.commit()
-                logger.info("Activo %s: %d filas importadas (batch)", asset.ticker, count)
+                logger.info("Activo %s: %d filas importadas (batch)", asset_ticker, count)
                 try:
-                    compute_and_save_snapshot(asset.id)
+                    compute_and_save_snapshot(asset_id)
                 except Exception as snap_exc:
-                    logger.warning("Error snapshot %s: %s", asset.ticker, snap_exc)
+                    logger.warning("Error snapshot %s: %s", asset_ticker, snap_exc)
                 summary["success"] += 1
             except Exception as exc:
                 s.rollback()
                 error_msg = str(exc)
-                logger.error("Error actualizando precios de %s: %s", asset.ticker, error_msg)
-                _save_update_log(asset.id, success=False, error=error_msg, session=s)
+                logger.error("Error actualizando precios de %s: %s", asset_ticker, error_msg)
+                _save_update_log(asset_id, success=False, error=error_msg, session=s)
                 s.commit()
-                summary["errors"].append({"ticker": asset.ticker, "error": error_msg})
+                summary["errors"].append({"ticker": asset_ticker, "error": error_msg})
         else:
             # Fallback a descarga individual (batch falló para este ticker)
             try:
-                update_asset_prices(asset.id)
+                update_asset_prices(asset_id)
                 summary["success"] += 1
             except Exception as exc:
-                summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
+                summary["errors"].append({"ticker": asset_ticker, "error": str(exc)})
 
-    for asset in other_regular + synthetic:
+    for asset_id, asset_ticker in other_pairs:
         done += 1
         if progress_cb:
             progress_cb(done, total)
         try:
-            update_asset_prices(asset.id)
+            update_asset_prices(asset_id)
             summary["success"] += 1
         except Exception as exc:
-            summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
+            summary["errors"].append({"ticker": asset_ticker, "error": str(exc)})
 
     logger.info(
         "Actualización completa: %d/%d exitosos, %d errores",
