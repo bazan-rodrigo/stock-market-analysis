@@ -3,7 +3,7 @@ Servicio CRUD para todas las tablas de referencia.
 Cada función de borrado valida referencias antes de ejecutar.
 """
 import logging
-from typing import Any, Type
+from typing import Type
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session

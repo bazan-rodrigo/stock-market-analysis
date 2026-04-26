@@ -1,4 +1,4 @@
-from dash import Input, Output, State, callback, no_update
+from dash import Input, Output, callback
 from datetime import datetime
 
 import app.services.reference_service as ref_svc
@@ -153,7 +153,6 @@ _scr_state = {"running": False, "current": 0, "total": 0, "msg": "", "error": No
     prevent_initial_call=True,
 )
 def recompute_snapshots(_):
-    import threading
     _scr_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
 
     def _run():

@@ -1,6 +1,6 @@
 import threading
 
-from dash import Input, Output, State, callback, no_update
+from dash import Input, Output, callback, no_update
 
 _state = {"running": False, "result": None, "error": None}
 

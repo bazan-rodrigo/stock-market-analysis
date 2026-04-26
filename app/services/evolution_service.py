@@ -1,4 +1,4 @@
-from datetime import date as _date, timedelta
+from datetime import date as _date
 
 _PALETTE = [
     "#60a5fa", "#34d399", "#f87171", "#fbbf24", "#a78bfa",

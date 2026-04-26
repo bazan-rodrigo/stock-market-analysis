@@ -11,12 +11,12 @@ _state = {"running": False, "current": 0, "total": 0, "results": None, "error": 
 def _logs_to_rows(logs) -> list[dict]:
     return [
         {
-            "ticker": l.ticker,
-            "status": l.status,
-            "detail": l.detail or "",
-            "attempted_at": str(l.attempted_at)[:19],
+            "ticker": log.ticker,
+            "status": log.status,
+            "detail": log.detail or "",
+            "attempted_at": str(log.attempted_at)[:19],
         }
-        for l in logs
+        for log in logs
     ]
 
 

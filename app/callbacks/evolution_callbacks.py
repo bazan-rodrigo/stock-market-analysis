@@ -1,4 +1,4 @@
-from datetime import date as _date, timedelta
+from datetime import date as _date
 
 from dash import ALL, Input, Output, State, callback, ctx, html, no_update
 import dash_bootstrap_components as dbc

@@ -23,13 +23,13 @@ def _error_msg(ticker: str, exc: Exception):
 def _logs_to_rows(logs) -> list[dict]:
     return [
         {
-            "ticker": l.asset.ticker,
-            "asset_name": l.asset.name,
-            "last_attempt_at": str(l.last_attempt_at)[:19],
-            "result": "Éxito" if l.success else "Error",
-            "error_detail": l.error_detail or "",
+            "ticker": log.asset.ticker,
+            "asset_name": log.asset.name,
+            "last_attempt_at": str(log.last_attempt_at)[:19],
+            "result": "Éxito" if log.success else "Error",
+            "error_detail": log.error_detail or "",
         }
-        for l in logs
+        for log in logs
     ]
 
 
@@ -144,7 +144,6 @@ def update_one(_, sel_rows, data):
     prevent_initial_call=True,
 )
 def retry_failed(_):
-    from app.services.asset_service import get_asset_by_ticker
     logs = svc.get_all_assets_with_log()
     failed = [r for r in logs if r["result"] == "Error"]
     if not failed:

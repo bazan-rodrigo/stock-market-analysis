@@ -27,7 +27,6 @@ def load_events(_):
     result = []
     for ev in rows:
         if ev.scope == "country" and ev.country_id:
-            from app.models import MarketEvent
             from app.database import get_session
             from app.models import Country
             country = get_session().query(Country).filter_by(id=ev.country_id).first()

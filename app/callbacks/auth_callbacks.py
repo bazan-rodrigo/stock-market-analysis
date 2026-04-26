@@ -1,5 +1,5 @@
 from dash import Input, Output, State, callback, no_update
-from flask_login import login_user, current_user
+from flask_login import login_user
 
 from app.database import get_session
 from app.models import User

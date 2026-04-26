@@ -11,9 +11,8 @@ Flujo:
   3. Cambiar params/toggles → clientside _JS_IND_UPDATE → recalcula y renderiza
   4. Cambiar tipo/freq/escala/volumen → clientside individuales
 """
-from dash import Input, Output, State, callback, clientside_callback, no_update, callback_context
+from dash import Input, Output, State, callback, clientside_callback, no_update
 
-import pandas as pd
 
 from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df
@@ -156,7 +155,7 @@ def load_chart_data(asset_id, current_data):
     events = event_svc.get_events_for_asset(int(asset_id), country_id)
 
     import json as _json
-    from app.models import RegimeConfig, DrawdownConfig
+    from app.models import RegimeConfig
     regime_cfg = db.query(RegimeConfig).filter(RegimeConfig.id == 1).first()
     regime_ema_periods = {
         "D": regime_cfg.ema_period_d if regime_cfg else 200,

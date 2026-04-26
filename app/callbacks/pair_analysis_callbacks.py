@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date as _date
 
 import numpy as np
-from dash import Input, Output, State, callback, clientside_callback, html, no_update
+from dash import Input, Output, State, callback, clientside_callback, no_update
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 

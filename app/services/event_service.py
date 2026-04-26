@@ -7,7 +7,7 @@ from datetime import date
 from sqlalchemy import or_
 
 from app.database import get_session
-from app.models import Asset, MarketEvent
+from app.models import MarketEvent
 
 
 def get_all_events() -> list[MarketEvent]:

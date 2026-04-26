@@ -1,8 +1,7 @@
-from dash import Input, Output, callback, html, no_update
+from dash import Input, Output, callback, no_update
 import dash_bootstrap_components as dbc
 
 import app.services.scheduler_service as svc
-from app.config import Config
 
 
 # ── Refresco de estado ────────────────────────────────────────────────────────

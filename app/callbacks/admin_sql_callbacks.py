@@ -10,7 +10,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 
-from dash import Input, Output, State, callback, dash_table, dcc, html, no_update
+from dash import Input, Output, State, callback, dash_table, dcc, no_update
 import dash_bootstrap_components as dbc
 from sqlalchemy import text
 

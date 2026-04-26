@@ -1,4 +1,4 @@
-from dash import Input, Output, State, callback, no_update
+from dash import Input, Output, State, callback
 
 from app.database import get_session
 from app.models import VolatilityConfig
