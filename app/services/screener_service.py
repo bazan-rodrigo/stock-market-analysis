@@ -10,6 +10,8 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
+from sqlalchemy.orm import joinedload
+
 from app.database import get_session
 from app.models import Asset, DrawdownConfig, Price, RegimeConfig, ScreenerSnapshot, VolatilityConfig
 from app.services import sr_service
@@ -705,6 +707,13 @@ def get_screener_data(
     q = (
         s.query(Asset, ScreenerSnapshot)
         .join(ScreenerSnapshot, Asset.id == ScreenerSnapshot.asset_id)
+        .options(
+            joinedload(Asset.sector),
+            joinedload(Asset.industry),
+            joinedload(Asset.country),
+            joinedload(Asset.instrument_type),
+            joinedload(Asset.market),
+        )
     )
 
     if country_ids:

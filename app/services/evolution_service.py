@@ -39,7 +39,7 @@ def get_related_assets(asset_id: int) -> dict:
         result["component_ids"] = [c.asset_id for c in formula.components]
 
     direct = [r[0] for r in s.query(Asset.id).filter(Asset.benchmark_id == asset_id).all()]
-    market_ids = [m.id for m in s.query(Market).filter(Market.benchmark_id == asset_id).all()]
+    market_ids = [r[0] for r in s.query(Market.id).filter(Market.benchmark_id == asset_id).all()]
     via_market = []
     if market_ids:
         via_market = [r[0] for r in s.query(Asset.id).filter(Asset.market_id.in_(market_ids)).all()]
@@ -80,7 +80,7 @@ def get_assets_for_benchmark(benchmark_id: int) -> list[dict]:
     from app.models import Asset, Market
     s = get_session()
     direct     = s.query(Asset).filter(Asset.benchmark_id == benchmark_id).all()
-    market_ids = [m.id for m in s.query(Market).filter(Market.benchmark_id == benchmark_id).all()]
+    market_ids = [r[0] for r in s.query(Market.id).filter(Market.benchmark_id == benchmark_id).all()]
     via_market = s.query(Asset).filter(Asset.market_id.in_(market_ids)).all() if market_ids else []
     merged = {a.id: a for a in direct + via_market}
     return [{"asset_id": a.id, "ticker": a.ticker, "name": a.name or a.ticker}
@@ -125,15 +125,20 @@ def get_events_for_assets(asset_ids: list) -> list[dict]:
     if not asset_ids:
         return []
     s = get_session()
-    assets = [s.get(Asset, aid) for aid in asset_ids]
-    country_ids = list({a.country_id for a in assets if a and a.country_id})
 
-    conditions = [MarketEvent.scope == "global"]
-    for aid in asset_ids:
-        conditions.append(MarketEvent.asset_id == aid)
-    for cid in country_ids:
+    # 1 query para obtener country_ids (en vez de N s.get por asset)
+    country_ids = list({
+        r[0] for r in s.query(Asset.country_id)
+                       .filter(Asset.id.in_(asset_ids), Asset.country_id.isnot(None))
+                       .all()
+    })
+
+    # IN clause en vez de N condiciones OR
+    conditions = [MarketEvent.scope == "global",
+                  MarketEvent.asset_id.in_(asset_ids)]
+    if country_ids:
         conditions.append(
-            (MarketEvent.scope == "country") & (MarketEvent.country_id == cid)
+            (MarketEvent.scope == "country") & MarketEvent.country_id.in_(country_ids)
         )
 
     events = (s.query(MarketEvent)
@@ -165,22 +170,25 @@ def get_normalized_prices(
         return {}
 
     s = get_session()
-    price_maps = {}
-    asset_info = {}
 
-    for aid in asset_ids:
-        asset = s.get(Asset, aid)
-        if not asset:
-            continue
-        asset_info[aid] = (asset.ticker, asset.name or asset.ticker)
-        prices = (
-            s.query(Price)
-            .filter(Price.asset_id == aid, Price.close.isnot(None))
-            .order_by(Price.date)
-            .all()
-        )
-        if prices:
-            price_maps[aid] = {p.date: p.close for p in prices}
+    # 1 query para todos los assets
+    asset_rows = (
+        s.query(Asset.id, Asset.ticker, Asset.name)
+        .filter(Asset.id.in_(asset_ids))
+        .all()
+    )
+    asset_info = {r.id: (r.ticker, r.name or r.ticker) for r in asset_rows}
+
+    # 1 query para todos los precios
+    price_rows = (
+        s.query(Price.asset_id, Price.date, Price.close)
+        .filter(Price.asset_id.in_(asset_ids), Price.close.isnot(None))
+        .order_by(Price.asset_id, Price.date)
+        .all()
+    )
+    price_maps = {}
+    for r in price_rows:
+        price_maps.setdefault(r.asset_id, {})[r.date] = r.close
 
     if not price_maps:
         return {}
