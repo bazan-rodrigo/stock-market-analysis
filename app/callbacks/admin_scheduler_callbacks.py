@@ -10,6 +10,8 @@ import app.services.scheduler_service as svc
     Output("scheduler-status-badge",  "children"),
     Output("scheduler-next-run",      "children"),
     Output("scheduler-current-time",  "children"),
+    Output("scheduler-input-hour",    "value"),
+    Output("scheduler-input-minute",  "value"),
     Input("scheduler-interval",       "n_intervals"),
     Input("scheduler-btn-start",      "n_clicks"),
     Input("scheduler-btn-stop",       "n_clicks"),
@@ -18,13 +20,11 @@ import app.services.scheduler_service as svc
 )
 def refresh_status(*_):
     st = svc.get_status()
-    if st["running"]:
-        badge = dbc.Badge("Activo", color="success", pill=True)
-        time_str = f"{st['hour']}:{st['minute'].zfill(2) if st['minute'] else '00'} UTC"
-    else:
-        badge = dbc.Badge("Detenido", color="danger", pill=True)
-        time_str = "—"
-    return badge, st["next_run"] or "—", time_str
+    badge = dbc.Badge("Activo", color="success", pill=True) if st["running"] \
+        else dbc.Badge("Detenido", color="danger", pill=True)
+    time_str = f"{st['hour']:02d}:{st['minute']:02d} UTC" \
+        if st["hour"] is not None else "—"
+    return badge, st["next_run"] or "—", time_str, st["hour"], st["minute"]
 
 
 # ── Iniciar ───────────────────────────────────────────────────────────────────

@@ -311,11 +311,8 @@ def create_app():
     # -----------------------------------------------------------------
     # 11. APScheduler
     # -----------------------------------------------------------------
-    from app.services.scheduler_service import start_scheduler
-    try:
-        start_scheduler()
-    except Exception as exc:
-        logger.warning("No se pudo iniciar el scheduler: %s", exc)
+    from app.services.scheduler_service import start_if_enabled
+    start_if_enabled()
 
     logger.info("Aplicación inicializada correctamente")
     return server, dash_app

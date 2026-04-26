@@ -40,9 +40,6 @@ class Config:
         f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
     )
 
-    SCHEDULER_HOUR: int = int(_get("scheduler_hour", "18"))
-    SCHEDULER_MINUTE: int = int(_get("scheduler_minute", "0"))
-
     LOG_LEVEL: str = _get("log_level", "INFO")
     LOG_FILE: str = _get("log_file", str(BASE_DIR / "logs" / "app.log"))
 

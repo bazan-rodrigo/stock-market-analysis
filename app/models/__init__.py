@@ -18,6 +18,7 @@ from app.models.screener_snapshot import ScreenerSnapshot
 from app.models.sector import Sector
 from app.models.synthetic_formula import SyntheticComponent, SyntheticFormula
 from app.models.currency_conversion import CurrencyConversionDivisor
+from app.models.scheduler_config import SchedulerConfig
 from app.models.user import User
 
 __all__ = [
@@ -43,4 +44,5 @@ __all__ = [
     "SyntheticFormula",
     "SyntheticComponent",
     "CurrencyConversionDivisor",
+    "SchedulerConfig",
 ]
