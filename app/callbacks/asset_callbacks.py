@@ -2,9 +2,16 @@ import threading
 
 from dash import Input, Output, State, callback, no_update
 
+import app.services.currency_conversion_service as conversion_svc
 import app.services.asset_service as asset_svc
 import app.services.price_service as price_svc
 import app.services.reference_service as ref_svc
+
+
+def _post_save_sync(asset_id: int, new_currency_id: int | None, old_currency_id: int | None) -> None:
+    if old_currency_id is not None and old_currency_id != new_currency_id:
+        conversion_svc.delete_synthetics_for_asset(asset_id)
+    conversion_svc.sync_for_asset(asset_id)
 
 
 def _load_aliases() -> dict:
@@ -335,17 +342,29 @@ def assets_save(
             benchmark_id=_int(benchmark_id),
         )
         if editing_id:
+            old_asset        = asset_svc.get_asset_by_id(editing_id)
+            old_currency_id  = old_asset.currency_id if old_asset else None
             asset_svc.update_asset(editing_id, **kwargs)
+            saved_id = editing_id
             msg = f"{ticker.upper()} actualizado correctamente."
         else:
+            old_currency_id = None
             new_asset = asset_svc.create_asset(**kwargs)
-            # Descargar precios en background
+            saved_id = new_asset.id
             threading.Thread(
                 target=price_svc.update_asset_prices,
                 args=(new_asset.id,),
                 daemon=True,
             ).start()
             msg = f"{ticker.upper()} creado. Descarga de precios iniciada en background."
+
+        # Sintéticos de conversión: limpiar si cambió la moneda, crear si hay divisores configurados
+        new_currency_id = _int(currency_id)
+        threading.Thread(
+            target=_post_save_sync,
+            args=(saved_id, new_currency_id, old_currency_id),
+            daemon=True,
+        ).start()
 
         aliases = _load_aliases()
         return (
@@ -402,6 +421,7 @@ def assets_delete(_, sel_rows, data):
     errors, deleted = [], 0
     for i in sel_rows:
         try:
+            conversion_svc.delete_synthetics_for_asset(data[i]["id"])
             asset_svc.delete_asset(data[i]["id"])
             deleted += 1
         except Exception as exc:

@@ -7,10 +7,10 @@ def build_navbar() -> dbc.Navbar:
     analisis_menu = dbc.DropdownMenu(
         label="Análisis",
         children=[
+            dbc.DropdownMenuItem("Gráfico técnico",    href="/chart"),
             dbc.DropdownMenuItem("Screener",           href="/screener"),
             dbc.DropdownMenuItem("Mapa de Mercado",    href="/market-map"),
             dbc.DropdownMenuItem("Rotación Relativa",  href="/rrg"),
-            dbc.DropdownMenuItem("Gráfico técnico",    href="/chart"),
             dbc.DropdownMenuItem("Evolución",          href="/evolucion"),
             dbc.DropdownMenuItem("Análisis de Pares",  href="/par"),
         ],
@@ -27,6 +27,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Importar activos",   href="/assets/import"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Activos sintéticos", href="/admin/synthetic"),
+                    dbc.DropdownMenuItem("Conversión ARS",    href="/admin/ars-conversion"),
                 ],
                 nav=True, in_navbar=True,
             ),
