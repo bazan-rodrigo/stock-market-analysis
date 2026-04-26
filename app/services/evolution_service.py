@@ -38,6 +38,15 @@ def get_related_assets(asset_id: int) -> dict:
         result["is_synthetic"] = True
         result["component_ids"] = [c.asset_id for c in formula.components]
 
+        # Sintéticos de conversión de moneda (ratio con divisor configurado): no mostrar modal
+        if formula.formula_type == "ratio":
+            from app.models.currency_conversion import CurrencyConversionDivisor
+            den_ids = [c.asset_id for c in formula.components if c.role == "denominator"]
+            if den_ids and s.query(CurrencyConversionDivisor).filter(
+                CurrencyConversionDivisor.divisor_asset_id.in_(den_ids)
+            ).first():
+                result["is_currency_conversion"] = True
+
     direct = [r[0] for r in s.query(Asset.id).filter(Asset.benchmark_id == asset_id).all()]
     market_ids = [r[0] for r in s.query(Market.id).filter(Market.benchmark_id == asset_id).all()]
     via_market = []

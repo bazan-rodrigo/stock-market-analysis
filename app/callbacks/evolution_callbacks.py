@@ -116,7 +116,8 @@ def _add_single_asset(asset_id, series):
     related = svc.get_related_assets(asset_id)
     ticker, name = svc.get_asset_label(asset_id)
 
-    if related["is_synthetic"] or related["is_benchmark"]:
+    if (related["is_synthetic"] and not related.get("is_currency_conversion")) \
+            or related["is_benchmark"]:
         if related["is_synthetic"]:
             rel_ids  = related["component_ids"]
             rel_type = "componentes de la fórmula sintética"
