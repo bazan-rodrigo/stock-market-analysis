@@ -22,12 +22,17 @@ def layout(**kwargs):
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Confirmar eliminación"), close_button=False),
             dbc.ModalBody(id="ars-remove-confirm-body"),
-            dbc.ModalFooter([
-                dbc.Button("Cancelar", id="ars-btn-cancel-remove",
-                           color="secondary", size="sm", className="me-2"),
-                dbc.Button("Eliminar", id="ars-btn-confirm-remove",
-                           color="danger", size="sm"),
-            ]),
+            dbc.ModalFooter(
+                dcc.Loading(
+                    html.Div([
+                        dbc.Button("Cancelar", id="ars-btn-cancel-remove",
+                                   color="secondary", size="sm", className="me-2"),
+                        dbc.Button("Eliminar", id="ars-btn-confirm-remove",
+                                   color="danger", size="sm"),
+                    ]),
+                    type="circle", color="#dc3545",
+                )
+            ),
         ], id="ars-remove-modal", is_open=False, centered=True),
 
         html.H4("Conversión de Monedas — Sintéticos Automáticos", className="mb-2"),
@@ -70,7 +75,10 @@ def layout(**kwargs):
             dbc.Alert(id="ars-add-alert", is_open=False, dismissable=True,
                       className="mb-2 small py-1"),
 
-            html.Div(id="ars-divisors-table"),
+            dcc.Loading(
+                html.Div(id="ars-divisors-table"),
+                type="circle", color="#6c757d",
+            ),
         ]), className="mb-3"),
 
         # ── Sincronización ────────────────────────────────────────────────────

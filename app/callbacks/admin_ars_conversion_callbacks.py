@@ -153,22 +153,24 @@ def open_remove_modal(n_clicks_list):
 
 # ── Eliminar divisor: cancelar / confirmar ────────────────────────────────────
 @callback(
-    Output("ars-remove-modal",      "is_open",  allow_duplicate=True),
-    Output("ars-pending-remove-id", "data",     allow_duplicate=True),
-    Output("ars-divisors-table",    "children", allow_duplicate=True),
-    Output("ars-stats",             "children", allow_duplicate=True),
-    Input("ars-btn-cancel-remove",  "n_clicks"),
-    Input("ars-btn-confirm-remove", "n_clicks"),
-    State("ars-pending-remove-id",  "data"),
+    Output("ars-remove-modal",       "is_open",   allow_duplicate=True),
+    Output("ars-pending-remove-id",  "data",      allow_duplicate=True),
+    Output("ars-divisors-table",     "children",  allow_duplicate=True),
+    Output("ars-stats",              "children",  allow_duplicate=True),
+    Output("ars-btn-confirm-remove", "disabled",  allow_duplicate=True),
+    Output("ars-btn-confirm-remove", "children",  allow_duplicate=True),
+    Input("ars-btn-cancel-remove",   "n_clicks"),
+    Input("ars-btn-confirm-remove",  "n_clicks"),
+    State("ars-pending-remove-id",   "data"),
     prevent_initial_call=True,
 )
-@safe_callback(lambda exc: (False, None, no_update, f"Error: {exc}"))
+@safe_callback(lambda exc: (False, None, no_update, f"Error: {exc}", False, "Eliminar"))
 def handle_remove_divisor(n_cancel, n_confirm, divisor_id):
     if ctx.triggered_id == "ars-btn-cancel-remove":
-        return False, None, no_update, no_update
+        return False, None, no_update, no_update, False, "Eliminar"
 
     if not divisor_id:
-        return False, None, no_update, no_update
+        return False, None, no_update, no_update, False, "Eliminar"
 
     from app.database import get_session
     from app.models.currency_conversion import CurrencyConversionDivisor
@@ -179,7 +181,7 @@ def handle_remove_divisor(n_cancel, n_confirm, divisor_id):
     if div:
         svc.delete_synthetics_for_asset(div.divisor_asset_id)
     svc.remove_divisor(divisor_id)
-    return False, None, _build_divisors_table(), _build_stats()
+    return False, None, _build_divisors_table(), _build_stats(), False, "Eliminar"
 
 
 # ── Iniciar sincronización ────────────────────────────────────────────────────
