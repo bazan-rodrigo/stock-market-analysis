@@ -176,7 +176,7 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
                 formula.formula_type, full)
 
     try:
-        compute_and_save_snapshot(asset_id)
+        compute_and_save_snapshot(asset_id, quick=not full)
     except Exception as exc:
         logger.warning("Error snapshot sintético id=%d: %s", asset_id, exc)
 

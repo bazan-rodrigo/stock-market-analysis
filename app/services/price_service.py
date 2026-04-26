@@ -13,7 +13,13 @@ from sqlalchemy import func
 
 from app.database import get_session
 from app.models import Asset, Price, PriceUpdateLog
-from app.services.screener_service import compute_and_save_snapshot
+from app.services.screener_service import (
+    compute_and_save_snapshot,
+    _get_drawdown_config,
+    _get_regime_config,
+    _get_volatility_config,
+)
+from app.services import sr_service
 from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
@@ -68,11 +74,19 @@ def _save_update_log(asset_id: int, success: bool, error: str | None, session) -
         log.error_detail = error
 
 
-def update_asset_prices(asset_id: int) -> None:
+def update_asset_prices(
+    asset_id: int,
+    *,
+    _dd_cfg=None,
+    _regime_cfg=None,
+    _vol_cfg=None,
+    _sr_cfg=None,
+) -> None:
     """
     Actualiza los precios de un activo.
     Si el activo es sintético (fuente Calculado), delega al synthetic_service.
     Si falla, registra el error en price_update_log y relanza la excepción.
+    Los parámetros _*_cfg permiten reutilizar configs pre-cargadas en llamadas masivas.
     """
     from app.services.synthetic_service import compute_synthetic_prices
 
@@ -105,7 +119,14 @@ def update_asset_prices(asset_id: int) -> None:
 
         # Recalcular snapshot del screener
         try:
-            compute_and_save_snapshot(asset_id)
+            compute_and_save_snapshot(
+                asset_id,
+                _dd_cfg=_dd_cfg,
+                _regime_cfg=_regime_cfg,
+                _vol_cfg=_vol_cfg,
+                _sr_cfg=_sr_cfg,
+                quick=True,
+            )
         except Exception as snap_exc:
             logger.warning(
                 "Error calculando snapshot screener para %s: %s", asset.ticker, snap_exc
@@ -221,6 +242,12 @@ def update_all_active_assets(progress_cb=None) -> dict:
     total     = len(all_assets)
     summary   = {"total": total, "success": 0, "errors": []}
 
+    # Pre-cargar configs de snapshot una sola vez (evita N × 4 queries)
+    _dd_cfg     = _get_drawdown_config()
+    _regime_cfg = _get_regime_config()
+    _vol_cfg    = _get_volatility_config()
+    _sr_cfg     = sr_service._get_sr_config()
+
     # Separar activos Yahoo Finance para batch download
     yf_src = s.query(PriceSource).filter(PriceSource.name == "Yahoo Finance").first()
     yf_src_id = yf_src.id if yf_src else None
@@ -273,7 +300,14 @@ def update_all_active_assets(progress_cb=None) -> dict:
                 s.commit()
                 logger.info("Activo %s: %d filas importadas (batch)", asset_ticker, count)
                 try:
-                    compute_and_save_snapshot(asset_id)
+                    compute_and_save_snapshot(
+                        asset_id,
+                        _dd_cfg=_dd_cfg,
+                        _regime_cfg=_regime_cfg,
+                        _vol_cfg=_vol_cfg,
+                        _sr_cfg=_sr_cfg,
+                        quick=True,
+                    )
                 except Exception as snap_exc:
                     logger.warning("Error snapshot %s: %s", asset_ticker, snap_exc)
                 summary["success"] += 1
@@ -287,7 +321,11 @@ def update_all_active_assets(progress_cb=None) -> dict:
         else:
             # Fallback a descarga individual (batch falló para este ticker)
             try:
-                update_asset_prices(asset_id)
+                update_asset_prices(
+                    asset_id,
+                    _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
+                    _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
+                )
                 summary["success"] += 1
             except Exception as exc:
                 summary["errors"].append({"ticker": asset_ticker, "error": str(exc)})
@@ -297,7 +335,11 @@ def update_all_active_assets(progress_cb=None) -> dict:
         if progress_cb:
             progress_cb(done, total)
         try:
-            update_asset_prices(asset_id)
+            update_asset_prices(
+                asset_id,
+                _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
+                _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
+            )
             summary["success"] += 1
         except Exception as exc:
             summary["errors"].append({"ticker": asset_ticker, "error": str(exc)})

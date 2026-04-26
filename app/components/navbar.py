@@ -27,7 +27,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Importar activos",   href="/assets/import"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Activos sintéticos", href="/admin/synthetic"),
-                    dbc.DropdownMenuItem("Conversión ARS",    href="/admin/ars-conversion"),
+                    dbc.DropdownMenuItem("Activos en Divisa",  href="/admin/ars-conversion"),
                 ],
                 nav=True, in_navbar=True,
             ),

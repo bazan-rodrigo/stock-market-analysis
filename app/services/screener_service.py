@@ -10,6 +10,7 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from app.database import get_session
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Mínimo de filas de precios para calcular métricas
 _MIN_ROWS = 20
+
+# Barras cargadas en modo quick (~4 años, suficiente warmup para EMA mensual + pendiente)
+_QUICK_DAYS = 1500
 
 # Score de tendencia por régimen: -100 a +100
 _REGIME_SCORE: dict[str, int] = {
@@ -462,34 +466,68 @@ def compute_and_save_snapshot(
     _regime_cfg=None,
     _vol_cfg=None,
     _sr_cfg=None,
+    quick: bool = False,
 ) -> None:
+    """
+    Calcula y persiste el snapshot de screener para un activo.
+
+    quick=True: carga solo los últimos _QUICK_DAYS de precios y reutiliza del snapshot
+    previo los campos que requieren historia completa (best_ma, dd_events, dd_max1-3).
+    Si no existe snapshot previo, hace full automáticamente.
+    """
     s = get_session()
-    # Cargar TODOS los precios para drawdown histórico correcto
-    # Solo columnas necesarias: evita instanciar objetos ORM completos
-    rows = (
-        s.query(Price.date, Price.close, Price.high, Price.low)
-        .filter(Price.asset_id == asset_id)
-        .order_by(Price.date.asc())
-        .all()
-    )
+
+    # Cargar snapshot existente siempre: en quick lo necesitamos antes de las queries;
+    # en full lo necesitamos al guardar. Un solo query en ambos casos.
+    snap = s.query(ScreenerSnapshot).filter(ScreenerSnapshot.asset_id == asset_id).first()
+
+    # Sin snap previo completo no hay valores que reutilizar → forzar full
+    if quick and (snap is None or snap.best_sma_d is None):
+        quick = False
+
+    # --- Carga de precios ---
+    if quick:
+        rows = (
+            s.query(Price.date, Price.close, Price.high, Price.low)
+            .filter(Price.asset_id == asset_id)
+            .order_by(Price.date.desc())
+            .limit(_QUICK_DAYS)
+            .all()
+        )
+        rows = list(reversed(rows))
+    else:
+        rows = (
+            s.query(Price.date, Price.close, Price.high, Price.low)
+            .filter(Price.asset_id == asset_id)
+            .order_by(Price.date.asc())
+            .all()
+        )
 
     if len(rows) < _MIN_ROWS:
         return
 
     df = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
 
-    # --- Drawdown desde el máximo histórico (usa TODOS los datos) ---
-    running_max = df["close"].cummax()
-    dd_series = (df["close"] - running_max) / running_max * 100
-    dd_current = float(dd_series.iloc[-1])
-    dd_sorted = dd_series.nsmallest(3).values
-    dd_max1 = float(dd_sorted[0]) if len(dd_sorted) > 0 else None
-    dd_max2 = float(dd_sorted[1]) if len(dd_sorted) > 1 else None
-    dd_max3 = float(dd_sorted[2]) if len(dd_sorted) > 2 else None
-
-    # --- Eventos de drawdown significativos (usa TODOS los datos) ---
-    dd_cfg = _dd_cfg if _dd_cfg is not None else _get_drawdown_config()
-    dd_events = _compute_dd_events(df, dd_cfg.min_depth_pct)
+    # --- Drawdown ---
+    if quick:
+        # ATH via query escalar (1 fila) para dd_current exacto
+        ath = s.query(func.max(Price.close)).filter(Price.asset_id == asset_id).scalar()
+        dd_current = float((df.iloc[-1]["close"] - ath) / ath * 100) if ath else 0.0
+        # Campos que requieren historia completa: reutilizar del snap previo
+        dd_max1   = snap.dd_max1
+        dd_max2   = snap.dd_max2
+        dd_max3   = snap.dd_max3
+        dd_events = json.loads(snap.dd_events) if snap.dd_events else []
+    else:
+        running_max = df["close"].cummax()
+        dd_series   = (df["close"] - running_max) / running_max * 100
+        dd_current  = float(dd_series.iloc[-1])
+        dd_sorted   = dd_series.nsmallest(3).values
+        dd_max1 = float(dd_sorted[0]) if len(dd_sorted) > 0 else None
+        dd_max2 = float(dd_sorted[1]) if len(dd_sorted) > 1 else None
+        dd_max3 = float(dd_sorted[2]) if len(dd_sorted) > 2 else None
+        dd_cfg    = _dd_cfg if _dd_cfg is not None else _get_drawdown_config()
+        dd_events = _compute_dd_events(df, dd_cfg.min_depth_pct)
 
     # --- Régimen de mercado por timeframe ---
     cfg = _regime_cfg if _regime_cfg is not None else _get_regime_config()
@@ -517,13 +555,21 @@ def compute_and_save_snapshot(
     vz_w = _compute_vol_zones(df_w_reg, **_vol_args)
     vz_m = _compute_vol_zones(df_m_reg, **_vol_args)
 
-    # --- MA más respetada por timeframe (usa TODOS los datos) ---
-    best_sma_d = _find_best_ma(df["close"], df["high"], df["low"], "sma")
-    best_ema_d = _find_best_ma(df["close"], df["high"], df["low"], "ema")
-    best_sma_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "sma")
-    best_ema_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "ema")
-    best_sma_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "sma")
-    best_ema_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "ema")
+    # --- MA más respetada por timeframe ---
+    if quick:
+        best_sma_d = snap.best_sma_d
+        best_ema_d = snap.best_ema_d
+        best_sma_w = snap.best_sma_w
+        best_ema_w = snap.best_ema_w
+        best_sma_m = snap.best_sma_m
+        best_ema_m = snap.best_ema_m
+    else:
+        best_sma_d = _find_best_ma(df["close"], df["high"], df["low"], "sma")
+        best_ema_d = _find_best_ma(df["close"], df["high"], df["low"], "ema")
+        best_sma_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "sma")
+        best_ema_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "ema")
+        best_sma_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "sma")
+        best_ema_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "ema")
 
     # --- Distancia en desv. estándar desde la SMA más respetada por timeframe ---
     dist_sma_d = _sma_zscore(df["close"], best_sma_d) if best_sma_d else None
@@ -568,9 +614,6 @@ def compute_and_save_snapshot(
     rsi = _rsi(close)
 
     # --- Guardar / actualizar snapshot ---
-    snap = s.query(ScreenerSnapshot).filter(
-        ScreenerSnapshot.asset_id == asset_id
-    ).first()
     if snap is None:
         snap = ScreenerSnapshot(asset_id=asset_id)
         s.add(snap)

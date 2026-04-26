@@ -35,7 +35,7 @@ def layout(**kwargs):
             ),
         ], id="ars-remove-modal", is_open=False, centered=True),
 
-        html.H4("Conversión de Monedas — Sintéticos Automáticos", className="mb-2"),
+        html.H4("Activos en Divisa — Sintéticos Automáticos", className="mb-2"),
         dbc.Alert(_HELP, color="info", className="mb-3 small py-2"),
 
         # ── Configuración de divisores ────────────────────────────────────────
@@ -110,4 +110,4 @@ def layout(**kwargs):
 
 
 dash.register_page(__name__, path="/admin/ars-conversion",
-                   title="Conversión de Monedas", layout=layout)
+                   title="Activos en Divisa", layout=layout)
