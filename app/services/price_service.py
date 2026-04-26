@@ -31,27 +31,28 @@ def _get_last_price_date(asset_id: int, session):
 def _delete_from_date(asset_id: int, from_date, session) -> None:
     session.query(Price).filter(
         Price.asset_id == asset_id, Price.date >= from_date
-    ).delete(synchronize_session="fetch")
+    ).delete(synchronize_session=False)
 
 
 def _upsert_prices(asset_id: int, df, session) -> int:
     """Inserta filas del DataFrame en la tabla de precios. Devuelve cantidad insertada."""
     if df.empty:
         return 0
-    count = 0
-    for row in df.itertuples(index=False):
-        price = Price(
-            asset_id=asset_id,
-            date=row.date,
-            open=row.open,
-            high=row.high,
-            low=row.low,
-            close=row.close,
-            volume=int(row.volume) if row.volume is not None else None,
-        )
-        session.add(price)
-        count += 1
-    return count
+    import math
+    mappings = [
+        {
+            "asset_id": asset_id,
+            "date":     row.date,
+            "open":     row.open,
+            "high":     row.high,
+            "low":      row.low,
+            "close":    row.close,
+            "volume":   int(row.volume) if (row.volume is not None and not math.isnan(float(row.volume))) else None,
+        }
+        for row in df.itertuples(index=False)
+    ]
+    session.bulk_insert_mappings(Price, mappings)
+    return len(mappings)
 
 
 def _save_update_log(asset_id: int, success: bool, error: str | None, session) -> None:
@@ -315,30 +316,16 @@ def clear_prices(asset_id: int) -> None:
 
 def get_prices_df(asset_id: int):
     """Devuelve todos los precios del activo como DataFrame ordenado por fecha."""
-    import pandas as pd
-
     s = get_session()
     rows = (
-        s.query(Price)
+        s.query(Price.date, Price.open, Price.high, Price.low, Price.close, Price.volume)
         .filter(Price.asset_id == asset_id)
         .order_by(Price.date)
         .all()
     )
     if not rows:
         return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
-    return pd.DataFrame(
-        [
-            {
-                "date": r.date,
-                "open": r.open,
-                "high": r.high,
-                "low": r.low,
-                "close": r.close,
-                "volume": r.volume,
-            }
-            for r in rows
-        ]
-    )
+    return pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume"])
 
 
 def get_update_logs() -> list[PriceUpdateLog]:

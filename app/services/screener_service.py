@@ -463,8 +463,9 @@ def compute_and_save_snapshot(
 ) -> None:
     s = get_session()
     # Cargar TODOS los precios para drawdown histórico correcto
+    # Solo columnas necesarias: evita instanciar objetos ORM completos
     rows = (
-        s.query(Price)
+        s.query(Price.date, Price.close, Price.high, Price.low)
         .filter(Price.asset_id == asset_id)
         .order_by(Price.date.asc())
         .all()
@@ -473,9 +474,7 @@ def compute_and_save_snapshot(
     if len(rows) < _MIN_ROWS:
         return
 
-    df = pd.DataFrame(
-        [{"date": r.date, "close": r.close, "high": r.high, "low": r.low} for r in rows]
-    ).reset_index(drop=True)
+    df = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
 
     # --- Drawdown desde el máximo histórico (usa TODOS los datos) ---
     running_max = df["close"].cummax()

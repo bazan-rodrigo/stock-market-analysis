@@ -121,7 +121,7 @@ def compute_sr_for_asset(asset_id: int) -> dict | None:
     """
     s = get_session()
     rows = (
-        s.query(Price)
+        s.query(Price.date, Price.close, Price.high, Price.low)
         .filter(Price.asset_id == asset_id)
         .order_by(Price.date.asc())
         .all()
@@ -129,10 +129,5 @@ def compute_sr_for_asset(asset_id: int) -> dict | None:
     if not rows:
         return None
 
-    df = pd.DataFrame([{
-        "date":  r.date,
-        "close": float(r.close) if r.close else None,
-        "high":  float(r.high)  if r.high  else None,
-        "low":   float(r.low)   if r.low   else None,
-    } for r in rows])
+    df = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
     return compute_sr_from_df(df)
