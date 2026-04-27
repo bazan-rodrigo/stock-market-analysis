@@ -254,9 +254,7 @@ def delete_strategy(strategy_id: int) -> None:
 
 
 def get_strategy_results(strategy_id: int, snap_date) -> list[dict]:
-    from app.models import SignalDefinition
     s = get_session()
-
     rows = (
         s.query(StrategyResult, Asset.ticker, Asset.name)
         .join(Asset, Asset.id == StrategyResult.asset_id)
@@ -272,6 +270,166 @@ def get_strategy_results(strategy_id: int, snap_date) -> list[dict]:
          "ticker": ticker, "name": name, "score": r.score}
         for r, ticker, name in rows
     ]
+
+
+def get_strategy_results_with_breakdown(
+    strategy_id: int,
+    snap_date,
+    *,
+    sector_id: int | None = None,
+    market_id: int | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Devuelve (resultados, componentes) donde:
+    - resultados: [{rank, asset_id, ticker, name, sector_id, market_id, score,
+                    component_scores: {signal_key: score}}]
+    - componentes: [{signal_key, signal_name, weight, scope, group_type}]
+    """
+    from app.models import SignalDefinition, SignalValue, GroupSignalValue
+
+    s = get_session()
+    strategy = s.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if strategy is None:
+        return [], []
+
+    components = strategy.components
+    sig_ids = [c.signal_id for c in components]
+
+    sigs_by_id = {
+        sig.id: sig
+        for sig in s.query(SignalDefinition)
+        .filter(SignalDefinition.id.in_(sig_ids))
+        .all()
+    }
+
+    # Resultado base
+    q = (
+        s.query(StrategyResult, Asset.ticker, Asset.name,
+                Asset.sector_id, Asset.market_id)
+        .join(Asset, Asset.id == StrategyResult.asset_id)
+        .filter(
+            StrategyResult.strategy_id == strategy_id,
+            StrategyResult.date == snap_date,
+        )
+    )
+    if sector_id is not None:
+        q = q.filter(Asset.sector_id == sector_id)
+    if market_id is not None:
+        q = q.filter(Asset.market_id == market_id)
+    q = q.order_by(StrategyResult.rank)
+    rows = q.all()
+
+    if not rows:
+        return [], []
+
+    asset_ids = [r.asset_id for r, *_ in rows]
+
+    sv_map: dict[tuple, float] = {
+        (sv.signal_id, sv.asset_id): sv.score
+        for sv in s.query(SignalValue)
+        .filter(
+            SignalValue.signal_id.in_(sig_ids),
+            SignalValue.asset_id.in_(asset_ids),
+            SignalValue.date == snap_date,
+        )
+        .all()
+    }
+
+    gsv_map: dict[tuple, float] = {
+        (gsv.signal_id, gsv.group_type, gsv.group_id): gsv.score
+        for gsv in s.query(GroupSignalValue)
+        .filter(
+            GroupSignalValue.signal_id.in_(sig_ids),
+            GroupSignalValue.date == snap_date,
+        )
+        .all()
+    }
+
+    asset_group_map: dict[int, dict] = {
+        a.id: {"sector": a.sector_id, "market": a.market_id}
+        for a in s.query(Asset).filter(Asset.id.in_(asset_ids)).all()
+    }
+
+    comp_meta = [
+        {
+            "signal_key":  sigs_by_id[c.signal_id].key  if c.signal_id in sigs_by_id else str(c.signal_id),
+            "signal_name": sigs_by_id[c.signal_id].name if c.signal_id in sigs_by_id else "?",
+            "weight":      c.weight,
+            "scope":       c.scope,
+            "group_type":  c.group_type,
+        }
+        for c in components
+    ]
+
+    results = []
+    for r, ticker, name, s_id, m_id in rows:
+        groups = asset_group_map.get(r.asset_id, {})
+        comp_scores: dict[str, float | None] = {}
+
+        for comp in components:
+            sig = sigs_by_id.get(comp.signal_id)
+            key = sig.key if sig else str(comp.signal_id)
+            scope = comp.scope
+
+            if scope is None or scope == "":
+                score = sv_map.get((comp.signal_id, r.asset_id))
+            elif scope == "own_group":
+                grp_id = groups.get(comp.group_type)
+                score = gsv_map.get((comp.signal_id, comp.group_type, grp_id)) if grp_id else None
+            else:
+                score = gsv_map.get((comp.signal_id, comp.group_type, comp.group_id))
+
+            comp_scores[key] = score
+
+        results.append({
+            "rank":       r.rank,
+            "asset_id":   r.asset_id,
+            "ticker":     ticker,
+            "name":       name or "—",
+            "sector_id":  s_id,
+            "market_id":  m_id,
+            "score":      r.score,
+            "comp_scores": comp_scores,
+        })
+
+    return results, comp_meta
+
+
+def get_filter_options(strategy_id: int, snap_date) -> dict:
+    """Devuelve opciones de sector y market para los activos con resultados."""
+    from app.models import Sector, Market
+    s = get_session()
+
+    asset_ids = [
+        r[0]
+        for r in s.query(StrategyResult.asset_id)
+        .filter(StrategyResult.strategy_id == strategy_id,
+                StrategyResult.date == snap_date)
+        .all()
+    ]
+    if not asset_ids:
+        return {"sectors": [], "markets": []}
+
+    sectors = (
+        s.query(Asset.sector_id, Sector.name)
+        .join(Sector, Sector.id == Asset.sector_id)
+        .filter(Asset.id.in_(asset_ids), Asset.sector_id.isnot(None))
+        .distinct()
+        .order_by(Sector.name)
+        .all()
+    )
+    markets = (
+        s.query(Asset.market_id, Market.name)
+        .join(Market, Market.id == Asset.market_id)
+        .filter(Asset.id.in_(asset_ids), Asset.market_id.isnot(None))
+        .distinct()
+        .order_by(Market.name)
+        .all()
+    )
+    return {
+        "sectors": [{"label": n, "value": sid} for sid, n in sectors],
+        "markets": [{"label": n, "value": mid} for mid, n in markets],
+    }
 
 
 def get_available_dates(strategy_id: int) -> list:
