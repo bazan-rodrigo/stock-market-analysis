@@ -13,6 +13,8 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenuItem("Rotación Relativa",  href="/rrg"),
             dbc.DropdownMenuItem("Evolución",          href="/evolucion"),
             dbc.DropdownMenuItem("Análisis de Pares",  href="/par"),
+            dbc.DropdownMenuItem(divider=True),
+            dbc.DropdownMenuItem("Screener de Señales", href="/senales"),
         ],
         nav=True, in_navbar=True,
     )
@@ -47,6 +49,9 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Volatilidad ATR",       href="/admin/volatility-config"),
                     dbc.DropdownMenuItem("Drawdowns",             href="/admin/drawdown-config"),
                     dbc.DropdownMenuItem("Soporte / Resistencia", href="/admin/sr-config"),
+                    dbc.DropdownMenuItem(divider=True),
+                    dbc.DropdownMenuItem("Señales",    href="/admin/signals"),
+                    dbc.DropdownMenuItem("Estrategias",href="/admin/strategies"),
                 ],
                 nav=True, in_navbar=True,
             ),

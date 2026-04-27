@@ -218,3 +218,139 @@ def run_daily(snap_date: date_type | None = None) -> dict:
     group_written = compute_group_signal_values(snap_date)
 
     return {"date": str(snap_date), "signal_values": asset_written, "group_signal_values": group_written}
+
+
+# ── CRUD ──────────────────────────────────────────────────────────────────────
+
+def get_all_signals() -> list:
+    s = get_session()
+    return s.query(SignalDefinition).order_by(SignalDefinition.id).all()
+
+
+def _find_signal_id_by_key(key: str) -> int | None:
+    s = get_session()
+    sig = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
+    return sig.id if sig else None
+
+
+def save_signal(
+    key: str,
+    name: str,
+    source: str,
+    formula_type: str,
+    params_json: str,
+    *,
+    description: str | None = None,
+    group_type: str | None = None,
+    indicator_key: str | None = None,
+    signal_id: int | None = None,
+) -> SignalDefinition:
+    import json as _json
+    _json.loads(params_json)  # valida JSON antes de guardar
+
+    s = get_session()
+    if signal_id:
+        sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
+        if sig is None:
+            raise ValueError(f"Señal id={signal_id} no encontrada.")
+    else:
+        existing = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
+        if existing:
+            raise ValueError(f"Ya existe una señal con key '{key}'.")
+        sig = SignalDefinition()
+        sig.is_system = False
+        s.add(sig)
+
+    sig.key           = key
+    sig.name          = name
+    sig.description   = description
+    sig.source        = source
+    sig.group_type    = group_type or None
+    sig.indicator_key = indicator_key or None
+    sig.formula_type  = formula_type
+    sig.params        = params_json
+    s.commit()
+    return sig
+
+
+def delete_signal(signal_id: int) -> None:
+    s = get_session()
+    sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
+    if sig is None:
+        raise ValueError(f"Señal id={signal_id} no encontrada.")
+    if sig.is_system:
+        raise ValueError(f"No se puede eliminar la señal de sistema '{sig.key}'.")
+    s.delete(sig)
+    s.commit()
+
+
+# ── Export / Import Excel ──────────────────────────────────────────────────────
+
+def export_signals_excel() -> bytes:
+    import openpyxl
+    from io import BytesIO
+
+    signals = get_all_signals()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Señales"
+    ws.append(["key", "name", "description", "source", "group_type",
+                "indicator_key", "formula_type", "params"])
+    for sig in signals:
+        ws.append([
+            sig.key, sig.name, sig.description or "",
+            sig.source, sig.group_type or "", sig.indicator_key or "",
+            sig.formula_type, sig.params,
+        ])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def import_signals_excel(file_bytes: bytes) -> list[dict]:
+    import openpyxl
+    from io import BytesIO
+
+    wb = openpyxl.load_workbook(BytesIO(file_bytes))
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+
+    headers = [str(h).strip().lower() for h in rows[0]]
+    results = []
+
+    for row in rows[1:]:
+        data = dict(zip(headers, row))
+        key = str(data.get("key") or "").strip()
+        if not key:
+            continue
+        try:
+            sig = save_signal(
+                key=key,
+                name=str(data.get("name") or key),
+                source=str(data.get("source") or "asset"),
+                formula_type=str(data.get("formula_type") or "range"),
+                params_json=str(data.get("params") or "{}"),
+                description=str(data.get("description") or "") or None,
+                group_type=str(data.get("group_type") or "") or None,
+                indicator_key=str(data.get("indicator_key") or "") or None,
+                signal_id=_find_signal_id_by_key(key),
+            )
+            results.append({"key": key, "status": "ok", "detail": f"id={sig.id}"})
+        except Exception as exc:
+            results.append({"key": key, "status": "error", "detail": str(exc)})
+
+    return results
+
+
+def run_recalculate(snap_date: date_type | None = None) -> dict:
+    """Recalcula indicadores + señales para snap_date."""
+    from datetime import date as dt_date
+    from app.services import indicator_service
+
+    if snap_date is None:
+        snap_date = dt_date.today()
+
+    indicator_service.run_daily(snap_date)
+    return run_daily(snap_date)

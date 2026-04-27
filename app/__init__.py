@@ -214,6 +214,9 @@ def create_app():
         "app.pages.evolution",
         "app.pages.pair_analysis",
         "app.pages.admin_scheduler",
+        "app.pages.admin_signals",
+        "app.pages.admin_strategies",
+        "app.pages.screener_signals",
     ]
 
     import importlib
@@ -255,6 +258,9 @@ def create_app():
         "app.callbacks.pair_analysis_callbacks",
         "app.callbacks.admin_scheduler_callbacks",
         "app.callbacks.admin_sql_callbacks",
+        "app.callbacks.admin_signals_callbacks",
+        "app.callbacks.admin_strategies_callbacks",
+        "app.callbacks.screener_signals_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))

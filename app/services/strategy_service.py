@@ -184,3 +184,195 @@ def run_daily(snap_date: date_type | None = None) -> dict:
         snap_date = dt_date.today()
 
     return compute_all_strategies(snap_date)
+
+
+# ── CRUD ──────────────────────────────────────────────────────────────────────
+
+def get_all_strategies() -> list:
+    s = get_session()
+    return s.query(Strategy).order_by(Strategy.id).all()
+
+
+def save_strategy(
+    name: str,
+    components: list[dict],
+    *,
+    description: str | None = None,
+    asset_filter: str | None = None,
+    strategy_id: int | None = None,
+) -> Strategy:
+    from datetime import datetime as _dt
+    from app.models import SignalDefinition
+
+    s = get_session()
+    if strategy_id:
+        strat = s.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if strat is None:
+            raise ValueError(f"Estrategia id={strategy_id} no encontrada.")
+        for comp in list(strat.components):
+            s.delete(comp)
+        s.flush()
+    else:
+        strat = Strategy()
+        strat.created_at = _dt.utcnow()
+        s.add(strat)
+
+    strat.name         = name
+    strat.description  = description
+    strat.asset_filter = asset_filter or None
+    strat.updated_at   = _dt.utcnow()
+    s.flush()
+
+    for comp_data in components:
+        sig_key = str(comp_data.get("signal_key") or "").strip()
+        if not sig_key:
+            raise ValueError("Cada componente requiere signal_key.")
+        sig = s.query(SignalDefinition).filter(SignalDefinition.key == sig_key).first()
+        if sig is None:
+            raise ValueError(f"Señal '{sig_key}' no encontrada.")
+        comp = StrategyComponent(
+            strategy_id=strat.id,
+            signal_id=sig.id,
+            weight=float(comp_data.get("weight") or 1.0),
+            scope=comp_data.get("scope") or None,
+            group_type=comp_data.get("group_type") or None,
+            group_id=comp_data.get("group_id") or None,
+        )
+        s.add(comp)
+
+    s.commit()
+    return strat
+
+
+def delete_strategy(strategy_id: int) -> None:
+    s = get_session()
+    strat = s.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if strat is None:
+        raise ValueError(f"Estrategia id={strategy_id} no encontrada.")
+    s.delete(strat)
+    s.commit()
+
+
+def get_strategy_results(strategy_id: int, snap_date) -> list[dict]:
+    from app.models import SignalDefinition
+    s = get_session()
+
+    rows = (
+        s.query(StrategyResult, Asset.ticker, Asset.name)
+        .join(Asset, Asset.id == StrategyResult.asset_id)
+        .filter(
+            StrategyResult.strategy_id == strategy_id,
+            StrategyResult.date == snap_date,
+        )
+        .order_by(StrategyResult.rank)
+        .all()
+    )
+    return [
+        {"rank": r.rank, "asset_id": r.asset_id,
+         "ticker": ticker, "name": name, "score": r.score}
+        for r, ticker, name in rows
+    ]
+
+
+def get_available_dates(strategy_id: int) -> list:
+    """Devuelve las fechas con resultados para una estrategia, ordenadas desc."""
+    from sqlalchemy import distinct
+    s = get_session()
+    dates = (
+        s.query(distinct(StrategyResult.date))
+        .filter(StrategyResult.strategy_id == strategy_id)
+        .order_by(StrategyResult.date.desc())
+        .all()
+    )
+    return [r[0] for r in dates]
+
+
+# ── Export / Import Excel ──────────────────────────────────────────────────────
+
+def export_strategies_excel() -> bytes:
+    import openpyxl
+    from io import BytesIO
+    from app.models import SignalDefinition
+
+    strategies = get_all_strategies()
+    wb = openpyxl.Workbook()
+
+    ws_s = wb.active
+    ws_s.title = "Estrategias"
+    ws_s.append(["name", "description", "asset_filter"])
+
+    ws_c = wb.create_sheet("Componentes")
+    ws_c.append(["strategy_name", "signal_key", "weight", "scope", "group_type", "group_id"])
+
+    s = get_session()
+    for strat in strategies:
+        ws_s.append([strat.name, strat.description or "", strat.asset_filter or ""])
+        for comp in strat.components:
+            sig = s.query(SignalDefinition).filter(SignalDefinition.id == comp.signal_id).first()
+            ws_c.append([
+                strat.name, sig.key if sig else "",
+                comp.weight, comp.scope or "",
+                comp.group_type or "", comp.group_id or "",
+            ])
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def import_strategies_excel(file_bytes: bytes) -> list[dict]:
+    import openpyxl
+    from io import BytesIO
+
+    wb = openpyxl.load_workbook(BytesIO(file_bytes))
+    ws_s = wb.worksheets[0]
+    rows_s = list(ws_s.iter_rows(values_only=True))
+    if not rows_s:
+        return []
+
+    headers_s = [str(h).strip().lower() for h in rows_s[0]]
+    strategies: dict[str, dict] = {}
+    for row in rows_s[1:]:
+        data = dict(zip(headers_s, row))
+        name = str(data.get("name") or "").strip()
+        if name:
+            strategies[name] = {
+                "description": data.get("description") or None,
+                "asset_filter": data.get("asset_filter") or None,
+                "components": [],
+            }
+
+    if len(wb.worksheets) > 1:
+        ws_c = wb.worksheets[1]
+        rows_c = list(ws_c.iter_rows(values_only=True))
+        headers_c = [str(h).strip().lower() for h in rows_c[0]] if rows_c else []
+        for row in rows_c[1:]:
+            data = dict(zip(headers_c, row))
+            sname = str(data.get("strategy_name") or "").strip()
+            if sname in strategies:
+                strategies[sname]["components"].append({
+                    "signal_key": str(data.get("signal_key") or "").strip(),
+                    "weight": float(data.get("weight") or 1.0),
+                    "scope": str(data.get("scope") or "") or None,
+                    "group_type": str(data.get("group_type") or "") or None,
+                    "group_id": int(data.get("group_id")) if data.get("group_id") else None,
+                })
+
+    db = get_session()
+    results = []
+    for name, sdata in strategies.items():
+        existing = db.query(Strategy).filter(Strategy.name == name).first()
+        sid = existing.id if existing else None
+        try:
+            strat = save_strategy(
+                name=name,
+                description=sdata["description"],
+                asset_filter=sdata["asset_filter"],
+                components=sdata["components"],
+                strategy_id=sid,
+            )
+            results.append({"name": name, "status": "ok", "detail": f"id={strat.id}"})
+        except Exception as exc:
+            results.append({"name": name, "status": "error", "detail": str(exc)})
+
+    return results
