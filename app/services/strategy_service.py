@@ -420,7 +420,7 @@ def get_strategy_results_with_breakdown(
 
         prev_sc   = prev_score_map.get(r.asset_id)
         prev_rk   = prev_rank_map.get(r.asset_id)
-        delta_score = round(r.score - prev_sc, 4) if prev_sc is not None else None
+        delta_score = round(r.score - prev_sc, 4) if (prev_sc is not None and r.score is not None) else None
         delta_rank  = (prev_rk - r.rank)          if prev_rk is not None else None
 
         results.append({
