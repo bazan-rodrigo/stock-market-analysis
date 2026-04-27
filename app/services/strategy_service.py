@@ -481,6 +481,41 @@ def get_available_dates(strategy_id: int) -> list:
     return [r[0] for r in dates]
 
 
+def get_strategy_score_history(
+    strategy_id: int,
+    asset_ids: list[int],
+    date_from=None,
+    date_to=None,
+) -> dict[int, list[tuple]]:
+    """
+    {asset_id: [(date, score, rank), ...]} ordenado por fecha asc.
+    """
+    s = get_session()
+    q = (
+        s.query(StrategyResult.asset_id, StrategyResult.date,
+                StrategyResult.score, StrategyResult.rank)
+        .filter(
+            StrategyResult.strategy_id == strategy_id,
+            StrategyResult.asset_id.in_(asset_ids),
+        )
+    )
+    if date_from:
+        q = q.filter(StrategyResult.date >= date_from)
+    if date_to:
+        q = q.filter(StrategyResult.date <= date_to)
+    q = q.order_by(StrategyResult.date)
+
+    result: dict[int, list] = {aid: [] for aid in asset_ids}
+    for asset_id, dt, score, rank in q.all():
+        result[asset_id].append((dt, score, rank))
+    return result
+
+
+def get_top_assets_for_strategy(strategy_id: int, snap_date, limit: int = 20) -> list[dict]:
+    """Top activos por score en snap_date, para usar como sugerencia en el historial."""
+    return get_strategy_results(strategy_id, snap_date)[:limit]
+
+
 # ── Export / Import Excel ──────────────────────────────────────────────────────
 
 def export_strategies_excel() -> bytes:

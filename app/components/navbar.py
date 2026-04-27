@@ -16,7 +16,8 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenuItem(divider=True),
             dbc.DropdownMenuItem("Screener de Señales",   href="/senales"),
             dbc.DropdownMenuItem("Historial de Señales",  href="/historial-senales"),
-            dbc.DropdownMenuItem("Mapa de Señales",       href="/mapa-senales"),
+            dbc.DropdownMenuItem("Mapa de Señales",         href="/mapa-senales"),
+            dbc.DropdownMenuItem("Evolución de Estrategia", href="/evolucion-estrategia"),
         ],
         nav=True, in_navbar=True,
     )
