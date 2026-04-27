@@ -261,53 +261,60 @@ def _compute_vol_zones(
     th_high    = float(np.nanpercentile(valid, pct_high))
     th_extreme = float(np.nanpercentile(valid, pct_extreme))
 
-    # Clasificación cruda por barra
-    raw = []
-    for i in range(len(df)):
-        v = atr.iloc[i]
-        if pd.isna(v):
-            raw.append(None)
-        elif v >= th_extreme:
-            raw.append("extrema")
-        elif v >= th_high:
-            raw.append("alta")
-        elif v <= th_low:
-            raw.append("baja")
-        else:
-            raw.append("normal")
+    # ── Clasificación vectorizada (libera GIL via numpy) ────────────────────
+    atr_vals = atr.values
+    # Códigos: 0=NaN, 1=baja, 2=normal, 3=alta, 4=extrema
+    raw_codes = np.where(np.isnan(atr_vals), 0,
+                np.where(atr_vals >= th_extreme, 4,
+                np.where(atr_vals >= th_high,    3,
+                np.where(atr_vals <= th_low,     1, 2)))).astype(np.int8)
 
-    # Confirmación anti-whipsaw
-    confirmed = []
-    current, pending, pending_n = None, None, 0
-    for r in raw:
-        if r is None:
-            confirmed.append(current)
-            continue
-        if r == current:
-            pending, pending_n = None, 0
-            confirmed.append(current)
+    # ── Confirmación anti-whipsaw ────────────────────────────────────────────
+    n = len(raw_codes)
+    confirmed = np.zeros(n, dtype=np.int8)
+    current = pending = pending_n = 0
+    for i in range(n):
+        r = int(raw_codes[i])
+        if r == 0:
+            confirmed[i] = current
+        elif r == current:
+            pending = pending_n = 0
+            confirmed[i] = current
         elif r == pending:
             pending_n += 1
             if pending_n >= confirm_bars:
-                current, pending, pending_n = pending, None, 0
-            confirmed.append(current)
+                current = r; pending = pending_n = 0
+            confirmed[i] = current
         else:
-            pending, pending_n = r, 1
-            confirmed.append(current)
+            pending = r; pending_n = 1
+            confirmed[i] = current
 
-    # Construir zonas
+    # ── Construir zonas ──────────────────────────────────────────────────────
+    _CODE = [None, "baja", "normal", "alta", "extrema"]
+    dates_arr = df["date"].values
+    # Percentile rank vectorizado via searchsorted: O(N log M) vs O(N*M) anterior
+    valid_sorted = np.sort(valid.values)
+    n_valid = len(valid_sorted)
+    atr_pct_ranks = np.full(n, np.nan)
+    if n_valid > 0:
+        valid_mask = ~np.isnan(atr_vals)
+        atr_pct_ranks[valid_mask] = (
+            np.searchsorted(valid_sorted, atr_vals[valid_mask]) / n_valid * 100
+        )
+
     zones = []
-    for i, vr in enumerate(confirmed):
-        if vr is None:
+    for i in range(n):
+        c = int(confirmed[i])
+        if c == 0:
             continue
-        dt = _date_str(df.iloc[i]["date"])
-        atr_val = atr.iloc[i]
-        # Percentil de rango: qué % de la historia tiene ATR <= valor actual
-        atr_pct_rank = float((valid <= atr_val).mean() * 100) if not pd.isna(atr_val) else None
+        vr = _CODE[c]
+        dt = _date_str(dates_arr[i])
+        apr = atr_pct_ranks[i]
+        atr_pct_rank = float(apr) if not np.isnan(apr) else None
 
         if not zones or zones[-1]["vol_regime"] != vr:
             if zones:
-                zones[-1]["end"] = _date_str(df.iloc[i - 1]["date"])
+                zones[-1]["end"] = _date_str(dates_arr[i - 1])
             zones.append({
                 "start": dt, "end": dt,
                 "vol_regime": vr,
@@ -321,7 +328,7 @@ def _compute_vol_zones(
 
     if not zones:
         return []
-    zones[-1]["end"] = _date_str(df.iloc[-1]["date"])
+    zones[-1]["end"] = _date_str(dates_arr[-1])
 
     # Clasificar duración de cada zona comparando contra historia del mismo régimen
     # Recopilar duraciones de zonas completadas (todas salvo la última)
@@ -355,49 +362,51 @@ def _compute_regime_zones(
     ema   = close.ewm(span=ema_period, adjust=False).mean()
     slope = (ema - ema.shift(slope_lookback)) / ema.shift(slope_lookback) * 100
 
-    # Regimen crudo por barra
-    raw = []
-    for i in range(len(df)):
-        s, e, c = slope.iloc[i], ema.iloc[i], close.iloc[i]
-        if pd.isna(s) or pd.isna(e):
-            raw.append(None)
-        elif s > slope_threshold_pct and c > e:
-            raw.append("bullish")
-        elif s < -slope_threshold_pct and c < e:
-            raw.append("bearish")
-        else:
-            raw.append("lateral")
+    # ── Clasificación vectorizada (libera GIL via numpy) ────────────────────
+    s_vals = slope.values
+    e_vals = ema.values
+    c_vals = close.values
+    nan_mask = np.isnan(s_vals) | np.isnan(e_vals)
+    # Códigos: 0=NaN, 1=lateral, 2=bullish, 3=bearish
+    raw_codes = np.where(nan_mask, 0,
+                np.where((s_vals > slope_threshold_pct) & (c_vals > e_vals), 2,
+                np.where((s_vals < -slope_threshold_pct) & (c_vals < e_vals), 3, 1))).astype(np.int8)
 
-    # Confirmacion: solo cambia regimen tras N barras consecutivas
-    confirmed = []
-    current, pending, pending_n = None, None, 0
-    for r in raw:
-        if r is None:
-            confirmed.append(current)
-            continue
-        if r == current:
-            pending, pending_n = None, 0
-            confirmed.append(current)
+    # ── Confirmación ─────────────────────────────────────────────────────────
+    n = len(raw_codes)
+    confirmed = np.zeros(n, dtype=np.int8)
+    current = pending = pending_n = 0
+    for i in range(n):
+        r = int(raw_codes[i])
+        if r == 0:
+            confirmed[i] = current
+        elif r == current:
+            pending = pending_n = 0
+            confirmed[i] = current
         elif r == pending:
             pending_n += 1
             if pending_n >= confirm_bars:
-                current, pending, pending_n = pending, None, 0
-            confirmed.append(current)
+                current = r; pending = pending_n = 0
+            confirmed[i] = current
         else:
-            pending, pending_n = r, 1
-            confirmed.append(current)
+            pending = r; pending_n = 1
+            confirmed[i] = current
 
-    # Construir zonas con sub-categoría
+    # ── Construir zonas con sub-categoría ────────────────────────────────────
+    _CODE = [None, "lateral", "bullish", "bearish"]
+    dates_arr = df["date"].values
     zones = []
-    for i, regime in enumerate(confirmed):
-        if regime is None:
+    for i in range(n):
+        c = int(confirmed[i])
+        if c == 0:
             continue
-        dt = _date_str(df.iloc[i]["date"])
-        sl_val = float(slope.iloc[i]) if not pd.isna(slope.iloc[i]) else 0.0
+        regime = _CODE[c]
+        dt = _date_str(dates_arr[i])
+        sl_val = float(s_vals[i]) if not np.isnan(s_vals[i]) else 0.0
         if not zones or zones[-1]["regime"] != regime:
             if zones:
                 prev = zones[-1]
-                prev["end"] = _date_str(df.iloc[i - 1]["date"])
+                prev["end"] = _date_str(dates_arr[i - 1])
                 prev["regime_detail"] = _regime_detail(
                     prev["regime"], prev["_bars"], prev["_slope_last"],
                     slope_threshold_pct, nascent_bars, strong_slope_multiplier,
