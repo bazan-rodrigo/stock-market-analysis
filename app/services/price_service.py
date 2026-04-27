@@ -5,13 +5,14 @@ Lógica principal:
   - Si ya tiene precios: borra el último día y descarga desde ese día inclusive.
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import pandas as pd
 import yfinance as yf
 from sqlalchemy import func
 
-from app.database import get_session
+from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, PriceUpdateLog
 from app.services.screener_service import (
     compute_and_save_snapshot,
@@ -23,6 +24,9 @@ from app.services import sr_service
 from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
+
+# Activos procesados en paralelo (DB write + snapshot por activo)
+_UPDATE_WORKERS = 6
 
 
 def _get_last_price_date(asset_id: int, session):
@@ -225,6 +229,67 @@ def _bulk_prefetch_yfinance(assets_with_dates: list) -> dict:
     return result
 
 
+def _process_yf_asset_worker(
+    asset_id: int,
+    ticker: str,
+    df,
+    last_date,
+    _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
+) -> tuple[bool, dict | None]:
+    """Procesa un activo Yahoo Finance en su propio thread: escribe precios y calcula snapshot."""
+    s = get_session()
+    try:
+        if df.empty:
+            raise ValueError(
+                f"No se encontraron datos de precio para '{ticker}'. "
+                "Verificá que el ticker sea válido en Yahoo Finance."
+            )
+        if last_date is not None:
+            _delete_from_date(asset_id, last_date, s)
+        count = _upsert_prices(asset_id, df, s)
+        _save_update_log(asset_id, success=True, error=None, session=s)
+        s.commit()
+        logger.info("Activo %s: %d filas importadas (batch)", ticker, count)
+        try:
+            compute_and_save_snapshot(
+                asset_id,
+                _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
+                _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
+                quick=True,
+            )
+        except Exception as snap_exc:
+            logger.warning("Error snapshot %s: %s", ticker, snap_exc)
+        return True, None
+    except Exception as exc:
+        s.rollback()
+        error_msg = str(exc)
+        logger.error("Error actualizando precios de %s: %s", ticker, error_msg)
+        _save_update_log(asset_id, success=False, error=error_msg, session=s)
+        s.commit()
+        return False, {"ticker": ticker, "error": error_msg}
+    finally:
+        _ScopedSession.remove()
+
+
+def _process_other_asset_worker(
+    asset_id: int,
+    ticker: str,
+    _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
+) -> tuple[bool, dict | None]:
+    """Procesa un activo no-YF (otra fuente o sintético) en su propio thread."""
+    try:
+        update_asset_prices(
+            asset_id,
+            _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
+            _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
+        )
+        return True, None
+    except Exception as exc:
+        return False, {"ticker": ticker, "error": str(exc)}
+    finally:
+        _ScopedSession.remove()
+
+
 def update_all_active_assets(progress_cb=None) -> dict:
     """
     Actualiza todos los activos activos. Primero los regulares, luego los sintéticos.
@@ -278,71 +343,40 @@ def update_all_active_assets(progress_cb=None) -> dict:
     yf_pairs        = [(a.id, a.ticker) for a in yf_assets]
     other_pairs     = [(a.id, a.ticker) for a in other_regular + synthetic]
 
-    done = 0
-    for asset_id, asset_ticker in yf_pairs:
-        done += 1
-        if progress_cb:
-            progress_cb(done, total)
-        if asset_id in prefetched:
-            # Usar datos del batch
-            try:
-                df = prefetched[asset_id]
-                if df.empty:
-                    raise ValueError(
-                        f"No se encontraron datos de precio para '{asset_ticker}'. "
-                        "Verificá que el ticker sea válido en Yahoo Finance."
-                    )
-                last_date = yf_last_dates[asset_id]
-                if last_date is not None:
-                    _delete_from_date(asset_id, last_date, s)
-                count = _upsert_prices(asset_id, df, s)
-                _save_update_log(asset_id, success=True, error=None, session=s)
-                s.commit()
-                logger.info("Activo %s: %d filas importadas (batch)", asset_ticker, count)
-                try:
-                    compute_and_save_snapshot(
-                        asset_id,
-                        _dd_cfg=_dd_cfg,
-                        _regime_cfg=_regime_cfg,
-                        _vol_cfg=_vol_cfg,
-                        _sr_cfg=_sr_cfg,
-                        quick=True,
-                    )
-                except Exception as snap_exc:
-                    logger.warning("Error snapshot %s: %s", asset_ticker, snap_exc)
-                summary["success"] += 1
-            except Exception as exc:
-                s.rollback()
-                error_msg = str(exc)
-                logger.error("Error actualizando precios de %s: %s", asset_ticker, error_msg)
-                _save_update_log(asset_id, success=False, error=error_msg, session=s)
-                s.commit()
-                summary["errors"].append({"ticker": asset_ticker, "error": error_msg})
-        else:
-            # Fallback a descarga individual (batch falló para este ticker)
-            try:
-                update_asset_prices(
-                    asset_id,
-                    _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
-                    _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
-                )
-                summary["success"] += 1
-            except Exception as exc:
-                summary["errors"].append({"ticker": asset_ticker, "error": str(exc)})
+    cfgs = dict(
+        _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
+        _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
+    )
 
-    for asset_id, asset_ticker in other_pairs:
-        done += 1
-        if progress_cb:
-            progress_cb(done, total)
-        try:
-            update_asset_prices(
-                asset_id,
-                _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
-                _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
-            )
-            summary["success"] += 1
-        except Exception as exc:
-            summary["errors"].append({"ticker": asset_ticker, "error": str(exc)})
+    futures: dict = {}
+    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
+        for asset_id, asset_ticker in yf_pairs:
+            if asset_id in prefetched:
+                futures[pool.submit(
+                    _process_yf_asset_worker,
+                    asset_id, asset_ticker, prefetched[asset_id], yf_last_dates[asset_id],
+                    **cfgs,
+                )] = asset_ticker
+            else:
+                futures[pool.submit(
+                    _process_other_asset_worker, asset_id, asset_ticker, **cfgs,
+                )] = asset_ticker
+
+        for asset_id, asset_ticker in other_pairs:
+            futures[pool.submit(
+                _process_other_asset_worker, asset_id, asset_ticker, **cfgs,
+            )] = asset_ticker
+
+        done = 0
+        for future in as_completed(futures):
+            done += 1
+            if progress_cb:
+                progress_cb(done, total)
+            ok, err = future.result()
+            if ok:
+                summary["success"] += 1
+            elif err:
+                summary["errors"].append(err)
 
     logger.info(
         "Actualización completa: %d/%d exitosos, %d errores",

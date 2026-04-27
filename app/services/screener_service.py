@@ -5,6 +5,7 @@ El screener consulta exclusivamente esa tabla (sin tocar la API externa).
 """
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor as _TPE
 from datetime import date, datetime
 
 import numpy as np
@@ -24,6 +25,11 @@ _MIN_ROWS = 20
 
 # Barras cargadas en modo quick (~4 años, suficiente warmup para EMA mensual + pendiente)
 _QUICK_DAYS = 1500
+
+# Workers para paralelizar cálculos pandas dentro de un snapshot (régimen/vol/best_ma)
+_CALC_WORKERS = 4
+# Workers para paralelizar snapshots en recompute_all (un activo por thread)
+_SNAPSHOT_WORKERS = 6
 
 # Score de tendencia por régimen: -100 a +100
 _REGIME_SCORE: dict[str, int] = {
@@ -426,8 +432,8 @@ def _rsi(close: pd.Series, period: int = 14) -> float | None:
     loss = -delta.clip(upper=0)
     avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, float("inf"))
-    rsi_series = 100 - (100 / (1 + rs))
+    rs = avg_gain / avg_loss.replace(0, float("nan"))
+    rsi_series = (100 - (100 / (1 + rs))).fillna(100)
     val = rsi_series.iloc[-1]
     return float(val) if not pd.isna(val) else None
 
@@ -529,18 +535,12 @@ def compute_and_save_snapshot(
         dd_cfg    = _dd_cfg if _dd_cfg is not None else _get_drawdown_config()
         dd_events = _compute_dd_events(df, dd_cfg.min_depth_pct)
 
-    # --- Régimen de mercado por timeframe ---
+    # --- Preparar configs y resamplings (secuencial, necesario antes del bloque paralelo) ---
     cfg = _regime_cfg if _regime_cfg is not None else _get_regime_config()
     sl, st_pct, cb = cfg.slope_lookback, cfg.slope_threshold_pct, cfg.confirm_bars
     nb  = cfg.nascent_bars
     sm  = cfg.strong_slope_multiplier
-    rz_d = _compute_regime_zones(df, cfg.ema_period_d, sl, st_pct, cb, nb, sm)
-    df_w_reg = _resample_ohlc(df, "W")
-    rz_w = _compute_regime_zones(df_w_reg, cfg.ema_period_w, sl, st_pct, cb, nb, sm)
-    df_m_reg = _resample_ohlc(df, "M")
-    rz_m = _compute_regime_zones(df_m_reg, cfg.ema_period_m, sl, st_pct, cb, nb, sm)
 
-    # --- Régimen de volatilidad ATR por timeframe ---
     vcfg = _vol_cfg if _vol_cfg is not None else _get_volatility_config()
     _vol_args = dict(
         atr_period=vcfg.atr_period,
@@ -551,25 +551,41 @@ def compute_and_save_snapshot(
         dur_short_pct=vcfg.dur_short_pct,
         dur_long_pct=vcfg.dur_long_pct,
     )
-    vz_d = _compute_vol_zones(df, **_vol_args)
-    vz_w = _compute_vol_zones(df_w_reg, **_vol_args)
-    vz_m = _compute_vol_zones(df_m_reg, **_vol_args)
 
-    # --- MA más respetada por timeframe ---
+    df_w_reg = _resample_ohlc(df, "W")
+    df_m_reg = _resample_ohlc(df, "M")
+
+    # --- Régimen, volatilidad y (en full) best_MA — todos independientes, corren en paralelo ---
+    with _TPE(max_workers=_CALC_WORKERS) as _pool:
+        f_rz_d = _pool.submit(_compute_regime_zones, df,       cfg.ema_period_d, sl, st_pct, cb, nb, sm)
+        f_rz_w = _pool.submit(_compute_regime_zones, df_w_reg, cfg.ema_period_w, sl, st_pct, cb, nb, sm)
+        f_rz_m = _pool.submit(_compute_regime_zones, df_m_reg, cfg.ema_period_m, sl, st_pct, cb, nb, sm)
+        f_vz_d = _pool.submit(_compute_vol_zones, df,       **_vol_args)
+        f_vz_w = _pool.submit(_compute_vol_zones, df_w_reg, **_vol_args)
+        f_vz_m = _pool.submit(_compute_vol_zones, df_m_reg, **_vol_args)
+        if not quick:
+            f_sma_d = _pool.submit(_find_best_ma, df["close"],       df["high"],       df["low"],       "sma")
+            f_ema_d = _pool.submit(_find_best_ma, df["close"],       df["high"],       df["low"],       "ema")
+            f_sma_w = _pool.submit(_find_best_ma, df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "sma")
+            f_ema_w = _pool.submit(_find_best_ma, df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "ema")
+            f_sma_m = _pool.submit(_find_best_ma, df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "sma")
+            f_ema_m = _pool.submit(_find_best_ma, df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "ema")
+
+    rz_d = f_rz_d.result()
+    rz_w = f_rz_w.result()
+    rz_m = f_rz_m.result()
+    vz_d = f_vz_d.result()
+    vz_w = f_vz_w.result()
+    vz_m = f_vz_m.result()
+
     if quick:
-        best_sma_d = snap.best_sma_d
-        best_ema_d = snap.best_ema_d
-        best_sma_w = snap.best_sma_w
-        best_ema_w = snap.best_ema_w
-        best_sma_m = snap.best_sma_m
-        best_ema_m = snap.best_ema_m
+        best_sma_d, best_ema_d = snap.best_sma_d, snap.best_ema_d
+        best_sma_w, best_ema_w = snap.best_sma_w, snap.best_ema_w
+        best_sma_m, best_ema_m = snap.best_sma_m, snap.best_ema_m
     else:
-        best_sma_d = _find_best_ma(df["close"], df["high"], df["low"], "sma")
-        best_ema_d = _find_best_ma(df["close"], df["high"], df["low"], "ema")
-        best_sma_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "sma")
-        best_ema_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "ema")
-        best_sma_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "sma")
-        best_ema_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "ema")
+        best_sma_d, best_ema_d = f_sma_d.result(), f_ema_d.result()
+        best_sma_w, best_ema_w = f_sma_w.result(), f_ema_w.result()
+        best_sma_m, best_ema_m = f_sma_m.result(), f_ema_m.result()
 
     # --- Distancia en desv. estándar desde la SMA más respetada por timeframe ---
     dist_sma_d = _sma_zscore(df["close"], best_sma_d) if best_sma_d else None
@@ -689,32 +705,50 @@ def compute_and_save_snapshot(
     s.commit()
 
 
+def _snapshot_worker(asset_id: int, dd_cfg, regime_cfg, vol_cfg, sr_cfg) -> None:
+    """Wrapper para ejecutar compute_and_save_snapshot en un thread del pool."""
+    from app.database import Session
+    try:
+        compute_and_save_snapshot(
+            asset_id,
+            _dd_cfg=dd_cfg,
+            _regime_cfg=regime_cfg,
+            _vol_cfg=vol_cfg,
+            _sr_cfg=sr_cfg,
+        )
+    finally:
+        Session.remove()
+
+
 def recompute_all_snapshots(progress_cb=None) -> dict:
+    from concurrent.futures import as_completed
     s = get_session()
     asset_ids = [r[0] for r in s.query(Asset.id).all()]
     total = len(asset_ids)
     errors = []
 
-    # Cargar configs una sola vez para todos los snapshots
     dd_cfg     = _get_drawdown_config()
     regime_cfg = _get_regime_config()
     vol_cfg    = _get_volatility_config()
     sr_cfg     = sr_service._get_sr_config()
 
-    for i, aid in enumerate(asset_ids):
-        if progress_cb:
-            progress_cb(i + 1, total)
-        try:
-            compute_and_save_snapshot(
-                aid,
-                _dd_cfg=dd_cfg,
-                _regime_cfg=regime_cfg,
-                _vol_cfg=vol_cfg,
-                _sr_cfg=sr_cfg,
-            )
-        except Exception as exc:
-            logger.warning("Error snapshot activo id=%d: %s", aid, exc)
-            errors.append(aid)
+    done = 0
+    with _TPE(max_workers=_SNAPSHOT_WORKERS) as pool:
+        futures = {
+            pool.submit(_snapshot_worker, aid, dd_cfg, regime_cfg, vol_cfg, sr_cfg): aid
+            for aid in asset_ids
+        }
+        for future in as_completed(futures):
+            done += 1
+            if progress_cb:
+                progress_cb(done, total)
+            aid = futures[future]
+            try:
+                future.result()
+            except Exception as exc:
+                logger.warning("Error snapshot activo id=%d: %s", aid, exc)
+                errors.append(aid)
+
     return {"total": total, "errors": errors}
 
 

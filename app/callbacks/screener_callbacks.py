@@ -1,3 +1,4 @@
+import threading
 from dash import Input, Output, callback
 from datetime import datetime
 
@@ -143,6 +144,7 @@ def apply_screener(country_ids, market_ids, itype_ids, sector_ids, industry_ids)
     return rows, tooltip_data, count_label
 
 
+_scr_lock  = threading.Lock()
 _scr_state = {"running": False, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False}
 
 
@@ -155,26 +157,30 @@ _scr_state = {"running": False, "current": 0, "total": 0, "msg": "", "error": No
     prevent_initial_call=True,
 )
 def recompute_snapshots(_):
-    _scr_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
+    with _scr_lock:
+        _scr_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
 
     def _run():
         def _progress(current, total):
-            _scr_state["current"] = current
-            _scr_state["total"]   = total
+            with _scr_lock:
+                _scr_state["current"] = current
+                _scr_state["total"]   = total
         try:
             result = scr_svc.recompute_all_snapshots(progress_cb=_progress)
             n_err = len(result["errors"])
-            _scr_state["has_errors"] = bool(n_err)
-            _scr_state["msg"] = (
-                f"Recalculado a las {datetime.now().strftime('%H:%M:%S')} — "
-                f"{result['total'] - n_err}/{result['total']} exitosos"
-            )
+            with _scr_lock:
+                _scr_state["has_errors"] = bool(n_err)
+                _scr_state["msg"] = (
+                    f"Recalculado a las {datetime.now().strftime('%H:%M:%S')} — "
+                    f"{result['total'] - n_err}/{result['total']} exitosos"
+                )
         except Exception as exc:
-            _scr_state["error"] = str(exc)
+            with _scr_lock:
+                _scr_state["error"] = str(exc)
         finally:
-            _scr_state["running"] = False
+            with _scr_lock:
+                _scr_state["running"] = False
 
-    import threading
     threading.Thread(target=_run, daemon=True).start()
     return False, {"display": "block"}, True, ""
 
@@ -190,14 +196,17 @@ def recompute_snapshots(_):
     prevent_initial_call=True,
 )
 def poll_scr_recompute(_):
-    if _scr_state["running"]:
-        current = _scr_state["current"]
-        total   = _scr_state["total"] or 1
+    with _scr_lock:
+        state = _scr_state.copy()
+
+    if state["running"]:
+        current = state["current"]
+        total   = state["total"] or 1
         pct     = int(current / total * 100)
-        label   = f"{current} / {_scr_state['total']}" if _scr_state["total"] else "Iniciando..."
+        label   = f"{current} / {state['total']}" if state["total"] else "Iniciando..."
         return pct, label, {"display": "block"}, False, True, ""
 
-    if _scr_state["error"]:
-        return 0, "", {"display": "none"}, True, False, f"Error: {_scr_state['error']}"
+    if state["error"]:
+        return 0, "", {"display": "none"}, True, False, f"Error: {state['error']}"
 
-    return 100, "Completo", {"display": "none"}, True, False, _scr_state["msg"]
+    return 100, "Completo", {"display": "none"}, True, False, state["msg"]

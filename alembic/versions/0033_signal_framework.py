@@ -301,17 +301,17 @@ def _seed_signals() -> None:
     op.execute(sa.text("""
         INSERT INTO strategy_component (strategy_id, signal_id, weight, scope, group_type, group_id)
         SELECT 1, id, weight, scope, group_type, NULL FROM (
-            SELECT id, 0.30 AS weight, NULL  AS scope, NULL     AS group_type FROM signal WHERE key='tendencia_d'
+            SELECT id, 0.30 AS weight, NULL  AS scope, NULL     AS group_type FROM `signal` WHERE `key`='tendencia_d'
             UNION ALL
-            SELECT id, 0.20,           'own_group', 'sector'                  FROM signal WHERE key='tendencia_sector_d'
+            SELECT id, 0.20,           'own_group', 'sector'                  FROM `signal` WHERE `key`='tendencia_sector_d'
             UNION ALL
-            SELECT id, 0.10,           NULL,        NULL                       FROM signal WHERE key='alineacion_timeframes'
+            SELECT id, 0.10,           NULL,        NULL                       FROM `signal` WHERE `key`='alineacion_timeframes'
             UNION ALL
-            SELECT id, 0.15,           NULL,        NULL                       FROM signal WHERE key='drawdown_controlado'
+            SELECT id, 0.15,           NULL,        NULL                       FROM `signal` WHERE `key`='drawdown_controlado'
             UNION ALL
-            SELECT id, 0.10,           NULL,        NULL                       FROM signal WHERE key='volatilidad_d'
+            SELECT id, 0.10,           NULL,        NULL                       FROM `signal` WHERE `key`='volatilidad_d'
             UNION ALL
-            SELECT id, 0.15,           'own_group', 'market'                  FROM signal WHERE key='tendencia_mercado_d'
+            SELECT id, 0.15,           'own_group', 'market'                  FROM `signal` WHERE `key`='tendencia_mercado_d'
         ) t
     """))
 

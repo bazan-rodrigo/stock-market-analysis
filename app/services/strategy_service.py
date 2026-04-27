@@ -116,10 +116,19 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
         (r.signal_id, r.group_type, r.group_id): r.score for r in grows
     }
 
-    # Info de grupo de cada activo
+    # Info de grupo de cada activo (todas las dimensiones soportadas como group_type)
     asset_groups: dict[int, dict] = {
-        a.id: {"sector": a.sector_id, "market": a.market_id}
-        for a in s.query(Asset.id, Asset.sector_id, Asset.market_id).all()
+        a.id: {
+            "sector":          a.sector_id,
+            "market":          a.market_id,
+            "industry":        a.industry_id,
+            "country":         a.country_id,
+            "instrument_type": a.instrument_type_id,
+        }
+        for a in s.query(
+            Asset.id, Asset.sector_id, Asset.market_id,
+            Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
+        ).all()
     }
 
     # Calcular scores por activo

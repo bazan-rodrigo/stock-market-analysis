@@ -83,10 +83,19 @@ def compute_signal_values(snap_date: date_type) -> int:
         for gs in s.query(GroupIndicatorSnapshot).filter(GroupIndicatorSnapshot.date == snap_date).all()
     }
 
-    # Cargar info de grupo de cada activo (sector_id, market_id)
+    # Cargar info de grupo de cada activo (todas las dimensiones soportadas como group_type)
     asset_groups: dict[int, dict] = {
-        a.id: {"sector": a.sector_id, "market": a.market_id}
-        for a in s.query(Asset.id, Asset.sector_id, Asset.market_id).all()
+        a.id: {
+            "sector":          a.sector_id,
+            "market":          a.market_id,
+            "industry":        a.industry_id,
+            "country":         a.country_id,
+            "instrument_type": a.instrument_type_id,
+        }
+        for a in s.query(
+            Asset.id, Asset.sector_id, Asset.market_id,
+            Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
+        ).all()
     }
 
     written = 0
