@@ -148,9 +148,22 @@ def layout(**kwargs):
     ], id="sig-modal", is_open=False, size="lg")
 
     return html.Div([
-        dcc.Store(id="sig-editing-id", data=None),
-        dcc.Store(id="sig-selected-ids", data=[]),
-        dcc.Store(id="sig-all-ids", data=[]),
+        dcc.Store(id="sig-editing-id",   data=None),
+
+        dbc.Card(dbc.CardBody([
+            html.P([
+                html.Strong("Señales: ", style={"color": "#e5e7eb"}),
+                "fórmulas que transforman indicadores técnicos (de screener_snapshot) en scores "
+                "normalizados de −100 a +100. Usá ",
+                html.Strong('"Ejecutar pipeline"', style={"color": "#38bdf8"}),
+                " para calcular indicadores → señales → estrategias para la fecha seleccionada. "
+                "Requiere que el screener_snapshot esté actualizado.",
+            ], className="mb-0", style={"fontSize": "0.78rem", "color": "#d1d5db"}),
+        ]), className="mb-3",
+           style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+
+        dcc.Store(id="sig-selected-ids",  data=[]),
+        dcc.Store(id="sig-all-ids",       data=[]),
         dcc.Download(id="sig-download"),
 
         dbc.Row([
