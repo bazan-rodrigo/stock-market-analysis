@@ -179,12 +179,21 @@ def render_table(rows_data, comp_meta, sort_col):
                 style={**_td, "textAlign": "center"},
             ),
             html.Td(
-                html.A(
-                    html.Strong(r["ticker"]),
-                    href=f"/chart?asset_id={r['asset_id']}",
-                    target="_blank",
-                    style={"color": "#93c5fd", "textDecoration": "none"},
-                ),
+                html.Span([
+                    html.A(
+                        html.Strong(r["ticker"]),
+                        href=f"/chart?asset_id={r['asset_id']}",
+                        target="_blank",
+                        style={"color": "#93c5fd", "textDecoration": "none"},
+                    ),
+                    html.A(
+                        " hist.",
+                        href=f"/historial-senales?asset_id={r['asset_id']}",
+                        target="_blank",
+                        style={"fontSize": "0.68rem", "color": "#6b7280",
+                               "textDecoration": "none", "marginLeft": "4px"},
+                    ),
+                ]),
                 style=_td,
             ),
             html.Td(r["name"],
