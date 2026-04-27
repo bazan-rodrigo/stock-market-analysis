@@ -19,6 +19,7 @@ def layout(**kwargs):
 
     return html.Div([
         dcc.Location(id="sh-url", refresh=False),
+        dcc.Store(id="sh-available-signals", data=[]),
 
         dbc.Row([
             dbc.Col(html.H4("Historial de Señales", className="mb-0"), width="auto"),
@@ -26,6 +27,7 @@ def layout(**kwargs):
 
         # ── Filtros ──────────────────────────────────────────────────────────
         dbc.Card(dbc.CardBody([
+            # Fila 1: activo, estrategia, fechas, botón
             dbc.Row([
                 dbc.Col([
                     dbc.Label("Activo", style={"fontSize": "0.82rem"}),
@@ -59,7 +61,24 @@ def layout(**kwargs):
                     dbc.Button("Ver", id="sh-btn-view", color="primary",
                                size="sm", style={"display": "block"}),
                 ], md=1, className="d-flex flex-column"),
-            ], className="g-2"),
+            ], className="g-2 mb-2"),
+
+            # Fila 2: selector multi de señales (se muestra tras primer "Ver")
+            html.Div(id="sh-signal-picker-row", style={"display": "none"}, children=[
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label("Señales a mostrar", style={"fontSize": "0.80rem"}),
+                        dcc.Dropdown(
+                            id="sh-signal-sel",
+                            options=[],
+                            value=[],
+                            multi=True,
+                            placeholder="Seleccioná señales...",
+                            style={"fontSize": "0.83rem"},
+                        ),
+                    ]),
+                ], className="g-2"),
+            ]),
         ]), className="mb-3",
             style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
 

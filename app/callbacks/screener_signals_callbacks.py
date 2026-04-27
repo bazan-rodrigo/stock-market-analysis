@@ -113,6 +113,33 @@ def _score_cell(score: float | None, max_abs: float) -> html.Td:
     )
 
 
+def _delta_cell(delta_score: float | None, delta_rank: int | None) -> html.Td:
+    """Celda compacta de variación: Δscore con flecha de rank."""
+    if delta_score is None:
+        return html.Td("—", style={**_td, "color": "#4b5563", "textAlign": "center"})
+
+    color  = "#4ade80" if delta_score > 0.5 else "#f87171" if delta_score < -0.5 else "#94a3b8"
+    prefix = "+" if delta_score > 0 else ""
+
+    rank_part = ""
+    if delta_rank is not None and delta_rank != 0:
+        arrow = "▲" if delta_rank > 0 else "▼"
+        rank_color = "#4ade80" if delta_rank > 0 else "#f87171"
+        rank_part = html.Span(
+            f" {arrow}{abs(delta_rank)}",
+            style={"fontSize": "0.66rem", "color": rank_color, "marginLeft": "2px"},
+        )
+
+    return html.Td(
+        html.Span([
+            html.Span(f"{prefix}{delta_score:.1f}",
+                      style={"fontSize": "0.74rem", "color": color, "fontFamily": "monospace"}),
+            rank_part,
+        ]),
+        style={**_td, "textAlign": "center", "whiteSpace": "nowrap"},
+    )
+
+
 @callback(
     Output("ss-table-container", "children"),
     Input("ss-results-store",    "data"),
@@ -128,6 +155,12 @@ def render_table(rows_data, comp_meta, sort_col):
         rows_data = sorted(rows_data, key=lambda r: r["ticker"])
     elif sort_col == "score":
         rows_data = sorted(rows_data, key=lambda r: (r["score"] or 0), reverse=True)
+    elif sort_col == "delta_score":
+        rows_data = sorted(rows_data,
+                           key=lambda r: (r.get("delta_score") is None, -(r.get("delta_score") or 0)))
+    elif sort_col == "delta_rank":
+        rows_data = sorted(rows_data,
+                           key=lambda r: (r.get("delta_rank") is None, -(r.get("delta_rank") or 0)))
     # default "rank": ya viene ordenado
 
     # Rango de scores para normalizar barras
@@ -160,6 +193,7 @@ def render_table(rows_data, comp_meta, sort_col):
         html.Th("Ticker", style=_th),
         html.Th("Nombre", style={**_th, "minWidth": "120px"}),
         html.Th("Score",  style={**_th, "minWidth": "110px"}),
+        html.Th("Δ",      style={**_th, "minWidth": "60px", "textAlign": "center"}),
         *comp_ths,
     ]))
 
@@ -201,6 +235,7 @@ def render_table(rows_data, comp_meta, sort_col):
                            "maxWidth": "180px", "overflow": "hidden",
                            "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
             _score_cell(r["score"], max_abs_total),
+            _delta_cell(r.get("delta_score"), r.get("delta_rank")),
             *comp_tds,
         ]))
 
@@ -235,11 +270,14 @@ def export_excel(_, rows_data, comp_meta):
     comp_keys  = [c["signal_key"]  for c in (comp_meta or [])]
     comp_names = [c["signal_name"] for c in (comp_meta or [])]
 
-    ws.append(["Rank", "Ticker", "Nombre", "Score"] + comp_names)
+    ws.append(["Rank", "Ticker", "Nombre", "Score", "Δ Score", "Δ Rank"] + comp_names)
 
     for r in rows_data:
         comp_vals = [(r.get("comp_scores") or {}).get(k) for k in comp_keys]
-        ws.append([r["rank"], r["ticker"], r["name"], r["score"]] + comp_vals)
+        ws.append([
+            r["rank"], r["ticker"], r["name"], r["score"],
+            r.get("delta_score"), r.get("delta_rank"),
+        ] + comp_vals)
 
     buf = io.BytesIO()
     wb.save(buf)

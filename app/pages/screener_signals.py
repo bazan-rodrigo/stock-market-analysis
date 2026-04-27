@@ -8,9 +8,11 @@ _th = {"fontSize": "0.74rem", "color": "#9ca3af", "fontWeight": "normal",
 _td = {"fontSize": "0.80rem", "padding": "4px 8px", "borderBottom": "1px solid #1f2937"}
 
 _SORT_OPTS = [
-    {"label": "Rank ↑",    "value": "rank"},
-    {"label": "Score ↓",   "value": "score"},
-    {"label": "Ticker A-Z","value": "ticker"},
+    {"label": "Rank ↑",       "value": "rank"},
+    {"label": "Score ↓",      "value": "score"},
+    {"label": "Δ Score ↓",    "value": "delta_score"},
+    {"label": "Δ Rank ↑",     "value": "delta_rank"},
+    {"label": "Ticker A-Z",   "value": "ticker"},
 ]
 
 

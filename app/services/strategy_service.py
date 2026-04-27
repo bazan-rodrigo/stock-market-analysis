@@ -361,6 +361,34 @@ def get_strategy_results_with_breakdown(
         for c in components
     ]
 
+    # Fecha anterior con resultados para esta estrategia
+    from sqlalchemy import distinct as _distinct
+    prev_date_row = (
+        s.query(_distinct(StrategyResult.date))
+        .filter(
+            StrategyResult.strategy_id == strategy_id,
+            StrategyResult.date < snap_date,
+        )
+        .order_by(StrategyResult.date.desc())
+        .first()
+    )
+    prev_date = prev_date_row[0] if prev_date_row else None
+
+    prev_score_map: dict[int, float] = {}
+    prev_rank_map:  dict[int, int]   = {}
+    if prev_date:
+        prev_rows = (
+            s.query(StrategyResult.asset_id, StrategyResult.score, StrategyResult.rank)
+            .filter(
+                StrategyResult.strategy_id == strategy_id,
+                StrategyResult.date == prev_date,
+                StrategyResult.asset_id.in_(asset_ids),
+            )
+            .all()
+        )
+        prev_score_map = {r.asset_id: r.score for r in prev_rows}
+        prev_rank_map  = {r.asset_id: r.rank  for r in prev_rows}
+
     results = []
     for r, ticker, name, s_id, m_id in rows:
         groups = asset_group_map.get(r.asset_id, {})
@@ -381,14 +409,22 @@ def get_strategy_results_with_breakdown(
 
             comp_scores[key] = score
 
+        prev_sc   = prev_score_map.get(r.asset_id)
+        prev_rk   = prev_rank_map.get(r.asset_id)
+        delta_score = round(r.score - prev_sc, 4) if prev_sc is not None else None
+        delta_rank  = (prev_rk - r.rank)          if prev_rk is not None else None
+
         results.append({
-            "rank":       r.rank,
-            "asset_id":   r.asset_id,
-            "ticker":     ticker,
-            "name":       name or "—",
-            "sector_id":  s_id,
-            "market_id":  m_id,
-            "score":      r.score,
+            "rank":        r.rank,
+            "asset_id":    r.asset_id,
+            "ticker":      ticker,
+            "name":        name or "—",
+            "sector_id":   s_id,
+            "market_id":   m_id,
+            "score":       r.score,
+            "prev_score":  prev_sc,
+            "delta_score": delta_score,
+            "delta_rank":  delta_rank,
             "comp_scores": comp_scores,
         })
 
