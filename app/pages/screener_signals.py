@@ -7,6 +7,12 @@ _th = {"fontSize": "0.74rem", "color": "#9ca3af", "fontWeight": "normal",
        "whiteSpace": "nowrap"}
 _td = {"fontSize": "0.80rem", "padding": "4px 8px", "borderBottom": "1px solid #1f2937"}
 
+_SORT_OPTS = [
+    {"label": "Rank ↑",    "value": "rank"},
+    {"label": "Score ↓",   "value": "score"},
+    {"label": "Ticker A-Z","value": "ticker"},
+]
+
 
 def layout(**kwargs):
     from flask_login import current_user
@@ -14,7 +20,9 @@ def layout(**kwargs):
         return html.Div()
 
     return html.Div([
-        dcc.Store(id="ss-comp-meta", data=[]),
+        dcc.Store(id="ss-comp-meta",    data=[]),
+        dcc.Store(id="ss-results-store", data=None),
+        dcc.Download(id="ss-download"),
 
         dbc.Row([
             dbc.Col(html.H4("Screener de Señales", className="mb-0"), width="auto"),
@@ -59,6 +67,22 @@ def layout(**kwargs):
                         type="circle", color="#dee2e6",
                     ),
                 ], md=1),
+            ], className="g-2 mb-2"),
+
+            # ── Segunda fila: ordenar + exportar ─────────────────────────────
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Ordenar por", style={"fontSize": "0.80rem"}),
+                    dcc.Dropdown(id="ss-sort-col", options=_SORT_OPTS,
+                                 value="rank", clearable=False,
+                                 style={"fontSize": "0.83rem"}),
+                ], md=3),
+                dbc.Col([
+                    dbc.Label(" ", style={"fontSize": "0.82rem"}),
+                    dbc.Button("Exportar Excel", id="ss-btn-export", color="secondary",
+                               size="sm", outline=True, disabled=True,
+                               style={"display": "block"}),
+                ], md=2, className="d-flex flex-column"),
             ], className="g-2"),
         ]), className="mb-3",
             style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
