@@ -174,7 +174,7 @@ def layout(**kwargs):
                        size="sm", disabled=True, className="me-1"),
             dbc.Button("Eliminar", id="sig-btn-delete", color="danger",
                        size="sm", disabled=True, className="me-3"),
-            dbc.Button("Recalcular señales (hoy)", id="sig-btn-recalc",
+            dbc.Button("Ejecutar pipeline", id="sig-btn-recalc",
                        color="outline-info", size="sm"),
             dcc.DatePickerSingle(id="sig-recalc-date",
                                  display_format="YYYY-MM-DD",

@@ -79,7 +79,7 @@ def load_table(_a, _m, selected_ids):
         html.Tbody(rows),
     ], style={"width": "100%", "borderCollapse": "collapse"})
 
-    return table, all_ids, (n != 1), (n == 0), (n != 1)
+    return table, all_ids, (n != 1), (n == 0), (n == 0)
 
 
 # ── Selección ─────────────────────────────────────────────────────────────────

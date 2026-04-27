@@ -157,9 +157,8 @@ def compute_group_snapshots(snap_date: date_type) -> None:
         gsnap.regime_score_d = _avg(scores["d"])
         gsnap.regime_score_w = _avg(scores["w"])
         gsnap.regime_score_m = _avg(scores["m"])
-        gsnap.n_assets = max(
-            len(scores["d"]), len(scores["w"]), len(scores["m"])
-        )
+        counts = [len(scores["d"]), len(scores["w"]), len(scores["m"])]
+        gsnap.n_assets = max(counts) if any(counts) else 0
 
     s.commit()
 

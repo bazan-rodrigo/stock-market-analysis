@@ -132,30 +132,34 @@ def toggle_check(clicks, selected_ids):
 )
 def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
     trigger = ctx.triggered_id
-    _none13 = (no_update,) * 13
+    _noup = no_update
+    _noop = (_noup,) * 13  # 13 outputs totales
 
     if trigger == "sig-btn-cancel":
-        return False, *([no_update] * 11), None, False
+        # is_open=False, resto sin cambio, editing_id=None, error=False
+        return (False, _noup, _noup, _noup, _noup, _noup, _noup,
+                _noup, _noup, _noup, _noup, None, False)
 
     if trigger == "sig-btn-add":
-        return True, "Nueva señal", "", False, "", None, None, "", None, "", "{}", None, False
+        return (True, "Nueva señal", "", False, "", None, None,
+                "", None, "", "{}", None, False)
 
     if trigger == "sig-btn-edit":
         if not selected_ids or len(selected_ids) != 1:
-            return *_none13,
+            return _noop
         sig = next((x for x in svc.get_all_signals() if x.id == selected_ids[0]), None)
         if sig is None:
-            return *_none13,
+            return _noop
         return (
             True, "Editar señal",
-            sig.key, sig.is_system,   # key deshabilitado si es sistema
+            sig.key, sig.is_system,
             sig.name, sig.source,
             sig.group_type, sig.indicator_key,
             sig.formula_type, sig.description or "", sig.params,
             sig.id, False,
         )
 
-    return *_none13,
+    return _noop
 
 
 # ── Mostrar/ocultar col grupo ─────────────────────────────────────────────────
@@ -279,9 +283,10 @@ def recalculate(_, date_str):
     snap_date = dt_date.fromisoformat(date_str) if date_str else dt_date.today()
     try:
         result = svc.run_recalculate(snap_date)
-        msg = (f"Recálculo {snap_date}: "
+        msg = (f"Pipeline {snap_date}: "
                f"{result['signal_values']} signal_value, "
-               f"{result['group_signal_values']} group_signal_value.")
+               f"{result['group_signal_values']} group_signal_value, "
+               f"{result.get('strategy_results', 0)} strategy_result.")
         return "", msg, True, "success"
     except Exception as exc:
         return "", str(exc), True, "danger"

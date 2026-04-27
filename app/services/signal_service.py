@@ -345,12 +345,16 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
 
 
 def run_recalculate(snap_date: date_type | None = None) -> dict:
-    """Recalcula indicadores + señales para snap_date."""
+    """Recalcula indicadores + señales + estrategias para snap_date."""
     from datetime import date as dt_date
-    from app.services import indicator_service
+    from app.services import indicator_service, strategy_service
 
     if snap_date is None:
         snap_date = dt_date.today()
 
     indicator_service.run_daily(snap_date)
-    return run_daily(snap_date)
+    result = run_daily(snap_date)
+
+    strat_result = strategy_service.run_daily(snap_date)
+    result["strategy_results"] = strat_result.get("strategy_results", 0)
+    return result
