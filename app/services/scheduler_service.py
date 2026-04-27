@@ -58,6 +58,28 @@ def _daily_update_job() -> None:
         )
     except Exception as exc:
         logger.exception("Error crítico en la actualización diaria: %s", exc)
+        return
+
+    # ── Pipeline de señales/estrategias ─────────────────────────────────────
+    try:
+        from app.services import indicator_service
+        indicator_service.run_daily()
+    except Exception as exc:
+        logger.exception("Error en indicator_service.run_daily: %s", exc)
+
+    try:
+        from app.services import signal_service
+        result = signal_service.run_daily()
+        logger.info("signal_service: %s", result)
+    except Exception as exc:
+        logger.exception("Error en signal_service.run_daily: %s", exc)
+
+    try:
+        from app.services import strategy_service
+        result = strategy_service.run_daily()
+        logger.info("strategy_service: %s", result)
+    except Exception as exc:
+        logger.exception("Error en strategy_service.run_daily: %s", exc)
 
 
 # ── Control del scheduler ─────────────────────────────────────────────────────
