@@ -357,19 +357,20 @@ def delete_selected(_, selected_ids):
 # ── Calcular resultados ───────────────────────────────────────────────────────
 
 @callback(
-    Output("str-status",  "children",  allow_duplicate=True),
-    Output("str-alert",   "children",  allow_duplicate=True),
-    Output("str-alert",   "is_open",   allow_duplicate=True),
-    Output("str-alert",   "color",     allow_duplicate=True),
-    Input("str-btn-calc", "n_clicks"),
-    State("str-selected-ids", "data"),
-    State("str-calc-date",    "date"),
+    Output("str-status",       "children",  allow_duplicate=True),
+    Output("str-alert",        "children",  allow_duplicate=True),
+    Output("str-alert",        "is_open",   allow_duplicate=True),
+    Output("str-alert",        "color",     allow_duplicate=True),
+    Output("str-calc-preview", "children"),
+    Input("str-btn-calc",      "n_clicks"),
+    State("str-selected-ids",  "data"),
+    State("str-calc-date",     "date"),
     prevent_initial_call=True,
 )
 def calc_results(_, selected_ids, date_str):
     from datetime import date as dt_date
     if not selected_ids:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
     snap_date = dt_date.fromisoformat(date_str) if date_str else dt_date.today()
     total, errors = 0, []
     for sid in selected_ids:
@@ -378,8 +379,58 @@ def calc_results(_, selected_ids, date_str):
         except Exception as exc:
             errors.append(str(exc))
     if errors:
-        return "", "; ".join(errors), True, "danger"
-    return "", f"Calculados {total} resultado(s) para {snap_date}.", True, "success"
+        return "", "; ".join(errors), True, "danger", html.Div()
+
+    # Preview: top 10 de la primera (o única) estrategia seleccionada
+    preview = html.Div()
+    if len(selected_ids) == 1:
+        results = svc.get_strategy_results(selected_ids[0], snap_date)
+        if results:
+            top = results[:10]
+            strat = next((s for s in svc.get_all_strategies() if s.id == selected_ids[0]), None)
+            strat_name = strat.name if strat else f"#{selected_ids[0]}"
+            rows = [
+                html.Tr([
+                    html.Td(
+                        dbc.Badge(str(r["rank"]), color="secondary"),
+                        style={**_td, "textAlign": "center", "width": "44px"},
+                    ),
+                    html.Td(html.Strong(r["ticker"]), style=_td),
+                    html.Td(r["name"] or "—",
+                            style={**_td, "color": "#9ca3af", "fontSize": "0.76rem"}),
+                    html.Td(
+                        html.Span(f"{r['score']:.1f}",
+                                  style={"fontFamily": "monospace",
+                                         "color": "#4ade80" if (r["score"] or 0) >= 20
+                                                  else "#f87171" if (r["score"] or 0) <= -20
+                                                  else "#94a3b8"}),
+                        style=_td,
+                    ),
+                ])
+                for r in top
+            ]
+            link_href = f"/senales"
+            preview = dbc.Card(dbc.CardBody([
+                html.Div([
+                    html.Span(f"Top 10 — {strat_name} ({snap_date})",
+                              style={"fontSize": "0.84rem", "fontWeight": "500",
+                                     "color": "#e5e7eb"}),
+                    html.A("Ver en screener →", href=link_href,
+                           style={"fontSize": "0.78rem", "color": "#60a5fa",
+                                  "marginLeft": "12px", "textDecoration": "none"}),
+                ], className="mb-2"),
+                html.Table([
+                    html.Thead(html.Tr([
+                        html.Th("Rank",   style={**_th, "width": "44px"}),
+                        html.Th("Ticker", style=_th),
+                        html.Th("Nombre", style=_th),
+                        html.Th("Score",  style=_th),
+                    ])),
+                    html.Tbody(rows),
+                ], style={"width": "100%", "borderCollapse": "collapse"}),
+            ]), style={"backgroundColor": "#1f2937", "border": "1px solid #374151"})
+
+    return "", f"Calculados {total} resultado(s) para {snap_date}.", True, "success", preview
 
 
 # ── Exportar ──────────────────────────────────────────────────────────────────

@@ -116,6 +116,7 @@ def layout(**kwargs):
 
         dbc.Alert(id="str-alert", is_open=False, dismissable=True, className="mb-3"),
         html.Div(id="str-import-results", className="mb-3"),
+        html.Div(id="str-calc-preview",   className="mb-3"),
         html.Div(id="str-table-container"),
 
         modal,
