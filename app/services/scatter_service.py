@@ -28,8 +28,8 @@ def get_paired_prices(asset1_id: int, asset2_id: int) -> list[dict]:
 
     df = df1.join(df2, how="inner").dropna().sort_index()
     return [
-        {"date": str(idx), "p1": float(r["p1"]), "p2": float(r["p2"])}
-        for idx, r in df.iterrows()
+        {"date": str(row.Index), "p1": float(row.p1), "p2": float(row.p2)}
+        for row in df.itertuples()
     ]
 
 

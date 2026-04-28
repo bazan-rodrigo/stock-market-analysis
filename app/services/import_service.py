@@ -79,13 +79,18 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
     s = get_session()
     total = len(df)
 
+    # Pre-cargar fuentes de precio y tickers existentes (evita N+1 queries por fila)
+    price_sources = {ps.name: ps for ps in s.query(PriceSource).all()}
+    existing_tickers = {t for (t,) in s.query(Asset.ticker).all()}
+
     # benchmark_ticker de cada fila, para la segunda pasada
     pending_benchmarks: list[tuple[str, str]] = []  # [(ticker, benchmark_ticker)]
 
-    for i, (_, row) in enumerate(df.iterrows()):
+    rows_list = df.to_dict("records")
+    for i, row in enumerate(rows_list):
         if progress_cb:
             progress_cb(i + 1, total)
-        ticker = str(row.get("ticker", "")).strip().upper()
+        ticker = str(row.get("ticker", "") or "").strip().upper()
         if not ticker or ticker.startswith("──") or ticker.startswith("--"):
             continue
 
@@ -94,16 +99,13 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
         detail = ""
 
         try:
-            # Validar fuente
-            source_obj = s.query(PriceSource).filter(
-                PriceSource.name == source_name
-            ).first()
+            # Validar fuente (precargada)
+            source_obj = price_sources.get(source_name)
             if source_obj is None:
                 raise ValueError(f"Fuente '{source_name}' no encontrada")
 
-            # Verificar duplicado
-            exists = s.query(Asset).filter(Asset.ticker == ticker).first()
-            if exists:
+            # Verificar duplicado (precargado)
+            if ticker in existing_tickers:
                 status = "skipped"
                 detail = "Ticker ya existe en la base de datos"
                 raise _Skipped(detail)
@@ -148,6 +150,7 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             )
             s.add(asset)
             s.flush()
+            existing_tickers.add(ticker)  # evita duplicados dentro del mismo archivo
             status = "imported"
             detail = "Importado correctamente"
 

@@ -49,7 +49,11 @@ def compute_rrg(
     """
     s = get_session()
     all_ids = list(set(list(asset_ids) + [benchmark_id]))
-    assets  = {a.id: a for a in s.query(Asset).filter(Asset.id.in_(all_ids)).all()}
+    assets  = {
+        row.id: row
+        for row in s.query(Asset.id, Asset.ticker, Asset.name)
+                    .filter(Asset.id.in_(all_ids)).all()
+    }
 
     bench_weekly = _load_weekly(benchmark_id)
     if bench_weekly.empty:

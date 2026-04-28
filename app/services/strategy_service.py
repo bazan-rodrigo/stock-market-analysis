@@ -355,8 +355,9 @@ def get_strategy_results_with_breakdown(
     }
 
     asset_group_map: dict[int, dict] = {
-        a.id: {"sector": a.sector_id, "market": a.market_id}
-        for a in s.query(Asset).filter(Asset.id.in_(asset_ids)).all()
+        row.id: {"sector": row.sector_id, "market": row.market_id}
+        for row in s.query(Asset.id, Asset.sector_id, Asset.market_id)
+                    .filter(Asset.id.in_(asset_ids)).all()
     }
 
     comp_meta = [
