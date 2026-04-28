@@ -98,6 +98,12 @@ def compute_signal_values(snap_date: date_type) -> int:
         ).all()
     }
 
+    # Pre-cargar SignalValues del día: evita N×M queries en el upsert
+    existing_svs: dict[tuple, SignalValue] = {
+        (sv.signal_id, sv.asset_id): sv
+        for sv in s.query(SignalValue).filter(SignalValue.date == snap_date).all()
+    }
+
     written = 0
 
     for asset_id, isnap in isnaps.items():
@@ -131,24 +137,17 @@ def compute_signal_values(snap_date: date_type) -> int:
         # 3. Señales composite (pueden depender de cualquier otra)
         _build_composite_scores(signals, asset_scores)
 
-        # 4. Persistir
+        # 4. Persistir (upsert via dict precargado — sin queries adicionales)
         for sig in signals:
             score = asset_scores.get(sig.key)
             if score is None:
                 continue
-
-            sv = (
-                s.query(SignalValue)
-                .filter(
-                    SignalValue.signal_id == sig.id,
-                    SignalValue.asset_id == asset_id,
-                    SignalValue.date == snap_date,
-                )
-                .first()
-            )
+            key = (sig.id, asset_id)
+            sv = existing_svs.get(key)
             if sv is None:
                 sv = SignalValue(signal_id=sig.id, asset_id=asset_id, date=snap_date)
                 s.add(sv)
+                existing_svs[key] = sv
             sv.score = score
             written += 1
 
@@ -176,6 +175,12 @@ def compute_group_signal_values(snap_date: date_type) -> int:
         .all()
     )
 
+    # Pre-cargar GroupSignalValues del día
+    existing_gsvs: dict[tuple, GroupSignalValue] = {
+        (gsv.signal_id, gsv.group_type, gsv.group_id): gsv
+        for gsv in s.query(GroupSignalValue).filter(GroupSignalValue.date == snap_date).all()
+    }
+
     written = 0
 
     for gsnap in gsnaps:
@@ -187,16 +192,8 @@ def compute_group_signal_values(snap_date: date_type) -> int:
             if score is None:
                 continue
 
-            gsv = (
-                s.query(GroupSignalValue)
-                .filter(
-                    GroupSignalValue.signal_id == sig.id,
-                    GroupSignalValue.group_type == gsnap.group_type,
-                    GroupSignalValue.group_id == gsnap.group_id,
-                    GroupSignalValue.date == snap_date,
-                )
-                .first()
-            )
+            key = (sig.id, gsnap.group_type, gsnap.group_id)
+            gsv = existing_gsvs.get(key)
             if gsv is None:
                 gsv = GroupSignalValue(
                     signal_id=sig.id,
@@ -205,6 +202,7 @@ def compute_group_signal_values(snap_date: date_type) -> int:
                     date=snap_date,
                 )
                 s.add(gsv)
+                existing_gsvs[key] = gsv
             gsv.score = score
             written += 1
 

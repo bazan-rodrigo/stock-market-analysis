@@ -145,17 +145,18 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
     # Ranking: mayor score → rank 1
     scored.sort(key=lambda x: x[1], reverse=True)
 
+    # Pre-cargar StrategyResults del día para esta estrategia
+    existing_srs: dict[int, StrategyResult] = {
+        sr.asset_id: sr
+        for sr in s.query(StrategyResult).filter(
+            StrategyResult.strategy_id == strategy_id,
+            StrategyResult.date == snap_date,
+        ).all()
+    }
+
     written = 0
     for rank, (asset_id, score) in enumerate(scored, start=1):
-        sr = (
-            s.query(StrategyResult)
-            .filter(
-                StrategyResult.strategy_id == strategy_id,
-                StrategyResult.asset_id == asset_id,
-                StrategyResult.date == snap_date,
-            )
-            .first()
-        )
+        sr = existing_srs.get(asset_id)
         if sr is None:
             sr = StrategyResult(
                 strategy_id=strategy_id,
@@ -163,6 +164,7 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
                 date=snap_date,
             )
             s.add(sr)
+            existing_srs[asset_id] = sr
         sr.score = score
         sr.rank = rank
         written += 1

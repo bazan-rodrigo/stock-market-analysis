@@ -4,7 +4,7 @@ from dash import Input, Output, State, callback, no_update, html
 
 import app.services.price_service as svc
 
-_prices_state = {"running": False, "current": 0, "total": 0, "summary": None, "error": None, "msg": ""}
+_prices_state = {"running": False, "current": 0, "total": 0, "summary": None, "error": None, "msg": "", "phase": ""}
 
 
 def _error_msg(ticker: str, exc: Exception):
@@ -63,9 +63,12 @@ def update_all(_):
         def _progress(current, total):
             _prices_state["current"] = current
             _prices_state["total"]   = total
+            _prices_state["phase"]   = ""
         try:
+            _prices_state["phase"] = "Descargando precios de Yahoo Finance..."
             summary = svc.update_all_active_assets(progress_cb=_progress)
             _prices_state["has_errors"] = bool(summary["errors"])
+            _prices_state["phase"] = ""
             _prices_state["msg"] = (
                 f"Actualización completa: {summary['success']}/{summary['total']} exitosos, "
                 f"{len(summary['errors'])} errores."
@@ -98,7 +101,10 @@ def poll_prices(_):
         current = _prices_state["current"]
         total   = _prices_state["total"] or 1
         pct     = int(current / total * 100)
-        label   = f"{current} / {_prices_state['total']}" if _prices_state["total"] else "Iniciando..."
+        if _prices_state["total"]:
+            label = f"{current} / {_prices_state['total']}"
+        else:
+            label = _prices_state.get("phase") or "Iniciando..."
         return pct, label, {"display": "block"}, False, no_update, no_update, no_update, no_update, True, True
 
     if _prices_state["error"]:
