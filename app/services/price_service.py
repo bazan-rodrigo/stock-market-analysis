@@ -100,7 +100,15 @@ def update_asset_prices(
         raise ValueError(f"Activo id={asset_id} no encontrado")
 
     if asset.price_source.name == "Calculado":
-        compute_synthetic_prices(asset_id, full=False)
+        try:
+            compute_synthetic_prices(asset_id, full=False)
+            _save_update_log(asset_id, success=True, error=None, session=s)
+            s.commit()
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.error("Error calculando precios sintéticos de %s: %s", asset.ticker, error_msg)
+            _save_update_log(asset_id, success=False, error=error_msg, session=s)
+            s.commit()
         return
 
     source = get_source(asset.price_source.name)
@@ -136,11 +144,12 @@ def update_asset_prices(
                 "Error calculando snapshot screener para %s: %s", asset.ticker, snap_exc
             )
 
-    except NotImplementedError as exc:
-        s.rollback()
-        error_msg = str(exc)
-        logger.info("Activo %s omitido (fuente no descargable): %s", asset.ticker, error_msg)
-        _save_update_log(asset_id, success=False, error=error_msg, session=s)
+    except NotImplementedError:
+        # Fuente válida pero sin descarga externa — no es un error operativo
+        logger.info("Activo %s: fuente '%s' no requiere descarga externa, omitido.",
+                    asset.ticker, asset.price_source.name)
+        _save_update_log(asset_id, success=True,
+                         error=f"Fuente '{asset.price_source.name}' no requiere descarga.", session=s)
         s.commit()
     except Exception as exc:
         s.rollback()
