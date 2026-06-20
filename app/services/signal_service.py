@@ -38,8 +38,6 @@ def _build_composite_scores(
     Evalúa señales composite en orden topológico simple (dependencias ya evaluadas).
     Las señales composite que referencien otras composite se evalúan hasta 3 pasos.
     """
-    import json
-
     composite = [s for s in signals if s.formula_type == "composite"]
     for _ in range(3):  # max anidamiento
         for sig in composite:
@@ -49,6 +47,15 @@ def _build_composite_scores(
                 sig.formula_type, sig.params, None, asset_scores
             )
             asset_scores[sig.key] = score
+
+    unresolved = [sig.key for sig in composite if sig.key not in asset_scores]
+    if unresolved:
+        logger.warning(
+            "signal_service: señales composite sin resolver tras 3 iteraciones "
+            "(posible ciclo de dependencias): %s",
+            unresolved,
+        )
+
     return asset_scores
 
 
@@ -316,6 +323,7 @@ def export_signals_excel() -> bytes:
 
 def import_signals_excel(file_bytes: bytes) -> list[dict]:
     import openpyxl
+    import json as _json
     from io import BytesIO
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes))
@@ -325,28 +333,43 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
         return []
 
     headers = [str(h).strip().lower() for h in rows[0]]
+    s = get_session()
     results = []
+    error_occurred = False
 
     for row in rows[1:]:
         data = dict(zip(headers, row))
         key = str(data.get("key") or "").strip()
         if not key:
             continue
+        if error_occurred:
+            results.append({"key": key, "status": "skipped", "detail": "cancelado por error previo"})
+            continue
         try:
-            sig = save_signal(
-                key=key,
-                name=str(data.get("name") or key),
-                source=str(data.get("source") or "asset"),
-                formula_type=str(data.get("formula_type") or "range"),
-                params_json=str(data.get("params") or "{}"),
-                description=str(data.get("description") or "") or None,
-                group_type=str(data.get("group_type") or "") or None,
-                indicator_key=str(data.get("indicator_key") or "") or None,
-                signal_id=_find_signal_id_by_key(key),
-            )
+            params_str = str(data.get("params") or "{}")
+            _json.loads(params_str)  # valida JSON antes de guardar
+            sig = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
+            if sig is None:
+                sig = SignalDefinition()
+                sig.is_system = False
+                s.add(sig)
+            sig.key           = key
+            sig.name          = str(data.get("name") or key)
+            sig.source        = str(data.get("source") or "asset")
+            sig.formula_type  = str(data.get("formula_type") or "range")
+            sig.params        = params_str
+            sig.description   = str(data.get("description") or "") or None
+            sig.group_type    = str(data.get("group_type") or "") or None
+            sig.indicator_key = str(data.get("indicator_key") or "") or None
+            s.flush()
             results.append({"key": key, "status": "ok", "detail": f"id={sig.id}"})
         except Exception as exc:
+            s.rollback()
+            error_occurred = True
             results.append({"key": key, "status": "error", "detail": str(exc)})
+
+    if not error_occurred:
+        s.commit()
 
     return results
 

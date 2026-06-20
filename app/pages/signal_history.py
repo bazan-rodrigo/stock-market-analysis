@@ -4,9 +4,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-_th = {"fontSize": "0.74rem", "color": "#9ca3af", "fontWeight": "normal",
-       "padding": "4px 8px", "borderBottom": "1px solid #374151"}
-_td = {"fontSize": "0.80rem", "padding": "4px 8px", "borderBottom": "1px solid #1f2937"}
+from app.components.ui_constants import TH as _th, TD as _td, CARD_STYLE
 
 
 def layout(**kwargs):
@@ -67,7 +65,7 @@ def layout(**kwargs):
             html.Div(id="sh-signal-picker-row", style={"display": "none"}, children=[
                 dbc.Row([
                     dbc.Col([
-                        dbc.Label("Señales a mostrar", style={"fontSize": "0.80rem"}),
+                        dbc.Label("Señales a mostrar", style={"fontSize": "0.82rem"}),
                         dcc.Dropdown(
                             id="sh-signal-sel",
                             options=[],
@@ -80,7 +78,7 @@ def layout(**kwargs):
                 ], className="g-2"),
             ]),
         ]), className="mb-3",
-            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+            style=CARD_STYLE),
 
         dcc.Loading(
             html.Div(id="sh-chart-container"),

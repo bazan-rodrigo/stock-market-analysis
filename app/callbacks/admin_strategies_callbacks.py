@@ -134,15 +134,20 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
     if trigger == "str-btn-edit":
         if not selected_ids or len(selected_ids) != 1:
             return no_update, no_update, no_update, no_update, no_update, no_update, no_update
-        strat = next((x for x in svc.get_all_strategies() if x.id == selected_ids[0]), None)
+        strat = svc.get_strategy_by_id(selected_ids[0])
         if strat is None:
             return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        from app.models import SignalDefinition
+        from app.database import get_session
+        s = get_session()
+        signal_ids = [comp.signal_id for comp in strat.components]
+        sigs_by_id = {
+            sig.id: sig
+            for sig in s.query(SignalDefinition).filter(SignalDefinition.id.in_(signal_ids)).all()
+        } if signal_ids else {}
         uids, ivs = [], {}
         for idx, comp in enumerate(strat.components):
-            from app.models import SignalDefinition
-            from app.database import get_session
-            s = get_session()
-            sig = s.query(SignalDefinition).filter(SignalDefinition.id == comp.signal_id).first()
+            sig = sigs_by_id.get(comp.signal_id)
             uids.append(idx)
             ivs[str(idx)] = {
                 "signal_key": sig.key if sig else "",
@@ -217,7 +222,7 @@ def render_comp_rows(uid_store, signal_opts):
             dbc.Col(
                 dbc.Button("×", id={"type": "str-remove-comp", "index": uid},
                            color="link", size="sm",
-                           style={"color": "#ef4444", "padding": "0 6px",
+                           style={"color": "#ef5350", "padding": "0 6px",
                                   "lineHeight": 1, "fontSize": "1rem"}),
                 style={"width": "32px"},
             ),
@@ -387,7 +392,7 @@ def calc_results(_, selected_ids, date_str):
         results = svc.get_strategy_results(selected_ids[0], snap_date)
         if results:
             top = results[:10]
-            strat = next((s for s in svc.get_all_strategies() if s.id == selected_ids[0]), None)
+            strat = svc.get_strategy_by_id(selected_ids[0])
             strat_name = strat.name if strat else f"#{selected_ids[0]}"
             rows = [
                 html.Tr([

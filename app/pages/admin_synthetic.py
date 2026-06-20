@@ -98,9 +98,7 @@ def _help_card(ft: str | None):
                "borderLeft": f"3px solid {c}"}, className="mb-3")
 
 
-_th = {"fontSize": "0.76rem", "color": "#9ca3af", "fontWeight": "normal",
-       "padding": "5px 8px", "borderBottom": "1px solid #374151"}
-_td_s = {"fontSize": "0.80rem", "padding": "5px 8px", "borderBottom": "1px solid #1f2937"}
+from app.components.ui_constants import TH as _th, TD as _td, CARD_STYLE
 
 
 def layout(**kwargs):
@@ -192,8 +190,7 @@ def layout(**kwargs):
                 ". Disponibles cuatro tipos de fórmula: Ratio, Promedio ponderado, "
                 "Suma ponderada e Índice base.",
             ], className="mb-0", style={"fontSize": "0.78rem", "color": "#d1d5db"}),
-        ]), className="mb-3",
-           style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+        ]), className="mb-3", style=CARD_STYLE),
 
         # ── Fila 1: creación e importación ────────────────────────────────
         dbc.Row([

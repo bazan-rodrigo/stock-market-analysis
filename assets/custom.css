@@ -144,28 +144,62 @@ h6 { font-size: 0.85rem !important; }
 .cell--variation-negative { color: #ef5350; font-weight: 600; }
 
 /* ── Dropdown Dash (dcc.Dropdown) ────────────────────────────────────────── */
+
+/* Contenedor raíz — evita que el fondo blanco del body se filtre */
+.Select {
+    background-color: #2c2c2c !important;
+    border-radius: 4px !important;
+}
+
+/* Control visible: input + valor seleccionado + flecha */
 .Select-control,
 .Select.has-value .Select-control,
 .Select.is-focused .Select-control,
 .Select.is-open .Select-control,
 .Select.has-value.is-focused .Select-control,
-.Select-menu-outer,
-.Select-menu,
+.Select.is-focused:not(.is-open) .Select-control {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border: 1px solid #555 !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+}
+
+/* Menú desplegable */
+.Select-menu-outer {
+    background-color: #2c2c2c !important;
+    border: 1px solid #555 !important;
+    border-radius: 4px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+    z-index: 9999 !important;
+}
+.Select-menu {
+    background-color: #2c2c2c !important;
+    border-radius: 4px !important;
+}
+
+/* Opciones de la lista */
 .Select-option {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
-    border-color: #555 !important;
     font-size: 0.82rem !important;
 }
 .Select-option:hover,
 .Select-option.is-focused {
-    background-color: #3a3a3a !important;
+    background-color: #374151 !important;
     color: #fff !important;
 }
 .Select-option.is-selected {
-    background-color: #444 !important;
-    color: #fff !important;
+    background-color: #1e3a5f !important;
+    color: #93c5fd !important;
+    font-weight: 500 !important;
 }
+.Select-option.is-disabled {
+    color: #6b7280 !important;
+    cursor: not-allowed !important;
+}
+
+/* Valor seleccionado y placeholder */
 .Select-value-label,
 .Select-placeholder,
 .Select--single > .Select-control .Select-value .Select-value-label,
@@ -174,16 +208,70 @@ h6 { font-size: 0.85rem !important; }
     font-size: 0.82rem !important;
     background-color: transparent !important;
 }
+.Select-placeholder {
+    color: #6b7280 !important;
+}
+
+/* Input de búsqueda interno */
 .Select-input > input,
 .Select-input {
     color: #dee2e6 !important;
     font-size: 0.82rem !important;
     background-color: transparent !important;
 }
-.Select-arrow {
-    border-top-color: #aaa !important;
+
+/* Flecha */
+.Select-arrow-zone { background-color: transparent !important; }
+.Select-arrow { border-top-color: #9ca3af !important; }
+.Select.is-open .Select-arrow { border-bottom-color: #9ca3af !important; }
+.Select .Select-clear-zone { color: #9ca3af !important; }
+
+/* ── Multi-select tags ───────────────────────────────────────────────────── */
+.Select-multi-value-wrapper {
+    background-color: transparent !important;
 }
-.Select .Select-clear-zone { color: #aaa !important; }
+.Select-value {
+    background-color: #374151 !important;
+    border: 1px solid #4b5563 !important;
+    color: #dee2e6 !important;
+    border-radius: 3px !important;
+    margin: 2px 3px 2px 0 !important;
+}
+.Select-value-label {
+    color: #dee2e6 !important;
+}
+.Select-value-icon {
+    border-right: 1px solid #4b5563 !important;
+    color: #9ca3af !important;
+    padding: 2px 5px !important;
+}
+.Select-value-icon:hover {
+    background-color: #ef5350 !important;
+    color: #fff !important;
+    border-radius: 2px 0 0 2px !important;
+}
+
+/* ── Virtualized list options (Dash 2.x — listas largas) ─────────────────── */
+.VirtualizedSelectOption {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    font-size: 0.82rem !important;
+    padding: 6px 10px !important;
+    cursor: pointer !important;
+}
+.VirtualizedSelectFocusedOption {
+    background-color: #374151 !important;
+    color: #fff !important;
+}
+.VirtualizedSelectSelectedOption {
+    background-color: #1e3a5f !important;
+    color: #93c5fd !important;
+    font-weight: 500 !important;
+}
+.VirtualizedSelectDisabledOption {
+    color: #6b7280 !important;
+    cursor: not-allowed !important;
+}
 
 /* ── Input de fecha nativo (type="date") ─────────────────────────────────── */
 input[type="date"] {
@@ -196,23 +284,205 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     cursor: pointer;
 }
 
-/* ── Multi-select tags (dcc.Dropdown multi=True) ─────────────────────────── */
-.Select-multi-value-wrapper {
+/* ── DatePickerSingle / DatePickerRange — dark theme (react-dates) ───────── */
+
+/* Wrapper del input */
+.SingleDatePickerInput,
+.SingleDatePickerInput__withBorder,
+.DateRangePickerInput,
+.DateRangePickerInput__withBorder {
+    background-color: #2c2c2c !important;
+    border-color: #555 !important;
+    border-radius: 4px !important;
+}
+
+/* Contenedor interior del input */
+.DateInput {
+    background-color: #2c2c2c !important;
+    border-radius: 4px !important;
+}
+.DateInput_input {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-bottom: 2px solid transparent !important;
+    font-size: 0.82rem !important;
+    padding: 0.2rem 0.5rem !important;
+    line-height: 1.4 !important;
+}
+.DateInput_input__focused {
+    border-bottom-color: #38bdf8 !important;
+}
+.DateInput_input::placeholder {
+    color: #6b7280 !important;
+}
+
+/* Popup del calendario */
+.DayPicker,
+.DayPicker__withBorder {
+    background-color: #1f2937 !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
+    border-radius: 6px !important;
+}
+.DayPicker__withBorder {
+    border: 1px solid #374151 !important;
+}
+
+/* Fondo del grid de meses */
+.CalendarMonth,
+.CalendarMonthGrid {
+    background-color: #1f2937 !important;
+}
+
+/* Encabezado mes/año */
+.CalendarMonth_caption {
+    color: #e5e7eb !important;
+    font-size: 0.85rem !important;
+    padding-top: 18px !important;
+    padding-bottom: 40px !important;
+}
+
+/* Botones de navegación prev/next */
+.DayPickerNavigation_button {
     background-color: transparent !important;
+    border: 1px solid #374151 !important;
+    border-radius: 4px !important;
 }
-.Select-value {
-    background-color: #3a3a3a !important;
-    border-color: #555 !important;
-    color: #dee2e6 !important;
+.DayPickerNavigation_button:hover {
+    background-color: #374151 !important;
 }
-.Select-value-label {
-    color: #dee2e6 !important;
+.DayPickerNavigation_svg__horizontal {
+    fill: #9ca3af !important;
 }
-.Select-value-icon {
-    border-color: #555 !important;
-    color: #aaa !important;
+
+/* Encabezado de días de la semana */
+.DayPicker_weekHeader {
+    color: #6b7280 !important;
 }
-.Select-value-icon:hover {
-    background-color: #ef5350 !important;
+.DayPicker_weekHeader_li small {
+    color: #6b7280 !important;
+    font-size: 0.74rem !important;
+}
+
+/* Celdas de días — estado por defecto */
+.CalendarDay__default {
+    background-color: #1f2937 !important;
+    color: #d1d5db !important;
+    border: 1px solid #374151 !important;
+}
+.CalendarDay__default:hover {
+    background-color: #374151 !important;
     color: #fff !important;
+    border-color: #4b5563 !important;
+}
+
+/* Día seleccionado */
+.CalendarDay__selected,
+.CalendarDay__selected:active,
+.CalendarDay__selected:hover {
+    background-color: #38bdf8 !important;
+    color: #111827 !important;
+    border-color: #38bdf8 !important;
+    font-weight: 600 !important;
+}
+
+/* Hoy */
+.CalendarDay__today {
+    border: 2px solid #38bdf8 !important;
+    color: #38bdf8 !important;
+    font-weight: bold !important;
+}
+
+/* Días fuera del mes visible */
+.CalendarDay__outside {
+    color: #4b5563 !important;
+    background-color: #111827 !important;
+}
+
+/* Días bloqueados (fuera de rango permitido) */
+.CalendarDay__blocked_out_of_range,
+.CalendarDay__blocked_out_of_range:hover {
+    color: #374151 !important;
+    background-color: #111827 !important;
+    cursor: not-allowed !important;
+    text-decoration: line-through !important;
+}
+
+/* DateRange: rango intermedio seleccionado */
+.CalendarDay__selected_span,
+.CalendarDay__selected_span:hover {
+    background-color: #1e3a5f !important;
+    color: #bfdbfe !important;
+    border-color: #2563eb !important;
+}
+.CalendarDay__hovered_span,
+.CalendarDay__hovered_span:hover {
+    background-color: #1e3a5f !important;
+    color: #bfdbfe !important;
+    border-color: #374151 !important;
+}
+
+/* Flecha separadora en DateRangePicker */
+.DateRangePickerInput_arrow {
+    color: #6b7280 !important;
+    background-color: #2c2c2c !important;
+}
+
+/* Botón "X" para limpiar selección */
+.SingleDatePickerInput_clearDate,
+.SingleDatePickerInput_clearDate:focus,
+.SingleDatePickerInput_clearDate:hover {
+    background-color: transparent !important;
+    border-radius: 50% !important;
+}
+.SingleDatePickerInput_clearDate_svg {
+    fill: #9ca3af !important;
+}
+.SingleDatePickerInput_clearDate:hover .SingleDatePickerInput_clearDate_svg {
+    fill: #f87171 !important;
+}
+
+/* Ocultar panel de atajos de teclado (innecesario en uso productivo) */
+.DayPickerKeyboardShortcuts_show,
+.KeyboardShortcutRow {
+    display: none !important;
+}
+
+/* ── dcc.Slider / dcc.RangeSlider — dark theme (rc-slider) ──────────────── */
+.rc-slider-rail {
+    background-color: #374151 !important;
+}
+.rc-slider-track {
+    background-color: #38bdf8 !important;
+}
+.rc-slider-handle {
+    background-color: #38bdf8 !important;
+    border-color: #38bdf8 !important;
+    opacity: 1 !important;
+}
+.rc-slider-handle:hover,
+.rc-slider-handle:active,
+.rc-slider-handle-dragging {
+    border-color: #7dd3fc !important;
+    box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.2) !important;
+}
+.rc-slider-dot {
+    background-color: #374151 !important;
+    border-color: #4b5563 !important;
+}
+.rc-slider-dot-active {
+    border-color: #38bdf8 !important;
+}
+.rc-slider-mark-text {
+    color: #9ca3af !important;
+    font-size: 0.75rem !important;
+}
+.rc-slider-mark-text-active {
+    color: #dee2e6 !important;
+}
+.rc-slider-tooltip-inner {
+    background-color: #1f2937 !important;
+    color: #dee2e6 !important;
+    border: 1px solid #374151 !important;
+    border-radius: 4px !important;
+    font-size: 0.78rem !important;
 }

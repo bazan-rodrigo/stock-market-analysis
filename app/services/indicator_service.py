@@ -188,7 +188,13 @@ def run_daily(snap_date: date_type | None = None) -> int:
                 "indicator_service: error en asset_id=%d: %s", snap.asset_id, exc
             )
 
-    compute_group_snapshots(snap_date)
+    try:
+        compute_group_snapshots(snap_date)
+    except Exception as exc:
+        logger.error(
+            "indicator_service: error en compute_group_snapshots para %s: %s", snap_date, exc
+        )
+
     logger.info(
         "indicator_service: run_daily completado para %s (%d activos)", snap_date, processed
     )

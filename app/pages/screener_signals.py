@@ -2,10 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-_th = {"fontSize": "0.74rem", "color": "#9ca3af", "fontWeight": "normal",
-       "padding": "4px 8px", "borderBottom": "1px solid #374151",
-       "whiteSpace": "nowrap"}
-_td = {"fontSize": "0.80rem", "padding": "4px 8px", "borderBottom": "1px solid #1f2937"}
+from app.components.ui_constants import TH_NOWRAP as _th, TD as _td, CARD_STYLE
 
 _SORT_OPTS = [
     {"label": "Rank ↑",       "value": "rank"},
@@ -74,7 +71,7 @@ def layout(**kwargs):
             # ── Segunda fila: ordenar + exportar ─────────────────────────────
             dbc.Row([
                 dbc.Col([
-                    dbc.Label("Ordenar por", style={"fontSize": "0.80rem"}),
+                    dbc.Label("Ordenar por", style={"fontSize": "0.82rem"}),
                     dcc.Dropdown(id="ss-sort-col", options=_SORT_OPTS,
                                  value="rank", clearable=False,
                                  style={"fontSize": "0.83rem"}),
@@ -87,7 +84,7 @@ def layout(**kwargs):
                 ], md=2, className="d-flex flex-column"),
             ], className="g-2"),
         ]), className="mb-3",
-            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+            style=CARD_STYLE),
 
         html.Div(id="ss-table-container", style={"overflowX": "auto"}),
 

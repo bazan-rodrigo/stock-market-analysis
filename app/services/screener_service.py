@@ -461,7 +461,7 @@ def _sma_zscore(close: pd.Series, period: int) -> float | None:
 
 
 def _pct_change(current: float, reference: float) -> float | None:
-    if reference and reference != 0:
+    if current is not None and reference is not None and reference != 0:
         return round((current - reference) / reference * 100, 2)
     return None
 

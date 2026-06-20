@@ -339,8 +339,8 @@ _GROUP_LABEL = {"manual": "", "related": "rel", "group": "grp"}
 )
 def render_series_list(series):
     if not series:
-        return html.P("Sin series.", className="text-muted",
-                      style={"fontSize": "0.78rem"})
+        return html.P("Sin series.", className="text-muted mt-2",
+                      style={"fontSize": "0.82rem"})
 
     chips = []
     for s in series:
@@ -372,7 +372,7 @@ def render_series_list(series):
                 html.I(className="fa fa-times"),
                 id={"type": "evol-remove", "index": aid},
                 color="link", size="sm", className="p-0",
-                style={"color": "#dc3545", "fontSize": "0.7rem",
+                style={"color": "#ef5350", "fontSize": "0.7rem",
                        "marginLeft": "2px", "lineHeight": "1"},
             ),
         ], style={

@@ -4,7 +4,7 @@ from dash import ALL, Input, Output, State, callback, ctx, dcc, html, no_update
 import dash_bootstrap_components as dbc
 
 import app.services.synthetic_service as svc
-from app.pages.admin_synthetic import _help_card, _th, _td_s
+from app.pages.admin_synthetic import _help_card, _th, _td
 
 _ROLE_OPTS = [
     {"label": "Numerador",   "value": "numerator"},
@@ -93,14 +93,14 @@ def load_table(_a, _m, selected_ids):
                     style={"color": "#38bdf8" if is_sel else "#6b7280",
                            "padding": "2px 4px", "lineHeight": 1},
                 ),
-                style={**_td_s, "width": "32px", "padding": "2px"},
+                style={**_td, "width": "32px", "padding": "2px"},
             ),
-            html.Td(f.asset.ticker if f.asset else "—", style=_td_s),
+            html.Td(f.asset.ticker if f.asset else "—", style=_td),
             html.Td(f.asset.name   if f.asset else "—",
-                    style={**_td_s, "color": "#9ca3af", "fontSize": "0.76rem"}),
-            html.Td(_TYPE_LABELS.get(f.formula_type, f.formula_type), style=_td_s),
+                    style={**_td, "color": "#9ca3af", "fontSize": "0.76rem"}),
+            html.Td(_TYPE_LABELS.get(f.formula_type, f.formula_type), style=_td),
             html.Td(svc.formula_preview_str(f),
-                    style={**_td_s, "fontFamily": "monospace", "fontSize": "0.74rem",
+                    style={**_td, "fontFamily": "monospace", "fontSize": "0.74rem",
                            "color": "#94a3b8", "maxWidth": "280px",
                            "overflow": "hidden", "textOverflow": "ellipsis",
                            "whiteSpace": "nowrap"}),
@@ -273,7 +273,7 @@ def render_components(uid_store, ft, all_opts):
             dbc.Col(
                 dbc.Button("×", id={"type": "syn-remove-comp", "index": uid},
                            color="link", size="sm",
-                           style={"color": "#ef4444", "padding": "0 6px",
+                           style={"color": "#ef5350", "padding": "0 6px",
                                   "lineHeight": 1, "fontSize": "1rem"}),
                 style={"width": "32px", "minWidth": "32px"},
             ),
@@ -574,10 +574,10 @@ def import_formulas(contents, filename):
 
     rows = [
         html.Tr([
-            html.Td(r["ticker"], style=_td_s),
+            html.Td(r["ticker"], style=_td),
             html.Td(r["status"].capitalize(),
-                    style={**_td_s, "color": _STATUS_COLOR.get(r["status"], "#9ca3af")}),
-            html.Td(r["detail"], style={**_td_s, "fontSize": "0.75rem", "color": "#9ca3af"}),
+                    style={**_td, "color": _STATUS_COLOR.get(r["status"], "#9ca3af")}),
+            html.Td(r["detail"], style={**_td, "fontSize": "0.75rem", "color": "#9ca3af"}),
         ])
         for r in results
     ]

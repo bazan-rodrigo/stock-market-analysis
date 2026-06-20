@@ -3,6 +3,7 @@ APScheduler para la actualización diaria de precios.
 Configuración (enabled, hour, minute) persistida en la tabla scheduler_config.
 """
 import logging
+import threading
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -10,6 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 logger = logging.getLogger(__name__)
 
 _scheduler: BackgroundScheduler | None = None
+_scheduler_lock = threading.Lock()
 
 
 # ── Acceso a configuración en DB ──────────────────────────────────────────────
@@ -86,18 +88,18 @@ def _daily_update_job() -> None:
 
 def start_scheduler() -> None:
     global _scheduler
-    if _scheduler is not None and _scheduler.running:
-        return
-
-    cfg = _get_config()
-    _scheduler = BackgroundScheduler(timezone="UTC")
-    _scheduler.add_job(
-        _daily_update_job,
-        trigger=CronTrigger(hour=cfg.hour, minute=cfg.minute),
-        id="daily_price_update",
-        replace_existing=True,
-    )
-    _scheduler.start()
+    with _scheduler_lock:
+        if _scheduler is not None and _scheduler.running:
+            return
+        cfg = _get_config()
+        _scheduler = BackgroundScheduler(timezone="UTC")
+        _scheduler.add_job(
+            _daily_update_job,
+            trigger=CronTrigger(hour=cfg.hour, minute=cfg.minute),
+            id="daily_price_update",
+            replace_existing=True,
+        )
+        _scheduler.start()
     _save_config(enabled=True)
     logger.info(
         "Scheduler iniciado. Actualización diaria a las %02d:%02d UTC",
@@ -107,24 +109,27 @@ def start_scheduler() -> None:
 
 def shutdown_scheduler() -> None:
     global _scheduler
-    if _scheduler and _scheduler.running:
-        _scheduler.shutdown(wait=False)
-        _scheduler = None
+    with _scheduler_lock:
+        if _scheduler and _scheduler.running:
+            _scheduler.shutdown(wait=False)
+            _scheduler = None
     _save_config(enabled=False)
     logger.info("Scheduler detenido")
 
 
 def get_status() -> dict:
     cfg = _get_config()
-    if _scheduler is None or not _scheduler.running:
-        return {
-            "running": False,
-            "next_run": None,
-            "hour": cfg.hour,
-            "minute": cfg.minute,
-        }
-    job = _scheduler.get_job("daily_price_update")
-    next_run = str(job.next_run_time)[:19] if job and job.next_run_time else "—"
+    with _scheduler_lock:
+        running = _scheduler is not None and _scheduler.running
+        if not running:
+            return {
+                "running": False,
+                "next_run": None,
+                "hour": cfg.hour,
+                "minute": cfg.minute,
+            }
+        job = _scheduler.get_job("daily_price_update")
+        next_run = str(job.next_run_time)[:19] if job and job.next_run_time else "—"
     return {
         "running": True,
         "next_run": next_run,
@@ -134,13 +139,13 @@ def get_status() -> dict:
 
 
 def update_schedule(hour: int, minute: int) -> None:
-    global _scheduler
     _save_config(hour=hour, minute=minute)
-    if _scheduler and _scheduler.running:
-        _scheduler.reschedule_job(
-            "daily_price_update",
-            trigger=CronTrigger(hour=hour, minute=minute),
-        )
+    with _scheduler_lock:
+        if _scheduler and _scheduler.running:
+            _scheduler.reschedule_job(
+                "daily_price_update",
+                trigger=CronTrigger(hour=hour, minute=minute),
+            )
     logger.info("Horario del scheduler actualizado: %02d:%02d UTC", hour, minute)
 
 

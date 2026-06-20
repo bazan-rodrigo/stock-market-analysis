@@ -104,7 +104,7 @@ def _build_columns(entity_type: str):
             **{"data-id": str(e.id), "data-name": e.name},
         ))
 
-    empty = [html.P("Sin entidades.", className="text-muted")]
+    empty = [html.P("Sin entidades.", className="text-muted", style={"fontSize": "0.82rem"})]
     return src_items or empty, tgt_items or empty
 
 

@@ -7,6 +7,7 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 import app.services.rrg_service as rrg_svc
+from app.components.ui_constants import TH_NOWRAP as _th_base
 
 logger = logging.getLogger(__name__)
 
@@ -354,8 +355,7 @@ def _build_table(asset_ids: list, raw_data: dict, skipped_labels: dict = None) -
     if not rows:
         return html.Div()
 
-    _th = {"fontSize": "0.72rem", "color": "#6b7280", "fontWeight": "normal",
-           "padding": "3px 8px", "borderBottom": "1px solid #374151", "whiteSpace": "nowrap"}
+    _th = {**_th_base, "padding": "3px 8px"}
 
     return html.Div(html.Table([
         html.Thead(html.Tr([

@@ -24,7 +24,7 @@ def render_map(active_tab):
     dim_data = data.get(active_tab, {})
 
     if not dim_data:
-        return html.P("Sin datos para esta dimensión.", className="text-muted mt-3")
+        return html.P("Sin datos para esta dimensión.", className="text-muted mt-3", style={"fontSize": "0.82rem"})
 
     return dbc.Row([
         dbc.Col(_build_table(dim_data), md=5),

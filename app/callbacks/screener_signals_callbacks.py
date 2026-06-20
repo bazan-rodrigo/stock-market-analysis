@@ -163,15 +163,16 @@ def render_table(rows_data, comp_meta, sort_col):
                            key=lambda r: (r.get("delta_rank") is None, -(r.get("delta_rank") or 0)))
     # default "rank": ya viene ordenado
 
-    # Rango de scores para normalizar barras
-    scores = [r["score"] for r in rows_data if r["score"] is not None]
-    max_abs_total = max((abs(s) for s in scores), default=1) or 1
-
+    # Rango de scores (pasada única para max_abs_total y comp_max)
+    max_abs_total = 1
     comp_max: dict[str, float] = {}
     for r in rows_data:
+        if r["score"] is not None:
+            max_abs_total = max(max_abs_total, abs(r["score"]))
         for key, sc in (r.get("comp_scores") or {}).items():
             if sc is not None:
                 comp_max[key] = max(comp_max.get(key, 0), abs(sc))
+    max_abs_total = max_abs_total or 1
 
     # Cabecera
     comp_ths = [

@@ -5,21 +5,18 @@ import dash_bootstrap_components as dbc
 
 import app.services.currency_conversion_service as svc
 from app.utils import safe_callback
+from app.components.ui_constants import TH as _th, TD as _td
 
 _sync_state = {
     "running": False, "current": 0, "total": 0,
     "msg": "", "error": None, "color": "success",
 }
 
-_th = {"fontSize": "0.76rem", "color": "#9ca3af", "fontWeight": "normal",
-       "padding": "5px 10px", "borderBottom": "1px solid #374151"}
-_td = {"fontSize": "0.82rem", "padding": "5px 10px", "borderBottom": "1px solid #1f2937"}
-
 
 def _build_divisors_table() -> html.Div:
     divisors = svc.get_divisors()
     if not divisors:
-        return html.P("Sin divisores configurados.", className="text-muted small")
+        return html.P("Sin divisores configurados.", className="text-muted mt-2", style={"fontSize": "0.82rem"})
 
     rows = [
         html.Tr([
@@ -53,7 +50,7 @@ def _build_divisors_table() -> html.Div:
 def _build_stats() -> html.Div:
     stats = svc.get_stats()
     if not stats:
-        return html.P("Sin divisores configurados.", className="text-muted small")
+        return html.P("Sin divisores configurados.", className="text-muted mt-2", style={"fontSize": "0.82rem"})
 
     lines = []
     for st in stats:

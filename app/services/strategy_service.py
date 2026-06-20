@@ -116,7 +116,8 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
         (r.signal_id, r.group_type, r.group_id): r.score for r in grows
     }
 
-    # Info de grupo de cada activo (todas las dimensiones soportadas como group_type)
+    # Solo cargar grupos de activos que aparecen en los datos de señales del día
+    asset_ids_with_data = list({asset_id for _, asset_id in signal_scores})
     asset_groups: dict[int, dict] = {
         a.id: {
             "sector":          a.sector_id,
@@ -128,8 +129,8 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
         for a in s.query(
             Asset.id, Asset.sector_id, Asset.market_id,
             Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
-        ).all()
-    }
+        ).filter(Asset.id.in_(asset_ids_with_data)).all()
+    } if asset_ids_with_data else {}
 
     # Calcular scores por activo
     asset_ids = list(asset_groups.keys())
@@ -202,6 +203,11 @@ def run_daily(snap_date: date_type | None = None) -> dict:
 def get_all_strategies() -> list:
     s = get_session()
     return s.query(Strategy).order_by(Strategy.id).all()
+
+
+def get_strategy_by_id(strategy_id: int) -> Strategy | None:
+    s = get_session()
+    return s.query(Strategy).filter(Strategy.id == strategy_id).first()
 
 
 def save_strategy(
@@ -337,7 +343,7 @@ def get_strategy_results_with_breakdown(
 
     sv_map: dict[tuple, float] = {
         (sv.signal_id, sv.asset_id): sv.score
-        for sv in s.query(SignalValue)
+        for sv in s.query(SignalValue.signal_id, SignalValue.asset_id, SignalValue.score)
         .filter(
             SignalValue.signal_id.in_(sig_ids),
             SignalValue.asset_id.in_(asset_ids),
@@ -348,7 +354,12 @@ def get_strategy_results_with_breakdown(
 
     gsv_map: dict[tuple, float] = {
         (gsv.signal_id, gsv.group_type, gsv.group_id): gsv.score
-        for gsv in s.query(GroupSignalValue)
+        for gsv in s.query(
+            GroupSignalValue.signal_id,
+            GroupSignalValue.group_type,
+            GroupSignalValue.group_id,
+            GroupSignalValue.score,
+        )
         .filter(
             GroupSignalValue.signal_id.in_(sig_ids),
             GroupSignalValue.date == snap_date,
@@ -546,10 +557,16 @@ def export_strategies_excel() -> bytes:
     ws_c.append(["strategy_name", "signal_key", "weight", "scope", "group_type", "group_id"])
 
     s = get_session()
+    all_sig_ids = {comp.signal_id for strat in strategies for comp in strat.components}
+    sigs_by_id = {
+        sig.id: sig
+        for sig in s.query(SignalDefinition).filter(SignalDefinition.id.in_(all_sig_ids)).all()
+    } if all_sig_ids else {}
+
     for strat in strategies:
         ws_s.append([strat.name, strat.description or "", strat.asset_filter or ""])
         for comp in strat.components:
-            sig = s.query(SignalDefinition).filter(SignalDefinition.id == comp.signal_id).first()
+            sig = sigs_by_id.get(comp.signal_id)
             ws_c.append([
                 strat.name, sig.key if sig else "",
                 comp.weight, comp.scope or "",
@@ -564,6 +581,8 @@ def export_strategies_excel() -> bytes:
 def import_strategies_excel(file_bytes: bytes) -> list[dict]:
     import openpyxl
     from io import BytesIO
+    from datetime import datetime as _dt
+    from app.models import SignalDefinition
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes))
     ws_s = wb.worksheets[0]
@@ -601,19 +620,55 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
 
     db = get_session()
     results = []
+    error_occurred = False
+
     for name, sdata in strategies.items():
-        existing = db.query(Strategy).filter(Strategy.name == name).first()
-        sid = existing.id if existing else None
+        if error_occurred:
+            results.append({"name": name, "status": "skipped", "detail": "cancelado por error previo"})
+            continue
         try:
-            strat = save_strategy(
-                name=name,
-                description=sdata["description"],
-                asset_filter=sdata["asset_filter"],
-                components=sdata["components"],
-                strategy_id=sid,
-            )
+            existing = db.query(Strategy).filter(Strategy.name == name).first()
+            if existing:
+                strat = existing
+                for comp in list(strat.components):
+                    db.delete(comp)
+                db.flush()
+            else:
+                strat = Strategy()
+                strat.created_at = _dt.utcnow()
+                db.add(strat)
+
+            strat.name         = name
+            strat.description  = sdata["description"]
+            strat.asset_filter = sdata["asset_filter"] or None
+            strat.updated_at   = _dt.utcnow()
+            db.flush()
+
+            for comp_data in sdata["components"]:
+                sig_key = str(comp_data.get("signal_key") or "").strip()
+                if not sig_key:
+                    raise ValueError("Componente sin signal_key.")
+                sig = db.query(SignalDefinition).filter(SignalDefinition.key == sig_key).first()
+                if sig is None:
+                    raise ValueError(f"Señal '{sig_key}' no encontrada.")
+                comp = StrategyComponent(
+                    strategy_id=strat.id,
+                    signal_id=sig.id,
+                    weight=float(comp_data.get("weight") or 1.0),
+                    scope=comp_data.get("scope") or None,
+                    group_type=comp_data.get("group_type") or None,
+                    group_id=comp_data.get("group_id") or None,
+                )
+                db.add(comp)
+
+            db.flush()
             results.append({"name": name, "status": "ok", "detail": f"id={strat.id}"})
         except Exception as exc:
+            db.rollback()
+            error_occurred = True
             results.append({"name": name, "status": "error", "detail": str(exc)})
+
+    if not error_occurred:
+        db.commit()
 
     return results

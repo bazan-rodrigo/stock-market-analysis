@@ -3,6 +3,8 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import dcc, html
 
+from app.components.ui_constants import TH as _th_base
+
 _DIMS = [
     ("sector",   "Sectores"),
     ("industry", "Industrias"),
@@ -16,7 +18,7 @@ _BG = "#111827"
 
 def _score_label(score):
     if score is None:
-        return None, "#555"
+        return None, "#4b5563"
     if score >= 50:
         return "Alcista", "#4caf50"
     if score >= 20:
@@ -30,7 +32,7 @@ def _score_label(score):
 
 def _score_badge(score):
     if score is None:
-        return html.Td("—", style={"color": "#555", "textAlign": "center"})
+        return html.Td("—", style={"color": "#4b5563", "textAlign": "center"})
     label, color = _score_label(score)
     return html.Td(
         html.Div([
@@ -55,28 +57,28 @@ def _build_table(dim_data: dict) -> html.Table:
                            "overflow": "hidden", "textOverflow": "ellipsis",
                            "maxWidth": "200px"}),
             html.Td(str(g["n"]),
-                    style={"textAlign": "center", "color": "#aaa", "fontSize": "0.78rem"}),
+                    style={"textAlign": "center", "color": "#9ca3af", "fontSize": "0.78rem"}),
             _score_badge(g.get("d")),
             _score_badge(g.get("w")),
             _score_badge(g.get("m")),
         ]))
 
-    _th = {"fontSize": "0.78rem", "color": "#aaa", "fontWeight": "normal"}
+    _th = _th_base
     return html.Table([
         html.Thead(html.Tr([
-            html.Th("Grupo",   style=_th),
-            html.Th("N",       style={**_th, "textAlign": "center", "width": "40px"}),
+            html.Th("Grupo",          style=_th),
+            html.Th("N",              style={**_th, "textAlign": "center", "width": "40px"}),
             html.Th("Score Diario",   style={**_th, "textAlign": "center", "width": "80px"}),
-            html.Th("Score Semanal", style={**_th, "textAlign": "center", "width": "80px"}),
-            html.Th("Score Mensual", style={**_th, "textAlign": "center", "width": "80px"}),
-        ]), style={"borderBottom": "1px solid #444"}),
+            html.Th("Score Semanal",  style={**_th, "textAlign": "center", "width": "80px"}),
+            html.Th("Score Mensual",  style={**_th, "textAlign": "center", "width": "80px"}),
+        ])),
         html.Tbody(tbody_rows),
     ], style={"width": "100%", "borderCollapse": "collapse"})
 
 
 def _quad_info(sm, sd):
     if sm is None or sd is None:
-        return "Sin datos", "#9e9e9e"
+        return "Sin datos", "#6b7280"
     if sm >= 0 and sd >= 0:
         return "Alcista confirmado", "#4caf50"
     if sm < 0 and sd >= 0:

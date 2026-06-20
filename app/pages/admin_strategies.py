@@ -2,20 +2,17 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.ui_constants import (
+    TH as _th, TD as _td,
+    GROUP_TYPE_OPTS as _GROUP_TYPE_OPTS,
+    CARD_STYLE, STATUS_STYLE,
+)
+
 _SCOPE_OPTS = [
     {"label": "Activo directo",          "value": ""},
     {"label": "Grupo propio (own_group)", "value": "own_group"},
     {"label": "Grupo fijo (specific)",    "value": "specific_group"},
 ]
-_GROUP_TYPE_OPTS = [
-    {"label": "Sector",   "value": "sector"},
-    {"label": "Mercado",  "value": "market"},
-    {"label": "Industria","value": "industry"},
-]
-
-_th = {"fontSize": "0.76rem", "color": "#9ca3af", "fontWeight": "normal",
-       "padding": "5px 8px", "borderBottom": "1px solid #374151"}
-_td = {"fontSize": "0.80rem", "padding": "5px 8px", "borderBottom": "1px solid #1f2937"}
 
 
 def layout(**kwargs):
@@ -104,13 +101,11 @@ def layout(**kwargs):
                        color="outline-info", size="sm", disabled=True, className="me-1"),
             dcc.DatePickerSingle(id="str-calc-date",
                                  display_format="YYYY-MM-DD",
-                                 style={"fontSize": "0.82rem", "marginLeft": "4px"}),
+                                 style={"fontSize": "0.82rem", "marginLeft": "8px"}),
         ], className="mb-2 d-flex align-items-center"),
 
         dcc.Loading(
-            html.Div(id="str-status",
-                     style={"fontSize": "0.82rem", "color": "#94a3b8",
-                            "minHeight": "24px", "padding": "2px 0"}),
+            html.Div(id="str-status", style=STATUS_STYLE),
             type="circle", color="#dee2e6",
         ),
 
