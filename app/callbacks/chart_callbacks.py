@@ -1151,10 +1151,12 @@ clientside_callback(
 def _fmt_sr_label(resist_pct, support_pct):
     parts = []
     if resist_pct is not None:
-        parts.append(f"↑+{resist_pct:.1f}%")
+        parts.append(html.Span(f"↑+{resist_pct:.1f}%", style={"color": "#f87171"}))
     if support_pct is not None:
-        parts.append(f"↓{support_pct:.1f}%")
-    return " ".join(parts) if parts else ""
+        if parts:
+            parts.append(" ")
+        parts.append(html.Span(f"↓{support_pct:.1f}%", style={"color": "#4ade80"}))
+    return parts if parts else ""
 
 
 @callback(

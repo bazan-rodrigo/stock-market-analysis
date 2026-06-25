@@ -17,9 +17,6 @@ def _sep():
 
 def _chk(id_, label, default_on=False, color=None):
     """Checkbox estilizado como botón toggle (mismo estilo que D/W/M)."""
-    label_style = {"fontSize": "0.75rem"}
-    if color:
-        label_style["color"] = color
     return dbc.Checklist(
         id=id_,
         options=[{"label": label, "value": 1}],
@@ -28,14 +25,14 @@ def _chk(id_, label, default_on=False, color=None):
         label_class_name="btn btn-outline-secondary btn-sm",
         label_checked_class_name="active",
         class_name="chart-ind-check",
-        label_style=label_style,
+        label_style={"fontSize": "0.75rem"},
     )
 
 
 def _simple_slot(name, slot, color, default_period, dist_label_id=None):
     """Botón toggle + periodo siempre visible (SMA / EMA)."""
     children = [
-        _chk(f"chart-ind-{name}-{slot}-enabled", name.upper(), color=color),
+        _chk(f"chart-ind-{name}-{slot}-enabled", name.upper()),
         dbc.Input(
             id=f"chart-ind-{name}-{slot}-period",
             type="number", value=default_period, min=2, max=500, step=1,
@@ -47,7 +44,8 @@ def _simple_slot(name, slot, color, default_period, dist_label_id=None):
             id=dist_label_id,
             style={"fontSize": "0.68rem", "color": "#aaa"},
         ))
-    return html.Div(children, className="d-flex align-items-center gap-1")
+    return html.Div(children, className="d-flex align-items-center gap-1 ind-group",
+                    style={"--ind-color": color})
 
 
 def _ind_toggle(label, name, params):
@@ -71,7 +69,7 @@ def _ind_toggle(label, name, params):
             className="d-flex align-items-center gap-1",
             style={"display": "none"},
         ),
-    ], className="d-flex align-items-center gap-1")
+    ], className="d-flex align-items-center gap-1 ind-group")
 
 
 def layout(**kwargs):
@@ -136,7 +134,7 @@ def layout(**kwargs):
         # ── Fila 2: controles de indicadores ──────────────────────────────────
         html.Div([
             # Volumen
-            _chk("chart-volume-enabled", "Vol", default_on=True),
+            html.Div([_chk("chart-volume-enabled", "Vol", default_on=True)], className="ind-group"),
             _sep(),
             # SMA ×3  (slot 1 = mejor MA, muestra distancia % al precio)
             _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
@@ -164,29 +162,23 @@ def layout(**kwargs):
                 ("d_period", "%D",   3, 1,  20, 1),
             ]),
             _ind_toggle("ATR", "atr", [("period", "Per", 14, 2, 100, 1)]),
-            # Drawdown panel
-            _chk("chart-ind-drawdown-1-enabled", "Drawdown %"),
-            # Drawdown markers (pisos históricos sobre el precio)
-            _chk("chart-dd-enabled", "Drawdown Pisos"),
+            html.Div([_chk("chart-ind-drawdown-1-enabled", "Drawdown %")], className="ind-group"),
+            html.Div([_chk("chart-dd-enabled", "Drawdown Pisos")], className="ind-group"),
             _sep(),
-            # Eventos de mercado
-            _chk("chart-events-enabled", "Eventos"),
-            # Régimen de Tendencia
+            html.Div([_chk("chart-events-enabled", "Eventos")], className="ind-group"),
             html.Div([
                 _chk("chart-regime-enabled", "Régimen de Tendencia"),
                 html.Span(id="chart-regime-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="d-flex align-items-center gap-1"),
-            # Volatilidad ATR
+            ], className="d-flex align-items-center gap-1 ind-group"),
             html.Div([
                 _chk("chart-vol-enabled", "Régimen de Volatilidad"),
                 html.Span(id="chart-vol-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="d-flex align-items-center gap-1"),
+            ], className="d-flex align-items-center gap-1 ind-group"),
             _sep(),
-            # Pivots S/R
             html.Div([
                 _chk("chart-sr-pivot-enabled", "Soportes / Resistencias"),
-                html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="d-flex align-items-center gap-1"),
+                html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem"}),
+            ], className="d-flex align-items-center gap-1 ind-group"),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
         # ── Stores ─────────────────────────────────────────────────────────────

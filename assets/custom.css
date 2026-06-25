@@ -52,9 +52,16 @@ h6 { font-size: 0.85rem !important; }
 }
 /* btn-check toggles (indicadores del gráfico) */
 .btn-check:checked + .btn-outline-secondary {
-    color: #fff !important;
-    background-color: #4b5563 !important;
-    border-color: #6b7280 !important;
+    color: var(--ind-color, #dee2e6) !important;
+    background-color: #374151 !important;
+    border-color: var(--ind-color, #6b7280) !important;
+}
+
+/* Grupo indicador — rectángulo con esquinas redondeadas */
+.ind-group {
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 2px 6px;
 }
 
 /* ── text-muted — legibilidad en dark mode ───────────────────────────────── */
