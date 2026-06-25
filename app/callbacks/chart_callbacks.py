@@ -72,7 +72,7 @@ def _js_ind_params():
         slots_js = []
         for slot in range(1, n_slots + 1):
             en = f"ind_{name}_{slot}_en"
-            fields = f"enabled: {en}"
+            fields = f"enabled: !!({en}&&{en}.length)"
             for pname, _ in params:
                 fields += f", {pname}: ind_{name}_{slot}_{pname}"
             slots_js.append("{" + fields + "}")
@@ -945,13 +945,13 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     ddEvents:          chartData.dd_events          || [],
     bestMa:            chartData.best_ma            || {{}},
     srPivots:          chartData.sr_pivots          || null,
-    eventsEnabled:     eventsEnabled  !== false,
-    regimeEnabled:     regimeEnabled  === true,
-    ddEnabled:         ddEnabled      === true,
-    volEnabled:        volEnabled     === true,
-    srPivotEnabled:    srPivotEnabled === true,
+    eventsEnabled:     !!(eventsEnabled  && eventsEnabled.length),
+    regimeEnabled:     !!(regimeEnabled  && regimeEnabled.length),
+    ddEnabled:         !!(ddEnabled      && ddEnabled.length),
+    volEnabled:        !!(volEnabled     && volEnabled.length),
+    srPivotEnabled:    !!(srPivotEnabled && srPivotEnabled.length),
     indParams:         indParams,
-    volumeEnabled:     volumeEnabled  !== false,
+    volumeEnabled:     !!(volumeEnabled  && volumeEnabled.length),
     chartType:         chartType  || 'candlestick',
     freq:              freq       || 'D',
     logScale:          logScale   === 'log',
@@ -1017,15 +1017,16 @@ clientside_callback(
     prevent_initial_call=True,
 )
 clientside_callback(
-    "function(v){if(!window._lwcState||!window._lwc)return null;window._lwcState.volumeEnabled=v!==false;window._lwc.fullRender();return null;}",
+    "function(v){if(!window._lwcState||!window._lwc)return null;window._lwcState.volumeEnabled=!!(v&&v.length);window._lwc.fullRender();return null;}",
     Output("chart-volume-dummy", "data"),
     Input("chart-volume-enabled", "value"),
     prevent_initial_call=True,
 )
 clientside_callback(
     """function(enabled) {
-        if (window._lwcState) window._lwcState.eventsEnabled = enabled !== false;
-        if (enabled === false) {
+        var _en = !!(enabled && enabled.length);
+        if (window._lwcState) window._lwcState.eventsEnabled = _en;
+        if (!_en) {
             /* Eliminar del DOM: reposition() no encontrará los elementos y no hará nada */
             document.querySelectorAll('.lwc-ev').forEach(function(el) { el.remove(); });
         } else if (window._lwc && window._lwcCharts && window._lwcPanelDivs && window._lwcState) {
@@ -1049,21 +1050,21 @@ clientside_callback(
 )
 
 clientside_callback(
-    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.regimeEnabled=e===true;window._lwc.fullRender();return null;}",
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.regimeEnabled=!!(e&&e.length);window._lwc.fullRender();return null;}",
     Output("chart-regime-dummy", "data"),
     Input("chart-regime-enabled", "value"),
     prevent_initial_call=True,
 )
 
 clientside_callback(
-    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.ddEnabled=e===true;window._lwc.fullRender();return null;}",
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.ddEnabled=!!(e&&e.length);window._lwc.fullRender();return null;}",
     Output("chart-dd-dummy", "data"),
     Input("chart-dd-enabled", "value"),
     prevent_initial_call=True,
 )
 
 clientside_callback(
-    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.volEnabled=e===true;window._lwc.fullRender();return null;}",
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.volEnabled=!!(e&&e.length);window._lwc.fullRender();return null;}",
     Output("chart-vol-dummy", "data"),
     Input("chart-vol-enabled", "value"),
     prevent_initial_call=True,
@@ -1140,7 +1141,7 @@ def update_vol_label(chart_data, freq):
 
 
 clientside_callback(
-    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.srPivotEnabled=e===true;window._lwc.fullRender();return null;}",
+    "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.srPivotEnabled=!!(e&&e.length);window._lwc.fullRender();return null;}",
     Output("chart-sr-pivot-dummy", "data"),
     Input("chart-sr-pivot-enabled", "value"),
     prevent_initial_call=True,

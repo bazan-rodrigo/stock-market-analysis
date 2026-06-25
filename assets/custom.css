@@ -509,31 +509,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     font-size: 0.78rem !important;
 }
 
-/* ── Indicator toggle buttons (chart page) ────────────────────────────────── */
-.chart-ind-btn {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 3px 8px;
-    cursor: pointer;
-    user-select: none;
-}
-/* Colapsar el wrapper del Switch para que no ocupe espacio lateral */
-.chart-ind-btn .form-check.form-switch { display: contents; }
-/* Ocultar el pill de toggle — el contenedor entero es el botón visual */
-.chart-ind-btn .form-check-input { display: none !important; }
-.chart-ind-btn .form-check-label {
-    font-size: 0.72rem;
-    cursor: pointer;
+/* ── dbc.Checklist como toggle button (chart page) ───────────────────────── */
+/* Renderiza igual que los botones D/W/M (dbc.RadioItems btn-check) */
+.chart-ind-check,
+.chart-ind-check .form-check {
+    display: inline-flex;
     margin: 0;
-}
-/* Estado activo: borde azul + fondo tenue */
-.chart-ind-btn:has(.form-check-input:checked) {
-    border-color: #38bdf8 !important;
-    background-color: rgba(56, 189, 248, 0.08);
-}
-.chart-ind-btn:has(.form-check-input:checked) .form-check-label {
-    color: #93c5fd;
+    padding: 0;
 }

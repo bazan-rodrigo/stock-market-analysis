@@ -15,22 +15,31 @@ def _sep():
     })
 
 
+def _chk(id_, label, default_on=False, color=None):
+    """Checkbox estilizado como botón toggle (mismo estilo que D/W/M)."""
+    label_style = {"fontSize": "0.75rem"}
+    if color:
+        label_style["color"] = color
+    return dbc.Checklist(
+        id=id_,
+        options=[{"label": label, "value": 1}],
+        value=[1] if default_on else [],
+        input_class_name="btn-check",
+        label_class_name="btn btn-outline-secondary btn-sm",
+        label_checked_class_name="active",
+        class_name="chart-ind-check",
+        label_style=label_style,
+    )
+
+
 def _simple_slot(name, slot, color, default_period, dist_label_id=None):
-    """Toggle compacto para SMA/EMA: switch + periodo siempre visible."""
+    """Botón toggle + periodo siempre visible (SMA / EMA)."""
     children = [
-        dbc.Switch(
-            id=f"chart-ind-{name}-{slot}-enabled",
-            value=False,
-            style={"marginBottom": 0},
-        ),
-        html.Span(
-            name.upper(),
-            style={"fontSize": "0.72rem", "color": color},
-        ),
+        _chk(f"chart-ind-{name}-{slot}-enabled", name.upper(), color=color),
         dbc.Input(
             id=f"chart-ind-{name}-{slot}-period",
             type="number", value=default_period, min=2, max=500, step=1,
-            style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "20px"},
+            style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "24px"},
         ),
     ]
     if dist_label_id:
@@ -38,11 +47,11 @@ def _simple_slot(name, slot, color, default_period, dist_label_id=None):
             id=dist_label_id,
             style={"fontSize": "0.68rem", "color": "#aaa"},
         ))
-    return html.Div(children, className="chart-ind-btn")
+    return html.Div(children, className="d-flex align-items-center gap-1")
 
 
 def _ind_toggle(label, name, params):
-    """Toggle con params colapsables para indicadores de panel separado."""
+    """Botón toggle con params colapsables (Bollinger, RSI, MACD, etc.)."""
     # params: [(pname, short_label, default, min, max, step), ...]
     param_inputs = []
     for pname, plabel, pdef, pmin, pmax, pstep in params:
@@ -51,22 +60,18 @@ def _ind_toggle(label, name, params):
             dbc.Input(
                 id=f"chart-ind-{name}-1-{pname}",
                 type="number", value=pdef, min=pmin, max=pmax, step=pstep,
-                style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "20px"},
+                style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "24px"},
             ),
         ]
     return html.Div([
-        dbc.Switch(
-            id=f"chart-ind-{name}-1-enabled",
-            label=label, value=False,
-            style={"fontSize": "0.75rem", "marginBottom": 0},
-        ),
+        _chk(f"chart-ind-{name}-1-enabled", label),
         html.Div(
             param_inputs,
             id=f"chart-ind-{name}-1-params",
-            className="d-flex align-items-center gap-1 ms-1",
+            className="d-flex align-items-center gap-1",
             style={"display": "none"},
         ),
-    ], className="chart-ind-btn")
+    ], className="d-flex align-items-center gap-1")
 
 
 def layout(**kwargs):
@@ -131,11 +136,7 @@ def layout(**kwargs):
         # ── Fila 2: controles de indicadores ──────────────────────────────────
         html.Div([
             # Volumen
-            html.Div([
-                dbc.Switch(id="chart-volume-enabled", value=True,
-                           style={"marginBottom": 0}),
-                html.Span("Vol", style={"fontSize": "0.72rem"}),
-            ], className="chart-ind-btn"),
+            _chk("chart-volume-enabled", "Vol", default_on=True),
             _sep(),
             # SMA ×3  (slot 1 = mejor MA, muestra distancia % al precio)
             _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
@@ -163,47 +164,29 @@ def layout(**kwargs):
                 ("d_period", "%D",   3, 1,  20, 1),
             ]),
             _ind_toggle("ATR", "atr", [("period", "Per", 14, 2, 100, 1)]),
-            # Drawdown panel (indicador de panel separado)
-            html.Div([
-                dbc.Switch(id="chart-ind-drawdown-1-enabled", value=False,
-                           style={"marginBottom": 0}),
-                html.Span("Drawdown %", style={"fontSize": "0.72rem", "color": "#ef5350"}),
-            ], className="chart-ind-btn"),
+            # Drawdown panel
+            _chk("chart-ind-drawdown-1-enabled", "Drawdown %", color="#ef5350"),
             # Drawdown markers (pisos históricos sobre el precio)
-            html.Div([
-                dbc.Switch(id="chart-dd-enabled", value=False,
-                           style={"marginBottom": 0}),
-                html.Span("Drawdown Pisos", style={"fontSize": "0.72rem", "color": "#ef5350"}),
-            ], className="chart-ind-btn"),
+            _chk("chart-dd-enabled", "Drawdown Pisos", color="#ef5350"),
             _sep(),
             # Eventos de mercado
-            html.Div([
-                dbc.Switch(id="chart-events-enabled", value=False,
-                           style={"marginBottom": 0}),
-                html.Span("Eventos", style={"fontSize": "0.72rem", "color": "#ff9800"}),
-            ], className="chart-ind-btn"),
+            _chk("chart-events-enabled", "Eventos", color="#ff9800"),
             # Régimen de Tendencia
             html.Div([
-                dbc.Switch(id="chart-regime-enabled", value=False,
-                           style={"marginBottom": 0}),
-                html.Span("Régimen de Tendencia", style={"fontSize": "0.72rem", "color": "#9c27b0"}),
+                _chk("chart-regime-enabled", "Régimen de Tendencia", color="#9c27b0"),
                 html.Span(id="chart-regime-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="chart-ind-btn"),
+            ], className="d-flex align-items-center gap-1"),
             # Volatilidad ATR
             html.Div([
-                dbc.Switch(id="chart-vol-enabled", value=False,
-                           style={"marginBottom": 0}),
-                html.Span("Régimen de Volatilidad", style={"fontSize": "0.72rem", "color": "#ff9800"}),
+                _chk("chart-vol-enabled", "Régimen de Volatilidad", color="#ff9800"),
                 html.Span(id="chart-vol-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="chart-ind-btn"),
+            ], className="d-flex align-items-center gap-1"),
             _sep(),
             # Pivots S/R
             html.Div([
-                dbc.Switch(id="chart-sr-pivot-enabled", value=False,
-                           style={"marginBottom": 0}),
-                html.Span("Soportes / Resistencias", style={"fontSize": "0.72rem", "color": "#ef9a9a"}),
+                _chk("chart-sr-pivot-enabled", "Soportes / Resistencias", color="#ef9a9a"),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="chart-ind-btn"),
+            ], className="d-flex align-items-center gap-1"),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
         # ── Stores ─────────────────────────────────────────────────────────────
