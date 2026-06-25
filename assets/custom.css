@@ -333,6 +333,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 /* ── dcc.DatePickerSingle — Dash 2.x (Radix popover) ────────────────────── */
 
+/* Contenedor externo — transparente para no tapar el fondo de la card */
+.dash-datepicker {
+    background: transparent !important;
+}
+
 /* Botón / wrapper del input */
 .dash-datepicker-input-wrapper {
     background-color: #2c2c2c !important;
