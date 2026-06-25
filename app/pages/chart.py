@@ -38,9 +38,7 @@ def _simple_slot(name, slot, color, default_period, dist_label_id=None):
             id=dist_label_id,
             style={"fontSize": "0.68rem", "color": "#aaa"},
         ))
-    return html.Div(children,
-                    className="d-flex align-items-center border rounded px-2",
-                    style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
+    return html.Div(children, className="chart-ind-btn")
 
 
 def _ind_toggle(label, name, params):
@@ -68,8 +66,7 @@ def _ind_toggle(label, name, params):
             className="d-flex align-items-center gap-1 ms-1",
             style={"display": "none"},
         ),
-    ], className="d-flex align-items-center border rounded px-2",
-       style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"})
+    ], className="chart-ind-btn")
 
 
 def layout(**kwargs):
@@ -138,8 +135,7 @@ def layout(**kwargs):
                 dbc.Switch(id="chart-volume-enabled", value=True,
                            style={"marginBottom": 0}),
                 html.Span("Vol", style={"fontSize": "0.72rem"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            ], className="chart-ind-btn"),
             _sep(),
             # SMA ×3  (slot 1 = mejor MA, muestra distancia % al precio)
             _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
@@ -172,39 +168,34 @@ def layout(**kwargs):
                 dbc.Switch(id="chart-ind-drawdown-1-enabled", value=False,
                            style={"marginBottom": 0}),
                 html.Span("Drawdown %", style={"fontSize": "0.72rem", "color": "#ef5350"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            ], className="chart-ind-btn"),
             # Drawdown markers (pisos históricos sobre el precio)
             html.Div([
                 dbc.Switch(id="chart-dd-enabled", value=False,
                            style={"marginBottom": 0}),
                 html.Span("Drawdown Pisos", style={"fontSize": "0.72rem", "color": "#ef5350"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            ], className="chart-ind-btn"),
             _sep(),
             # Eventos de mercado
             html.Div([
                 dbc.Switch(id="chart-events-enabled", value=False,
                            style={"marginBottom": 0}),
                 html.Span("Eventos", style={"fontSize": "0.72rem", "color": "#ff9800"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            ], className="chart-ind-btn"),
             # Régimen de Tendencia
             html.Div([
                 dbc.Switch(id="chart-regime-enabled", value=False,
                            style={"marginBottom": 0}),
                 html.Span("Régimen de Tendencia", style={"fontSize": "0.72rem", "color": "#9c27b0"}),
                 html.Span(id="chart-regime-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            ], className="chart-ind-btn"),
             # Volatilidad ATR
             html.Div([
                 dbc.Switch(id="chart-vol-enabled", value=False,
                            style={"marginBottom": 0}),
                 html.Span("Régimen de Volatilidad", style={"fontSize": "0.72rem", "color": "#ff9800"}),
                 html.Span(id="chart-vol-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            ], className="chart-ind-btn"),
             _sep(),
             # Pivots S/R
             html.Div([
@@ -212,8 +203,7 @@ def layout(**kwargs):
                            style={"marginBottom": 0}),
                 html.Span("Soportes / Resistencias", style={"fontSize": "0.72rem", "color": "#ef9a9a"}),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
-            ], className="d-flex align-items-center border rounded px-2",
-               style={"gap": "4px", "paddingTop": "3px", "paddingBottom": "3px"}),
+            ], className="chart-ind-btn"),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
         # ── Stores ─────────────────────────────────────────────────────────────
