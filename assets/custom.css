@@ -212,6 +212,15 @@ h6 { font-size: 0.85rem !important; }
     cursor: not-allowed !important;
 }
 
+/* Wrapper interno — Bootstrap lo pinta de claro y tapa el valor seleccionado */
+.Select-multi-value-wrapper {
+    background-color: transparent !important;
+}
+.Select--single .Select-value {
+    background-color: transparent !important;
+    color: #dee2e6 !important;
+}
+
 /* Valor seleccionado y placeholder */
 .Select-value-label,
 .Select-placeholder,
@@ -225,12 +234,16 @@ h6 { font-size: 0.85rem !important; }
     color: #9ca3af !important;
 }
 
-/* Input de búsqueda interno */
+/* Input de búsqueda interno — Bootstrap puede sobreescribir input[type="text"] */
+.Select-input,
 .Select-input > input,
-.Select-input {
+.Select-control input[type="text"] {
     color: #dee2e6 !important;
     font-size: 0.82rem !important;
     background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
 }
 
 /* Flecha */
