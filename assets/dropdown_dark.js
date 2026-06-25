@@ -12,6 +12,17 @@
             inp.style.setProperty('outline',      'none', 'important');
             inp.style.setProperty('box-shadow',   'none', 'important');
         });
+
+        // dcc.DatePickerSingle — react-dates/Aphrodite inyecta background: white !important
+        // CSS no puede ganarle; aplicamos inline con 'important' desde JS
+        document.querySelectorAll('[class*="DateInput_input"]').forEach(function (inp) {
+            inp.style.setProperty('background-color', '#2c2c2c', 'important');
+            inp.style.setProperty('color',            '#dee2e6', 'important');
+        });
+        document.querySelectorAll('[class*="SingleDatePickerInput_"], [class*="DateInput_"]:not(input)').forEach(function (d) {
+            d.style.setProperty('background-color', '#2c2c2c', 'important');
+            d.style.setProperty('border-color',     '#555',    'important');
+        });
     }
 
     var timer;

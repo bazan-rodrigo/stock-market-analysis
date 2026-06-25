@@ -544,6 +544,12 @@ input.DateInput_input::placeholder {
     padding: 0;
 }
 
+/* ── dcc.Loading wrapper — fondo transparente ────────────────────────────── */
+.dash-loading-callback-operation,
+._dash-loading-callback {
+    background: transparent !important;
+}
+
 /* ── DataTable tooltips: modo oscuro ─────────────────────────────────────── */
 .dash-table-tooltip {
     background-color: #1f2937 !important;

@@ -60,6 +60,7 @@ def layout(**kwargs):
             html.Div(id="rrg-load-trigger", style={"display": "none"}),
             type="circle",
             color="#dee2e6",
+            style={"background": "transparent"},
         ),
 
         # ── Gráfico + panel lateral ───────────────────────────────────────
