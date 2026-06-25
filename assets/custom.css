@@ -331,176 +331,96 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     cursor: pointer;
 }
 
-/* ── DatePickerSingle / DatePickerRange — dark theme (react-dates) ───────── */
+/* ── dcc.DatePickerSingle — Dash 2.x (Radix popover) ────────────────────── */
 
-/* Por ID del wrapper Python (versión-agnóstico, no depende de nombres de clase) */
-#evol-date-from input, #evol-date-to input,
-#pair-date-from input, #pair-date-to input,
-#sig-recalc-date input, #str-calc-date input {
+/* Botón / wrapper del input */
+.dash-datepicker-input-wrapper {
     background-color: #2c2c2c !important;
-    color: #dee2e6 !important;
-    border-bottom: 2px solid #555 !important;
-}
-#evol-date-from > div, #evol-date-to > div,
-#pair-date-from > div, #pair-date-to > div,
-#sig-recalc-date > div, #str-calc-date > div {
-    background-color: #2c2c2c !important;
-    border-color: #555 !important;
-}
-
-/* Por clase (fallback para navegadores con cachés) */
-div.SingleDatePickerInput,
-div.SingleDatePickerInput__withBorder,
-div.DateRangePickerInput,
-div.DateRangePickerInput__withBorder {
-    background-color: #2c2c2c !important;
-    border-color: #555 !important;
+    border: 1px solid #555 !important;
     border-radius: 4px !important;
-}
-div.DateInput {
-    background-color: #2c2c2c !important;
-    border-radius: 4px !important;
-}
-input.DateInput_input,
-[class*="DateInput_input"] {
-    background-color: #2c2c2c !important;
     color: #dee2e6 !important;
-    border-bottom: 2px solid transparent !important;
-    font-size: 0.82rem !important;
-    padding: 0.2rem 0.5rem !important;
-    line-height: 1.4 !important;
 }
-input.DateInput_input__focused,
-[class*="DateInput_input__focused"] {
-    border-bottom-color: #38bdf8 !important;
-}
-input.DateInput_input::placeholder,
-[class*="DateInput_input"]::placeholder {
-    color: #6b7280 !important;
+.dash-datepicker-input-wrapper svg {
+    fill: #dee2e6 !important;
+    color: #dee2e6 !important;
 }
 
-/* Popup del calendario — wildcard con prefijo de elemento (especificidad 0,1,1
-   gana sobre .ClassName_1 de react-dates en 0,1,0) */
-[class*="SingleDatePicker_picker"],
-div[class*="DayPicker__withBorder"],
-div[class*="DayPicker_transitionContainer"],
-div[class*="CalendarMonthGrid"],
-div[class*="CalendarMonth"] {
+/* Popup container (portal Radix, position: fixed) */
+.dash-datepicker-content {
     background-color: #1f2937 !important;
-}
-div[class*="DayPicker__withBorder"] {
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
-    border-radius: 6px !important;
     border: 1px solid #374151 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+    overflow: hidden !important;
 }
 
-/* Encabezado mes/año */
-.CalendarMonth_caption {
+/* Wrappers internos */
+.dash-datepicker-calendar-wrapper,
+.dash-datepicker-controls,
+.dash-datepicker-calendar-container {
+    background-color: #1f2937 !important;
     color: #e5e7eb !important;
-    font-size: 0.85rem !important;
-    padding-top: 18px !important;
-    padding-bottom: 40px !important;
 }
 
-/* Botones de navegación prev/next */
-.DayPickerNavigation_button {
+/* Botones de navegación (mes anterior/siguiente, +/- año) */
+.dash-datepicker-controls button {
     background-color: transparent !important;
     border: 1px solid #374151 !important;
+    color: #9ca3af !important;
     border-radius: 4px !important;
 }
-.DayPickerNavigation_button:hover {
+.dash-datepicker-controls button:hover {
     background-color: #374151 !important;
+    color: #fff !important;
 }
-.DayPickerNavigation_svg__horizontal {
-    fill: #9ca3af !important;
+.dash-datepicker-controls button svg {
+    fill: currentColor !important;
+}
+
+/* Tabla del calendario */
+table.dash-datepicker-calendar {
+    background-color: #1f2937 !important;
 }
 
 /* Encabezado de días de la semana */
-.DayPicker_weekHeader {
-    color: #6b7280 !important;
-}
-.DayPicker_weekHeader_li small {
+.dash-datepicker-calendar thead th,
+.dash-datepicker-calendar th {
+    background-color: #1f2937 !important;
     color: #6b7280 !important;
     font-size: 0.74rem !important;
 }
 
-/* Celdas de días — wildcard para cubrir ClassName_1 de react-dates */
-td[class*="CalendarDay__default"] {
+/* Celdas de días — default */
+td.dash-datepicker-calendar-date-inside {
     background-color: #1f2937 !important;
     color: #d1d5db !important;
-    border: 1px solid #374151 !important;
+    border-radius: 4px !important;
 }
-td[class*="CalendarDay__default"]:hover {
+td.dash-datepicker-calendar-date-inside:hover:not([aria-disabled="true"]) {
     background-color: #374151 !important;
     color: #fff !important;
-    border-color: #4b5563 !important;
 }
 
 /* Día seleccionado */
-td[class*="CalendarDay__selected"] {
+td.dash-datepicker-calendar-date-inside[data-selected="true"],
+td.dash-datepicker-calendar-date-inside[aria-selected="true"] {
     background-color: #38bdf8 !important;
     color: #111827 !important;
-    border-color: #38bdf8 !important;
     font-weight: 600 !important;
 }
 
 /* Hoy */
-td[class*="CalendarDay__today"] {
+td.dash-datepicker-calendar-date-inside[data-today="true"] {
     border: 2px solid #38bdf8 !important;
     color: #38bdf8 !important;
     font-weight: bold !important;
 }
 
-/* Días fuera del mes visible */
-td[class*="CalendarDay__outside"] {
-    color: #4b5563 !important;
-    background-color: #111827 !important;
-}
-
-/* Días bloqueados (fuera de rango permitido) */
-td[class*="CalendarDay__blocked_out_of_range"] {
+/* Días deshabilitados (fuera de rango) */
+td.dash-datepicker-calendar-date-inside[aria-disabled="true"] {
     color: #374151 !important;
-    background-color: #111827 !important;
     cursor: not-allowed !important;
     text-decoration: line-through !important;
-}
-
-/* DateRange: rango intermedio seleccionado */
-td[class*="CalendarDay__selected_span"] {
-    background-color: #1e3a5f !important;
-    color: #bfdbfe !important;
-    border-color: #2563eb !important;
-}
-td[class*="CalendarDay__hovered_span"] {
-    background-color: #1e3a5f !important;
-    color: #bfdbfe !important;
-    border-color: #374151 !important;
-}
-
-/* Flecha separadora en DateRangePicker */
-.DateRangePickerInput_arrow {
-    color: #6b7280 !important;
-    background-color: #2c2c2c !important;
-}
-
-/* Botón "X" para limpiar selección */
-.SingleDatePickerInput_clearDate,
-.SingleDatePickerInput_clearDate:focus,
-.SingleDatePickerInput_clearDate:hover {
-    background-color: transparent !important;
-    border-radius: 50% !important;
-}
-.SingleDatePickerInput_clearDate_svg {
-    fill: #9ca3af !important;
-}
-.SingleDatePickerInput_clearDate:hover .SingleDatePickerInput_clearDate_svg {
-    fill: #f87171 !important;
-}
-
-/* Ocultar panel de atajos de teclado (innecesario en uso productivo) */
-.DayPickerKeyboardShortcuts_show,
-.KeyboardShortcutRow {
-    display: none !important;
 }
 
 /* ── dcc.Slider / dcc.RangeSlider — dark theme (rc-slider) ──────────────── */
