@@ -75,6 +75,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Usuarios",             href="/admin/users"),
                     dbc.DropdownMenuItem("Scheduler",            href="/admin/scheduler"),
+                    dbc.DropdownMenuItem("Configuración de app", href="/admin/app-settings"),
                     dbc.DropdownMenuItem("Limpieza de datos",    href="/admin/cleanup"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Consola SQL",          href="/admin/sql"),

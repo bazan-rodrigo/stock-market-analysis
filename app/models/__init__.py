@@ -19,6 +19,7 @@ from app.models.sector import Sector
 from app.models.synthetic_formula import SyntheticComponent, SyntheticFormula
 from app.models.currency_conversion import CurrencyConversionDivisor
 from app.models.scheduler_config import SchedulerConfig
+from app.models.app_setting import AppSetting
 from app.models.user import User
 from app.models.indicator_snapshot import IndicatorSnapshot
 from app.models.group_indicator_snapshot import GroupIndicatorSnapshot
@@ -53,6 +54,7 @@ __all__ = [
     "SyntheticComponent",
     "CurrencyConversionDivisor",
     "SchedulerConfig",
+    "AppSetting",
     "IndicatorSnapshot",
     "GroupIndicatorSnapshot",
     "SignalDefinition",
