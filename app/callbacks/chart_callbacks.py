@@ -11,7 +11,7 @@ Flujo:
   3. Cambiar params/toggles → clientside _JS_IND_UPDATE → recalcula y renderiza
   4. Cambiar tipo/freq/escala/volumen → clientside individuales
 """
-from dash import Input, Output, State, callback, clientside_callback, no_update
+from dash import Input, Output, State, callback, clientside_callback, no_update, html
 
 
 from app.services.asset_service import get_assets
@@ -1153,10 +1153,8 @@ def _fmt_sr_label(resist_pct, support_pct):
     if resist_pct is not None:
         parts.append(html.Span(f"↑+{resist_pct:.1f}%", style={"color": "#f87171"}))
     if support_pct is not None:
-        if parts:
-            parts.append(" ")
-        parts.append(html.Span(f"↓{support_pct:.1f}%", style={"color": "#4ade80"}))
-    return parts if parts else ""
+        parts.append(html.Span(f" ↓{support_pct:.1f}%", style={"color": "#4ade80"}))
+    return parts or ""
 
 
 @callback(
@@ -1223,4 +1221,11 @@ def apply_best_ma(chart_data, freq):
     mult = _MULT.get(freq or "D", 1)
     sma_label = _ma_dist_label(raw, sma_period * mult, "sma")
     ema_label = _ma_dist_label(raw, ema_period * mult, "ema")
-    return sma_period, ema_period, sma_label, ema_label
+    return sma_period, ema_period, _colored_dist(sma_label), _colored_dist(ema_label)
+
+
+def _colored_dist(label: str):
+    if not label:
+        return ""
+    color = "#4ade80" if label.startswith("+") else "#f87171"
+    return html.Span(label, style={"color": color, "fontSize": "0.68rem"})

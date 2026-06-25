@@ -133,24 +133,15 @@ def layout(**kwargs):
 
         # ── Fila 2: controles de indicadores ──────────────────────────────────
         html.Div([
-            # Volumen
             html.Div([_chk("chart-volume-enabled", "Vol", default_on=True)], className="ind-group"),
-            _sep(),
-            # SMA ×3  (slot 1 = mejor MA, muestra distancia % al precio)
             _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
             *[_simple_slot("sma", i + 1, _SMA_COLORS[i], _SMA_DEF[i]) for i in range(1, 3)],
-            _sep(),
-            # EMA ×3
             _simple_slot("ema", 1, _EMA_COLORS[0], _EMA_DEF[0], dist_label_id="chart-ema-best-label"),
             *[_simple_slot("ema", i + 1, _EMA_COLORS[i], _EMA_DEF[i]) for i in range(1, 3)],
-            _sep(),
-            # Bollinger
             _ind_toggle("Bollinger", "bollinger", [
                 ("period", "Per",  20,  5, 100, 1),
                 ("std_dev", "Dev", 2.0, 0.5, 4.0, 0.5),
             ]),
-            _sep(),
-            # Separados
             _ind_toggle("RSI", "rsi", [("period", "Per", 14, 2, 100, 1)]),
             _ind_toggle("MACD", "macd", [
                 ("fast",   "Rap",  12, 2, 100, 1),
@@ -164,7 +155,6 @@ def layout(**kwargs):
             _ind_toggle("ATR", "atr", [("period", "Per", 14, 2, 100, 1)]),
             html.Div([_chk("chart-ind-drawdown-1-enabled", "Drawdown %")], className="ind-group"),
             html.Div([_chk("chart-dd-enabled", "Drawdown Pisos")], className="ind-group"),
-            _sep(),
             html.Div([_chk("chart-events-enabled", "Eventos")], className="ind-group"),
             html.Div([
                 _chk("chart-regime-enabled", "Régimen de Tendencia"),
@@ -174,7 +164,6 @@ def layout(**kwargs):
                 _chk("chart-vol-enabled", "Régimen de Volatilidad"),
                 html.Span(id="chart-vol-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center gap-1 ind-group"),
-            _sep(),
             html.Div([
                 _chk("chart-sr-pivot-enabled", "Soportes / Resistencias"),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem"}),
