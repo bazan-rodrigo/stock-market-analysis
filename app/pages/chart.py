@@ -92,7 +92,7 @@ def layout(**kwargs):
                 style={"minWidth": "220px", "maxWidth": "320px"},
             ),
             dbc.Col(
-                dbc.RadioItems(
+                html.Div(dbc.RadioItems(
                     id="chart-freq",
                     options=[{"label": x, "value": x} for x in ["D", "W", "M"]],
                     value="D",
@@ -100,11 +100,11 @@ def layout(**kwargs):
                     label_class_name="btn btn-outline-secondary btn-sm",
                     label_checked_class_name="active",
                     class_name="btn-group btn-group-sm",
-                ),
+                ), className="ind-group", style={"padding": "1px 2px"}),
                 width="auto",
             ),
             dbc.Col(
-                dbc.RadioItems(
+                html.Div(dbc.RadioItems(
                     id="chart-type",
                     options=[{"label": "Velas", "value": "candlestick"},
                              {"label": "Línea", "value": "line"}],
@@ -113,11 +113,11 @@ def layout(**kwargs):
                     label_class_name="btn btn-outline-secondary btn-sm",
                     label_checked_class_name="active",
                     class_name="btn-group btn-group-sm",
-                ),
+                ), className="ind-group", style={"padding": "1px 2px"}),
                 width="auto",
             ),
             dbc.Col(
-                dbc.RadioItems(
+                html.Div(dbc.RadioItems(
                     id="chart-yscale",
                     options=[{"label": "Arit", "value": "linear"},
                              {"label": "Log",  "value": "log"}],
@@ -126,7 +126,7 @@ def layout(**kwargs):
                     label_class_name="btn btn-outline-secondary btn-sm",
                     label_checked_class_name="active",
                     class_name="btn-group btn-group-sm",
-                ),
+                ), className="ind-group", style={"padding": "1px 2px"}),
                 width="auto",
             ),
         ], className="mb-1 g-2 align-items-center flex-wrap"),
