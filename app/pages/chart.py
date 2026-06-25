@@ -77,8 +77,6 @@ def layout(**kwargs):
     if not current_user.is_authenticated:
         return html.Div()
 
-    _radio_sm = {"fontSize": "0.75rem"}
-
     return html.Div([
         # ── Fila 1: activo + frecuencia + tipo + escala ────────────────────────
         dbc.Row([
@@ -97,8 +95,11 @@ def layout(**kwargs):
                 dbc.RadioItems(
                     id="chart-freq",
                     options=[{"label": x, "value": x} for x in ["D", "W", "M"]],
-                    value="D", inline=True,
-                    inputStyle={"marginRight": "3px"}, style=_radio_sm,
+                    value="D",
+                    input_class_name="btn-check",
+                    label_class_name="btn btn-outline-secondary btn-sm",
+                    label_checked_class_name="active",
+                    class_name="btn-group btn-group-sm",
                 ),
                 width="auto",
             ),
@@ -106,19 +107,25 @@ def layout(**kwargs):
                 dbc.RadioItems(
                     id="chart-type",
                     options=[{"label": "Velas", "value": "candlestick"},
-                             {"label": "Linea",  "value": "line"}],
-                    value="candlestick", inline=True,
-                    inputStyle={"marginRight": "3px"}, style=_radio_sm,
+                             {"label": "Línea", "value": "line"}],
+                    value="candlestick",
+                    input_class_name="btn-check",
+                    label_class_name="btn btn-outline-secondary btn-sm",
+                    label_checked_class_name="active",
+                    class_name="btn-group btn-group-sm",
                 ),
                 width="auto",
             ),
             dbc.Col(
                 dbc.RadioItems(
                     id="chart-yscale",
-                    options=[{"label": "Lin", "value": "linear"},
-                             {"label": "Log", "value": "log"}],
-                    value="linear", inline=True,
-                    inputStyle={"marginRight": "3px"}, style=_radio_sm,
+                    options=[{"label": "Arit", "value": "linear"},
+                             {"label": "Log",  "value": "log"}],
+                    value="linear",
+                    input_class_name="btn-check",
+                    label_class_name="btn btn-outline-secondary btn-sm",
+                    label_checked_class_name="active",
+                    class_name="btn-group btn-group-sm",
                 ),
                 width="auto",
             ),
