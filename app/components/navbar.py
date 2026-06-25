@@ -9,7 +9,7 @@ def build_navbar() -> dbc.Navbar:
         children=[
             dbc.DropdownMenuItem("Gráfico técnico",    href="/chart"),
             dbc.DropdownMenuItem("Screener",           href="/screener"),
-            dbc.DropdownMenuItem("Mapa de Mercado",    href="/market-map"),
+            dbc.DropdownMenuItem("Mapa de Tendencia de Mercado", href="/market-map"),
             dbc.DropdownMenuItem("Rotación Relativa",  href="/rrg"),
             dbc.DropdownMenuItem("Evolución",          href="/evolucion"),
             dbc.DropdownMenuItem("Análisis de Pares",  href="/par"),

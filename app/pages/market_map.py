@@ -9,7 +9,7 @@ _DIMS = [
     ("sector",   "Sectores"),
     ("industry", "Industrias"),
     ("country",  "Países"),
-    ("itype",    "Tipos"),
+    ("itype",    "Tipo de Instrumento"),
     ("market",   "Mercados"),
 ]
 
@@ -176,7 +176,7 @@ def _legend_card():
     _card_style = {"backgroundColor": "#1f2937", "border": "1px solid #374151"}
     return dbc.Card(
         dbc.CardBody([
-            html.H6("¿Cómo leer el Mapa de Mercado?",
+            html.H6("¿Cómo leer el Mapa de Tendencia de Mercado?",
                     className="mb-2", style={"fontSize": "0.85rem", "color": "#9ca3af"}),
             html.P([
                 html.Strong("Score de tendencia (−100 a +100): ", style={"color": "#e5e7eb"}),
@@ -232,7 +232,7 @@ def layout(**kwargs):
 
     return html.Div([
         dbc.Row([
-            dbc.Col(html.H4("Mapa de Mercado", className="mb-0"), width="auto"),
+            dbc.Col(html.H4("Mapa de Tendencia de Mercado", className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small(
                     "Score de tendencia por grupo. "
@@ -264,4 +264,4 @@ def layout(**kwargs):
     ], style={"padding": "0 8px"})
 
 
-dash.register_page(__name__, path="/market-map", title="Mapa de Mercado", layout=layout)
+dash.register_page(__name__, path="/market-map", title="Mapa de Tendencia de Mercado", layout=layout)
