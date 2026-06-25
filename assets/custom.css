@@ -48,6 +48,57 @@ h6 { font-size: 0.85rem !important; }
     padding: 0.2rem 0.4rem !important;
 }
 
+/* Colores explícitos para dark mode — Bootstrap Darkly usa variables CSS que
+   algunos browsers (autofill, number inputs) pueden pisar con fondo claro */
+.form-control,
+.form-select,
+select,
+textarea.form-control {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #555 !important;
+}
+.form-control::placeholder,
+.form-select::placeholder,
+textarea.form-control::placeholder {
+    color: #9ca3af !important;
+}
+
+/* Foco consistente con el resto de la UI (Dropdown, date picker, filtros) */
+.form-control:focus,
+.form-select:focus,
+select:focus,
+textarea.form-control:focus {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2) !important;
+    outline: none !important;
+}
+
+/* Autofill del browser: Chrome/Edge pisan el fondo con amarillo o azul */
+.form-control:-webkit-autofill,
+.form-control:-webkit-autofill:hover,
+.form-control:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #2c2c2c inset !important;
+    -webkit-text-fill-color: #dee2e6 !important;
+    border-color: #555 !important;
+}
+
+/* Flechas de input[type="number"] — el ícono nativo queda oscuro sobre fondo oscuro */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    filter: invert(0.8);
+}
+
+/* Editor SQL: fondo más oscuro para distinguirlo visualmente como área de código */
+#sql-input {
+    background-color: #1f2937 !important;
+    color: #f3f4f6 !important;
+    border-color: #374151 !important;
+    font-size: 0.85rem !important;
+}
+
 /* ── Alertas compactas ───────────────────────────────────────────────────── */
 .alert {
     padding: 0.4rem 0.7rem;

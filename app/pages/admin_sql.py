@@ -19,14 +19,7 @@ def layout(**kwargs):
         dbc.Textarea(
             id="sql-input",
             placeholder="SELECT * FROM assets LIMIT 10;",
-            style={
-                "fontFamily": "monospace",
-                "fontSize": "0.85rem",
-                "backgroundColor": "#1f2937",
-                "color": "#f3f4f6",
-                "border": "1px solid #374151",
-                "minHeight": "160px",
-            },
+            style={"fontFamily": "monospace", "minHeight": "160px"},
             className="mb-2",
         ),
 
