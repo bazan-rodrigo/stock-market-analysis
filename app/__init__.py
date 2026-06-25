@@ -231,6 +231,7 @@ def create_app():
         "app.pages.signal_history",
         "app.pages.signal_heatmap",
         "app.pages.strategy_history",
+        "app.pages.returns",
     ]
 
     import importlib
@@ -278,6 +279,7 @@ def create_app():
         "app.callbacks.signal_history_callbacks",
         "app.callbacks.signal_heatmap_callbacks",
         "app.callbacks.strategy_history_callbacks",
+        "app.callbacks.returns_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))
