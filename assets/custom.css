@@ -332,9 +332,26 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* ── DatePickerSingle / DatePickerRange — dark theme (react-dates) ───────── */
-/* Selectores con elemento+clase (especificidad 0,1,1) para ganar al CSS inyectado */
 
-/* Wrapper del input */
+/* Por ID del wrapper Python (versión-agnóstico, no depende de nombres de clase) */
+#evol-date-from input, #evol-date-to input,
+#pair-date-from input, #pair-date-to input,
+#sig-recalc-date input, #str-calc-date input {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border-bottom: 2px solid #555 !important;
+}
+#evol-date-from > div, #evol-date-to > div,
+#pair-date-from > div, #pair-date-to > div,
+#sig-recalc-date > div, #str-calc-date > div,
+#evol-date-from > div > div, #evol-date-to > div > div,
+#pair-date-from > div > div, #pair-date-to > div > div,
+#sig-recalc-date > div > div, #str-calc-date > div > div {
+    background-color: #2c2c2c !important;
+    border-color: #555 !important;
+}
+
+/* Por clase (fallback para navegadores con cachés) */
 div.SingleDatePickerInput,
 div.SingleDatePickerInput__withBorder,
 div.DateRangePickerInput,
@@ -343,13 +360,12 @@ div.DateRangePickerInput__withBorder {
     border-color: #555 !important;
     border-radius: 4px !important;
 }
-
-/* Contenedor interior del input */
 div.DateInput {
     background-color: #2c2c2c !important;
     border-radius: 4px !important;
 }
-input.DateInput_input {
+input.DateInput_input,
+[class*="DateInput_input"] {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
     border-bottom: 2px solid transparent !important;
@@ -357,10 +373,12 @@ input.DateInput_input {
     padding: 0.2rem 0.5rem !important;
     line-height: 1.4 !important;
 }
-input.DateInput_input__focused {
+input.DateInput_input__focused,
+[class*="DateInput_input__focused"] {
     border-bottom-color: #38bdf8 !important;
 }
-input.DateInput_input::placeholder {
+input.DateInput_input::placeholder,
+[class*="DateInput_input"]::placeholder {
     color: #6b7280 !important;
 }
 

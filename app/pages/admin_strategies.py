@@ -102,7 +102,8 @@ def layout(**kwargs):
             dcc.DatePickerSingle(id="str-calc-date",
                                  display_format="YYYY-MM-DD",
                                  style={"fontSize": "0.82rem", "marginLeft": "8px",
-                                        "width": "150px"}),
+                                        "width": "150px", "backgroundColor": "#2c2c2c",
+                                        "border": "1px solid #555", "borderRadius": "4px"}),
         ], className="mb-2 d-flex align-items-center"),
 
         dcc.Loading(

@@ -56,12 +56,7 @@ def layout(**kwargs):
             style={"fontSize": "0.85rem", "padding": "6px 12px"},
         ),
 
-        dcc.Loading(
-            html.Div(id="rrg-load-trigger", style={"display": "none"}),
-            type="circle",
-            color="#dee2e6",
-            style={"background": "transparent"},
-        ),
+        html.Div(id="rrg-load-trigger", style={"display": "none"}),
 
         # ── Gráfico + panel lateral ───────────────────────────────────────
         dbc.Row([

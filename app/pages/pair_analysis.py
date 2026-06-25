@@ -49,14 +49,18 @@ def layout(**kwargs):
                     html.Small("Fecha desde", className="text-muted d-block mb-1"),
                     dcc.DatePickerSingle(
                         id="pair-date-from", date=one_year.isoformat(),
-                        display_format="YYYY-MM-DD", style={"fontSize": "0.85rem"},
+                        display_format="YYYY-MM-DD",
+                        style={"fontSize": "0.85rem", "backgroundColor": "#2c2c2c",
+                               "border": "1px solid #555", "borderRadius": "4px"},
                     ),
                 ], md=2),
                 dbc.Col([
                     html.Small("Fecha hasta", className="text-muted d-block mb-1"),
                     dcc.DatePickerSingle(
                         id="pair-date-to", date=today.isoformat(),
-                        display_format="YYYY-MM-DD", style={"fontSize": "0.85rem"},
+                        display_format="YYYY-MM-DD",
+                        style={"fontSize": "0.85rem", "backgroundColor": "#2c2c2c",
+                               "border": "1px solid #555", "borderRadius": "4px"},
                     ),
                 ], md=2),
                 dbc.Col([

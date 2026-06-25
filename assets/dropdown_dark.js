@@ -13,15 +13,22 @@
             inp.style.setProperty('box-shadow',   'none', 'important');
         });
 
-        // dcc.DatePickerSingle — react-dates/Aphrodite inyecta background: white !important
-        // CSS no puede ganarle; aplicamos inline con 'important' desde JS
-        document.querySelectorAll('[class*="DateInput_input"]').forEach(function (inp) {
-            inp.style.setProperty('background-color', '#2c2c2c', 'important');
-            inp.style.setProperty('color',            '#dee2e6', 'important');
-        });
-        document.querySelectorAll('[class*="SingleDatePickerInput_"], [class*="DateInput_"]:not(input)').forEach(function (d) {
-            d.style.setProperty('background-color', '#2c2c2c', 'important');
-            d.style.setProperty('border-color',     '#555',    'important');
+        // dcc.DatePickerSingle — por ID (independiente del nombre de clase o versión de Dash)
+        ['evol-date-from', 'evol-date-to',
+         'pair-date-from', 'pair-date-to',
+         'sig-recalc-date', 'str-calc-date'].forEach(function (pid) {
+            var el = document.getElementById(pid);
+            if (!el) return;
+            el.style.setProperty('background-color', '#2c2c2c', 'important');
+            el.style.setProperty('border',           '1px solid #555', 'important');
+            el.style.setProperty('border-radius',    '4px', 'important');
+            el.querySelectorAll('input, [role="textbox"]').forEach(function (inp) {
+                inp.style.setProperty('background-color', '#2c2c2c', 'important');
+                inp.style.setProperty('color',            '#dee2e6', 'important');
+            });
+            el.querySelectorAll('div').forEach(function (d) {
+                d.style.setProperty('background-color', '#2c2c2c', 'important');
+            });
         });
     }
 
