@@ -78,6 +78,7 @@ def layout(**kwargs):
             dbc.Tab(
                 dcc.Loading(
                     dcc.Graph(id="pair-graph-comp", style={"height": "520px"},
+                              figure={"layout": {"paper_bgcolor": "#111827", "plot_bgcolor": "#111827"}},
                               config={"scrollZoom": True,
                                       "modeBarButtonsToRemove": ["lasso2d", "select2d"]}),
                     type="circle", color="#dee2e6",
@@ -89,6 +90,7 @@ def layout(**kwargs):
             dbc.Tab(
                 dcc.Loading(
                     dcc.Graph(id="pair-graph-ratio", style={"height": "520px"},
+                              figure={"layout": {"paper_bgcolor": "#111827", "plot_bgcolor": "#111827"}},
                               config={"scrollZoom": True,
                                       "modeBarButtonsToRemove": ["lasso2d", "select2d"]}),
                     type="circle", color="#dee2e6",
@@ -148,6 +150,7 @@ def layout(**kwargs):
                     dcc.Graph(
                         id="pair-graph-corr",
                         style={"height": "520px"},
+                        figure={"layout": {"paper_bgcolor": "#111827", "plot_bgcolor": "#111827"}},
                         config={"scrollZoom": True,
                                 "modeBarButtonsToRemove": ["lasso2d", "select2d"]},
                     ),

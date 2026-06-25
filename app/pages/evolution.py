@@ -170,6 +170,7 @@ def layout(**kwargs):
             dcc.Graph(
                 id="evol-graph",
                 style={"height": "540px"},
+                figure={"layout": {"paper_bgcolor": "#1e2126", "plot_bgcolor": "#1e2126"}},
                 config={
                     "displayModeBar": True,
                     "modeBarButtonsToRemove": ["lasso2d", "select2d"],

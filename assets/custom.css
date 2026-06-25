@@ -291,18 +291,26 @@ button.dash-dropdown[aria-expanded="true"] {
 }
 
 /* Input de búsqueda dentro del menú abierto */
-.dash-dropdown-search-container input {
+div.dash-dropdown-search-container {
     background-color: #2c2c2c !important;
+    border-bottom: 1px solid #555 !important;
+    padding: 4px !important;
+}
+div.dash-dropdown-search-container input,
+[data-radix-popper-content-wrapper] input {
+    background-color: #1e1e1e !important;
     color: #dee2e6 !important;
     border: 1px solid #555 !important;
     border-radius: 4px !important;
     outline: none !important;
     font-size: 0.82rem !important;
 }
-.dash-dropdown-search-container input::placeholder {
+div.dash-dropdown-search-container input::placeholder,
+[data-radix-popper-content-wrapper] input::placeholder {
     color: #9ca3af !important;
 }
-.dash-dropdown-search-container input:focus {
+div.dash-dropdown-search-container input:focus,
+[data-radix-popper-content-wrapper] input:focus {
     border-color: #38bdf8 !important;
     box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2) !important;
 }
@@ -324,23 +332,24 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* ── DatePickerSingle / DatePickerRange — dark theme (react-dates) ───────── */
+/* Selectores con elemento+clase (especificidad 0,1,1) para ganar al CSS inyectado */
 
 /* Wrapper del input */
-.SingleDatePickerInput,
-.SingleDatePickerInput__withBorder,
-.DateRangePickerInput,
-.DateRangePickerInput__withBorder {
+div.SingleDatePickerInput,
+div.SingleDatePickerInput__withBorder,
+div.DateRangePickerInput,
+div.DateRangePickerInput__withBorder {
     background-color: #2c2c2c !important;
     border-color: #555 !important;
     border-radius: 4px !important;
 }
 
 /* Contenedor interior del input */
-.DateInput {
+div.DateInput {
     background-color: #2c2c2c !important;
     border-radius: 4px !important;
 }
-.DateInput_input {
+input.DateInput_input {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
     border-bottom: 2px solid transparent !important;
@@ -348,10 +357,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     padding: 0.2rem 0.5rem !important;
     line-height: 1.4 !important;
 }
-.DateInput_input__focused {
+input.DateInput_input__focused {
     border-bottom-color: #38bdf8 !important;
 }
-.DateInput_input::placeholder {
+input.DateInput_input::placeholder {
     color: #6b7280 !important;
 }
 
