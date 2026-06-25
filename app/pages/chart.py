@@ -165,26 +165,26 @@ def layout(**kwargs):
             ]),
             _ind_toggle("ATR", "atr", [("period", "Per", 14, 2, 100, 1)]),
             # Drawdown panel
-            _chk("chart-ind-drawdown-1-enabled", "Drawdown %", color="#ef5350"),
+            _chk("chart-ind-drawdown-1-enabled", "Drawdown %"),
             # Drawdown markers (pisos históricos sobre el precio)
-            _chk("chart-dd-enabled", "Drawdown Pisos", color="#ef5350"),
+            _chk("chart-dd-enabled", "Drawdown Pisos"),
             _sep(),
             # Eventos de mercado
-            _chk("chart-events-enabled", "Eventos", color="#ff9800"),
+            _chk("chart-events-enabled", "Eventos"),
             # Régimen de Tendencia
             html.Div([
-                _chk("chart-regime-enabled", "Régimen de Tendencia", color="#9c27b0"),
+                _chk("chart-regime-enabled", "Régimen de Tendencia"),
                 html.Span(id="chart-regime-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center gap-1"),
             # Volatilidad ATR
             html.Div([
-                _chk("chart-vol-enabled", "Régimen de Volatilidad", color="#ff9800"),
+                _chk("chart-vol-enabled", "Régimen de Volatilidad"),
                 html.Span(id="chart-vol-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center gap-1"),
             _sep(),
             # Pivots S/R
             html.Div([
-                _chk("chart-sr-pivot-enabled", "Soportes / Resistencias", color="#ef9a9a"),
+                _chk("chart-sr-pivot-enabled", "Soportes / Resistencias"),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center gap-1"),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
