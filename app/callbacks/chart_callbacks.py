@@ -1195,45 +1195,50 @@ def _ma_dist_label(raw_daily: list, period: int, kind: str) -> str:
     return f"{sign}{pct:.1f}%"
 
 
-# Actualiza período (con reset a default cuando no hay snapshot) y label de distancia %.
+# Actualiza sólo los períodos óptimos de SMA-1 / EMA-1 al cambiar activo o frecuencia.
 @callback(
     Output("chart-ind-sma-1-period", "value"),
     Output("chart-ind-ema-1-period", "value"),
-    Output("chart-sma-best-label",   "children"),
-    Output("chart-ema-best-label",   "children"),
-    Output("chart-sma-2-label",      "children"),
-    Output("chart-sma-3-label",      "children"),
-    Output("chart-ema-2-label",      "children"),
-    Output("chart-ema-3-label",      "children"),
     Input("chart-data", "data"),
     Input("chart-freq", "value"),
-    State("chart-ind-sma-2-period", "value"),
-    State("chart-ind-sma-3-period", "value"),
-    State("chart-ind-ema-2-period", "value"),
-    State("chart-ind-ema-3-period", "value"),
     prevent_initial_call=True,
 )
-def apply_best_ma(chart_data, freq, sma2_per, sma3_per, ema2_per, ema3_per):
+def apply_best_ma(chart_data, freq):
     _SMA_DEFAULT = 20
     _EMA_DEFAULT = 9
     if not chart_data:
-        return _SMA_DEFAULT, _EMA_DEFAULT, "", "", "", "", "", ""
+        return _SMA_DEFAULT, _EMA_DEFAULT
     best_ma = chart_data.get("best_ma", {})
     fd = best_ma.get(freq or "D", {})
-    sma_period = fd.get("sma") or _SMA_DEFAULT
-    ema_period = fd.get("ema") or _EMA_DEFAULT
-    raw = chart_data.get("raw_daily", [])
-    _MULT = {"D": 1, "W": 5, "M": 21}
-    mult = _MULT.get(freq or "D", 1)
-    return (
-        sma_period, ema_period,
-        _colored_dist(_ma_dist_label(raw, sma_period * mult, "sma")),
-        _colored_dist(_ma_dist_label(raw, ema_period * mult, "ema")),
-        _colored_dist(_ma_dist_label(raw, (sma2_per or 50)  * mult, "sma")),
-        _colored_dist(_ma_dist_label(raw, (sma3_per or 200) * mult, "sma")),
-        _colored_dist(_ma_dist_label(raw, (ema2_per or 21)  * mult, "ema")),
-        _colored_dist(_ma_dist_label(raw, (ema3_per or 50)  * mult, "ema")),
-    )
+    return fd.get("sma") or _SMA_DEFAULT, fd.get("ema") or _EMA_DEFAULT
+
+
+# Recalcula los 6 labels de distancia % cada vez que cambia cualquier período o el activo.
+@callback(
+    Output("chart-sma-best-label", "children"),
+    Output("chart-sma-2-label",    "children"),
+    Output("chart-sma-3-label",    "children"),
+    Output("chart-ema-best-label", "children"),
+    Output("chart-ema-2-label",    "children"),
+    Output("chart-ema-3-label",    "children"),
+    Input("chart-data", "data"),
+    Input("chart-freq", "value"),
+    Input("chart-ind-sma-1-period", "value"),
+    Input("chart-ind-sma-2-period", "value"),
+    Input("chart-ind-sma-3-period", "value"),
+    Input("chart-ind-ema-1-period", "value"),
+    Input("chart-ind-ema-2-period", "value"),
+    Input("chart-ind-ema-3-period", "value"),
+    prevent_initial_call=True,
+)
+def update_ma_dist_labels(chart_data, freq, s1, s2, s3, e1, e2, e3):
+    if not chart_data:
+        return "", "", "", "", "", ""
+    raw  = chart_data.get("raw_daily", [])
+    mult = {"D": 1, "W": 5, "M": 21}.get(freq or "D", 1)
+    def d(period, kind):
+        return _colored_dist(_ma_dist_label(raw, (period or 1) * mult, kind))
+    return d(s1, "sma"), d(s2, "sma"), d(s3, "sma"), d(e1, "ema"), d(e2, "ema"), d(e3, "ema")
 
 
 def _colored_dist(label: str):

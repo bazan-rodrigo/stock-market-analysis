@@ -36,7 +36,7 @@ def _simple_slot(name, slot, color, default_period, dist_label_id=None):
         dbc.Input(
             id=f"chart-ind-{name}-{slot}-period",
             type="number", value=default_period, min=2, max=500, step=1,
-            style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "24px"},
+            style={"width": "56px", "fontSize": "0.7rem", "padding": "1px 4px", "height": "24px"},
         ),
     ]
     if dist_label_id:
@@ -58,7 +58,7 @@ def _ind_toggle(label, name, params):
             dbc.Input(
                 id=f"chart-ind-{name}-1-{pname}",
                 type="number", value=pdef, min=pmin, max=pmax, step=pstep,
-                style={"width": "44px", "fontSize": "0.7rem", "padding": "1px 3px", "height": "24px"},
+                style={"width": "56px", "fontSize": "0.7rem", "padding": "1px 4px", "height": "24px"},
             ),
         ]
     return html.Div([
