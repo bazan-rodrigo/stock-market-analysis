@@ -1,10 +1,6 @@
 from datetime import date as _date
 
-_PALETTE = [
-    "#60a5fa", "#34d399", "#f87171", "#fbbf24", "#a78bfa",
-    "#fb923c", "#f472b6", "#4ade80", "#38bdf8", "#e879f9",
-    "#94a3b8", "#2dd4bf", "#facc15", "#c084fc", "#f97316",
-]
+from app.components.ui_constants import CHART_PALETTE as _PALETTE
 
 
 def assign_color(index: int) -> str:

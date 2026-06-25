@@ -5,6 +5,7 @@ import dash_bootstrap_components as dbc
 
 import app.services.signal_service as svc
 from app.pages.admin_signals import _help_card, _th, _td
+from app.components.ui_constants import COLOR_POSITIVE, COLOR_NEGATIVE
 
 
 # ── Tabla ─────────────────────────────────────────────────────────────────────
@@ -326,7 +327,7 @@ def import_excel(contents, filename):
     ok_count  = sum(1 for r in results if r["status"] == "ok")
     err_count = sum(1 for r in results if r["status"] == "error")
 
-    _COLOR = {"ok": "#4ade80", "error": "#f87171"}
+    _COLOR = {"ok": COLOR_POSITIVE, "error": COLOR_NEGATIVE}
     rows = [
         html.Tr([
             html.Td(r["key"],    style=_td),

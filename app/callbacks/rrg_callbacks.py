@@ -7,7 +7,7 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 import app.services.rrg_service as rrg_svc
-from app.components.ui_constants import TH_NOWRAP as _th_base
+from app.components.ui_constants import TH_NOWRAP as _th_base, BG_CHART as _BG
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,6 @@ _PALETTE = [
     "#ff4081", "#69f0ae", "#18ffff", "#b388ff", "#ff6e40",
     "#f06292", "#4dd0e1", "#dce775", "#ff8a65", "#a1887f",
 ]
-
-_BG = "#111827"
 
 
 # ── Opciones de dropdowns ─────────────────────────────────────────────────────

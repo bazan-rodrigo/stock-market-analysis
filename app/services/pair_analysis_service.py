@@ -5,12 +5,8 @@ from datetime import date as _date
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-_DARK = dict(
-    paper_bgcolor="#1e2126",
-    plot_bgcolor="#1e2126",
-    font=dict(color="#dee2e6"),
-)
-_AXIS = dict(gridcolor="#2d3038", linecolor="#495057", zerolinecolor="#2d3038")
+from app.components.ui_constants import PLOTLY_DARK as _DARK, PLOTLY_AXIS as _AXIS
+
 _C1 = "#60a5fa"
 _C2 = "#34d399"
 _TREND = "#fbbf24"

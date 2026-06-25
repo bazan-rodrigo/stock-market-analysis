@@ -6,11 +6,7 @@ import dash_bootstrap_components as dbc
 
 import app.services.strategy_service as svc
 
-_PALETTE = [
-    "#60a5fa", "#34d399", "#fbbf24", "#f87171", "#a78bfa",
-    "#fb923c", "#38bdf8", "#4ade80", "#e879f9", "#facc15",
-    "#818cf8", "#2dd4bf", "#f97316", "#ec4899", "#84cc16",
-]
+from app.components.ui_constants import CHART_PALETTE as _PALETTE
 
 
 # ── Opciones de estrategias ───────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 from app.components.table_styles import HEADER, DATA, CELL
+from app.components.ui_constants import REGIME_COLORS as _REGIME_COLORS, VOL_COLORS as _VOL_COLORS, GS_LABEL_COLORS as _GS_LABEL_COLORS
 
 _DD_SM = {"fontSize": "0.78rem"}
 
@@ -47,33 +48,6 @@ _REGIME_COLS = ["regime_d", "regime_w", "regime_m"]
 _VOL_COLS    = ["vol_d",    "vol_w",    "vol_m"]
 _GS_COLS     = [c["id"] for c in _COLUMNS if c["id"].startswith("gs_")]
 
-_REGIME_COLORS = {
-    "Alcista naciente fuerte": "#66bb6a",
-    "Alcista naciente":        "#a5d6a7",
-    "Alcista fuerte":          "#2e7d32",
-    "Alcista":                 "#4caf50",
-    "Lateral naciente":        "#90caf9",
-    "Lateral":                 "#6495ed",
-    "Bajista naciente fuerte": "#ef5350",
-    "Bajista naciente":        "#ef9a9a",
-    "Bajista fuerte":          "#b71c1c",
-    "Bajista":                 "#ef5350",
-}
-
-_VOL_COLORS = {
-    "Extrema | Larga":  "#b71c1c", "Extrema | Media":  "#c62828", "Extrema | Corta":  "#d32f2f",
-    "Alta | Larga":     "#e65100", "Alta | Media":     "#ef6c00", "Alta | Corta":     "#f57c00",
-    "Normal | Larga":   "#546e7a", "Normal | Media":   "#607d8b", "Normal | Corta":   "#78909c",
-    "Baja | Larga":     "#0277bd", "Baja | Media":     "#0288d1", "Baja | Corta":     "#039be5",
-}
-
-_GS_LABEL_COLORS = {
-    "Alcista":     "#4caf50",
-    "Mejorando":   "#a5d6a7",
-    "Lateral":     "#90a4ae",
-    "Deteriorando":"#ef9a9a",
-    "Bajista":     "#ef5350",
-}
 
 _GS_STYLE = [
     {"if": {"filter_query": f'{{{col}}} = "{label}"', "column_id": col}, "color": color}

@@ -83,6 +83,11 @@ h6 { font-size: 0.85rem !important; }
     border-color: #555 !important;
     font-size: 0.8rem !important;
 }
+.dash-filter input:focus {
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2) !important;
+    outline: none !important;
+}
 .previous-next-container button,
 .page-number {
     background-color: #2c2c2c !important;
@@ -154,15 +159,23 @@ h6 { font-size: 0.85rem !important; }
 /* Control visible: input + valor seleccionado + flecha */
 .Select-control,
 .Select.has-value .Select-control,
-.Select.is-focused .Select-control,
 .Select.is-open .Select-control,
-.Select.has-value.is-focused .Select-control,
-.Select.is-focused:not(.is-open) .Select-control {
+.Select.has-value.is-focused .Select-control {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
     border: 1px solid #555 !important;
     border-radius: 4px !important;
     box-shadow: none !important;
+}
+
+/* Foco visible — indica al usuario qué dropdown está activo */
+.Select.is-focused .Select-control,
+.Select.is-focused:not(.is-open) .Select-control {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border: 1px solid #38bdf8 !important;
+    border-radius: 4px !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2) !important;
 }
 
 /* Menú desplegable */
@@ -209,7 +222,7 @@ h6 { font-size: 0.85rem !important; }
     background-color: transparent !important;
 }
 .Select-placeholder {
-    color: #6b7280 !important;
+    color: #9ca3af !important;
 }
 
 /* Input de búsqueda interno */
@@ -278,6 +291,11 @@ input[type="date"] {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
     border-color: #555 !important;
+}
+input[type="date"]:focus {
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2) !important;
+    outline: none !important;
 }
 input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(0.8);

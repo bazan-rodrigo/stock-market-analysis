@@ -15,6 +15,7 @@ import dash_bootstrap_components as dbc
 from sqlalchemy import text
 
 from app.components.table_styles import HEADER, DATA, CELL
+from app.components.ui_constants import COLOR_POSITIVE, COLOR_WARNING, COLOR_NEGATIVE
 
 # ── Estado server-side ────────────────────────────────────────────────────────
 _lock     = threading.Lock()
@@ -222,9 +223,9 @@ def _csv_val(v):
 
 def _style(kind: str) -> dict:
     colors = {
-        "ok":      {"color": "#4caf50"},
-        "warning": {"color": "#facc15"},
-        "danger":  {"color": "#ef5350"},
+        "ok":      {"color": COLOR_POSITIVE},
+        "warning": {"color": COLOR_WARNING},
+        "danger":  {"color": COLOR_NEGATIVE},
     }
     return {**{"fontSize": "0.82rem", "fontFamily": "monospace"},
             **colors.get(kind, {})}
