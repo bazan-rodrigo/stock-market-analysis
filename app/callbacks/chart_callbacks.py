@@ -1201,27 +1201,39 @@ def _ma_dist_label(raw_daily: list, period: int, kind: str) -> str:
     Output("chart-ind-ema-1-period", "value"),
     Output("chart-sma-best-label",   "children"),
     Output("chart-ema-best-label",   "children"),
+    Output("chart-sma-2-label",      "children"),
+    Output("chart-sma-3-label",      "children"),
+    Output("chart-ema-2-label",      "children"),
+    Output("chart-ema-3-label",      "children"),
     Input("chart-data", "data"),
     Input("chart-freq", "value"),
+    State("chart-ind-sma-2-period", "value"),
+    State("chart-ind-sma-3-period", "value"),
+    State("chart-ind-ema-2-period", "value"),
+    State("chart-ind-ema-3-period", "value"),
     prevent_initial_call=True,
 )
-def apply_best_ma(chart_data, freq):
+def apply_best_ma(chart_data, freq, sma2_per, sma3_per, ema2_per, ema3_per):
     _SMA_DEFAULT = 20
     _EMA_DEFAULT = 9
     if not chart_data:
-        return _SMA_DEFAULT, _EMA_DEFAULT, "", ""
+        return _SMA_DEFAULT, _EMA_DEFAULT, "", "", "", "", "", ""
     best_ma = chart_data.get("best_ma", {})
     fd = best_ma.get(freq or "D", {})
     sma_period = fd.get("sma") or _SMA_DEFAULT
     ema_period = fd.get("ema") or _EMA_DEFAULT
     raw = chart_data.get("raw_daily", [])
-    # Para W/M resamplear sería ideal, pero los raw_daily son diarios;
-    # usamos la aproximación de multiplicar el período por días hábiles.
     _MULT = {"D": 1, "W": 5, "M": 21}
     mult = _MULT.get(freq or "D", 1)
-    sma_label = _ma_dist_label(raw, sma_period * mult, "sma")
-    ema_label = _ma_dist_label(raw, ema_period * mult, "ema")
-    return sma_period, ema_period, _colored_dist(sma_label), _colored_dist(ema_label)
+    return (
+        sma_period, ema_period,
+        _colored_dist(_ma_dist_label(raw, sma_period * mult, "sma")),
+        _colored_dist(_ma_dist_label(raw, ema_period * mult, "ema")),
+        _colored_dist(_ma_dist_label(raw, (sma2_per or 50)  * mult, "sma")),
+        _colored_dist(_ma_dist_label(raw, (sma3_per or 200) * mult, "sma")),
+        _colored_dist(_ma_dist_label(raw, (ema2_per or 21)  * mult, "ema")),
+        _colored_dist(_ma_dist_label(raw, (ema3_per or 50)  * mult, "ema")),
+    )
 
 
 def _colored_dist(label: str):

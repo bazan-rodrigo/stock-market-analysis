@@ -135,9 +135,11 @@ def layout(**kwargs):
         html.Div([
             html.Div([_chk("chart-volume-enabled", "Vol", default_on=True)], className="ind-group"),
             _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
-            *[_simple_slot("sma", i + 1, _SMA_COLORS[i], _SMA_DEF[i]) for i in range(1, 3)],
+            _simple_slot("sma", 2, _SMA_COLORS[1], _SMA_DEF[1], dist_label_id="chart-sma-2-label"),
+            _simple_slot("sma", 3, _SMA_COLORS[2], _SMA_DEF[2], dist_label_id="chart-sma-3-label"),
             _simple_slot("ema", 1, _EMA_COLORS[0], _EMA_DEF[0], dist_label_id="chart-ema-best-label"),
-            *[_simple_slot("ema", i + 1, _EMA_COLORS[i], _EMA_DEF[i]) for i in range(1, 3)],
+            _simple_slot("ema", 2, _EMA_COLORS[1], _EMA_DEF[1], dist_label_id="chart-ema-2-label"),
+            _simple_slot("ema", 3, _EMA_COLORS[2], _EMA_DEF[2], dist_label_id="chart-ema-3-label"),
             _ind_toggle("Bollinger", "bollinger", [
                 ("period", "Per",  20,  5, 100, 1),
                 ("std_dev", "Dev", 2.0, 0.5, 4.0, 0.5),
