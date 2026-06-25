@@ -38,6 +38,30 @@ h6 { font-size: 0.85rem !important; }
     font-size: 0.82rem !important;
 }
 
+/* ── btn-outline-secondary — legibilidad en dark mode ───────────────────── */
+.btn-outline-secondary {
+    color: #adb5bd !important;
+    border-color: #6b7280 !important;
+}
+.btn-outline-secondary:hover,
+.btn-outline-secondary:active,
+.btn-outline-secondary.active {
+    color: #fff !important;
+    background-color: #4b5563 !important;
+    border-color: #6b7280 !important;
+}
+/* btn-check toggles (indicadores del gráfico) */
+.btn-check:checked + .btn-outline-secondary {
+    color: #fff !important;
+    background-color: #4b5563 !important;
+    border-color: #6b7280 !important;
+}
+
+/* ── text-muted — legibilidad en dark mode ───────────────────────────────── */
+.text-muted {
+    color: #9ca3af !important;
+}
+
 /* ── Labels y formularios ────────────────────────────────────────────────── */
 .form-label, label {
     margin-bottom: 0.15rem !important;
