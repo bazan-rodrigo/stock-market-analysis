@@ -343,10 +343,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 #evol-date-from > div, #evol-date-to > div,
 #pair-date-from > div, #pair-date-to > div,
-#sig-recalc-date > div, #str-calc-date > div,
-#evol-date-from > div > div, #evol-date-to > div > div,
-#pair-date-from > div > div, #pair-date-to > div > div,
-#sig-recalc-date > div > div, #str-calc-date > div > div {
+#sig-recalc-date > div, #str-calc-date > div {
     background-color: #2c2c2c !important;
     border-color: #555 !important;
 }
@@ -382,21 +379,19 @@ input.DateInput_input::placeholder,
     color: #6b7280 !important;
 }
 
-/* Popup del calendario */
-.DayPicker,
-.DayPicker__withBorder {
+/* Popup del calendario — wildcard con prefijo de elemento (especificidad 0,1,1
+   gana sobre .ClassName_1 de react-dates en 0,1,0) */
+[class*="SingleDatePicker_picker"],
+div[class*="DayPicker__withBorder"],
+div[class*="DayPicker_transitionContainer"],
+div[class*="CalendarMonthGrid"],
+div[class*="CalendarMonth"] {
     background-color: #1f2937 !important;
+}
+div[class*="DayPicker__withBorder"] {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
     border-radius: 6px !important;
-}
-.DayPicker__withBorder {
     border: 1px solid #374151 !important;
-}
-
-/* Fondo del grid de meses */
-.CalendarMonth,
-.CalendarMonthGrid {
-    background-color: #1f2937 !important;
 }
 
 /* Encabezado mes/año */
@@ -429,22 +424,20 @@ input.DateInput_input::placeholder,
     font-size: 0.74rem !important;
 }
 
-/* Celdas de días — estado por defecto */
-.CalendarDay__default {
+/* Celdas de días — wildcard para cubrir ClassName_1 de react-dates */
+td[class*="CalendarDay__default"] {
     background-color: #1f2937 !important;
     color: #d1d5db !important;
     border: 1px solid #374151 !important;
 }
-.CalendarDay__default:hover {
+td[class*="CalendarDay__default"]:hover {
     background-color: #374151 !important;
     color: #fff !important;
     border-color: #4b5563 !important;
 }
 
 /* Día seleccionado */
-.CalendarDay__selected,
-.CalendarDay__selected:active,
-.CalendarDay__selected:hover {
+td[class*="CalendarDay__selected"] {
     background-color: #38bdf8 !important;
     color: #111827 !important;
     border-color: #38bdf8 !important;
@@ -452,21 +445,20 @@ input.DateInput_input::placeholder,
 }
 
 /* Hoy */
-.CalendarDay__today {
+td[class*="CalendarDay__today"] {
     border: 2px solid #38bdf8 !important;
     color: #38bdf8 !important;
     font-weight: bold !important;
 }
 
 /* Días fuera del mes visible */
-.CalendarDay__outside {
+td[class*="CalendarDay__outside"] {
     color: #4b5563 !important;
     background-color: #111827 !important;
 }
 
 /* Días bloqueados (fuera de rango permitido) */
-.CalendarDay__blocked_out_of_range,
-.CalendarDay__blocked_out_of_range:hover {
+td[class*="CalendarDay__blocked_out_of_range"] {
     color: #374151 !important;
     background-color: #111827 !important;
     cursor: not-allowed !important;
@@ -474,14 +466,12 @@ input.DateInput_input::placeholder,
 }
 
 /* DateRange: rango intermedio seleccionado */
-.CalendarDay__selected_span,
-.CalendarDay__selected_span:hover {
+td[class*="CalendarDay__selected_span"] {
     background-color: #1e3a5f !important;
     color: #bfdbfe !important;
     border-color: #2563eb !important;
 }
-.CalendarDay__hovered_span,
-.CalendarDay__hovered_span:hover {
+td[class*="CalendarDay__hovered_span"] {
     background-color: #1e3a5f !important;
     color: #bfdbfe !important;
     border-color: #374151 !important;

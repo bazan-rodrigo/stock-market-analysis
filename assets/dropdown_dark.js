@@ -13,7 +13,7 @@
             inp.style.setProperty('box-shadow',   'none', 'important');
         });
 
-        // dcc.DatePickerSingle — por ID (independiente del nombre de clase o versión de Dash)
+        // dcc.DatePickerSingle — por ID (wrapper + input)
         ['evol-date-from', 'evol-date-to',
          'pair-date-from', 'pair-date-to',
          'sig-recalc-date', 'str-calc-date'].forEach(function (pid) {
@@ -26,8 +26,18 @@
                 inp.style.setProperty('background-color', '#2c2c2c', 'important');
                 inp.style.setProperty('color',            '#dee2e6', 'important');
             });
-            el.querySelectorAll('div').forEach(function (d) {
-                d.style.setProperty('background-color', '#2c2c2c', 'important');
+        });
+
+        // Popup del calendario — barrido global (cubre portal y renderizado inline)
+        // Inline !important gana sobre CSS !important de react-dates
+        [
+            '[class*="SingleDatePicker_picker"]',
+            '[class*="DayPicker_transitionContainer"]',
+            '[class*="CalendarMonthGrid"]',
+            '[class*="CalendarMonth"]:not([class*="CalendarMonthGrid"])',
+        ].forEach(function (sel) {
+            document.querySelectorAll(sel).forEach(function (el) {
+                el.style.setProperty('background-color', '#1f2937', 'important');
             });
         });
     }
