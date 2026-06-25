@@ -428,7 +428,18 @@ td.dash-datepicker-calendar-date-inside[aria-disabled="true"] {
     text-decoration: line-through !important;
 }
 
-/* ── dcc.Slider / dcc.RangeSlider — dark theme (rc-slider) ──────────────── */
+/* ── dcc.Slider / dcc.RangeSlider — dark theme ──────────────────────────── */
+
+/* Input numérico del slider (dash-input-container usa var(--Dash-Fill-Inverse-Strong)) */
+.dash-input-container {
+    background: #2c2c2c !important;
+    border-color: #555 !important;
+    color: #dee2e6 !important;
+}
+.dash-input-container input {
+    background: transparent !important;
+    color: #dee2e6 !important;
+}
 .rc-slider-rail {
     background-color: #374151 !important;
 }
