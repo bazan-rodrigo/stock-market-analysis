@@ -14,11 +14,19 @@ _HISTORY_COLUMNS = [
 ]
 
 _LATEST_COLUMNS = [
-    {"name": "Ticker",  "id": "ticker"},
-    {"name": "Nombre",  "id": "name"},
-    {"name": "Fecha",   "id": "date"},
-    {"name": "Cierre",  "id": "close",  "type": "numeric", "format": {"specifier": ".2f"}},
-    {"name": "Volumen", "id": "volume", "type": "numeric"},
+    {"name": "Ticker",    "id": "ticker"},
+    {"name": "Nombre",    "id": "name"},
+    {"name": "Fecha",     "id": "date"},
+    {"name": "Apertura",  "id": "open",             "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "Máx",       "id": "high",             "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "Mín",       "id": "low",              "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "Cierre",    "id": "close",            "type": "numeric", "format": {"specifier": ".2f"}},
+    {"name": "Volumen",   "id": "volume",           "type": "numeric"},
+    {"name": "Moneda",    "id": "currency"},
+    {"name": "Tipo",      "id": "instrument_type"},
+    {"name": "País",      "id": "country"},
+    {"name": "Mercado",   "id": "market"},
+    {"name": "Fuente",    "id": "price_source"},
 ]
 
 _DT_COMMON = dict(

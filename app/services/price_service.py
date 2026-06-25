@@ -453,28 +453,43 @@ def clear_update_logs() -> None:
 
 
 def get_latest_prices_all() -> list[dict]:
-    """Devuelve el precio de cierre más reciente de cada activo activo."""
-    s = get_session()
+    """Devuelve el último precio (OHLCV) de cada activo con sus datos de referencia."""
     from sqlalchemy import func
+    from app.models import Currency, InstrumentType, Country, Market, PriceSource
+
+    s = get_session()
     subq = (
         s.query(Price.asset_id, func.max(Price.date).label("max_date"))
         .group_by(Price.asset_id)
         .subquery()
     )
     rows = (
-        s.query(Price, Asset)
+        s.query(Price, Asset, Currency, InstrumentType, Country, Market, PriceSource)
         .join(subq, (Price.asset_id == subq.c.asset_id) & (Price.date == subq.c.max_date))
-        .join(Asset, Price.asset_id == Asset.id)
+        .join(Asset,          Price.asset_id == Asset.id)
+        .outerjoin(Currency,       Asset.currency_id        == Currency.id)
+        .outerjoin(InstrumentType, Asset.instrument_type_id == InstrumentType.id)
+        .outerjoin(Country,        Asset.country_id         == Country.id)
+        .outerjoin(Market,         Asset.market_id          == Market.id)
+        .join(PriceSource,         Asset.price_source_id    == PriceSource.id)
         .order_by(Asset.ticker)
         .all()
     )
     return [
         {
-            "ticker": asset.ticker,
-            "name": asset.name,
-            "date": str(price.date),
-            "close": price.close,
-            "volume": price.volume,
+            "ticker":          asset.ticker,
+            "name":            asset.name,
+            "date":            str(price.date),
+            "open":            price.open,
+            "high":            price.high,
+            "low":             price.low,
+            "close":           price.close,
+            "volume":          price.volume,
+            "currency":        currency.name        if currency        else "",
+            "instrument_type": instrument_type.name if instrument_type else "",
+            "country":         country.name         if country         else "",
+            "market":          market.name          if market          else "",
+            "price_source":    price_source.name    if price_source    else "",
         }
-        for price, asset in rows
+        for price, asset, currency, instrument_type, country, market, price_source in rows
     ]
