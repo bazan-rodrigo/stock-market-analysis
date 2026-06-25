@@ -199,155 +199,95 @@ input[type="number"]::-webkit-outer-spin-button {
 .cell--variation-positive { color: #4caf50; font-weight: 600; }
 .cell--variation-negative { color: #ef5350; font-weight: 600; }
 
-/* ── Dropdown Dash (dcc.Dropdown) ────────────────────────────────────────── */
+/* ── dcc.Dropdown Dash 3.x (clases dash-dropdown-*) ─────────────────────── */
 
-/* Contenedor raíz — evita que el fondo blanco del body se filtre */
-.Select {
-    background-color: #2c2c2c !important;
-    border-radius: 4px !important;
-}
-
-/* Control visible: input + valor seleccionado + flecha */
-.Select-control,
-.Select.has-value .Select-control,
-.Select.is-open .Select-control,
-.Select.has-value.is-focused .Select-control {
+/* Botón control — Bootstrap lo estiliza como <button>, necesitamos override */
+.dash-dropdown {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
     border: 1px solid #555 !important;
     border-radius: 4px !important;
     box-shadow: none !important;
+    width: 100% !important;
+    text-align: left !important;
+    font-size: 0.82rem !important;
+    cursor: pointer !important;
 }
-
-/* Foco visible — indica al usuario qué dropdown está activo */
-.Select.is-focused .Select-control,
-.Select.is-focused:not(.is-open) .Select-control {
+.dash-dropdown:focus,
+.dash-dropdown:focus-visible,
+.dash-dropdown[aria-expanded="true"] {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
-    border: 1px solid #38bdf8 !important;
-    border-radius: 4px !important;
+    border-color: #38bdf8 !important;
     box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2) !important;
+    outline: none !important;
 }
 
-/* Menú desplegable */
-.Select-menu-outer {
+/* Valor seleccionado y placeholder */
+.dash-dropdown-value-item,
+.dash-dropdown-value-item > span {
+    color: #dee2e6 !important;
+    background-color: transparent !important;
+}
+.dash-dropdown-placeholder {
+    color: #9ca3af !important;
+}
+
+/* Ícono flecha */
+.dash-dropdown-trigger-icon {
+    stroke: #9ca3af !important;
+    fill: none !important;
+}
+
+/* Menú de opciones */
+.dash-dropdown-options {
     background-color: #2c2c2c !important;
     border: 1px solid #555 !important;
     border-radius: 4px !important;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
     z-index: 9999 !important;
 }
-.Select-menu {
-    background-color: #2c2c2c !important;
-    border-radius: 4px !important;
-}
 
-/* Opciones de la lista */
-.Select-option {
+/* Opción individual */
+.dash-dropdown-option,
+.dash-options-list-option {
     background-color: #2c2c2c !important;
     color: #dee2e6 !important;
     font-size: 0.82rem !important;
-}
-.Select-option:hover,
-.Select-option.is-focused {
-    background-color: #374151 !important;
-    color: #fff !important;
-}
-.Select-option.is-selected {
-    background-color: #1e3a5f !important;
-    color: #93c5fd !important;
-    font-weight: 500 !important;
-}
-.Select-option.is-disabled {
-    color: #6b7280 !important;
-    cursor: not-allowed !important;
-}
-
-/* Wrapper interno — Bootstrap lo pinta de claro y tapa el valor seleccionado */
-.Select-multi-value-wrapper {
-    background-color: transparent !important;
-}
-.Select--single .Select-value {
-    background-color: transparent !important;
-    color: #dee2e6 !important;
-}
-
-/* Valor seleccionado y placeholder */
-.Select-value-label,
-.Select-placeholder,
-.Select--single > .Select-control .Select-value .Select-value-label,
-.Select.has-value.Select--single > .Select-control .Select-value .Select-value-label {
-    color: #dee2e6 !important;
-    font-size: 0.82rem !important;
-    background-color: transparent !important;
-}
-.Select-placeholder {
-    color: #9ca3af !important;
-}
-
-/* Input de búsqueda interno — Bootstrap puede sobreescribir input[type="text"] */
-.Select-input,
-.Select-input > input,
-.Select-control input[type="text"] {
-    color: #dee2e6 !important;
-    font-size: 0.82rem !important;
-    background-color: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    outline: none !important;
-}
-
-/* Flecha */
-.Select-arrow-zone { background-color: transparent !important; }
-.Select-arrow { border-top-color: #9ca3af !important; }
-.Select.is-open .Select-arrow { border-bottom-color: #9ca3af !important; }
-.Select .Select-clear-zone { color: #9ca3af !important; }
-
-/* ── Multi-select tags ───────────────────────────────────────────────────── */
-.Select-multi-value-wrapper {
-    background-color: transparent !important;
-}
-.Select-value {
-    background-color: #374151 !important;
-    border: 1px solid #4b5563 !important;
-    color: #dee2e6 !important;
-    border-radius: 3px !important;
-    margin: 2px 3px 2px 0 !important;
-}
-.Select-value-label {
-    color: #dee2e6 !important;
-}
-.Select-value-icon {
-    border-right: 1px solid #4b5563 !important;
-    color: #9ca3af !important;
-    padding: 2px 5px !important;
-}
-.Select-value-icon:hover {
-    background-color: #ef5350 !important;
-    color: #fff !important;
-    border-radius: 2px 0 0 2px !important;
-}
-
-/* ── Virtualized list options (Dash 2.x — listas largas) ─────────────────── */
-.VirtualizedSelectOption {
-    background-color: #2c2c2c !important;
-    color: #dee2e6 !important;
-    font-size: 0.82rem !important;
-    padding: 6px 10px !important;
     cursor: pointer !important;
 }
-.VirtualizedSelectFocusedOption {
+.dash-dropdown-option:hover,
+.dash-options-list-option:hover {
     background-color: #374151 !important;
     color: #fff !important;
 }
-.VirtualizedSelectSelectedOption {
+.dash-dropdown-option[aria-selected="true"],
+.dash-options-list-option[aria-selected="true"] {
     background-color: #1e3a5f !important;
     color: #93c5fd !important;
     font-weight: 500 !important;
 }
-.VirtualizedSelectDisabledOption {
+.dash-dropdown-option[aria-disabled="true"],
+.dash-options-list-option[aria-disabled="true"] {
     color: #6b7280 !important;
     cursor: not-allowed !important;
+}
+
+/* Input de búsqueda dentro del menú abierto */
+.dash-dropdown-search-container input {
+    background-color: #2c2c2c !important;
+    color: #dee2e6 !important;
+    border: 1px solid #555 !important;
+    border-radius: 4px !important;
+    outline: none !important;
+    font-size: 0.82rem !important;
+}
+.dash-dropdown-search-container input::placeholder {
+    color: #9ca3af !important;
+}
+.dash-dropdown-search-container input:focus {
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2) !important;
 }
 
 /* ── Input de fecha nativo (type="date") ─────────────────────────────────── */
