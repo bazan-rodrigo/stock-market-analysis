@@ -440,6 +440,17 @@ td.dash-datepicker-calendar-date-inside[aria-disabled="true"] {
     background: transparent !important;
     color: #dee2e6 !important;
 }
+
+/* Tooltip always-visible — ocultar (el input numérico ya muestra el valor) */
+.dash-slider-tooltip.always-visible {
+    display: none !important;
+}
+/* Tooltip on-hover — dark theme */
+.dash-slider-tooltip {
+    background-color: #1f2937 !important;
+    fill: #1f2937 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+}
 .rc-slider-rail {
     background-color: #374151 !important;
 }
