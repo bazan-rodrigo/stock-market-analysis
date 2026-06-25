@@ -13,6 +13,7 @@ Orden de inicialización:
  10. APScheduler
 """
 import logging
+import pathlib
 
 import dash
 import dash_bootstrap_components as dbc
@@ -24,6 +25,10 @@ from app.logging_setup import configure_logging
 
 logger = logging.getLogger(__name__)
 
+# Apunta a <proyecto>/assets/ — Dash por defecto busca en app/assets/
+# porque resuelve desde flask.helpers.get_root_path(__name__) = <proyecto>/app/
+_ASSETS_DIR = str(pathlib.Path(__file__).parent.parent / "assets")
+
 
 def create_app():
     configure_logging()
@@ -33,6 +38,7 @@ def create_app():
     # -----------------------------------------------------------------
     dash_app = dash.Dash(
         __name__,
+        assets_folder=_ASSETS_DIR,
         use_pages=True,
         pages_folder="",      # Sin auto-discovery; importamos manualmente
         suppress_callback_exceptions=True,
