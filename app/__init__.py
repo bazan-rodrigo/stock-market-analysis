@@ -233,6 +233,8 @@ def create_app():
         "app.pages.strategy_history",
         "app.pages.returns",
         "app.pages.admin_app_settings",
+        "app.pages.fundamentals",
+        "app.pages.admin_fundamental_update",
     ]
 
     import importlib
@@ -282,6 +284,8 @@ def create_app():
         "app.callbacks.strategy_history_callbacks",
         "app.callbacks.returns_callbacks",
         "app.callbacks.admin_app_settings_callbacks",
+        "app.callbacks.fundamental_callbacks",
+        "app.callbacks.admin_fundamental_update_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))

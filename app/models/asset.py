@@ -34,6 +34,9 @@ class Asset(Base):
     benchmark_id = Column(
         Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
     )
+    fundamental_source_id = Column(
+        Integer, ForeignKey("fundamental_sources.id", ondelete="SET NULL"), nullable=True
+    )
 
     country = relationship("Country", back_populates="assets")
     market  = relationship("Market", back_populates="assets", foreign_keys="[Asset.market_id]")
@@ -43,6 +46,8 @@ class Asset(Base):
     industry = relationship("Industry", back_populates="assets")
     price_source = relationship("PriceSource", back_populates="assets")
     benchmark    = relationship("Asset", foreign_keys=[benchmark_id], remote_side="Asset.id")
+    fundamental_source = relationship("FundamentalSource", back_populates="assets",
+                                      foreign_keys=[fundamental_source_id])
 
     prices = relationship(
         "Price", back_populates="asset", cascade="all, delete-orphan"
@@ -55,6 +60,24 @@ class Asset(Base):
     )
     screener_snapshot = relationship(
         "ScreenerSnapshot",
+        back_populates="asset",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    fundamental_quarterly = relationship(
+        "FundamentalQuarterly",
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        order_by="FundamentalQuarterly.period_date",
+    )
+    fundamental_snapshot = relationship(
+        "FundamentalSnapshot",
+        back_populates="asset",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    fundamental_update_log = relationship(
+        "FundamentalUpdateLog",
         back_populates="asset",
         uselist=False,
         cascade="all, delete-orphan",

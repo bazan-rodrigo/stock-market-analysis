@@ -393,6 +393,14 @@ def update_all_active_assets(progress_cb=None) -> dict:
         summary["total"],
         len(summary["errors"]),
     )
+
+    # Actualizar fundamentales para activos con fuente configurada
+    try:
+        from app.services.fundamental_service import update_all_fundamentals
+        update_all_fundamentals()
+    except Exception as exc:
+        logger.warning("Error actualizando fundamentales: %s", exc)
+
     return summary
 
 

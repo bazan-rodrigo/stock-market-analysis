@@ -20,6 +20,10 @@ from app.models.synthetic_formula import SyntheticComponent, SyntheticFormula
 from app.models.currency_conversion import CurrencyConversionDivisor
 from app.models.scheduler_config import SchedulerConfig
 from app.models.app_setting import AppSetting
+from app.models.fundamental_source import FundamentalSource
+from app.models.fundamental_quarterly import FundamentalQuarterly
+from app.models.fundamental_snapshot import FundamentalSnapshot
+from app.models.fundamental_update_log import FundamentalUpdateLog
 from app.models.user import User
 from app.models.indicator_snapshot import IndicatorSnapshot
 from app.models.group_indicator_snapshot import GroupIndicatorSnapshot
@@ -55,6 +59,10 @@ __all__ = [
     "CurrencyConversionDivisor",
     "SchedulerConfig",
     "AppSetting",
+    "FundamentalSource",
+    "FundamentalQuarterly",
+    "FundamentalSnapshot",
+    "FundamentalUpdateLog",
     "IndicatorSnapshot",
     "GroupIndicatorSnapshot",
     "SignalDefinition",
