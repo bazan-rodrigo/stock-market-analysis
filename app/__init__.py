@@ -116,6 +116,7 @@ def create_app():
         "empty":    "Ingresá usuario y contraseña.",
         "invalid":  "Usuario o contraseña incorrectos.",
         "inactive": "Usuario inactivo. Contactá al administrador.",
+        "db":       "No se pudo conectar a la base de datos. Intentá de nuevo en unos segundos.",
     }
 
     @server.route("/login", methods=["GET"])
@@ -133,8 +134,12 @@ def create_app():
         password = request.form.get("password", "")
         if not username or not password:
             return redirect("/login?error=empty")
-        s = _db()
-        user = s.query(User).filter(User.username == username).first()
+        try:
+            s = _db()
+            user = s.query(User).filter(User.username == username).first()
+        except Exception:
+            logger.exception("Error de base de datos en do_login")
+            return redirect("/login?error=db")
         if user is None or not user.check_password(password):
             return redirect("/login?error=invalid")
         if not user.is_active:
