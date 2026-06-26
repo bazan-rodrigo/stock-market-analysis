@@ -39,10 +39,11 @@ def build_navbar() -> dbc.Navbar:
                 nav=True, in_navbar=True,
             ),
             dbc.DropdownMenu(
-                label="Precios",
+                label="Datos de Mercado",
                 children=[
-                    dbc.DropdownMenuItem("Visualizador de precios",  href="/price-viewer"),
-                    dbc.DropdownMenuItem("Actualización de precios", href="/prices"),
+                    dbc.DropdownMenuItem("Visualizador de precios",      href="/price-viewer"),
+                    dbc.DropdownMenuItem("Actualización de precios",     href="/prices"),
+                    dbc.DropdownMenuItem("Actualización de fundamentales", href="/admin/fundamental-update"),
                 ],
                 nav=True, in_navbar=True,
             ),
@@ -76,8 +77,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Usuarios",             href="/admin/users"),
                     dbc.DropdownMenuItem("Scheduler",            href="/admin/scheduler"),
-                    dbc.DropdownMenuItem("Configuración de app",       href="/admin/app-settings"),
-                    dbc.DropdownMenuItem("Actualización Fundamentales", href="/admin/fundamental-update"),
+                    dbc.DropdownMenuItem("Configuración de app", href="/admin/app-settings"),
                     dbc.DropdownMenuItem("Limpieza de datos",    href="/admin/cleanup"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Consola SQL",          href="/admin/sql"),
@@ -88,7 +88,7 @@ def build_navbar() -> dbc.Navbar:
     else:
         nav_items = [
             analisis_menu,
-            dbc.NavItem(dbc.NavLink("Precios", href="/price-viewer")),
+            dbc.NavItem(dbc.NavLink("Datos de Mercado", href="/price-viewer")),
         ]
 
     is_guest = current_user.is_authenticated and not current_user.username
