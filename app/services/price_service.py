@@ -125,6 +125,8 @@ def update_asset_prices(
 
     try:
         if last_date is None:
+            # Limpiar datos huérfanos antes de insertar historia completa
+            s.query(Price).filter(Price.asset_id == asset_id).delete(synchronize_session=False)
             df = source.download_history(asset.ticker)
         else:
             _delete_from_date(asset_id, last_date, s)
