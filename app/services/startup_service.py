@@ -4,6 +4,7 @@ logger = logging.getLogger(__name__)
 
 _BUILTIN_SOURCES = [
     {"name": "Yahoo Finance", "description": "Fuente de precios de Yahoo Finance (yfinance)."},
+    {"name": "Ambito",        "description": "Riesgo País Argentina (EMBI JP Morgan) vía Ámbito Financiero. Ticker: RIESGO_PAIS_AR."},
     {"name": "Calculado",     "description": "Fuente interna para activos sintéticos calculados."},
 ]
 
