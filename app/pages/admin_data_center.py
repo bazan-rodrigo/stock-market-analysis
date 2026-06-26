@@ -7,20 +7,35 @@ _CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRad
 _OPS = [
     ("prices", "Actualizar Precios",
      "Descarga precios desde fuentes externas para todos los activos activos. "
-     "Incluye el recálculo de snapshots fundamentales al finalizar."),
+     "Incluye el recálculo de snapshots fundamentales al finalizar.",
+     "/prices"),
     ("fund", "Actualizar Fundamentales",
-     "Descarga datos trimestrales (balances, ingresos) para activos con fuente de fundamentales configurada."),
-    ("snap", "Recomputar Snapshots Fundamentales",
-     "Recalcula P/E, P/B, márgenes, ROIC y otros ratios a partir de datos ya almacenados. Sin fetch externo."),
+     "Descarga datos trimestrales (balances, ingresos) para activos con fuente de fundamentales configurada.",
+     "/admin/fundamental-update"),
     ("indicators", "Recomputar Indicadores",
      "Recalcula medias móviles, RSI, régimen de tendencia, señales y estrategias para todos los activos. "
-     "Útil tras cambios de configuración."),
+     "Útil tras cambios de configuración.",
+     None),
+    ("snap", "Recomputar Snapshots Fundamentales",
+     "Recalcula P/E, P/B, márgenes, ROIC y otros ratios a partir de datos ya almacenados. Sin fetch externo.",
+     None),
     ("synth", "Recalcular Sintéticos",
-     "Recalcula los precios de todos los activos sintéticos a partir de sus componentes."),
+     "Recalcula los precios de todos los activos sintéticos a partir de sus componentes.",
+     None),
 ]
 
 
-def _op_card(op_id, title, description):
+def _op_card(op_id, title, description, log_href=None):
+    buttons = [
+        dbc.Button("Ejecutar", id=f"dc-btn-{op_id}",
+                   size="sm", color="primary", outline=True, className="me-2"),
+    ]
+    if log_href:
+        buttons.append(
+            dbc.Button("Ver logs", href=log_href, external_link=False,
+                       size="sm", color="secondary", outline=True),
+        )
+
     return dbc.Col(
         dbc.Card([
             dbc.CardHeader(
@@ -43,8 +58,7 @@ def _op_card(op_id, title, description):
                 html.Div(id=f"dc-msg-{op_id}",
                          style={"fontSize": "0.74rem", "minHeight": "16px",
                                 "color": "#9ca3af", "marginBottom": "10px"}),
-                dbc.Button("Ejecutar", id=f"dc-btn-{op_id}",
-                           size="sm", color="primary", outline=True),
+                html.Div(buttons, className="d-flex"),
                 dcc.Interval(id=f"dc-interval-{op_id}", interval=600, disabled=True),
             ], style={"padding": "12px 14px"}),
         ], style=_CARD),
@@ -62,7 +76,7 @@ def layout(**kwargs):
         html.P("Estado de los datos y operaciones de actualización.",
                className="text-muted mb-4", style={"fontSize": "0.8rem"}),
 
-        dbc.Row([_op_card(op_id, title, desc) for op_id, title, desc in _OPS]),
+        dbc.Row([_op_card(op_id, title, desc, href) for op_id, title, desc, href in _OPS]),
 
         dcc.Interval(id="dc-status-interval", interval=30_000, n_intervals=0),
     ], style={"padding": "0 8px"})
