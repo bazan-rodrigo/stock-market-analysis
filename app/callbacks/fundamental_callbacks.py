@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 import plotly.graph_objects as go
 from dash import Input, Output, callback, html
 import dash_bootstrap_components as dbc
@@ -28,6 +30,34 @@ def _ratio_card(label, display, color=None):
     ]), style=_CARD), xs=6, sm=4, md=3, lg=2, className="mb-2")
 
 
+def _to_annual(quarters: list[dict]) -> list[dict]:
+    """Agrega datos trimestrales por año calendario."""
+    _SUM = {"revenue", "gross_profit", "operating_income", "net_income", "ebitda", "fcf", "eps_actual"}
+    _LAST = {"total_debt", "equity", "shares"}
+
+    by_year: dict = defaultdict(lambda: {k: None for k in _SUM | _LAST} | {"_n": 0})
+    for q in sorted(quarters, key=lambda x: x["period"]):
+        year = q["period"][:4]
+        d = by_year[year]
+        d["_n"] += 1
+        for k in _SUM:
+            if q.get(k) is not None:
+                d[k] = (d[k] or 0) + q[k]
+        for k in _LAST:
+            if q.get(k) is not None:
+                d[k] = q[k]
+
+    result = []
+    for year in sorted(by_year):
+        d = by_year[year]
+        row = {"period": year}
+        row.update({k: d[k] for k in _SUM | _LAST})
+        if d["_n"] < 4:
+            row["_partial"] = True
+        result.append(row)
+    return result
+
+
 def _bar_chart(quarters, y_key, title, color="#60a5fa", pct=False):
     xs = [q["period"] for q in quarters]
     ys = [q[y_key] for q in quarters]
@@ -36,15 +66,23 @@ def _bar_chart(quarters, y_key, title, color="#60a5fa", pct=False):
     scale = 100 if pct else 1e-6
     ys_s  = [v * scale if v is not None else None for v in ys]
     sfx   = "%" if pct else "M"
+    colors = [
+        "#6b7280" if q.get("_partial") else color
+        for q in quarters
+    ]
     fig   = go.Figure(go.Bar(
         x=xs, y=ys_s,
-        marker_color=color,
-        text=[f"{v:.1f}{sfx}" if v is not None else "" for v in ys_s],
+        marker_color=colors,
+        text=[f"{v:.1f}{sfx}{'*' if q.get('_partial') else ''}" if v is not None else ""
+              for v, q in zip(ys_s, quarters)],
         textposition="outside",
         textfont=dict(size=10, color="#dee2e6"),
         cliponaxis=False,
     ))
-    ymax = max((v for v in ys_s if v is not None), default=1)
+    vals = [v for v in ys_s if v is not None]
+    ymax = max(vals, default=1)
+    ymin = min(vals, default=0)
+    padding = max(abs(ymax), abs(ymin)) * 0.2 or 1
     fig.update_layout(
         title=dict(text=title, font=dict(color="#9ca3af", size=13), x=0),
         plot_bgcolor=_BG, paper_bgcolor=_BG,
@@ -52,7 +90,7 @@ def _bar_chart(quarters, y_key, title, color="#60a5fa", pct=False):
         margin=dict(l=40, r=10, t=40, b=40),
         xaxis=dict(tickfont=dict(size=9), gridcolor="#1f2937"),
         yaxis=dict(ticksuffix=sfx, gridcolor="#1f2937",
-                   range=[0, ymax * 1.2]),
+                   range=[min(ymin - padding, 0), ymax + padding]),
         showlegend=False,
     )
     return fig
@@ -118,26 +156,37 @@ def load_fundamentals(asset_id):
             md=6, className="mb-2"
         )
 
-    charts = dbc.Row([
-        _graph(_bar_chart(quarters, "revenue",         "Revenue",           "#60a5fa")),
-        _graph(_bar_chart(quarters, "net_income",      "Net Income",        "#4ade80")),
-        _graph(_bar_chart(quarters, "gross_profit",    "Gross Profit",      "#a78bfa")),
-        _graph(_bar_chart(quarters, "ebitda",          "EBITDA",            "#f59e0b")),
-        _graph(_bar_chart(quarters, "fcf",             "Free Cash Flow",    "#34d399")),
-        _graph(_bar_chart(quarters, "eps_actual",      "EPS", "#f472b6", pct=False)),
-    ], className="g-2")
+    annual = _to_annual(quarters)
+
+    def _charts_row(data):
+        return dbc.Row([
+            _graph(_bar_chart(data, "revenue",         "Revenue",        "#60a5fa")),
+            _graph(_bar_chart(data, "net_income",      "Net Income",     "#4ade80")),
+            _graph(_bar_chart(data, "gross_profit",    "Gross Profit",   "#a78bfa")),
+            _graph(_bar_chart(data, "ebitda",          "EBITDA",         "#f59e0b")),
+            _graph(_bar_chart(data, "fcf",             "Free Cash Flow", "#34d399")),
+            _graph(_bar_chart(data, "eps_actual",      "EPS",            "#f472b6")),
+        ], className="g-2")
+
+    _section = {"fontWeight": "600", "fontSize": "0.85rem"}
+    _note    = {"fontSize": "0.72rem", "color": "#6b7280", "marginLeft": "8px"}
 
     content = html.Div([
         html.Div([
-            html.Span("Ratios actuales", style={"fontWeight": "600", "fontSize": "0.85rem"}),
+            html.Span("Ratios actuales", style=_section),
             html.Span(f" — datos al {upd}", className="text-muted ms-2",
                       style={"fontSize": "0.75rem"}),
         ], className="mb-2"),
         ratio_cards,
         html.Hr(style={"borderColor": "#374151"}),
-        html.Div("Evolución trimestral", className="mb-2",
-                 style={"fontWeight": "600", "fontSize": "0.85rem"}),
-        charts,
+        html.Div([
+            html.Span("Evolución anual", style=_section),
+            html.Span("* año incompleto", style=_note),
+        ], className="mb-2"),
+        _charts_row(annual),
+        html.Hr(style={"borderColor": "#374151"}),
+        html.Div("Evolución trimestral", className="mb-2", style=_section),
+        _charts_row(quarters),
     ])
 
     return content, "", False, "info"
