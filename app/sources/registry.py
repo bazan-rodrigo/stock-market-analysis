@@ -1,6 +1,7 @@
 from typing import Type
 
 from app.sources.base import PriceSourceBase
+from app.sources.ambito import AmbitoSource
 from app.sources.calculated import CalculatedSource
 from app.sources.yahoo import YahooFinanceSource
 
@@ -25,4 +26,5 @@ def available_source_names() -> list[str]:
 
 # Registro de fuentes disponibles
 register(YahooFinanceSource)
+register(AmbitoSource)
 register(CalculatedSource)
