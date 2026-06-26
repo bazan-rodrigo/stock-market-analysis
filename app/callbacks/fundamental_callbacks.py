@@ -197,8 +197,9 @@ def load_fundamentals(asset_id):
         ("eps_yoy",   "EPS YoY",          _pct(snap.get("eps_growth_yoy")),  _cv(snap.get("eps_growth_yoy")),
          "Variación del Net Income del último trimestre vs el mismo trimestre del año anterior: (Q0 − Q4) / |Q4|"),
         ("pe_yoy",    "P/E YoY",          _pct(snap.get("pe_growth_yoy")),   _cv(snap.get("pe_growth_yoy")),
-         "Variación del P/E TTM actual vs el P/E TTM de hace 365 días "
-         "(usando el precio más cercano a esa fecha del historial de precios)"),
+         "Variación del P/E TTM actual vs el P/E TTM de hace 365 días. "
+         "Requiere al menos 8 trimestres almacenados (2 años). "
+         "Muestra — hasta que se acumule suficiente historial."),
     ]
 
     annual = _to_annual(quarters)
