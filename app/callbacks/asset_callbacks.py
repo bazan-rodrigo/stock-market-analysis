@@ -366,7 +366,15 @@ def assets_save(
                 args=(new_asset.id,),
                 daemon=True,
             ).start()
-            msg = f"{ticker.upper()} creado. Descarga de precios iniciada en background."
+            if fundamental_source_id:
+                def _fund_bg(aid):
+                    from app.services.fundamental_service import update_asset_fundamentals
+                    try:
+                        update_asset_fundamentals(aid)
+                    except Exception:
+                        pass
+                threading.Thread(target=_fund_bg, args=(new_asset.id,), daemon=True).start()
+            msg = f"{ticker.upper()} creado. Descarga de precios{' y fundamentales' if fundamental_source_id else ''} iniciada en background."
 
         # Sintéticos de conversión: limpiar si cambió la moneda, crear si hay divisores configurados
         new_currency_id = _int(currency_id)

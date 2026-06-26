@@ -309,6 +309,24 @@ def _process_other_asset_worker(
         _ScopedSession.remove()
 
 
+def update_new_assets_prices(progress_cb=None) -> dict:
+    """Solo activos sin PriceUpdateLog previo (nunca descargados)."""
+    s = get_session()
+    logged_ids = {r[0] for r in s.query(PriceUpdateLog.asset_id).all()}
+    assets = [a for a in s.query(Asset).all() if a.id not in logged_ids]
+    total   = len(assets)
+    summary = {"total": total, "success": 0, "errors": []}
+    for i, asset in enumerate(assets, 1):
+        if progress_cb:
+            progress_cb(i, total, asset.ticker)
+        try:
+            update_asset_prices(asset.id)
+            summary["success"] += 1
+        except Exception as exc:
+            summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
+    return summary
+
+
 def update_all_active_assets(progress_cb=None) -> dict:
     """
     Actualiza todos los activos activos. Primero los regulares, luego los sintéticos.

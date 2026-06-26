@@ -9,26 +9,26 @@ _OPS = [
      "Descarga precios desde fuentes externas para todos los activos activos. "
      "Incluye automáticamente el recálculo de indicadores técnicos (RSI, medias, señales) "
      "y de ratios fundamentales (P/E, P/B, ROIC) para cada activo al finalizar.",
-     "/prices"),
+     "/prices", True),
     ("fund", "Actualizar Fundamentales",
      "Descarga datos trimestrales (balances, ingresos) para activos con fuente de fundamentales configurada. "
      "Incluye automáticamente el recálculo de ratios fundamentales (P/E, P/B, ROIC, márgenes) al finalizar.",
-     "/admin/fundamental-update"),
+     "/admin/fundamental-update", True),
     ("indicators", "Recomputar Indicadores",
      "Recalcula medias móviles, RSI, régimen de tendencia, señales y estrategias sin descargar precios nuevos. "
      "Usar cuando se modifica la configuración de una señal o estrategia y se quiere aplicar sobre datos ya almacenados.",
-     None),
+     None, False),
     ("snap", "Recomputar Snapshots Fundamentales",
      "Recalcula P/E, P/B, márgenes, ROIC y otros ratios sin descargar datos nuevos de la fuente. "
      "Usar cuando se agrega o modifica una métrica y se quiere aplicar sobre los trimestres ya almacenados.",
-     None),
+     None, False),
     ("synth", "Recalcular Sintéticos",
      "Recalcula los precios de todos los activos sintéticos a partir de sus componentes.",
-     None),
+     None, False),
 ]
 
 
-def _op_card(op_id, title, description, log_href=None):
+def _op_card(op_id, title, description, log_href=None, has_new_only=False):
     buttons = [
         dbc.Button("Ejecutar", id=f"dc-btn-{op_id}",
                    size="sm", color="primary", outline=True, className="me-2"),
@@ -38,6 +38,17 @@ def _op_card(op_id, title, description, log_href=None):
             dbc.Button("Ver logs", href=log_href, external_link=False,
                        size="sm", color="secondary", outline=True),
         )
+
+    new_only_switch = []
+    if has_new_only:
+        new_only_switch = [
+            dbc.Switch(
+                id=f"dc-new-only-{op_id}",
+                label="Solo activos nuevos",
+                value=False,
+                style={"fontSize": "0.74rem", "color": "#9ca3af", "marginBottom": "8px"},
+            )
+        ]
 
     return dbc.Col(
         dbc.Card([
@@ -61,6 +72,7 @@ def _op_card(op_id, title, description, log_href=None):
                 html.Div(id=f"dc-msg-{op_id}",
                          style={"fontSize": "0.74rem", "minHeight": "16px",
                                 "color": "#9ca3af", "marginBottom": "10px"}),
+                *new_only_switch,
                 html.Div(buttons, className="d-flex"),
                 dcc.Interval(id=f"dc-interval-{op_id}", interval=600, disabled=True),
             ], style={"padding": "12px 14px"}),
@@ -79,7 +91,8 @@ def layout(**kwargs):
         html.P("Estado de los datos y operaciones de actualización.",
                className="text-muted mb-4", style={"fontSize": "0.8rem"}),
 
-        dbc.Row([_op_card(op_id, title, desc, href) for op_id, title, desc, href in _OPS]),
+        dbc.Row([_op_card(op_id, title, desc, href, new_only)
+                 for op_id, title, desc, href, new_only in _OPS]),
 
         dcc.Interval(id="dc-status-interval", interval=30_000, n_intervals=0),
     ], style={"padding": "0 8px"})

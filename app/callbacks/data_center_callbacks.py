@@ -1,7 +1,7 @@
 import threading
 
 import dash_bootstrap_components as dbc
-from dash import Input, Output, callback, html, no_update
+from dash import Input, Output, State, callback, html, no_update
 
 from app.database import get_session, Session as _ScopedSession
 from app.models import (
@@ -9,7 +9,8 @@ from app.models import (
     ScreenerSnapshot, SyntheticFormula,
 )
 
-_OPS = ("prices", "fund", "snap", "indicators", "synth")
+_OPS         = ("prices", "fund", "snap", "indicators", "synth")
+_HAS_NEW_ONLY = {"prices", "fund"}
 
 
 def _blank():
@@ -120,22 +121,31 @@ def _run(op_id, service_fn):
 # ── Callbacks por operación ───────────────────────────────────────────────────
 
 def _register(op_id):
+    has_new_only = op_id in _HAS_NEW_ONLY
+    extra_states = [State(f"dc-new-only-{op_id}", "value")] if has_new_only else []
 
     @callback(
         Output(f"dc-interval-{op_id}", "disabled",  allow_duplicate=True),
         Output(f"dc-btn-{op_id}",      "disabled",  allow_duplicate=True),
         Output(f"dc-msg-{op_id}",      "children",  allow_duplicate=True),
         Input(f"dc-btn-{op_id}",       "n_clicks"),
+        *extra_states,
         prevent_initial_call=True,
     )
-    def _start(n):
+    def _start(n, *args):
         if not n:
             return no_update, no_update, no_update
 
+        new_only = bool(args[0]) if args else False
+
         if op_id == "prices":
-            from app.services.price_service import update_all_active_assets as fn
+            from app.services.price_service import (
+                update_all_active_assets, update_new_assets_prices)
+            fn = update_new_assets_prices if new_only else update_all_active_assets
         elif op_id == "fund":
-            from app.services.fundamental_service import update_all_fundamentals as fn
+            from app.services.fundamental_service import (
+                update_all_fundamentals, update_new_fundamentals)
+            fn = update_new_fundamentals if new_only else update_all_fundamentals
         elif op_id == "snap":
             from app.services.fundamental_service import recompute_all_snapshots as fn
         elif op_id == "indicators":
@@ -187,3 +197,4 @@ def _register(op_id):
 
 for _op in _OPS:
     _register(_op)
+
