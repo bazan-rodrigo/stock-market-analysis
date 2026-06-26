@@ -57,4 +57,4 @@ def layout(**kwargs):
     ], style={"padding": "0 8px"})
 
 
-dash.register_page(__name__, path="/fundamentos", title="Fundamentales", layout=layout)
+dash.register_page(__name__, path="/fundamentos", title="Análisis de Fundamentales", layout=layout)
