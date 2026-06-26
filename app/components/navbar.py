@@ -91,12 +91,19 @@ def build_navbar() -> dbc.Navbar:
             dbc.NavItem(dbc.NavLink("Precios", href="/price-viewer")),
         ]
 
-    username = current_user.username if current_user.is_authenticated else ""
-    user_menu = dbc.DropdownMenu(
-        label=username,
-        children=[dbc.DropdownMenuItem("Cerrar sesión", href="/logout", external_link=True)],
-        nav=True, in_navbar=True, align_end=True,
-    )
+    is_guest = current_user.is_authenticated and not current_user.username
+    if is_guest:
+        user_menu = dbc.Nav([
+            dbc.NavItem(dbc.NavLink("Invitado", className="text-muted", style={"pointerEvents": "none"})),
+            dbc.NavItem(dbc.NavLink("Iniciar sesión", href="/login")),
+        ], navbar=True, className="ms-2")
+    else:
+        username = current_user.username if current_user.is_authenticated else ""
+        user_menu = dbc.DropdownMenu(
+            label=username,
+            children=[dbc.DropdownMenuItem("Cerrar sesión", href="/logout", external_link=True)],
+            nav=True, in_navbar=True, align_end=True,
+        )
 
     return dbc.Navbar(
         dbc.Container([

@@ -18,7 +18,8 @@ class GuestUser(AnonymousUserMixin):
 
     @property
     def is_admin(self):
-        return False
+        from app.services.app_config_service import is_public_access_enabled
+        return is_public_access_enabled()
 
     @property
     def username(self):
