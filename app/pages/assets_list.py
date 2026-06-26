@@ -22,8 +22,9 @@ _COLUMNS = [
     {"name": "Tipo",      "id": "instrument_type_name"},
     {"name": "Moneda",    "id": "currency_name"},
     {"name": "Sector",    "id": "sector_name"},
-    {"name": "Benchmark", "id": "benchmark_ticker"},
-    {"name": "Fuente",    "id": "source_name"},
+    {"name": "Benchmark",       "id": "benchmark_ticker"},
+    {"name": "Fuente precios",  "id": "source_name"},
+    {"name": "Fuente fund.",    "id": "fund_source_name"},
 ]
 
 
@@ -146,6 +147,7 @@ def layout(**kwargs):
                 {"if": {"column_id": "sector_name"},          "width": "120px", "minWidth": "80px"},
                 {"if": {"column_id": "benchmark_ticker"},     "width": "90px",  "minWidth": "60px"},
                 {"if": {"column_id": "source_name"},          "width": "90px",  "minWidth": "60px"},
+                {"if": {"column_id": "fund_source_name"},     "width": "90px",  "minWidth": "60px"},
             ],
             page_size=30,
             sort_action="native",

@@ -51,6 +51,7 @@ def _asset_to_row(a, aliases: dict) -> dict:
             a.sector.name if a.sector else "", "sector", a.sector_id, aliases),
         "benchmark_ticker": a.benchmark.ticker if a.benchmark else "",
         "source_name": a.price_source.name,
+        "fund_source_name": a.fundamental_source.name if a.fundamental_source else "",
     }
 
 
