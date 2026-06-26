@@ -44,7 +44,7 @@ def load_table(_a, _m, selected_ids):
         rows.append(html.Tr([
             html.Td(
                 dbc.Button(
-                    html.I(className="fa fa-check-square" if is_sel else "fa fa-square-o"),
+                    "☑" if is_sel else "☐",
                     id={"type": "sig-check", "index": sig.id},
                     color="link", size="sm",
                     style={"color": "#38bdf8" if is_sel else "#9ca3af",
