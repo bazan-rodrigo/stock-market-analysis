@@ -7,17 +7,20 @@ _CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRad
 _OPS = [
     ("prices", "Actualizar Precios",
      "Descarga precios desde fuentes externas para todos los activos activos. "
-     "Incluye el recálculo de snapshots fundamentales al finalizar.",
+     "Incluye automáticamente el recálculo de indicadores técnicos (RSI, medias, señales) "
+     "y de ratios fundamentales (P/E, P/B, ROIC) para cada activo al finalizar.",
      "/prices"),
     ("fund", "Actualizar Fundamentales",
-     "Descarga datos trimestrales (balances, ingresos) para activos con fuente de fundamentales configurada.",
+     "Descarga datos trimestrales (balances, ingresos) para activos con fuente de fundamentales configurada. "
+     "Incluye automáticamente el recálculo de ratios fundamentales (P/E, P/B, ROIC, márgenes) al finalizar.",
      "/admin/fundamental-update"),
     ("indicators", "Recomputar Indicadores",
-     "Recalcula medias móviles, RSI, régimen de tendencia, señales y estrategias para todos los activos. "
-     "Útil tras cambios de configuración.",
+     "Recalcula medias móviles, RSI, régimen de tendencia, señales y estrategias sin descargar precios nuevos. "
+     "Usar cuando se modifica la configuración de una señal o estrategia y se quiere aplicar sobre datos ya almacenados.",
      None),
     ("snap", "Recomputar Snapshots Fundamentales",
-     "Recalcula P/E, P/B, márgenes, ROIC y otros ratios a partir de datos ya almacenados. Sin fetch externo.",
+     "Recalcula P/E, P/B, márgenes, ROIC y otros ratios sin descargar datos nuevos de la fuente. "
+     "Usar cuando se agrega o modifica una métrica y se quiere aplicar sobre los trimestres ya almacenados.",
      None),
     ("synth", "Recalcular Sintéticos",
      "Recalcula los precios de todos los activos sintéticos a partir de sus componentes.",
