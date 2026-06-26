@@ -42,11 +42,11 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenu(
                 label="Datos de Mercado",
                 children=[
-                    dbc.DropdownMenuItem("Centro de Datos",              href="/admin/data-center"),
-                    dbc.DropdownMenuItem(divider=True),
-                    dbc.DropdownMenuItem("Visualizador de precios",      href="/price-viewer"),
-                    dbc.DropdownMenuItem("Actualización de precios",     href="/prices"),
+                    dbc.DropdownMenuItem("Visualizador de precios",        href="/price-viewer"),
+                    dbc.DropdownMenuItem("Actualización de precios",       href="/prices"),
                     dbc.DropdownMenuItem("Actualización de fundamentales", href="/admin/fundamental-update"),
+                    dbc.DropdownMenuItem(divider=True),
+                    dbc.DropdownMenuItem("Centro de Datos",                href="/admin/data-center"),
                 ],
                 nav=True, in_navbar=True,
             ),
