@@ -1,138 +1,136 @@
 import threading
-from datetime import datetime
 
 import dash_bootstrap_components as dbc
-from dash import Input, Output, State, callback, html, no_update
+from dash import Input, Output, callback, html, no_update
 
-from app.database import get_session
-from app.models import FundamentalSnapshot, FundamentalUpdateLog, PriceUpdateLog, SyntheticFormula
+from app.database import get_session, Session as _ScopedSession
+from app.models import (
+    FundamentalSnapshot, FundamentalUpdateLog, PriceUpdateLog,
+    ScreenerSnapshot, SyntheticFormula,
+)
 
-# ── Estado por operación ─────────────────────────────────────────────────────
+_OPS = ("prices", "fund", "snap", "indicators", "synth")
+
 
 def _blank():
-    return {"running": False, "current": 0, "total": 0, "msg": "", "error": False, "done": False}
+    return {
+        "running": False, "current": 0, "total": 0,
+        "label": "", "msg": "", "error": False, "done": False,
+    }
 
-_state = {op: _blank() for op in ("prices", "fund", "snap", "synth")}
-
-
-# ── Helpers de estado ─────────────────────────────────────────────────────────
-
-def _status_card(title, lines, color="#f59e0b"):
-    return dbc.Card([
-        dbc.CardHeader(html.Strong(title, style={"fontSize": "0.78rem"}),
-                       style={"backgroundColor": "#111827", "padding": "6px 12px"}),
-        dbc.CardBody(
-            [html.Div(line, style={"fontSize": "0.72rem", "color": c}) for line, c in lines],
-            style={"padding": "8px 12px"},
-        ),
-    ], style={"backgroundColor": "#1f2937", "border": "1px solid #374151",
-              "borderRadius": "8px"})
+_state = {op: _blank() for op in _OPS}
 
 
-def _get_price_status():
-    s = get_session()
+# ── Status por operación ──────────────────────────────────────────────────────
+
+def _fmt_counts(ok, total, last):
+    last_s = last.strftime("%d/%m %H:%M") if last else "—"
+    err    = total - ok
+    ok_txt = f"✓ {ok}" if ok else "—"
+    err_cl = f"  ✗ {err}" if err else ""
+    return f"Último run: {last_s}   {ok_txt}{err_cl}   ({total} activos)"
+
+
+def _status_prices():
+    s     = get_session()
     logs  = s.query(PriceUpdateLog).all()
-    total = len(logs)
     ok    = sum(1 for l in logs if l.success)
     last  = max((l.last_attempt_at for l in logs), default=None)
-    last_s = last.strftime("%d/%m %H:%M") if last else "—"
-    return _status_card("Precios", [
-        (f"Activos: {total}", "#9ca3af"),
-        (f"OK: {ok}  |  Errores: {total - ok}", "#4ade80" if total == ok else "#f87171"),
-        (f"Último run: {last_s}", "#6b7280"),
-    ])
+    return _fmt_counts(ok, len(logs), last)
 
 
-def _get_fund_status():
-    s = get_session()
+def _status_fund():
+    s     = get_session()
     logs  = s.query(FundamentalUpdateLog).all()
-    total = len(logs)
     ok    = sum(1 for l in logs if l.success)
     last  = max((l.last_attempt_at for l in logs), default=None)
-    last_s = last.strftime("%d/%m %H:%M") if last else "—"
-    return _status_card("Fundamentales", [
-        (f"Con fuente: {total}", "#9ca3af"),
-        (f"OK: {ok}  |  Errores: {total - ok}", "#4ade80" if total == ok else "#f87171"),
-        (f"Último run: {last_s}", "#6b7280"),
-    ])
+    return _fmt_counts(ok, len(logs), last)
 
 
-def _get_snap_status():
-    s = get_session()
+def _status_snap():
+    s     = get_session()
     snaps = s.query(FundamentalSnapshot).all()
-    total = len(snaps)
     last  = max((sn.updated_at for sn in snaps if sn.updated_at), default=None)
     last_s = last.strftime("%d/%m %H:%M") if last else "—"
-    return _status_card("Snapshots", [
-        (f"Activos con snapshot: {total}", "#9ca3af"),
-        (f"Último recompute: {last_s}", "#6b7280"),
-    ])
+    return f"Snapshots fundamentales: {len(snaps)}   Último recompute: {last_s}"
 
 
-def _get_synth_status():
-    s = get_session()
+def _status_indicators():
+    s     = get_session()
+    total = s.query(ScreenerSnapshot).count()
+    return f"Snapshots técnicos: {total} activos"
+
+
+def _status_synth():
+    s     = get_session()
     total = s.query(SyntheticFormula).count()
-    return _status_card("Sintéticos", [
-        (f"Fórmulas definidas: {total}", "#9ca3af"),
-    ])
+    return f"Fórmulas definidas: {total}"
 
 
-# ── Callbacks de estado ───────────────────────────────────────────────────────
+_STATUS_FN = {
+    "prices":     _status_prices,
+    "fund":       _status_fund,
+    "snap":       _status_snap,
+    "indicators": _status_indicators,
+    "synth":      _status_synth,
+}
+
 
 @callback(
-    Output("dc-status-prices", "children"),
-    Output("dc-status-fund",   "children"),
-    Output("dc-status-snap",   "children"),
-    Output("dc-status-synth",  "children"),
-    Input("dc-status-interval", "n_intervals"),
+    Output("dc-status-prices",     "children"),
+    Output("dc-status-fund",       "children"),
+    Output("dc-status-snap",       "children"),
+    Output("dc-status-indicators", "children"),
+    Output("dc-status-synth",      "children"),
+    Input("dc-status-interval",    "n_intervals"),
 )
 def refresh_status(_):
-    return (_get_price_status(), _get_fund_status(),
-            _get_snap_status(),  _get_synth_status())
+    return tuple(fn() for fn in _STATUS_FN.values())
 
 
 # ── Workers ───────────────────────────────────────────────────────────────────
 
-def _run(op, fn):
-    st = _state[op]
-    st.update(running=True, current=0, total=0, msg="Iniciando...", error=False, done=False)
+def _run(op_id, service_fn):
+    st = _state[op_id]
+    st.update(_blank(), running=True, msg="Iniciando...")
 
-    def _progress(cur, tot):
+    def _cb(cur, tot, label=""):
         st["current"] = cur
         st["total"]   = tot
-        st["msg"]     = f"{cur}/{tot}"
+        st["label"]   = label
+        st["msg"]     = f"{cur} / {tot}" + (f"  —  {label}" if label else "")
 
     try:
-        result = fn(progress_cb=_progress)
+        result = service_fn(progress_cb=_cb)
         errs   = result.get("errors", [])
-        ok     = result.get("success", result.get("total", 0) - len(errs))
         total  = result.get("total", 0)
-        if errs:
-            st["msg"]   = f"Completado: {ok}/{total} OK, {len(errs)} errores"
-            st["error"] = True
-        else:
-            st["msg"] = f"Completado: {total} OK"
+        ok     = result.get("success", total - len(errs))
+        st["msg"]   = (f"Completado: {ok}/{total} OK  ·  {len(errs)} errores"
+                       if errs else f"Completado: {total} OK")
+        st["error"] = bool(errs)
     except Exception as exc:
         st["msg"]   = f"Error: {exc}"
         st["error"] = True
     finally:
         st["running"] = False
         st["done"]    = True
+        _ScopedSession.remove()
 
 
 # ── Callbacks por operación ───────────────────────────────────────────────────
 
-def _make_callbacks(op_id):
+def _register(op_id):
 
     @callback(
-        Output(f"dc-interval-{op_id}", "disabled", allow_duplicate=True),
-        Output(f"dc-btn-{op_id}",      "disabled", allow_duplicate=True),
+        Output(f"dc-interval-{op_id}", "disabled",  allow_duplicate=True),
+        Output(f"dc-btn-{op_id}",      "disabled",  allow_duplicate=True),
+        Output(f"dc-msg-{op_id}",      "children",  allow_duplicate=True),
         Input(f"dc-btn-{op_id}",       "n_clicks"),
         prevent_initial_call=True,
     )
-    def start(n):
+    def _start(n):
         if not n:
-            return no_update, no_update
+            return no_update, no_update, no_update
 
         if op_id == "prices":
             from app.services.price_service import update_all_active_assets as fn
@@ -140,42 +138,52 @@ def _make_callbacks(op_id):
             from app.services.fundamental_service import update_all_fundamentals as fn
         elif op_id == "snap":
             from app.services.fundamental_service import recompute_all_snapshots as fn
+        elif op_id == "indicators":
+            from app.services.screener_service import recompute_all_snapshots as fn
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 
         _state[op_id].update(_blank())
         threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
-        return False, True   # habilita interval, deshabilita botón
+        return False, True, "Iniciando..."
 
     @callback(
         Output(f"dc-progress-{op_id}", "value"),
         Output(f"dc-progress-{op_id}", "style"),
-        Output(f"dc-msg-{op_id}",      "children"),
+        Output(f"dc-msg-{op_id}",      "children",  allow_duplicate=True),
         Output(f"dc-msg-{op_id}",      "style"),
-        Output(f"dc-interval-{op_id}", "disabled", allow_duplicate=True),
-        Output(f"dc-btn-{op_id}",      "disabled", allow_duplicate=True),
+        Output(f"dc-interval-{op_id}", "disabled",  allow_duplicate=True),
+        Output(f"dc-btn-{op_id}",      "disabled",  allow_duplicate=True),
         Input(f"dc-interval-{op_id}",  "n_intervals"),
         prevent_initial_call=True,
     )
-    def poll(_):
+    def _poll(_):
         st    = _state[op_id]
-        total = st["total"] or 1
-        pct   = int(st["current"] / total * 100) if st["total"] else 0
-        msg   = st["msg"]
-        color = "#f87171" if st["error"] else "#4ade80" if st["done"] else "#60a5fa"
+        tot   = st["total"] or 1
+        pct   = int(st["current"] / tot * 100) if st["total"] else 0
+        done  = st["done"] and not st["running"]
 
-        bar_style = {"height": "6px",
-                     "display": "none" if (not st["running"] and not st["done"]) else "block"}
-        done = not st["running"] and st["done"]
+        if st["running"]:
+            bar_style = {"height": "5px", "display": "block"}
+        elif st["done"]:
+            bar_style = {"height": "5px", "display": "block"}
+        else:
+            bar_style = {"height": "5px", "display": "none"}
+
+        msg_color = ("#f87171" if st["error"]
+                     else "#4ade80" if done
+                     else "#9ca3af")
+
         return (
-            pct if st["running"] else (100 if st["done"] else 0),
+            pct if st["running"] else (100 if done else 0),
             bar_style,
-            msg,
-            {"fontSize": "0.75rem", "minHeight": "18px", "color": color},
-            done,    # deshabilita el interval cuando termina
-            not done,  # habilita botón cuando termina
+            st["msg"],
+            {"fontSize": "0.74rem", "minHeight": "16px",
+             "marginBottom": "10px", "color": msg_color},
+            done,    # deshabilita interval al terminar
+            not done,  # habilita botón al terminar
         )
 
 
-for _op in ("prices", "fund", "snap", "synth"):
-    _make_callbacks(_op)
+for _op in _OPS:
+    _register(_op)
