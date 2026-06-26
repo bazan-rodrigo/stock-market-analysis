@@ -136,6 +136,7 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False) -> None:
         if not quarters:
             raise ValueError(f"No se obtuvieron datos trimestrales para {asset.ticker}")
         _upsert_quarterly(asset_id, quarters, s)
+        s.flush()  # autoflush=False — hacer visible los rows antes del query en _compute_snapshot
         _compute_snapshot(asset_id, s)
         _save_log(asset_id, success=True, error=None, s=s)
         s.commit()
@@ -203,6 +204,13 @@ def get_asset_fundamentals(asset_id: int) -> dict:
                   .order_by(FundamentalQuarterly.period_date)
                   .all())
     snap = s.query(FundamentalSnapshot).filter_by(asset_id=asset_id).first()
+
+    # Si hay datos trimestrales pero falta el snapshot (e.g. bug de autoflush anterior),
+    # recomputar on-the-fly
+    if quarters and snap is None:
+        _compute_snapshot(asset_id, s)
+        s.commit()
+        snap = s.query(FundamentalSnapshot).filter_by(asset_id=asset_id).first()
     return {
         "quarters": [
             {
