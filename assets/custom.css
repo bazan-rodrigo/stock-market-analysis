@@ -389,6 +389,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     color: #dee2e6 !important;
 }
 
+/* Input interno y placeholder */
+.dash-datepicker-input-wrapper input {
+    background: transparent !important;
+    color: #dee2e6 !important;
+    border: none !important;
+    outline: none !important;
+}
+.dash-datepicker-input-wrapper input::placeholder {
+    color: #9ca3af !important;
+    opacity: 1 !important;
+}
+
 /* Popup container (portal Radix, position: fixed) */
 .dash-datepicker-content {
     background-color: #1f2937 !important;
