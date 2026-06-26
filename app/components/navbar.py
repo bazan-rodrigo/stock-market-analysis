@@ -110,7 +110,7 @@ def build_navbar() -> dbc.Navbar:
 
     return dbc.Navbar(
         dbc.Container([
-            dbc.NavbarBrand("Stock Analysis", href="/"),
+            dbc.NavbarBrand("ro.com", href="/"),
             dbc.NavbarToggler(id="navbar-toggler"),
             dbc.Collapse(
                 dbc.Nav(nav_items + [user_menu], className="ms-auto", navbar=True),
