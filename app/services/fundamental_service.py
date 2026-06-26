@@ -113,6 +113,11 @@ def _compute_snapshot(asset_id: int, s) -> None:
         if ni0 is not None and ni4 and ni4 != 0:
             eps_growth = round((ni0 - ni4) / abs(ni4), 4)
 
+    # ROIC = Net Income TTM / (Equity + Total Debt)
+    invested_capital = (latest.equity or 0) + (latest.total_debt or 0)
+    ttm_net_income   = sum(r.net_income for r in ttm4 if r.net_income is not None)
+    roic = round(ttm_net_income / invested_capital, 4) if invested_capital and invested_capital != 0 else None
+
     # P/E YoY: P/E TTM actual vs P/E TTM hace 1 año
     if len(rows) >= 8 and pe_ttm is not None:
         ttm4_prev  = rows[4:8]
@@ -141,6 +146,7 @@ def _compute_snapshot(asset_id: int, s) -> None:
     snap.revenue_growth_yoy = rev_growth
     snap.eps_growth_yoy     = eps_growth
     snap.pe_growth_yoy      = pe_growth
+    snap.roic               = roic
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
@@ -276,6 +282,7 @@ def get_asset_fundamentals(asset_id: int) -> dict:
             "revenue_growth_yoy": snap.revenue_growth_yoy if snap else None,
             "eps_growth_yoy":     snap.eps_growth_yoy     if snap else None,
             "pe_growth_yoy":      snap.pe_growth_yoy      if snap else None,
+            "roic":               snap.roic               if snap else None,
             "updated_at":         str(snap.updated_at)[:19] if snap else None,
         } if snap else {},
     }
