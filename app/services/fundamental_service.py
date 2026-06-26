@@ -1,14 +1,17 @@
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
-from app.database import get_session
+from app.database import get_session, Session as _ScopedSession
 from app.models import (
     Asset, FundamentalQuarterly, FundamentalSnapshot, FundamentalUpdateLog, Price,
 )
 
 logger = logging.getLogger(__name__)
 
-_STALE_DAYS = 90  # re-fetch solo si los datos tienen más de 90 días (datos trimestrales)
+_STALE_DAYS    = 90  # re-fetch solo si los datos tienen más de 90 días (datos trimestrales)
+_UPDATE_WORKERS = 4  # workers paralelos para fetch de fundamentales
 
 
 # ── helpers internos ──────────────────────────────────────────────────────────
@@ -199,20 +202,40 @@ def recompute_snapshot_for_asset(asset_id: int) -> None:
     s.commit()
 
 
+def _fund_worker(asset_id: int, ticker: str) -> tuple[bool, dict | None]:
+    """Actualiza fundamentales de un activo en su propio thread."""
+    try:
+        update_asset_fundamentals(asset_id)
+        return True, None
+    except Exception as exc:
+        return False, {"ticker": ticker, "error": str(exc)}
+    finally:
+        _ScopedSession.remove()
+
+
 def update_all_fundamentals(progress_cb=None) -> dict:
     s = get_session()
     assets = s.query(Asset).filter(Asset.fundamental_source_id.isnot(None)).all()
-    total   = len(assets)
-    summary = {"total": total, "success": 0, "skipped": 0, "errors": []}
+    pairs  = [(a.id, a.ticker) for a in assets]
+    total  = len(pairs)
+    summary = {"total": total, "success": 0, "errors": []}
 
-    for i, asset in enumerate(assets, 1):
-        if progress_cb:
-            progress_cb(i, total)
-        try:
-            update_asset_fundamentals(asset.id)
-            summary["success"] += 1
-        except Exception as exc:
-            summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
+    done_count = 0
+    lock = threading.Lock()
+
+    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
+        futures = {pool.submit(_fund_worker, aid, ticker): ticker
+                   for aid, ticker in pairs}
+        for future in as_completed(futures):
+            ok, err = future.result()
+            with lock:
+                done_count += 1
+                if progress_cb:
+                    progress_cb(done_count, total)
+            if ok:
+                summary["success"] += 1
+            elif err:
+                summary["errors"].append(err)
 
     return summary
 
