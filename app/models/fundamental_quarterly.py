@@ -32,4 +32,8 @@ class FundamentalQuarterly(Base):
     eps_actual       = Column(Float)
     eps_estimated    = Column(Float)
 
+    # Precisión extendida (fuentes que lo provean directamente)
+    nopat                = Column(Float)   # Net Operating Profit After Tax
+    invested_capital_avg = Column(Float)   # Capital invertido promedio del período
+
     asset = relationship("Asset", back_populates="fundamental_quarterly")

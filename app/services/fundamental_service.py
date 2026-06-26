@@ -113,10 +113,15 @@ def _compute_snapshot(asset_id: int, s) -> None:
         if ni0 is not None and ni4 and ni4 != 0:
             eps_growth = round((ni0 - ni4) / abs(ni4), 4)
 
-    # ROIC = Net Income TTM / (Equity + Total Debt)
-    invested_capital = (latest.equity or 0) + (latest.total_debt or 0)
-    ttm_net_income   = sum(r.net_income for r in ttm4 if r.net_income is not None)
-    roic = round(ttm_net_income / invested_capital, 4) if invested_capital and invested_capital != 0 else None
+    # ROIC — usa valores precisos si la fuente los provee, sino aproximación
+    ttm_net_income = sum(r.net_income for r in ttm4 if r.net_income is not None)
+    ttm_nopat      = sum(r.nopat for r in ttm4 if r.nopat is not None) or None
+    ic_avg         = next((r.invested_capital_avg for r in ttm4 if r.invested_capital_avg), None)
+    if ttm_nopat and ic_avg and ic_avg != 0:
+        roic = round(ttm_nopat / ic_avg, 4)
+    else:
+        invested_capital = (latest.equity or 0) + (latest.total_debt or 0)
+        roic = round(ttm_net_income / invested_capital, 4) if invested_capital and invested_capital != 0 else None
 
     # P/E YoY: P/E TTM actual vs P/E TTM hace 1 año
     if len(rows) >= 8 and pe_ttm is not None:

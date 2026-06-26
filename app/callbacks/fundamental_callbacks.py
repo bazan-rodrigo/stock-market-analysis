@@ -182,8 +182,8 @@ def load_fundamentals(asset_id):
         ("ps_ttm",    "P/S TTM",          _val(snap.get("ps_ttm"),  ".2f", "x"), None,
          "Precio actual / (Revenue últimos 4 trimestres / Acciones en circulación)"),
         ("roic",      "ROIC",             _pct(snap.get("roic")),   _cv(snap.get("roic")),
-         "Net Income TTM / (Equity + Total Debt) — aproximación del capital invertido. "
-         "La fórmula exacta requiere NOPAT y caja, no disponibles en yfinance."),
+         "Si la fuente provee NOPAT e Invested Capital promedio: NOPAT TTM / IC promedio. "
+         "Sino (ej. Yahoo Finance): Net Income TTM / (Equity + Total Debt)."),
         ("net_mg",    "Margen Neto",      _pct(snap.get("net_margin")),      _cv(snap.get("net_margin")),
          "Net Income / Revenue — último trimestre disponible"),
         ("gross_mg",  "Margen Bruto",     _pct(snap.get("gross_margin")),    _cv(snap.get("gross_margin")),
