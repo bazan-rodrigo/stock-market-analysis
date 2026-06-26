@@ -65,6 +65,12 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
     s = get_session()
     total = len(df)
 
+    # Pre-cargar claves existentes para chequeo de duplicados en memoria
+    existing = {
+        (e.name, e.start_date, e.end_date)
+        for e in s.query(MarketEvent.name, MarketEvent.start_date, MarketEvent.end_date).all()
+    }
+
     for i, (_, row) in enumerate(df.iterrows()):
         if progress_cb:
             progress_cb(i + 1, total)
@@ -82,6 +88,12 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
                 raise ValueError("Fechas inválidas o faltantes")
             if end < start:
                 raise ValueError("fecha_fin debe ser >= fecha_inicio")
+
+            if (nombre, start, end) in existing:
+                status = "skipped"
+                detail = "Evento ya existe en la base de datos"
+                results.append({"nombre": nombre, "status": status, "detail": detail})
+                continue
 
             alcance = str(row.get("alcance", "global")).strip().lower()
             if alcance not in ("global", "country", "asset"):
@@ -109,6 +121,7 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             s.add(event)
             s.flush()
             s.commit()
+            existing.add((nombre, start, end))
             status = "imported"
             detail = "Importado correctamente"
 
