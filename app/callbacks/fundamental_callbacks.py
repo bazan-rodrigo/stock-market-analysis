@@ -203,7 +203,6 @@ def load_fundamentals(asset_id):
 
     annual = _to_annual(quarters)
     _s     = {"fontWeight": "600", "fontSize": "0.85rem"}
-    _note  = {"fontSize": "0.72rem", "color": "#6b7280", "marginLeft": "8px"}
 
     content = html.Div([
         html.Div([
@@ -213,14 +212,18 @@ def load_fundamentals(asset_id):
         ], className="mb-2"),
         _ratio_section(ratio_defs, snap),
         html.Hr(style={"borderColor": "#374151"}),
-        html.Div([
-            html.Span("Evolución anual", style=_s),
-            html.Span("* año incompleto", style=_note),
-        ], className="mb-2"),
-        _charts_row(annual),
-        html.Hr(style={"borderColor": "#374151"}),
-        html.Div("Evolución trimestral", className="mb-2", style=_s),
-        _charts_row(quarters),
+        dbc.Tabs([
+            dbc.Tab(_charts_row(quarters), label="Trimestral", tab_id="q"),
+            dbc.Tab(
+                html.Div([
+                    html.Div("* año incompleto (menos de 4 trimestres)",
+                             className="text-muted mb-2",
+                             style={"fontSize": "0.72rem"}),
+                    _charts_row(annual),
+                ]),
+                label="Anual", tab_id="a",
+            ),
+        ], active_tab="q", className="mt-2"),
     ])
 
     return content, "", False, "info"
