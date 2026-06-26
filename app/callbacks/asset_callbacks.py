@@ -224,7 +224,7 @@ def assets_modal(
 
             # Recargar opciones actualizadas
             _, cur_opts_new, country_opts_new, market_opts_new, itype_opts_new, \
-                sector_opts_new, ind_opts_new, bm_opts_new = _get_form_options()
+                sector_opts_new, ind_opts_new, bm_opts_new, fund_opts_new = _get_form_options()
 
             msg = "Autocompletado. Revisá los campos antes de guardar."
             if created:
