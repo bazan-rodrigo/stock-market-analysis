@@ -101,6 +101,8 @@ def load_fundamentals(asset_id):
                     _color_val(snap.get("revenue_growth_yoy"))),
         _ratio_card("EPS YoY",          _pct(snap.get("eps_growth_yoy")),
                     _color_val(snap.get("eps_growth_yoy"))),
+        _ratio_card("P/E YoY",          _pct(snap.get("pe_growth_yoy")),
+                    _color_val(snap.get("pe_growth_yoy"))),
     ], className="g-2 mb-3")
 
     # ── Gráficos trimestrales ─────────────────────────────────────────────────

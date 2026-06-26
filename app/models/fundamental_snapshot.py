@@ -31,5 +31,6 @@ class FundamentalSnapshot(Base):
     # Crecimiento YoY (Q vs Q-4)
     revenue_growth_yoy  = Column(Float)
     eps_growth_yoy      = Column(Float)
+    pe_growth_yoy       = Column(Float)   # P/E TTM actual vs P/E TTM hace 1 año
 
     asset = relationship("Asset", back_populates="fundamental_snapshot")

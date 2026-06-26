@@ -8,7 +8,7 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
-_STALE_DAYS = 7  # re-fetch solo si los datos tienen más de 7 días
+_STALE_DAYS = 90  # re-fetch solo si los datos tienen más de 90 días (datos trimestrales)
 
 
 # ── helpers internos ──────────────────────────────────────────────────────────
@@ -35,6 +35,18 @@ def _save_log(asset_id: int, success: bool, error: str | None, s) -> None:
 def _latest_price(asset_id: int, s) -> float | None:
     row = (s.query(Price.close)
              .filter(Price.asset_id == asset_id, Price.close.isnot(None))
+             .order_by(Price.date.desc())
+             .first())
+    return row[0] if row else None
+
+
+def _price_1y_ago(asset_id: int, s) -> float | None:
+    from datetime import date, timedelta
+    target = date.today() - timedelta(days=365)
+    row = (s.query(Price.close)
+             .filter(Price.asset_id == asset_id,
+                     Price.date <= target,
+                     Price.close.isnot(None))
              .order_by(Price.date.desc())
              .first())
     return row[0] if row else None
@@ -91,6 +103,7 @@ def _compute_snapshot(asset_id: int, s) -> None:
     # YoY (Q vs Q-4)
     rev_growth = None
     eps_growth = None
+    pe_growth  = None
     if len(rows) >= 5:
         q0, q4 = rows[0], rows[4]
         if q0.revenue and q4.revenue and q4.revenue != 0:
@@ -99,6 +112,19 @@ def _compute_snapshot(asset_id: int, s) -> None:
         ni4 = q4.net_income
         if ni0 is not None and ni4 and ni4 != 0:
             eps_growth = round((ni0 - ni4) / abs(ni4), 4)
+
+    # P/E YoY: P/E TTM actual vs P/E TTM hace 1 año
+    if len(rows) >= 8 and pe_ttm is not None:
+        ttm4_prev  = rows[4:8]
+        shares_prev = next((r.shares for r in ttm4_prev if r.shares), None)
+        ttm_eps_prev = sum(r.net_income for r in ttm4_prev if r.net_income is not None)
+        ttm_eps_ps_prev = _safe_div(ttm_eps_prev, shares_prev) if shares_prev else None
+        price_prev  = _price_1y_ago(asset_id, s)
+        pe_prev = _safe_div(price_prev, ttm_eps_ps_prev) if (
+            price_prev and ttm_eps_ps_prev and ttm_eps_ps_prev > 0
+        ) else None
+        if pe_prev and pe_prev != 0:
+            pe_growth = round((pe_ttm - pe_prev) / abs(pe_prev), 4)
 
     snap = s.query(FundamentalSnapshot).filter_by(asset_id=asset_id).first()
     if snap is None:
@@ -114,6 +140,7 @@ def _compute_snapshot(asset_id: int, s) -> None:
     snap.debt_to_equity     = d_e
     snap.revenue_growth_yoy = rev_growth
     snap.eps_growth_yoy     = eps_growth
+    snap.pe_growth_yoy      = pe_growth
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
@@ -148,6 +175,17 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False) -> None:
         _save_log(asset_id, success=False, error=error_msg, s=s)
         s.commit()
         raise
+
+
+def recompute_snapshot_for_asset(asset_id: int) -> None:
+    """Recomputa el snapshot de ratios sin volver a fetchear datos de la fuente.
+    Se llama con cada actualización de precios para mantener P/E y otros ratios frescos."""
+    s = get_session()
+    has_quarters = s.query(FundamentalQuarterly).filter_by(asset_id=asset_id).first()
+    if has_quarters is None:
+        return
+    _compute_snapshot(asset_id, s)
+    s.commit()
 
 
 def update_all_fundamentals(progress_cb=None) -> dict:
@@ -237,6 +275,7 @@ def get_asset_fundamentals(asset_id: int) -> dict:
             "debt_to_equity":     snap.debt_to_equity     if snap else None,
             "revenue_growth_yoy": snap.revenue_growth_yoy if snap else None,
             "eps_growth_yoy":     snap.eps_growth_yoy     if snap else None,
+            "pe_growth_yoy":      snap.pe_growth_yoy      if snap else None,
             "updated_at":         str(snap.updated_at)[:19] if snap else None,
         } if snap else {},
     }

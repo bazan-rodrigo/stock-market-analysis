@@ -143,6 +143,11 @@ def update_asset_prices(
             logger.warning(
                 "Error calculando snapshot screener para %s: %s", asset.ticker, snap_exc
             )
+        try:
+            from app.services.fundamental_service import recompute_snapshot_for_asset
+            recompute_snapshot_for_asset(asset_id)
+        except Exception as fund_exc:
+            logger.warning("Error recomputo fundamental snapshot %s: %s", asset.ticker, fund_exc)
 
     except NotImplementedError:
         # Fuente válida pero sin descarga externa — no es un error operativo
@@ -268,6 +273,11 @@ def _process_yf_asset_worker(
             )
         except Exception as snap_exc:
             logger.warning("Error snapshot %s: %s", ticker, snap_exc)
+        try:
+            from app.services.fundamental_service import recompute_snapshot_for_asset
+            recompute_snapshot_for_asset(asset_id)
+        except Exception as fund_exc:
+            logger.warning("Error recomputo fundamental snapshot %s: %s", ticker, fund_exc)
         return True, None
     except Exception as exc:
         s.rollback()
