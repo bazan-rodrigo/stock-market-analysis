@@ -4,13 +4,14 @@ from dash import dash_table, dcc, html
 from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 _BULK_FIELDS = [
-    {"label": "Benchmark",          "value": "benchmark_id"},
-    {"label": "Mercado",            "value": "market_id"},
-    {"label": "País",               "value": "country_id"},
-    {"label": "Tipo de instrumento","value": "instrument_type_id"},
-    {"label": "Moneda",             "value": "currency_id"},
-    {"label": "Sector",             "value": "sector_id"},
-    {"label": "Industria",          "value": "industry_id"},
+    {"label": "Benchmark",               "value": "benchmark_id"},
+    {"label": "Mercado",                 "value": "market_id"},
+    {"label": "País",                    "value": "country_id"},
+    {"label": "Tipo de instrumento",     "value": "instrument_type_id"},
+    {"label": "Moneda",                  "value": "currency_id"},
+    {"label": "Sector",                  "value": "sector_id"},
+    {"label": "Industria",               "value": "industry_id"},
+    {"label": "Fuente de fundamentales", "value": "fundamental_source_id"},
 ]
 
 _COLUMNS = [
@@ -51,6 +52,13 @@ def _build_asset_form():
                 dcc.Dropdown(id="assets-f-benchmark_id", placeholder="Sin benchmark (opcional)",
                              clearable=True, style={"fontSize": "0.9rem"}),
             ]),
+        ], className="mb-3"),
+        dbc.Row([
+            dbc.Col([
+                dbc.Label("Fuente de fundamentales"),
+                dbc.Select(id="assets-f-fundamental_source_id", options=[],
+                           placeholder="Sin fuente (opcional)"),
+            ], md=6),
         ], className="mb-3"),
         dbc.Alert(id="assets-form-error", is_open=False, color="danger", className="mt-2"),
         dbc.Alert(id="assets-autocomplete-alert", is_open=False, color="info", className="mt-2"),

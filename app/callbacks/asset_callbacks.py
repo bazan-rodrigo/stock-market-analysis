@@ -56,7 +56,7 @@ def _asset_to_row(a, aliases: dict) -> dict:
 
 def _get_form_options():
     from app.database import get_session
-    from app.models import Asset
+    from app.models import Asset, FundamentalSource
     sources    = ref_svc.get_price_sources()
     currencies = ref_svc.get_currencies()
     countries  = ref_svc.get_countries()
@@ -65,6 +65,7 @@ def _get_form_options():
     sectors    = ref_svc.get_sectors()
     industries = ref_svc.get_industries()
     all_assets = get_session().query(Asset).order_by(Asset.ticker).all()
+    fund_sources = get_session().query(FundamentalSource).order_by(FundamentalSource.name).all()
     return (
         [{"label": s.name, "value": s.id} for s in sources],
         [{"label": c.name, "value": c.id} for c in currencies],
@@ -74,6 +75,7 @@ def _get_form_options():
         [{"label": "", "value": ""}] + [{"label": s.name, "value": s.id} for s in sectors],
         [{"label": "", "value": ""}] + [{"label": i.name, "value": i.id} for i in industries],
         [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in all_assets],
+        [{"label": "", "value": ""}] + [{"label": fs.name, "value": fs.id} for fs in fund_sources],
     )
 
 
@@ -131,6 +133,8 @@ def assets_row_selection(sel_rows):
     Output("assets-f-industry_id", "value"),
     Output("assets-f-benchmark_id", "options"),
     Output("assets-f-benchmark_id", "value"),
+    Output("assets-f-fundamental_source_id", "options"),
+    Output("assets-f-fundamental_source_id", "value"),
     Output("assets-editing-id", "data"),
     Output("assets-autocomplete-alert", "children"),
     Output("assets-autocomplete-alert", "is_open"),
@@ -158,10 +162,10 @@ def assets_modal(
     from dash import ctx
     t = ctx.triggered_id
     _nu = no_update
-    src_opts, cur_opts, country_opts, market_opts, itype_opts, sector_opts, ind_opts, bm_opts = _get_form_options()
+    src_opts, cur_opts, country_opts, market_opts, itype_opts, sector_opts, ind_opts, bm_opts, fund_opts = _get_form_options()
 
     if t == "assets-btn-cancel":
-        return False, *([_nu] * 24)
+        return False, *([_nu] * 26)
 
     if t == "assets-btn-autocomplete":
         if not ticker or not source_id:
@@ -237,12 +241,13 @@ def assets_modal(
                 sector_opts_new, sector_obj_id or _nu,
                 ind_opts_new, industry_obj_id or _nu,
                 bm_opts_new, _nu,
+                _nu, _nu,
                 _nu,
                 msg, True,
                 _nu, False,
             )
         except Exception as exc:
-            return (*([_nu] * 21), str(exc), True, _nu, False)
+            return (*([_nu] * 23), str(exc), True, _nu, False)
 
     if t == "assets-btn-add":
         return (
@@ -256,6 +261,7 @@ def assets_modal(
             sector_opts, None,
             ind_opts, None,
             bm_opts, None,
+            fund_opts, None,
             None,
             _nu, False,
             "", False,
@@ -274,12 +280,13 @@ def assets_modal(
             sector_opts, a.sector_id,
             ind_opts, a.industry_id,
             bm_opts, a.benchmark_id,
+            fund_opts, a.fundamental_source_id,
             a.id,
             _nu, False,
             "", False,
         )
 
-    return (False, *([_nu] * 24))
+    return (False, *([_nu] * 26))
 
 
 @callback(
@@ -301,12 +308,13 @@ def assets_modal(
     State("assets-f-sector_id", "value"),
     State("assets-f-industry_id", "value"),
     State("assets-f-benchmark_id", "value"),
+    State("assets-f-fundamental_source_id", "value"),
     State("assets-editing-id", "data"),
     prevent_initial_call=True,
 )
 def assets_save(
     _, ticker, name, country_id, market_id, itype_id, currency_id,
-    source_id, sector_id, industry_id, benchmark_id, editing_id
+    source_id, sector_id, industry_id, benchmark_id, fundamental_source_id, editing_id
 ):
     _nu = no_update
 
@@ -340,6 +348,7 @@ def assets_save(
             sector_id=_int(sector_id),
             industry_id=_int(industry_id),
             benchmark_id=_int(benchmark_id),
+            fundamental_source_id=_int(fundamental_source_id),
         )
         if editing_id:
             old_asset        = asset_svc.get_asset_by_id(editing_id)
@@ -464,6 +473,11 @@ def assets_bulk_field_options(field):
         opts = [{"label": c.name, "value": c.id} for c in ref_svc.get_countries()]
     elif field == "industry_id":
         opts = [{"label": i.name, "value": i.id} for i in ref_svc.get_industries()]
+    elif field == "fundamental_source_id":
+        from app.database import get_session
+        from app.models import FundamentalSource
+        fs = get_session().query(FundamentalSource).order_by(FundamentalSource.name).all()
+        opts = [{"label": f.name, "value": f.id} for f in fs]
     else:
         opts = []
     return opts, None

@@ -8,7 +8,7 @@ import openpyxl
 import pandas as pd
 
 from app.database import get_session
-from app.models import Asset, ImportLog, PriceSource
+from app.models import Asset, FundamentalSource, ImportLog, PriceSource
 from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ TEMPLATE_COLUMNS = [
     "sector",
     "industria",
     "benchmark_ticker",
+    "fuente_fundamentales",
 ]
 
 
@@ -42,15 +43,16 @@ def generate_template() -> bytes:
     for a in assets:
         ws.append([
             a.ticker,
-            a.price_source.name          if a.price_source    else "",
+            a.price_source.name          if a.price_source          else "",
             a.name                       or "",
-            a.country.iso_code           if a.country         else "",
-            a.market.name                if a.market          else "",
-            a.instrument_type.name       if a.instrument_type else "",
-            a.currency.name              if a.currency        else "",
-            a.sector.name                if a.sector          else "",
-            a.industry.name              if a.industry        else "",
-            ticker_by_id.get(a.benchmark_id, "") if a.benchmark_id else "",
+            a.country.iso_code           if a.country               else "",
+            a.market.name                if a.market                else "",
+            a.instrument_type.name       if a.instrument_type       else "",
+            a.currency.name              if a.currency              else "",
+            a.sector.name                if a.sector                else "",
+            a.industry.name              if a.industry              else "",
+            ticker_by_id.get(a.benchmark_id, "") if a.benchmark_id  else "",
+            a.fundamental_source.name    if a.fundamental_source    else "",
         ])
     buf = BytesIO()
     wb.save(buf)
@@ -79,8 +81,9 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
     s = get_session()
     total = len(df)
 
-    # Pre-cargar fuentes de precio y tickers existentes (evita N+1 queries por fila)
+    # Pre-cargar fuentes y tickers existentes (evita N+1 queries por fila)
     price_sources = {ps.name: ps for ps in s.query(PriceSource).all()}
+    fund_sources  = {fs.name: fs for fs in s.query(FundamentalSource).all()}
     existing_tickers = {t for (t,) in s.query(Asset.ticker).all()}
 
     # benchmark_ticker de cada fila, para la segunda pasada
@@ -137,6 +140,9 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             sector_id   = _resolve_sector(sector_val)
             industry_id = _resolve_industry(industry_val, sector_id)
 
+            fund_source_name = str(row.get("fuente_fundamentales", "") or "").strip()
+            fund_source_id   = fund_sources[fund_source_name].id if fund_source_name in fund_sources else None
+
             asset = Asset(
                 ticker=ticker,
                 name=name,
@@ -147,6 +153,7 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
                 price_source_id=source_obj.id,
                 sector_id=sector_id,
                 industry_id=industry_id,
+                fundamental_source_id=fund_source_id,
             )
             s.add(asset)
             s.flush()
