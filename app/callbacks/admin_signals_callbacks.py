@@ -47,7 +47,7 @@ def load_table(_a, _m, selected_ids):
                     html.I(className="fa fa-check-square" if is_sel else "fa fa-square-o"),
                     id={"type": "sig-check", "index": sig.id},
                     color="link", size="sm",
-                    style={"color": "#38bdf8" if is_sel else "#6b7280",
+                    style={"color": "#38bdf8" if is_sel else "#9ca3af",
                            "padding": "2px 4px", "lineHeight": 1},
                 ),
                 style={**_td, "width": "32px", "padding": "2px"},

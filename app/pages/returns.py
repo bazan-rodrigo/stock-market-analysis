@@ -12,7 +12,7 @@ _PERIODS = [
     ("6M",  "Retorno de los últimos 6 meses"),
     ("YTD", "Desde el 1° de enero hasta hoy"),
     ("1A",  "Retorno de los últimos 12 meses"),
-    ("rng", "Elegir fechas de inicio y fin manualmente"),
+    ("rng", "Rango personalizado"),
 ]
 
 _MODES = [
