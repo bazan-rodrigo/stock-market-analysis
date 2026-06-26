@@ -286,6 +286,7 @@ def create_app():
         "app.callbacks.admin_app_settings_callbacks",
         "app.callbacks.fundamental_callbacks",
         "app.callbacks.admin_fundamental_update_callbacks",
+        "app.callbacks.data_center_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))

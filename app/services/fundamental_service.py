@@ -202,6 +202,23 @@ def recompute_snapshot_for_asset(asset_id: int) -> None:
     s.commit()
 
 
+def recompute_all_snapshots(progress_cb=None) -> dict:
+    """Recomputa todos los snapshots desde datos ya almacenados, sin fetch externo."""
+    s = get_session()
+    asset_ids = [r[0] for r in s.query(FundamentalQuarterly.asset_id).distinct().all()]
+    total   = len(asset_ids)
+    summary = {"total": total, "success": 0, "errors": []}
+    for i, asset_id in enumerate(asset_ids, 1):
+        if progress_cb:
+            progress_cb(i, total)
+        try:
+            recompute_snapshot_for_asset(asset_id)
+            summary["success"] += 1
+        except Exception as exc:
+            summary["errors"].append({"asset_id": asset_id, "error": str(exc)})
+    return summary
+
+
 def _fund_worker(asset_id: int, ticker: str) -> tuple[bool, dict | None]:
     """Actualiza fundamentales de un activo en su propio thread."""
     try:
