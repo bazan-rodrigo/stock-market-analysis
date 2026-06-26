@@ -43,6 +43,7 @@ def create_asset(
     sector_id: Optional[int] = None,
     industry_id: Optional[int] = None,
     benchmark_id: Optional[int] = None,
+    fundamental_source_id: Optional[int] = None,
 ) -> Asset:
     s = get_session()
     obj = Asset(
@@ -56,6 +57,7 @@ def create_asset(
         sector_id=sector_id,
         industry_id=industry_id,
         benchmark_id=benchmark_id,
+        fundamental_source_id=fundamental_source_id,
     )
     s.add(obj)
     try:
