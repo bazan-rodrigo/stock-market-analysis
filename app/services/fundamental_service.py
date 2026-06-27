@@ -250,6 +250,7 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
             recompute_snapshot_for_asset(asset_id)
             summary["success"] += 1
         except Exception as exc:
+            logger.error("Error recompute fundamental asset_id=%d: %s", asset_id, exc, exc_info=True)
             summary["errors"].append({"asset_id": asset_id, "error": str(exc)})
     return summary
 
