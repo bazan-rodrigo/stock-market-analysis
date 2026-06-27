@@ -46,6 +46,9 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Actualización de precios",       href="/prices"),
                     dbc.DropdownMenuItem("Actualización de fundamentales", href="/admin/fundamental-update"),
                     dbc.DropdownMenuItem(divider=True),
+                    dbc.DropdownMenuItem("Eventos de mercado",             href="/admin/events"),
+                    dbc.DropdownMenuItem("Importar eventos",               href="/admin/events/import"),
+                    dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Centro de Datos",                href="/admin/data-center"),
                 ],
                 nav=True, in_navbar=True,
@@ -67,9 +70,6 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenu(
                 label="Administración",
                 children=[
-                    dbc.DropdownMenuItem("Eventos de mercado",   href="/admin/events"),
-                    dbc.DropdownMenuItem("Importar eventos",     href="/admin/events/import"),
-                    dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Países",               href="/admin/countries"),
                     dbc.DropdownMenuItem("Monedas",              href="/admin/currencies"),
                     dbc.DropdownMenuItem("Mercados",             href="/admin/markets"),
