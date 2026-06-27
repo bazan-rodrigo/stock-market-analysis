@@ -1,9 +1,9 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import dcc, html
+from dash import dash_table, dcc, html
 
+from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 from app.components.ui_constants import (
-    TH as _th, TD as _td,
     GROUP_TYPE_OPTS as _GROUP_TYPE_OPTS,
     CARD_STYLE, STATUS_STYLE,
 )
@@ -114,7 +114,26 @@ def layout(**kwargs):
         dbc.Alert(id="str-alert", is_open=False, dismissable=True, className="mb-3"),
         html.Div(id="str-import-results", className="mb-3"),
         html.Div(id="str-calc-preview",   className="mb-3"),
-        html.Div(id="str-table-container"),
+        dash_table.DataTable(
+            id="str-datatable",
+            columns=[
+                {"name": "Nombre",      "id": "name"},
+                {"name": "Comp.",       "id": "components"},
+                {"name": "Descripción", "id": "description"},
+            ],
+            data=[],
+            row_selectable="multi",
+            selected_rows=[],
+            style_table={"overflowX": "auto"},
+            style_header=HEADER,
+            style_data=DATA,
+            style_cell=CELL,
+            style_filter=FILTER,
+            style_data_conditional=SELECTED_ROW,
+            page_size=30,
+            sort_action="native",
+            filter_action="native",
+        ),
 
         modal,
     ], style={"padding": "0 8px"})

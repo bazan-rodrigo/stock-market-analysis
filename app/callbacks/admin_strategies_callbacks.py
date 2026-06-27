@@ -5,7 +5,8 @@ import dash_bootstrap_components as dbc
 
 import app.services.strategy_service as svc
 import app.services.signal_service as sig_svc
-from app.pages.admin_strategies import _th, _td, _SCOPE_OPTS, _GROUP_TYPE_OPTS
+from app.pages.admin_strategies import _SCOPE_OPTS, _GROUP_TYPE_OPTS
+from app.components.ui_constants import TH as _th, TD as _td
 
 
 # ── Cachear opciones de señales ───────────────────────────────────────────────
@@ -24,85 +25,50 @@ def cache_signal_opts(is_open):
 # ── Tabla ─────────────────────────────────────────────────────────────────────
 
 @callback(
-    Output("str-table-container", "children"),
-    Output("str-all-ids",         "data"),
-    Output("str-btn-edit",        "disabled"),
-    Output("str-btn-delete",      "disabled"),
-    Output("str-btn-calc",        "disabled"),
-    Input("str-alert",            "is_open"),
-    Input("str-modal",            "is_open"),
-    Input("str-selected-ids",     "data"),
+    Output("str-datatable",  "data"),
+    Output("str-datatable",  "selected_rows"),
+    Output("str-all-ids",    "data"),
+    Input("str-alert",       "is_open"),
+    Input("str-modal",       "is_open"),
 )
-def load_table(_a, _m, selected_ids):
-    selected_ids = selected_ids or []
+def load_table(_a, _m):
     strategies = svc.get_all_strategies()
     all_ids = [s.id for s in strategies]
-    n = len(selected_ids)
-
-    if not strategies:
-        return (html.P("Sin estrategias configuradas.", className="text-muted mt-2",
-                       style={"fontSize": "0.82rem"}),
-                all_ids, True, True, True)
-
-    rows = []
-    for strat in strategies:
-        is_sel = strat.id in selected_ids
-        rows.append(html.Tr([
-            html.Td(
-                dbc.Button(
-                    "☑" if is_sel else "☐",
-                    id={"type": "str-check", "index": strat.id},
-                    color="link", size="sm",
-                    style={"color": "#38bdf8" if is_sel else "#9ca3af",
-                           "padding": "2px 4px", "lineHeight": 1},
-                ),
-                style={**_td, "width": "32px", "padding": "2px"},
-            ),
-            html.Td(strat.name, style={**_td, "fontWeight": "500"}),
-            html.Td(
-                dbc.Badge(str(len(strat.components)), color="secondary"),
-                style=_td,
-            ),
-            html.Td(strat.description or "—",
-                    style={**_td, "color": "#9ca3af", "fontSize": "0.76rem",
-                           "maxWidth": "320px", "overflow": "hidden",
-                           "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
-        ]))
-
-    table = html.Table([
-        html.Thead(html.Tr([
-            html.Th("",           style={**_th, "width": "32px", "padding": "5px 2px"}),
-            html.Th("Nombre",     style=_th),
-            html.Th("Comp.",      style=_th),
-            html.Th("Descripción",style=_th),
-        ])),
-        html.Tbody(rows),
-    ], style={"width": "100%", "borderCollapse": "collapse"})
-
-    return table, all_ids, (n != 1), (n == 0), (n == 0)
+    data = [
+        {
+            "id":          s.id,
+            "name":        s.name,
+            "components":  len(s.components),
+            "description": s.description or "—",
+        }
+        for s in strategies
+    ]
+    return data, [], all_ids
 
 
 # ── Selección ─────────────────────────────────────────────────────────────────
 
 @callback(
-    Output("str-selected-ids", "data", allow_duplicate=True),
-    Input({"type": "str-check", "index": ALL}, "n_clicks"),
-    State("str-selected-ids", "data"),
+    Output("str-selected-ids", "data"),
+    Input("str-datatable",     "selected_rows"),
+    State("str-datatable",     "data"),
     prevent_initial_call=True,
 )
-def toggle_check(clicks, selected_ids):
-    if not any(n for n in clicks if n):
-        return no_update
-    trigger = ctx.triggered_id
-    if not isinstance(trigger, dict):
-        return no_update
-    sid = trigger["index"]
-    sel = list(selected_ids or [])
-    if sid in sel:
-        sel.remove(sid)
-    else:
-        sel.append(sid)
-    return sel
+def update_selected_ids(selected_rows, data):
+    if not selected_rows or not data:
+        return []
+    return [data[i]["id"] for i in selected_rows]
+
+
+@callback(
+    Output("str-btn-edit",   "disabled"),
+    Output("str-btn-delete", "disabled"),
+    Output("str-btn-calc",   "disabled"),
+    Input("str-selected-ids", "data"),
+)
+def update_buttons(selected_ids):
+    n = len(selected_ids or [])
+    return (n != 1), (n == 0), (n == 0)
 
 
 # ── Modal: abrir / cerrar ─────────────────────────────────────────────────────

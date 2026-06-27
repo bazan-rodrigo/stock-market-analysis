@@ -1,112 +1,71 @@
 import base64
 
-from dash import ALL, Input, Output, State, callback, ctx, dcc, html, no_update
-import dash_bootstrap_components as dbc
+from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 
 import app.services.signal_service as svc
-from app.pages.admin_signals import _help_card, _th, _td
-from app.components.ui_constants import COLOR_POSITIVE, COLOR_NEGATIVE
+from app.components.ui_constants import (
+    TH as _th, TD as _td,
+    COLOR_POSITIVE, COLOR_NEGATIVE,
+    formula_help_card as _help_card,
+)
 
 
 # ── Tabla ─────────────────────────────────────────────────────────────────────
 
+_FT_LABEL = {
+    "discrete_map": "Mapa",
+    "threshold":    "Umbrales",
+    "range":        "Rango",
+    "composite":    "Compuesta",
+}
+
 @callback(
-    Output("sig-table-container", "children"),
-    Output("sig-all-ids",         "data"),
-    Output("sig-btn-edit",        "disabled"),
-    Output("sig-btn-delete",      "disabled"),
-    Input("sig-alert",            "is_open"),
-    Input("sig-modal",            "is_open"),
-    Input("sig-selected-ids",     "data"),
+    Output("sig-datatable", "data"),
+    Output("sig-datatable", "selected_rows"),
+    Output("sig-all-ids",   "data"),
+    Input("sig-alert",      "is_open"),
+    Input("sig-modal",      "is_open"),
 )
-def load_table(_a, _m, selected_ids):
-    selected_ids = selected_ids or []
+def load_table(_a, _m):
     signals = svc.get_all_signals()
     all_ids = [s.id for s in signals]
-    n = len(selected_ids)
-
-    if not signals:
-        return (html.P("Sin señales configuradas.", className="text-muted mt-2",
-                       style={"fontSize": "0.82rem"}),
-                all_ids, True, True)
-
-    _SOURCE_COLOR = {"asset": "#38bdf8", "group": "#4ade80"}
-    _FT_LABEL = {
-        "discrete_map": "Mapa",
-        "threshold":    "Umbrales",
-        "range":        "Rango",
-        "composite":    "Compuesta",
-    }
-
-    rows = []
-    for sig in signals:
-        is_sel = sig.id in selected_ids
-        rows.append(html.Tr([
-            html.Td(
-                dbc.Button(
-                    "☑" if is_sel else "☐",
-                    id={"type": "sig-check", "index": sig.id},
-                    color="link", size="sm",
-                    style={"color": "#38bdf8" if is_sel else "#9ca3af",
-                           "padding": "2px 4px", "lineHeight": 1},
-                ),
-                style={**_td, "width": "32px", "padding": "2px"},
-            ),
-            html.Td(html.Code(sig.key, style={"fontSize": "0.78rem", "color": "#94a3b8"}),
-                    style=_td),
-            html.Td(sig.name, style=_td),
-            html.Td(
-                dbc.Badge(sig.source, color="info" if sig.source == "asset" else "success",
-                          className="me-1"),
-                style=_td,
-            ),
-            html.Td(html.Code(sig.indicator_key or "—",
-                              style={"fontSize": "0.76rem", "color": "#6b7280"}),
-                    style=_td),
-            html.Td(_FT_LABEL.get(sig.formula_type, sig.formula_type), style=_td),
-            html.Td(
-                dbc.Badge("sistema", color="secondary") if sig.is_system else "",
-                style=_td,
-            ),
-        ]))
-
-    table = html.Table([
-        html.Thead(html.Tr([
-            html.Th("",              style={**_th, "width": "32px", "padding": "5px 2px"}),
-            html.Th("Key",           style=_th),
-            html.Th("Nombre",        style=_th),
-            html.Th("Fuente",        style=_th),
-            html.Th("Indicador",     style=_th),
-            html.Th("Fórmula",       style=_th),
-            html.Th("",              style=_th),
-        ])),
-        html.Tbody(rows),
-    ], style={"width": "100%", "borderCollapse": "collapse"})
-
-    return table, all_ids, (n != 1), (n == 0)
+    data = [
+        {
+            "id":            s.id,
+            "key":           s.key,
+            "name":          s.name,
+            "source":        s.source,
+            "indicator_key": s.indicator_key or "—",
+            "formula_type":  _FT_LABEL.get(s.formula_type, s.formula_type),
+            "sistema":       "Sí" if s.is_system else "",
+        }
+        for s in signals
+    ]
+    return data, [], all_ids
 
 
 # ── Selección ─────────────────────────────────────────────────────────────────
 
 @callback(
-    Output("sig-selected-ids", "data", allow_duplicate=True),
-    Input({"type": "sig-check", "index": ALL}, "n_clicks"),
-    State("sig-selected-ids", "data"),
+    Output("sig-selected-ids", "data"),
+    Input("sig-datatable",     "selected_rows"),
+    State("sig-datatable",     "data"),
     prevent_initial_call=True,
 )
-def toggle_check(clicks, selected_ids):
-    if not any(n for n in clicks if n):
-        return no_update
-    trigger = ctx.triggered_id
-    if not isinstance(trigger, dict):
-        return no_update
-    sid = trigger["index"]
-    sel = list(selected_ids or [])
-    if sid in sel:
-        sel.remove(sid)
-    else:
-        sel.append(sid)
-    return sel
+def update_selected_ids(selected_rows, data):
+    if not selected_rows or not data:
+        return []
+    return [data[i]["id"] for i in selected_rows]
+
+
+@callback(
+    Output("sig-btn-edit",   "disabled"),
+    Output("sig-btn-delete", "disabled"),
+    Input("sig-selected-ids", "data"),
+)
+def update_buttons(selected_ids):
+    n = len(selected_ids or [])
+    return (n != 1), (n == 0)
 
 
 # ── Modal: abrir / cerrar ─────────────────────────────────────────────────────

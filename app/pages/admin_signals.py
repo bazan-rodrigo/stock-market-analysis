@@ -1,9 +1,9 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import dcc, html
+from dash import dash_table, dcc, html
 
+from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 from app.components.ui_constants import (
-    TH as _th, TD as _td,
     GROUP_TYPE_OPTS as _GROUP_TYPE_OPTS,
     FORMULA_HELP as _FORMULA_HELP,
     CARD_STYLE, STATUS_STYLE,
@@ -193,7 +193,33 @@ def layout(**kwargs):
 
         dbc.Alert(id="sig-alert", is_open=False, dismissable=True, className="mb-3"),
         html.Div(id="sig-import-results", className="mb-3"),
-        html.Div(id="sig-table-container"),
+        dash_table.DataTable(
+            id="sig-datatable",
+            columns=[
+                {"name": "Key",       "id": "key"},
+                {"name": "Nombre",    "id": "name"},
+                {"name": "Fuente",    "id": "source"},
+                {"name": "Indicador", "id": "indicator_key"},
+                {"name": "Fórmula",   "id": "formula_type"},
+                {"name": "Sistema",   "id": "sistema"},
+            ],
+            data=[],
+            row_selectable="multi",
+            selected_rows=[],
+            style_table={"overflowX": "auto"},
+            style_header=HEADER,
+            style_data=DATA,
+            style_cell=CELL,
+            style_filter=FILTER,
+            style_data_conditional=SELECTED_ROW + [
+                {"if": {"filter_query": '{source} = "asset"'}, "color": "#38bdf8"},
+                {"if": {"filter_query": '{source} = "group"'}, "color": "#4ade80"},
+                {"if": {"filter_query": '{sistema} = "Sí"'},   "color": "#9ca3af"},
+            ],
+            page_size=30,
+            sort_action="native",
+            filter_action="native",
+        ),
 
         modal,
     ], style={"padding": "0 8px"})
