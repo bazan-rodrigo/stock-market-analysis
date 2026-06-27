@@ -208,6 +208,7 @@ def create_app():
         "app.pages.admin_sectors",
         "app.pages.admin_industries",
         "app.pages.admin_price_sources",
+        "app.pages.admin_indicators",
         "app.pages.admin_events",
         "app.pages.admin_events_import",
         "app.pages.admin_catalog_mapper",
