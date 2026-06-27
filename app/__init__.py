@@ -194,7 +194,6 @@ def create_app():
     # 7. Registrar páginas (importar módulos)
     # -----------------------------------------------------------------
     _PAGES = [
-        "app.pages.screener",
         "app.pages.market_map",
         "app.pages.chart",
         "app.pages.assets_list",
@@ -259,7 +258,6 @@ def create_app():
         "app.callbacks.import_callbacks",
         "app.callbacks.price_callbacks",
         "app.callbacks.chart_callbacks",
-        "app.callbacks.screener_callbacks",
         "app.callbacks.market_map_callbacks",
         "app.callbacks.price_viewer_callbacks",
         "app.callbacks.admin_events_callbacks",

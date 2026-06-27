@@ -1,6 +1,6 @@
 """
 Servicio de señales.
-Evalúa cada SignalDefinition contra indicator_snapshot / group_indicator_snapshot
+Evalúa cada SignalDefinition contra indicator_values / group_indicator_snapshot
 y persiste los resultados en signal_value / group_signal_value.
 """
 import logging
@@ -11,18 +11,14 @@ from app.models import (
     Asset,
     GroupIndicatorSnapshot,
     GroupSignalValue,
-    IndicatorSnapshot,
     SignalDefinition,
     SignalValue,
 )
+from app.models.indicator_definition import IndicatorDefinition
+from app.models.indicator_value import IndicatorValue
 from app.services import signal_engine
 
 logger = logging.getLogger(__name__)
-
-
-def _get_indicator_value(isnap: IndicatorSnapshot, key: str):
-    """Lee el campo `key` del IndicatorSnapshot."""
-    return getattr(isnap, key, None)
 
 
 def _get_group_indicator_value(gsnap: GroupIndicatorSnapshot, key: str):
@@ -74,14 +70,27 @@ def compute_signal_values(snap_date: date_type) -> int:
     group_signals  = [sg for sg in signals if sg.source == "group"]
     composite_sigs = [sg for sg in signals if sg.formula_type == "composite"]
 
-    # Cargar todos los indicator_snapshots del día
-    isnaps: dict[int, IndicatorSnapshot] = {
-        sn.asset_id: sn
-        for sn in s.query(IndicatorSnapshot).filter(IndicatorSnapshot.date == snap_date).all()
-    }
+    # Cargar indicator_values del día como {asset_id: {code: value}}
+    iv_rows = (
+        s.query(
+            IndicatorValue.asset_id,
+            IndicatorDefinition.code,
+            IndicatorValue.value_num,
+            IndicatorValue.value_str,
+        )
+        .join(IndicatorDefinition, IndicatorValue.indicator_id == IndicatorDefinition.id)
+        .filter(IndicatorValue.date == snap_date)
+        .all()
+    )
+
+    isnaps: dict[int, dict] = {}
+    for asset_id_row, code, val_num, val_str in iv_rows:
+        isnaps.setdefault(asset_id_row, {})[code] = (
+            val_str if val_str is not None else val_num
+        )
 
     if not isnaps:
-        logger.info("signal_service: sin indicator_snapshots para %s", snap_date)
+        logger.info("signal_service: sin indicator_values para %s", snap_date)
         return 0
 
     # Cargar todos los group_indicator_snapshots del día indexados por (group_type, group_id)
@@ -120,7 +129,7 @@ def compute_signal_values(snap_date: date_type) -> int:
         for sig in asset_signals:
             if sig.formula_type == "composite":
                 continue
-            value = _get_indicator_value(isnap, sig.indicator_key) if sig.indicator_key else None
+            value = isnap.get(sig.indicator_key) if sig.indicator_key else None
             score = signal_engine.evaluate(sig.formula_type, sig.params, value)
             asset_scores[sig.key] = score
 

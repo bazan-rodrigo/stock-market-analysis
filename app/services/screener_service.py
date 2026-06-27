@@ -1,7 +1,7 @@
 """
 Servicio de screener.
-Calcula métricas técnicas por activo y las persiste en screener_snapshot.
-El screener consulta exclusivamente esa tabla (sin tocar la API externa).
+Calcula métricas técnicas por activo y las persiste en screener_snapshot (caché de gráficos)
+e indicator_values (serie temporal EAV de indicadores).
 """
 import json
 import logging
@@ -11,11 +11,13 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import joinedload
 
 from app.database import get_session
 from app.models import Asset, DrawdownConfig, Price, RegimeConfig, ScreenerSnapshot, VolatilityConfig
+from app.models.indicator_definition import IndicatorDefinition
+from app.models.indicator_value import IndicatorValue
 from app.services import sr_service
 
 logger = logging.getLogger(__name__)
@@ -474,6 +476,47 @@ def _closest_price_on_or_before(df: pd.DataFrame, target: date) -> float | None:
     return float(subset.iloc[-1]["close"])
 
 
+# Cache de indicator_id por code para evitar queries repetidas por snapshot
+_ind_id_cache: dict[str, int] = {}
+
+
+def _write_indicator_values(session, asset_id: int, snap_date, values: dict) -> None:
+    """Upsert de indicator_values para un activo en snap_date."""
+    global _ind_id_cache
+    if not _ind_id_cache:
+        for d in session.query(IndicatorDefinition).all():
+            _ind_id_cache[d.code] = d.id
+
+    existing = {
+        iv.indicator_id: iv
+        for iv in session.query(IndicatorValue).filter(
+            IndicatorValue.asset_id == asset_id,
+            IndicatorValue.date == snap_date,
+        ).all()
+    }
+
+    for code, value in values.items():
+        ind_id = _ind_id_cache.get(code)
+        if ind_id is None:
+            continue
+        val_num = None
+        val_str = None
+        if isinstance(value, str):
+            val_str = value
+        elif value is not None:
+            val_num = float(value)
+
+        iv = existing.get(ind_id)
+        if iv is None:
+            iv = IndicatorValue(asset_id=asset_id, indicator_id=ind_id, date=snap_date)
+            session.add(iv)
+            existing[ind_id] = iv
+        iv.value_num = val_num
+        iv.value_str = val_str
+
+    session.commit()
+
+
 def compute_and_save_snapshot(
     asset_id: int,
     *,
@@ -528,10 +571,24 @@ def compute_and_save_snapshot(
         # ATH via query escalar (1 fila) para dd_current exacto
         ath = s.query(func.max(Price.close)).filter(Price.asset_id == asset_id).scalar()
         dd_current = float((df.iloc[-1]["close"] - ath) / ath * 100) if ath else 0.0
-        # Campos que requieren historia completa: reutilizar del snap previo
-        dd_max1   = snap.dd_max1
-        dd_max2   = snap.dd_max2
-        dd_max3   = snap.dd_max3
+        # dd_max1-3: leer de indicator_values (última entrada disponible)
+        dd_max1 = dd_max2 = dd_max3 = None
+        if not _ind_id_cache:
+            for d in s.query(IndicatorDefinition).all():
+                _ind_id_cache[d.code] = d.id
+        for code, attr in [("drawdown_max1", "dd_max1"), ("drawdown_max2", "dd_max2"), ("drawdown_max3", "dd_max3")]:
+            ind_id = _ind_id_cache.get(code)
+            if ind_id:
+                row = (
+                    s.query(IndicatorValue.value_num)
+                    .filter(IndicatorValue.asset_id == asset_id, IndicatorValue.indicator_id == ind_id)
+                    .order_by(IndicatorValue.date.desc())
+                    .first()
+                )
+                if row and row[0] is not None:
+                    if code == "drawdown_max1": dd_max1 = row[0]
+                    elif code == "drawdown_max2": dd_max2 = row[0]
+                    else: dd_max3 = row[0]
         dd_events = json.loads(snap.dd_events) if snap.dd_events else []
     else:
         running_max = df["close"].cummax()
@@ -647,52 +704,6 @@ def compute_and_save_snapshot(
     # --- RSI diario (14) ---
     rsi = _rsi(close)
 
-    # --- Guardar / actualizar snapshot ---
-    if snap is None:
-        snap = ScreenerSnapshot(asset_id=asset_id)
-        s.add(snap)
-
-    snap.updated_at = datetime.utcnow()
-    snap.last_close = last_close
-    snap.var_daily = _pct_change(last_close, prev_close)
-    snap.var_month = _pct_change(last_close, ref_month)
-    snap.var_quarter = _pct_change(last_close, ref_quarter)
-    snap.var_year = _pct_change(last_close, ref_year)
-    snap.var_52w = _pct_change(last_close, ref_52w)
-    snap.rsi = round(rsi, 2) if rsi is not None else None
-    snap.sma20 = round(sma20, 4) if sma20 is not None else None
-    snap.sma50 = round(sma50, 4) if sma50 is not None else None
-    snap.sma200 = round(sma200, 4) if sma200 is not None else None
-    snap.vs_sma20 = _pct_change(last_close, sma20)
-    snap.vs_sma50 = _pct_change(last_close, sma50)
-    snap.vs_sma200 = _pct_change(last_close, sma200)
-    snap.dd_current = round(dd_current, 2)
-    snap.dd_max1 = round(dd_max1, 2) if dd_max1 is not None else None
-    snap.dd_max2 = round(dd_max2, 2) if dd_max2 is not None else None
-    snap.dd_max3 = round(dd_max3, 2) if dd_max3 is not None else None
-    snap.best_sma_d = best_sma_d
-    snap.best_ema_d = best_ema_d
-    snap.best_sma_w = best_sma_w
-    snap.best_ema_w = best_ema_w
-    snap.best_sma_m = best_sma_m
-    snap.best_ema_m = best_ema_m
-    snap.regime_zones_d = json.dumps(rz_d)
-    snap.regime_zones_w = json.dumps(rz_w)
-    snap.regime_zones_m = json.dumps(rz_m)
-    snap.regime_d = rz_d[-1]["regime_detail"] if rz_d else None
-    snap.regime_w = rz_w[-1]["regime_detail"] if rz_w else None
-    snap.regime_m = rz_m[-1]["regime_detail"] if rz_m else None
-    snap.dd_events = json.dumps(dd_events)
-    snap.rsi_w = round(rsi_w, 2) if rsi_w is not None else None
-    snap.rsi_m = round(rsi_m, 2) if rsi_m is not None else None
-    snap.dist_sma_d = dist_sma_d
-    snap.dist_sma_w = dist_sma_w
-    snap.dist_sma_m = dist_sma_m
-
-    snap.vol_zones_d = json.dumps(vz_d)
-    snap.vol_zones_w = json.dumps(vz_w)
-    snap.vol_zones_m = json.dumps(vz_m)
-
     def _vol_key(zones):
         if not zones:
             return None
@@ -704,23 +715,94 @@ def compute_and_save_snapshot(
             return None
         return zones[-1].get("atr_pct")
 
-    snap.vol_d = _vol_key(vz_d)
-    snap.vol_w = _vol_key(vz_w)
-    snap.vol_m = _vol_key(vz_m)
-    snap.atr_pct_d = _atr_pct_last(vz_d)
-    snap.atr_pct_w = _atr_pct_last(vz_w)
-    snap.atr_pct_m = _atr_pct_last(vz_m)
+    # Valores de indicadores computados
+    ind_trend_d    = rz_d[-1]["regime_detail"] if rz_d else None
+    ind_trend_w    = rz_w[-1]["regime_detail"] if rz_w else None
+    ind_trend_m    = rz_m[-1]["regime_detail"] if rz_m else None
+    ind_vol_d      = _vol_key(vz_d)
+    ind_vol_w      = _vol_key(vz_w)
+    ind_vol_m      = _vol_key(vz_m)
+    ind_atr_pct_d  = _atr_pct_last(vz_d)
+    ind_atr_pct_w  = _atr_pct_last(vz_w)
+    ind_atr_pct_m  = _atr_pct_last(vz_m)
+    ind_rsi_d      = round(rsi, 2)   if rsi   is not None else None
+    ind_rsi_w      = round(rsi_w, 2) if rsi_w is not None else None
+    ind_rsi_m      = round(rsi_m, 2) if rsi_m is not None else None
 
-    # --- S/R pivots (usa el df ya cargado, sin nueva query a DB) ---
+    sma20_v  = round(sma20,  4) if sma20  is not None else None
+    sma50_v  = round(sma50,  4) if sma50  is not None else None
+    sma200_v = round(sma200, 4) if sma200 is not None else None
+
+    ind_resist_pct  = None
+    ind_support_pct = None
+
+    # --- S/R pivots ---
     try:
         sr = sr_service.compute_sr_from_df(df, cfg=_sr_cfg)
         if sr:
-            snap.pivot_resist_pct = sr["pivot_resist_pct"]
-            snap.pivot_support_pct = sr["pivot_support_pct"]
+            ind_resist_pct  = sr["pivot_resist_pct"]
+            ind_support_pct = sr["pivot_support_pct"]
     except Exception as exc:
         logger.warning("SR compute falló para asset_id=%d: %s", asset_id, exc)
 
+    # --- Guardar / actualizar screener_snapshot (caché de gráficos) ---
+    if snap is None:
+        snap = ScreenerSnapshot(asset_id=asset_id)
+        s.add(snap)
+
+    snap.updated_at    = datetime.utcnow()
+    snap.sma20         = sma20_v
+    snap.sma50         = sma50_v
+    snap.sma200        = sma200_v
+    snap.best_sma_d    = best_sma_d
+    snap.best_ema_d    = best_ema_d
+    snap.best_sma_w    = best_sma_w
+    snap.best_ema_w    = best_ema_w
+    snap.best_sma_m    = best_sma_m
+    snap.best_ema_m    = best_ema_m
+    snap.regime_zones_d = json.dumps(rz_d)
+    snap.regime_zones_w = json.dumps(rz_w)
+    snap.regime_zones_m = json.dumps(rz_m)
+    snap.dd_events      = json.dumps(dd_events)
+    snap.vol_zones_d    = json.dumps(vz_d)
+    snap.vol_zones_w    = json.dumps(vz_w)
+    snap.vol_zones_m    = json.dumps(vz_m)
+
     s.commit()
+
+    # --- Escribir indicator_values (serie temporal EAV) ---
+    _write_indicator_values(s, asset_id, today, {
+        "trend_daily":              ind_trend_d,
+        "trend_weekly":             ind_trend_w,
+        "trend_monthly":            ind_trend_m,
+        "volatility_daily":         ind_vol_d,
+        "volatility_weekly":        ind_vol_w,
+        "volatility_monthly":       ind_vol_m,
+        "atr_percentile_daily":     ind_atr_pct_d,
+        "atr_percentile_weekly":    ind_atr_pct_w,
+        "atr_percentile_monthly":   ind_atr_pct_m,
+        "rsi_daily":                ind_rsi_d,
+        "rsi_weekly":               ind_rsi_w,
+        "rsi_monthly":              ind_rsi_m,
+        "dist_sma20":               _pct_change(last_close, sma20),
+        "dist_sma50":               _pct_change(last_close, sma50),
+        "dist_sma200":              _pct_change(last_close, sma200),
+        "dist_optimal_sma_daily":   dist_sma_d,
+        "dist_optimal_sma_weekly":  dist_sma_w,
+        "dist_optimal_sma_monthly": dist_sma_m,
+        "drawdown_current":         round(dd_current, 2),
+        "drawdown_max1":            round(dd_max1, 2) if dd_max1 is not None else None,
+        "drawdown_max2":            round(dd_max2, 2) if dd_max2 is not None else None,
+        "drawdown_max3":            round(dd_max3, 2) if dd_max3 is not None else None,
+        "return_daily":             _pct_change(last_close, prev_close),
+        "return_monthly":           _pct_change(last_close, ref_month),
+        "return_quarterly":         _pct_change(last_close, ref_quarter),
+        "return_yearly":            _pct_change(last_close, ref_year),
+        "return_52w":               _pct_change(last_close, ref_52w),
+        "resistance_pct":           ind_resist_pct,
+        "support_pct":              ind_support_pct,
+        "last_close":               last_close,
+    })
 
 
 def _snapshot_worker(asset_id: int, dd_cfg, regime_cfg, vol_cfg, sr_cfg) -> None:
@@ -782,26 +864,63 @@ def _fmt_dd_top3_from_events(dd_events_json: str | None) -> str:
     return " / ".join(f"{e['depth']:.1f}%" for e in top3)
 
 
-def get_screener_data(
-    country_ids: list[int] | None = None,
-    market_ids: list[int] | None = None,
-    instrument_type_ids: list[int] | None = None,
-    sector_ids: list[int] | None = None,
-    industry_ids: list[int] | None = None,
-    rsi_min: float | None = None,
-    rsi_max: float | None = None,
-    above_sma20: bool | None = None,
-    above_sma50: bool | None = None,
-    above_sma200: bool | None = None,
-) -> list[dict]:
+def get_market_map_data() -> dict:
     """
-    Devuelve datos del screener aplicando los filtros indicados.
-    Consulta exclusivamente screener_snapshot (sin tocar precios o APIs).
+    Retorna datos para el Mapa de Mercado calculando scores de tendencia
+    por grupo a partir de indicator_values.
+    {
+      "sector": {id: {"name": str, "n": int, "d": float, "w": float, "m": float}},
+      "industry": {...},
+      ...
+    }
     """
+    from collections import defaultdict
+
     s = get_session()
-    q = (
-        s.query(Asset, ScreenerSnapshot)
-        .join(ScreenerSnapshot, Asset.id == ScreenerSnapshot.asset_id)
+
+    trend_codes = ("trend_daily", "trend_weekly", "trend_monthly")
+    defs = {
+        d.code: d.id
+        for d in s.query(IndicatorDefinition).filter(
+            IndicatorDefinition.code.in_(trend_codes)
+        ).all()
+    }
+    if not defs:
+        return {}
+
+    trend_ids = list(defs.values())
+
+    # Subquery: última fecha por (asset_id, indicator_id)
+    max_date_sq = (
+        s.query(
+            IndicatorValue.asset_id,
+            IndicatorValue.indicator_id,
+            func.max(IndicatorValue.date).label("max_date"),
+        )
+        .filter(IndicatorValue.indicator_id.in_(trend_ids))
+        .group_by(IndicatorValue.asset_id, IndicatorValue.indicator_id)
+        .subquery()
+    )
+
+    iv_rows = (
+        s.query(IndicatorValue.asset_id, IndicatorDefinition.code, IndicatorValue.value_str)
+        .join(IndicatorDefinition, IndicatorValue.indicator_id == IndicatorDefinition.id)
+        .join(max_date_sq, and_(
+            IndicatorValue.asset_id    == max_date_sq.c.asset_id,
+            IndicatorValue.indicator_id == max_date_sq.c.indicator_id,
+            IndicatorValue.date         == max_date_sq.c.max_date,
+        ))
+        .all()
+    )
+
+    # trends[(asset_id, code)] = regime_str
+    trends: dict[tuple, str | None] = {
+        (asset_id, code): value_str
+        for asset_id, code, value_str in iv_rows
+    }
+
+    all_assets = (
+        s.query(Asset)
         .options(
             joinedload(Asset.sector),
             joinedload(Asset.industry),
@@ -809,165 +928,56 @@ def get_screener_data(
             joinedload(Asset.instrument_type),
             joinedload(Asset.market),
         )
+        .all()
     )
 
-    if country_ids:
-        q = q.filter(Asset.country_id.in_(country_ids))
-    if market_ids:
-        q = q.filter(Asset.market_id.in_(market_ids))
-    if instrument_type_ids:
-        q = q.filter(Asset.instrument_type_id.in_(instrument_type_ids))
-    if sector_ids:
-        q = q.filter(Asset.sector_id.in_(sector_ids))
-    if industry_ids:
-        q = q.filter(Asset.industry_id.in_(industry_ids))
-    if rsi_min is not None:
-        q = q.filter(ScreenerSnapshot.rsi >= rsi_min)
-    if rsi_max is not None:
-        q = q.filter(ScreenerSnapshot.rsi <= rsi_max)
-    if above_sma20 is True:
-        q = q.filter(ScreenerSnapshot.vs_sma20 > 0)
-    elif above_sma20 is False:
-        q = q.filter(ScreenerSnapshot.vs_sma20 < 0)
-    if above_sma50 is True:
-        q = q.filter(ScreenerSnapshot.vs_sma50 > 0)
-    elif above_sma50 is False:
-        q = q.filter(ScreenerSnapshot.vs_sma50 < 0)
-    if above_sma200 is True:
-        q = q.filter(ScreenerSnapshot.vs_sma200 > 0)
-    elif above_sma200 is False:
-        q = q.filter(ScreenerSnapshot.vs_sma200 < 0)
-
-    rows = q.all()
-    result = []
-    for asset, snap in rows:
-        result.append(
-            {
-                "id": asset.id,
-                "ticker": asset.ticker,
-                "name": asset.name,
-                "last_close": snap.last_close,
-                "var_daily": snap.var_daily,
-                "var_month": snap.var_month,
-                "var_quarter": snap.var_quarter,
-                "var_year": snap.var_year,
-                "var_52w": snap.var_52w,
-                "rsi": snap.rsi,
-                "rsi_w": snap.rsi_w,
-                "rsi_m": snap.rsi_m,
-                "vs_sma20": snap.vs_sma20,
-                "vs_sma50": snap.vs_sma50,
-                "vs_sma200": snap.vs_sma200,
-                "dist_sma_d": snap.dist_sma_d,
-                "dist_sma_w": snap.dist_sma_w,
-                "dist_sma_m": snap.dist_sma_m,
-                "best_sma_d": snap.best_sma_d,
-                "best_sma_w": snap.best_sma_w,
-                "best_sma_m": snap.best_sma_m,
-                "best_ema_d": snap.best_ema_d,
-                "best_ema_w": snap.best_ema_w,
-                "best_ema_m": snap.best_ema_m,
-                "dd_current": snap.dd_current,
-                "dd_top3": _fmt_dd_top3_from_events(snap.dd_events),
-                "regime_d": snap.regime_d,
-                "regime_w": snap.regime_w,
-                "regime_m": snap.regime_m,
-                "vol_d": snap.vol_d,
-                "vol_w": snap.vol_w,
-                "vol_m": snap.vol_m,
-                "atr_pct_d": snap.atr_pct_d,
-                "atr_pct_w": snap.atr_pct_w,
-                "atr_pct_m": snap.atr_pct_m,
-                "pivot_resist_pct": snap.pivot_resist_pct,
-                "pivot_support_pct": snap.pivot_support_pct,
-                # IDs de dimensión (usados para calcular scores de grupo)
-                "sector_id":          asset.sector_id,
-                "industry_id":        asset.industry_id,
-                "country_id":         asset.country_id,
-                "instrument_type_id": asset.instrument_type_id,
-                "market_id":          asset.market_id,
-                # Nombres de grupo (usados en el Mapa de Mercado)
-                "sector_name":   asset.sector.name          if asset.sector          else None,
-                "industry_name": asset.industry.name        if asset.industry        else None,
-                "country_name":  asset.country.name         if asset.country         else None,
-                "itype_name":    asset.instrument_type.name if asset.instrument_type else None,
-                "market_name":   asset.market.name          if asset.market          else None,
-            }
-        )
-    return result
-
-
-def get_screener_group_scores(all_rows: list[dict]) -> dict:
-    """
-    Calcula el score promedio de tendencia por grupo y timeframe.
-    all_rows: lista completa (sin filtrar) de get_screener_data().
-    Retorna: {("sector_id", id, "d"): score_int, ...}
-    """
-    from collections import defaultdict
-    buckets: dict = defaultdict(list)
-
-    for row in all_rows:
-        for tf in ("d", "w", "m"):
-            score = _REGIME_SCORE.get(row.get(f"regime_{tf}") or "")
-            if score is None:
-                continue
-            for dim_id, _ in _GS_DIMS:
-                gid = row.get(dim_id)
-                if gid is not None:
-                    buckets[(dim_id, gid, tf)].append(score)
-
-    return {k: round(sum(v) / len(v)) for k, v in buckets.items()}
-
-
-def get_market_map_data() -> dict:
-    """
-    Retorna datos para el Mapa de Mercado.
-    {
-      "sector": {id: {"name": str, "n": int, "d": float, "w": float, "m": float}},
-      "industry": {...},
-      ...
+    _dim_key_map = {
+        "sector_id":          ("sector",   lambda a: a.sector.name           if a.sector           else None),
+        "industry_id":        ("industry", lambda a: a.industry.name         if a.industry         else None),
+        "country_id":         ("country",  lambda a: a.country.name          if a.country          else None),
+        "instrument_type_id": ("itype",    lambda a: a.instrument_type.name  if a.instrument_type  else None),
+        "market_id":          ("market",   lambda a: a.market.name           if a.market           else None),
     }
-    """
-    all_rows = get_screener_data()
-    scores = get_screener_group_scores(all_rows)
+    _tf_code = {"d": "trend_daily", "w": "trend_weekly", "m": "trend_monthly"}
 
-    from collections import defaultdict
+    score_buckets: dict = defaultdict(list)
     counts: dict = defaultdict(lambda: {"n": 0})
     names: dict = {}
 
-    dim_key_map = {
-        "sector_id":          ("sector",    "sector_name"),
-        "industry_id":        ("industry",  "industry_name"),
-        "country_id":         ("country",   "country_name"),
-        "instrument_type_id": ("itype",     "itype_name"),
-        "market_id":          ("market",    "market_name"),
-    }
-
-    for row in all_rows:
-        for dim_id, (dim_key, name_key) in dim_key_map.items():
-            gid = row.get(dim_id)
+    for asset in all_assets:
+        for dim_attr, (dim_key, name_fn) in _dim_key_map.items():
+            gid = getattr(asset, dim_attr)
             if gid is None:
                 continue
             key = (dim_key, gid)
             counts[key]["n"] += 1
             if key not in names:
-                names[key] = row.get(name_key) or f"#{gid}"
+                names[key] = name_fn(asset) or f"#{gid}"
+            for tf, code in _tf_code.items():
+                regime = trends.get((asset.id, code))
+                score = _REGIME_SCORE.get(regime or "")
+                if score is not None:
+                    score_buckets[(dim_attr, gid, tf)].append(score)
 
-    result: dict = {dk: {} for _, (dk, _) in dim_key_map.items()}
-    for (dim_id, (dim_key, _)) in dim_key_map.items():
-        seen = set()
-        for row in all_rows:
-            gid = row.get(dim_id)
-            if gid is None or gid in seen:
+    result: dict = {dk: {} for dk, _ in _dim_key_map.values()}
+    seen: dict = {dk: set() for dk, _ in _dim_key_map.values()}
+
+    for asset in all_assets:
+        for dim_attr, (dim_key, _) in _dim_key_map.items():
+            gid = getattr(asset, dim_attr)
+            if gid is None or gid in seen[dim_key]:
                 continue
-            seen.add(gid)
+            seen[dim_key].add(gid)
             key = (dim_key, gid)
+            bd = score_buckets.get((dim_attr, gid, "d"), [])
+            bw = score_buckets.get((dim_attr, gid, "w"), [])
+            bm = score_buckets.get((dim_attr, gid, "m"), [])
             result[dim_key][gid] = {
                 "name": names.get(key, f"#{gid}"),
                 "n":    counts[key]["n"],
-                "d":    scores.get((dim_id, gid, "d")),
-                "w":    scores.get((dim_id, gid, "w")),
-                "m":    scores.get((dim_id, gid, "m")),
+                "d":    round(sum(bd) / len(bd)) if bd else None,
+                "w":    round(sum(bw) / len(bw)) if bw else None,
+                "m":    round(sum(bm) / len(bm)) if bm else None,
             }
 
     return result

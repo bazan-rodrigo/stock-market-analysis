@@ -22,10 +22,36 @@ _FORMULA_OPTS = [
 ]
 
 
+def _build_indicator_opts() -> list[dict]:
+    """Carga opciones de indicadores desde indicator_definitions, agrupadas por categoría."""
+    try:
+        from app.database import get_session
+        from app.models.indicator_definition import IndicatorDefinition
+        s = get_session()
+        defs = s.query(IndicatorDefinition).order_by(
+            IndicatorDefinition.category, IndicatorDefinition.code
+        ).all()
+    except Exception:
+        return []
+
+    opts: list[dict] = []
+    current_cat = None
+    sep_idx = 0
+    for d in defs:
+        if d.category != current_cat:
+            current_cat = d.category
+            sep_idx += 1
+            opts.append({"label": f"── {d.category} ──", "value": f"__sep{sep_idx}", "disabled": True})
+        opts.append({"label": f"{d.code}  –  {d.name}", "value": d.code})
+    return opts
+
+
 def layout(**kwargs):
     from flask_login import current_user
     if not current_user.is_authenticated or not current_user.is_admin:
         return html.Div()
+
+    indicator_opts = _build_indicator_opts()
 
     modal = dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle(id="sig-modal-title")),
@@ -63,44 +89,7 @@ def layout(**kwargs):
                         placeholder="Seleccionar o escribir...",
                         clearable=True,
                         searchable=True,
-                        options=[
-                            {"label": "── Régimen ──",        "value": "__sep1", "disabled": True},
-                            {"label": "regime_d",             "value": "regime_d"},
-                            {"label": "regime_w",             "value": "regime_w"},
-                            {"label": "regime_m",             "value": "regime_m"},
-                            {"label": "── Volatilidad ──",    "value": "__sep2", "disabled": True},
-                            {"label": "vol_d",                "value": "vol_d"},
-                            {"label": "vol_w",                "value": "vol_w"},
-                            {"label": "vol_m",                "value": "vol_m"},
-                            {"label": "atr_pct_d",            "value": "atr_pct_d"},
-                            {"label": "atr_pct_w",            "value": "atr_pct_w"},
-                            {"label": "atr_pct_m",            "value": "atr_pct_m"},
-                            {"label": "── RSI ──",            "value": "__sep3", "disabled": True},
-                            {"label": "rsi",                  "value": "rsi"},
-                            {"label": "rsi_w",                "value": "rsi_w"},
-                            {"label": "rsi_m",                "value": "rsi_m"},
-                            {"label": "── Distancia SMA ──",  "value": "__sep4", "disabled": True},
-                            {"label": "vs_sma20",             "value": "vs_sma20"},
-                            {"label": "vs_sma50",             "value": "vs_sma50"},
-                            {"label": "vs_sma200",            "value": "vs_sma200"},
-                            {"label": "dist_sma_d",           "value": "dist_sma_d"},
-                            {"label": "dist_sma_w",           "value": "dist_sma_w"},
-                            {"label": "dist_sma_m",           "value": "dist_sma_m"},
-                            {"label": "── Drawdown ──",       "value": "__sep5", "disabled": True},
-                            {"label": "dd_current",           "value": "dd_current"},
-                            {"label": "dd_max1",              "value": "dd_max1"},
-                            {"label": "dd_max2",              "value": "dd_max2"},
-                            {"label": "dd_max3",              "value": "dd_max3"},
-                            {"label": "── Variaciones % ──",  "value": "__sep6", "disabled": True},
-                            {"label": "var_daily",            "value": "var_daily"},
-                            {"label": "var_month",            "value": "var_month"},
-                            {"label": "var_quarter",          "value": "var_quarter"},
-                            {"label": "var_year",             "value": "var_year"},
-                            {"label": "var_52w",              "value": "var_52w"},
-                            {"label": "── Soporte/Resistencia ──", "value": "__sep7", "disabled": True},
-                            {"label": "pivot_resist_pct",     "value": "pivot_resist_pct"},
-                            {"label": "pivot_support_pct",    "value": "pivot_support_pct"},
-                        ],
+                        options=indicator_opts,
                         style={"fontSize": "0.85rem"},
                     ),
                 ], md=4),
@@ -143,11 +132,11 @@ def layout(**kwargs):
         dbc.Card(dbc.CardBody([
             html.P([
                 html.Strong("Señales: ", style={"color": "#e5e7eb"}),
-                "fórmulas que transforman indicadores técnicos (de screener_snapshot) en scores "
+                "fórmulas que transforman indicadores técnicos (de indicator_values) en scores "
                 "normalizados de −100 a +100. Usá ",
                 html.Strong('"Ejecutar pipeline"', style={"color": "#38bdf8"}),
-                " para calcular indicadores → señales → estrategias para la fecha seleccionada. "
-                "Requiere que el screener_snapshot esté actualizado.",
+                " para calcular señales → estrategias para la fecha seleccionada. "
+                "Requiere que los snapshots de indicadores estén actualizados.",
             ], className="mb-0", style={"fontSize": "0.78rem", "color": "#d1d5db"}),
         ]), className="mb-3",
            style=CARD_STYLE),

@@ -181,22 +181,61 @@ def load_chart_data(asset_id, current_data):
             "W": _json.loads(snap.regime_zones_w) if snap.regime_zones_w else [],
             "M": _json.loads(snap.regime_zones_m) if snap.regime_zones_m else [],
         }
-        regime_current = {
-            "D": snap.regime_d,
-            "W": snap.regime_w,
-            "M": snap.regime_m,
-        }
         vol_zones = {
             "D": _json.loads(snap.vol_zones_d) if snap.vol_zones_d else [],
             "W": _json.loads(snap.vol_zones_w) if snap.vol_zones_w else [],
             "M": _json.loads(snap.vol_zones_m) if snap.vol_zones_m else [],
         }
-        vol_current = {
-            "D": snap.vol_d,
-            "W": snap.vol_w,
-            "M": snap.vol_m,
-        }
         dd_events = _json.loads(snap.dd_events) if snap.dd_events else []
+
+    # Leer régimen y volatilidad actuales desde indicator_values
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_value import IndicatorValue
+    from sqlalchemy import func as _func
+
+    _regime_codes = {
+        "trend_daily": "D", "trend_weekly": "W", "trend_monthly": "M",
+    }
+    _vol_codes = {
+        "volatility_daily": "D", "volatility_weekly": "W", "volatility_monthly": "M",
+    }
+    _all_codes = list(_regime_codes) + list(_vol_codes)
+
+    _defs = {
+        d.code: d.id
+        for d in db.query(IndicatorDefinition).filter(
+            IndicatorDefinition.code.in_(_all_codes)
+        ).all()
+    }
+    if _defs:
+        _max_date_sq = (
+            db.query(
+                IndicatorValue.indicator_id,
+                _func.max(IndicatorValue.date).label("max_date"),
+            )
+            .filter(
+                IndicatorValue.asset_id == int(asset_id),
+                IndicatorValue.indicator_id.in_(list(_defs.values())),
+            )
+            .group_by(IndicatorValue.indicator_id)
+            .subquery()
+        )
+        from sqlalchemy import and_ as _and
+        _iv_rows = (
+            db.query(IndicatorDefinition.code, IndicatorValue.value_str)
+            .join(IndicatorValue, IndicatorValue.indicator_id == IndicatorDefinition.id)
+            .join(_max_date_sq, _and(
+                IndicatorValue.indicator_id == _max_date_sq.c.indicator_id,
+                IndicatorValue.date         == _max_date_sq.c.max_date,
+                IndicatorValue.asset_id     == int(asset_id),
+            ))
+            .all()
+        )
+        for code, val_str in _iv_rows:
+            if code in _regime_codes:
+                regime_current[_regime_codes[code]] = val_str
+            elif code in _vol_codes:
+                vol_current[_vol_codes[code]] = val_str
 
     sr_data = sr_svc.compute_sr_for_asset(int(asset_id)) or {}
 

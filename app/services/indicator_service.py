@@ -1,14 +1,16 @@
 """
 Servicio de indicadores.
-Lee screener_snapshot y escribe indicator_snapshot (por fecha) y
-group_indicator_snapshot (agrupado por sector/market).
+Agrega indicator_values por grupo (sector/market) para group_indicator_snapshot.
+La escritura individual por activo ocurre en screener_service.compute_and_save_snapshot().
 """
 import logging
 from collections import defaultdict
 from datetime import date as date_type
 
 from app.database import get_session
-from app.models import Asset, IndicatorSnapshot, GroupIndicatorSnapshot, ScreenerSnapshot
+from app.models import Asset, GroupIndicatorSnapshot
+from app.models.indicator_definition import IndicatorDefinition
+from app.models.indicator_value import IndicatorValue
 
 logger = logging.getLogger(__name__)
 
@@ -31,109 +33,66 @@ _GROUP_DIMS = [
 ]
 
 
-def _score_regime(regime: str | None) -> float | None:
-    if regime is None:
-        return None
-    return _REGIME_SCORE.get(regime)
-
-
 def _avg(lst: list) -> float | None:
     if not lst:
         return None
     return round(sum(lst) / len(lst), 2)
 
 
-def save_from_snapshot(
-    asset_id: int, snap_date: date_type, snap: ScreenerSnapshot
-) -> None:
-    """Upsert de IndicatorSnapshot desde un ScreenerSnapshot ya calculado."""
-    s = get_session()
-
-    isnap = (
-        s.query(IndicatorSnapshot)
-        .filter(
-            IndicatorSnapshot.asset_id == asset_id,
-            IndicatorSnapshot.date == snap_date,
-        )
-        .first()
-    )
-
-    if isnap is None:
-        isnap = IndicatorSnapshot(asset_id=asset_id, date=snap_date)
-        s.add(isnap)
-
-    isnap.regime_d          = snap.regime_d
-    isnap.regime_w          = snap.regime_w
-    isnap.regime_m          = snap.regime_m
-    isnap.dd_current        = snap.dd_current
-    isnap.dd_max1           = snap.dd_max1
-    isnap.vol_d             = snap.vol_d
-    isnap.vol_w             = snap.vol_w
-    isnap.vol_m             = snap.vol_m
-    isnap.atr_pct_d         = snap.atr_pct_d
-    isnap.atr_pct_w         = snap.atr_pct_w
-    isnap.atr_pct_m         = snap.atr_pct_m
-    isnap.rsi               = snap.rsi
-    isnap.rsi_w             = snap.rsi_w
-    isnap.rsi_m             = snap.rsi_m
-    isnap.var_daily         = snap.var_daily
-    isnap.var_month         = snap.var_month
-    isnap.var_quarter       = snap.var_quarter
-    isnap.var_year          = snap.var_year
-    isnap.var_52w           = snap.var_52w
-    isnap.dist_sma_d        = snap.dist_sma_d
-    isnap.dist_sma_w        = snap.dist_sma_w
-    isnap.dist_sma_m        = snap.dist_sma_m
-    isnap.vs_sma20          = snap.vs_sma20
-    isnap.vs_sma50          = snap.vs_sma50
-    isnap.vs_sma200         = snap.vs_sma200
-    isnap.pivot_resist_pct  = snap.pivot_resist_pct
-    isnap.pivot_support_pct = snap.pivot_support_pct
-    isnap.last_close        = snap.last_close
-
-    s.commit()
-
-
 def compute_group_snapshots(snap_date: date_type) -> None:
     """
-    Agrega IndicatorSnapshot por sector y market para snap_date.
+    Agrega indicator_values de tendencia por sector y market para snap_date.
     Calcula regime_score_d/w/m como promedio de los scores de cada activo.
     """
     s = get_session()
 
-    rows = (
-        s.query(
-            Asset.sector_id,
-            Asset.market_id,
-            IndicatorSnapshot.regime_d,
-            IndicatorSnapshot.regime_w,
-            IndicatorSnapshot.regime_m,
+    # Obtener IDs de los indicadores de tendencia
+    trend_codes = ("trend_daily", "trend_weekly", "trend_monthly")
+    defs = {
+        d.code: d.id
+        for d in s.query(IndicatorDefinition).filter(
+            IndicatorDefinition.code.in_(trend_codes)
+        ).all()
+    }
+    if not defs:
+        return
+
+    trend_ids = list(defs.values())
+
+    # Leer indicator_values de tendencia para snap_date
+    iv_rows = (
+        s.query(Asset.sector_id, Asset.market_id, IndicatorDefinition.code, IndicatorValue.value_str)
+        .join(IndicatorValue, IndicatorValue.asset_id == Asset.id)
+        .join(IndicatorDefinition, IndicatorValue.indicator_id == IndicatorDefinition.id)
+        .filter(
+            IndicatorValue.date == snap_date,
+            IndicatorValue.indicator_id.in_(trend_ids),
         )
-        .join(IndicatorSnapshot, IndicatorSnapshot.asset_id == Asset.id)
-        .filter(IndicatorSnapshot.date == snap_date)
         .all()
     )
 
-    if not rows:
+    if not iv_rows:
         return
 
     groups: dict = defaultdict(lambda: {"d": [], "w": [], "m": []})
 
-    for sector_id, market_id, reg_d, reg_w, reg_m in rows:
-        score_d = _score_regime(reg_d)
-        score_w = _score_regime(reg_w)
-        score_m = _score_regime(reg_m)
+    _code_tf = {
+        "trend_daily":   "d",
+        "trend_weekly":  "w",
+        "trend_monthly": "m",
+    }
 
+    for sector_id, market_id, code, value_str in iv_rows:
+        tf = _code_tf.get(code)
+        if tf is None:
+            continue
+        score = _REGIME_SCORE.get(value_str or "")
+        if score is None:
+            continue
         for group_type, group_id in [("sector", sector_id), ("market", market_id)]:
             if group_id is None:
                 continue
-            key = (group_type, group_id)
-            if score_d is not None:
-                groups[key]["d"].append(score_d)
-            if score_w is not None:
-                groups[key]["w"].append(score_w)
-            if score_m is not None:
-                groups[key]["m"].append(score_m)
+            groups[(group_type, group_id)][tf].append(score)
 
     for (group_type, group_id), scores in groups.items():
         gsnap = (
@@ -165,28 +124,14 @@ def compute_group_snapshots(snap_date: date_type) -> None:
 
 def run_daily(snap_date: date_type | None = None) -> int:
     """
-    Pipeline diario de indicadores:
-    1. Copia screener_snapshot → indicator_snapshot para cada activo.
-    2. Agrega group_indicator_snapshot para snap_date.
-    Devuelve cantidad de activos procesados.
+    Pipeline diario de indicadores de grupo.
+    Agrega group_indicator_snapshot para snap_date a partir de indicator_values
+    (ya escritos por screener_service.compute_and_save_snapshot por cada activo).
     """
     from datetime import date as dt_date
 
     if snap_date is None:
         snap_date = dt_date.today()
-
-    s = get_session()
-    snaps = s.query(ScreenerSnapshot).all()
-    processed = 0
-
-    for snap in snaps:
-        try:
-            save_from_snapshot(snap.asset_id, snap_date, snap)
-            processed += 1
-        except Exception as exc:
-            logger.error(
-                "indicator_service: error en asset_id=%d: %s", snap.asset_id, exc
-            )
 
     try:
         compute_group_snapshots(snap_date)
@@ -195,7 +140,5 @@ def run_daily(snap_date: date_type | None = None) -> int:
             "indicator_service: error en compute_group_snapshots para %s: %s", snap_date, exc
         )
 
-    logger.info(
-        "indicator_service: run_daily completado para %s (%d activos)", snap_date, processed
-    )
-    return processed
+    logger.info("indicator_service: run_daily completado para %s", snap_date)
+    return 0

@@ -57,9 +57,12 @@ def _status_snap():
 
 
 def _status_indicators():
+    from app.models.indicator_value import IndicatorValue
+    from sqlalchemy import func as _func
     s     = get_session()
-    total = s.query(ScreenerSnapshot).count()
-    return f"Snapshots técnicos: {total} activos"
+    total = s.query(_func.count(ScreenerSnapshot.id)).scalar() or 0
+    iv_total = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).scalar() or 0
+    return f"Snapshots técnicos: {total} activos  |  Indicator values: {iv_total} activos"
 
 
 def _status_synth():

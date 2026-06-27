@@ -15,7 +15,7 @@ class SignalDefinition(Base):
       composite    — promedio ponderado de otras señales (params.components)
 
     source:
-      asset  — la señal lee de indicator_snapshot del activo
+      asset  — la señal lee de indicator_values del activo
       group  — la señal lee de group_indicator_snapshot del grupo del activo
     """
 
