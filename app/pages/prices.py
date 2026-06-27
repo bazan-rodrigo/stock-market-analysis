@@ -23,7 +23,12 @@ def layout(**kwargs):
             dbc.Button("Actualizar todos", id="prices-btn-all", color="primary", size="sm", disabled=False, className="me-2"),
             dbc.Button("Recalcular snapshots", id="prices-btn-snapshot", color="secondary", size="sm", disabled=False, className="me-2"),
             dbc.Button("Limpiar log", id="prices-btn-clear-log", color="link", size="sm"),
-        ], className="d-flex align-items-center mb-3"),
+        ], className="d-flex align-items-center mb-2"),
+        html.Div([
+            dbc.Button("Actualizar seleccionado", id="prices-btn-one", color="secondary", size="sm", disabled=True, className="me-2"),
+            dbc.Button("Reintentar fallidos", id="prices-btn-retry", color="warning", size="sm", className="me-2"),
+            dbc.Button("Borrar históricos y redescargar todos", id="prices-btn-redownload", color="danger", size="sm"),
+        ], className="mb-3"),
         dbc.Alert(id="prices-alert", is_open=False, dismissable=True),
         dcc.Interval(id="prices-interval", interval=800, disabled=True, n_intervals=0),
         dbc.Progress(id="prices-progress", value=0, striped=True, animated=True,
@@ -47,11 +52,6 @@ def layout(**kwargs):
             sort_action="native",
             filter_action="native",
         ),
-        html.Div([
-            dbc.Button("Actualizar seleccionado", id="prices-btn-one", color="secondary", size="sm", disabled=True, className="me-2"),
-            dbc.Button("Reintentar fallidos", id="prices-btn-retry", color="warning", size="sm", className="me-2"),
-            dbc.Button("Borrar históricos y redescargar todos", id="prices-btn-redownload", color="danger", size="sm"),
-        ], className="mt-2"),
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),
             dbc.ModalBody(
