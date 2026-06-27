@@ -103,12 +103,12 @@ def upgrade():
     # ── 4. Eliminar tabla indicator_snapshot ──────────────────────────────────
     op.drop_table("indicator_snapshot")
 
-    # ── 5. Actualizar signal_definitions.indicator_key con nuevos códigos ─────
+    # ── 5. Actualizar signal.indicator_key con nuevos códigos ────────────────
     conn = op.get_bind()
     for old_key, new_code in _KEY_MAP.items():
         conn.execute(
             sa.text(
-                "UPDATE signal_definitions SET indicator_key = :new "
+                "UPDATE signal SET indicator_key = :new "
                 "WHERE indicator_key = :old"
             ),
             {"new": new_code, "old": old_key},
