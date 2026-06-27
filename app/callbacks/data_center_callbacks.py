@@ -122,7 +122,7 @@ def _run(op_id, service_fn):
         total  = result.get("total", 0)
         ok     = result.get("success", total - len(errs))
         first_err = errs[0].get("error", "") if errs else ""
-        st["msg"]   = (f"Completado: {ok}/{total} OK  ·  {len(errs)} errores — {first_err[:120]}"
+        st["msg"]   = (f"Completado: {ok}/{total} OK  ·  {len(errs)} errores — {first_err[:300]}"
                        if errs else f"Completado: {total} OK")
         st["error"] = bool(errs)
     except Exception as exc:
