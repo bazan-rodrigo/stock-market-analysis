@@ -114,9 +114,10 @@ def upgrade():
         op.drop_table("indicator_snapshot")
 
     # ── 5. Actualizar signal.indicator_key con nuevos códigos ─────────────────
+    # `signal` es palabra reservada en MariaDB, requiere backticks
     for old_key, new_code in _KEY_MAP.items():
         conn.execute(
-            sa.text("UPDATE signal SET indicator_key = :new WHERE indicator_key = :old"),
+            sa.text("UPDATE `signal` SET indicator_key = :new WHERE indicator_key = :old"),
             {"new": new_code, "old": old_key},
         )
 
@@ -145,7 +146,7 @@ def downgrade():
     conn = op.get_bind()
     for old_key, new_code in _KEY_MAP.items():
         conn.execute(
-            sa.text("UPDATE signal SET indicator_key = :old WHERE indicator_key = :new"),
+            sa.text("UPDATE `signal` SET indicator_key = :old WHERE indicator_key = :new"),
             {"old": old_key, "new": new_code},
         )
 
