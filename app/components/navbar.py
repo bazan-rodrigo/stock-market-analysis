@@ -77,7 +77,6 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Tipos de instrumento", href="/admin/instrument-types"),
                     dbc.DropdownMenuItem("Sectores",             href="/admin/sectors"),
                     dbc.DropdownMenuItem("Industrias",           href="/admin/industries"),
-                    dbc.DropdownMenuItem("Fuentes de datos",     href="/admin/price-sources"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Usuarios",             href="/admin/users"),
                     dbc.DropdownMenuItem("Scheduler",            href="/admin/scheduler"),
