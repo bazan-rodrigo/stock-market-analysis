@@ -79,14 +79,16 @@ def _write_fundamental_values(asset_id: int, snap_date: _date_type, values: dict
         for d in s.query(IndicatorDefinition).all():
             _fund_ind_cache[d.code] = d.id
 
+    ind_ids = [_fund_ind_cache[c] for c in values if c in _fund_ind_cache]
+    if not ind_ids:
+        return  # indicator_definitions aún no tiene los códigos fundamentales
+
     existing = {
         iv.indicator_id: iv
         for iv in s.query(IndicatorValue).filter(
             IndicatorValue.asset_id == asset_id,
             IndicatorValue.date == snap_date,
-            IndicatorValue.indicator_id.in_([
-                _fund_ind_cache[c] for c in values if c in _fund_ind_cache
-            ]),
+            IndicatorValue.indicator_id.in_(ind_ids),
         ).all()
     }
 
