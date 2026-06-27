@@ -16,7 +16,7 @@ from sqlalchemy import func
 
 from app.database import get_session
 from app.models import Asset, Price, SyntheticComponent, SyntheticFormula
-from app.services.screener_service import compute_and_save_snapshot
+from app.services.technical_service import compute_and_save_snapshot
 
 logger = logging.getLogger(__name__)
 

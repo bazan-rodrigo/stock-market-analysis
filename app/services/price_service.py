@@ -14,7 +14,7 @@ from sqlalchemy import func
 
 from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, PriceUpdateLog
-from app.services.screener_service import (
+from app.services.technical_service import (
     compute_and_save_snapshot,
     _get_drawdown_config,
     _get_regime_config,

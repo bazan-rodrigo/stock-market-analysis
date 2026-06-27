@@ -251,7 +251,7 @@ def clear_log(_):
     prevent_initial_call=True,
 )
 def recompute_snapshots(_):
-    from app.services.screener_service import recompute_all_snapshots
+    from app.services.technical_service import recompute_all_snapshots
     _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
 
     def _run():

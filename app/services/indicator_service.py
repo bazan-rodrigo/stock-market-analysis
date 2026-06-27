@@ -1,7 +1,7 @@
 """
 Servicio de indicadores.
 Agrega indicator_values por grupo (sector/market) para group_indicator_snapshot.
-La escritura individual por activo ocurre en screener_service.compute_and_save_snapshot().
+La escritura individual por activo ocurre en technical_service.compute_and_save_snapshot().
 """
 import logging
 from collections import defaultdict
@@ -126,7 +126,7 @@ def run_daily(snap_date: date_type | None = None) -> int:
     """
     Pipeline diario de indicadores de grupo.
     Agrega group_indicator_snapshot para snap_date a partir de indicator_values
-    (ya escritos por screener_service.compute_and_save_snapshot por cada activo).
+    (ya escritos por technical_service.compute_and_save_snapshot por cada activo).
     """
     from datetime import date as dt_date
 

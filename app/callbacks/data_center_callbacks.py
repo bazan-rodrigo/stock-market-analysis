@@ -165,7 +165,7 @@ def _register(op_id):
         elif op_id == "snap":
             from app.services.fundamental_service import recompute_all_snapshots as fn
         elif op_id == "indicators":
-            from app.services.screener_service import recompute_all_snapshots as fn
+            from app.services.technical_service import recompute_all_snapshots as fn
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 

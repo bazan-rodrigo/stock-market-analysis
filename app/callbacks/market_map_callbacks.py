@@ -1,7 +1,7 @@
 from dash import Input, Output, callback, dcc, html
 import dash_bootstrap_components as dbc
 
-import app.services.screener_service as scr_svc
+import app.services.technical_service as scr_svc
 from app.pages.market_map import _build_table, _build_quadrant_figure
 from app.utils import safe_callback
 
