@@ -29,7 +29,12 @@ def layout(**kwargs):
                        color="warning", size="sm", className="me-2"),
             dbc.Button("Limpiar log",         id="fund-upd-btn-clear",
                        color="link", size="sm"),
-        ], className="d-flex align-items-center mb-3"),
+        ], className="d-flex align-items-center mb-2"),
+
+        html.Div([
+            dbc.Button("Actualizar seleccionado", id="fund-upd-btn-one",
+                       color="secondary", size="sm", disabled=True),
+        ], className="mb-3"),
 
         dbc.Alert(id="fund-upd-alert", is_open=False, dismissable=True),
 
@@ -56,11 +61,6 @@ def layout(**kwargs):
             sort_action="native",
             filter_action="native",
         ),
-
-        html.Div([
-            dbc.Button("Actualizar seleccionado", id="fund-upd-btn-one",
-                       color="secondary", size="sm", disabled=True),
-        ], className="mt-2"),
     ])
 
 
