@@ -81,7 +81,8 @@ def _write_fundamental_values(asset_id: int, snap_date: _date_type, values: dict
 
     ind_ids = [_fund_ind_cache[c] for c in values if c in _fund_ind_cache]
     if not ind_ids:
-        return  # indicator_definitions aún no tiene los códigos fundamentales
+        logger.warning("_write_fundamental_values: ningún código fundamental encontrado en indicator_definitions (cache size=%d)", len(_fund_ind_cache))
+        return
 
     existing = {
         iv.indicator_id: iv
