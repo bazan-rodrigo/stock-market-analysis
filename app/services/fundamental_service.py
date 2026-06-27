@@ -240,7 +240,14 @@ def recompute_snapshot_for_asset(asset_id: int) -> None:
 def recompute_all_snapshots(progress_cb=None) -> dict:
     """Recomputa todos los snapshots desde datos ya almacenados, sin fetch externo."""
     s = get_session()
-    asset_ids = [r[0] for r in s.query(FundamentalQuarterly.asset_id).distinct().all()]
+    # Solo asset_ids que existen en assets (evita FK violation por registros huérfanos)
+    asset_ids = [
+        r[0] for r in
+        s.query(FundamentalQuarterly.asset_id)
+         .join(Asset, FundamentalQuarterly.asset_id == Asset.id)
+         .distinct()
+         .all()
+    ]
     total   = len(asset_ids)
     summary = {"total": total, "success": 0, "errors": []}
     for i, asset_id in enumerate(asset_ids, 1):
@@ -250,6 +257,7 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
             recompute_snapshot_for_asset(asset_id)
             summary["success"] += 1
         except Exception as exc:
+            get_session().rollback()  # reset session para que el siguiente asset pueda continuar
             logger.error("Error recompute fundamental asset_id=%d: %s", asset_id, exc, exc_info=True)
             summary["errors"].append({"asset_id": asset_id, "error": str(exc)})
     return summary
