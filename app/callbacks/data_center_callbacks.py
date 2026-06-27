@@ -5,7 +5,7 @@ from dash import Input, Output, State, callback, html, no_update
 
 from app.database import get_session, Session as _ScopedSession
 from app.models import (
-    FundamentalSnapshot, FundamentalUpdateLog, PriceUpdateLog,
+    FundamentalUpdateLog, PriceUpdateLog,
     ScreenerSnapshot, SyntheticFormula,
 )
 
@@ -49,11 +49,23 @@ def _status_fund():
 
 
 def _status_snap():
-    s     = get_session()
-    snaps = s.query(FundamentalSnapshot).all()
-    last  = max((sn.updated_at for sn in snaps if sn.updated_at), default=None)
-    last_s = last.strftime("%d/%m %H:%M") if last else "—"
-    return f"Snapshots fundamentales: {len(snaps)}   Último recompute: {last_s}"
+    from app.models.indicator_value import IndicatorValue
+    from app.models.indicator_definition import IndicatorDefinition
+    from sqlalchemy import func as _func
+    s = get_session()
+    ind = s.query(IndicatorDefinition).filter(
+        IndicatorDefinition.code == "fundamental_pe_ttm"
+    ).first()
+    if ind is None:
+        return "Snapshots fundamentales: —"
+    count = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).filter(
+        IndicatorValue.indicator_id == ind.id
+    ).scalar() or 0
+    last_date = s.query(_func.max(IndicatorValue.date)).filter(
+        IndicatorValue.indicator_id == ind.id
+    ).scalar()
+    last_s = str(last_date) if last_date else "—"
+    return f"Snapshots fundamentales: {count} activos   Último: {last_s}"
 
 
 def _status_indicators():

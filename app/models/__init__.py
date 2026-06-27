@@ -22,7 +22,6 @@ from app.models.scheduler_config import SchedulerConfig
 from app.models.app_setting import AppSetting
 from app.models.fundamental_source import FundamentalSource
 from app.models.fundamental_quarterly import FundamentalQuarterly
-from app.models.fundamental_snapshot import FundamentalSnapshot
 from app.models.fundamental_update_log import FundamentalUpdateLog
 from app.models.user import User
 from app.models.indicator_definition import IndicatorDefinition
@@ -62,7 +61,6 @@ __all__ = [
     "AppSetting",
     "FundamentalSource",
     "FundamentalQuarterly",
-    "FundamentalSnapshot",
     "FundamentalUpdateLog",
     "IndicatorDefinition",
     "IndicatorValue",

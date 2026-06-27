@@ -3,10 +3,16 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
+from datetime import date as _date_type
+
 from app.database import get_session, Session as _ScopedSession
 from app.models import (
-    Asset, FundamentalQuarterly, FundamentalSnapshot, FundamentalUpdateLog, Price,
+    Asset, FundamentalQuarterly, FundamentalUpdateLog, Price,
 )
+from app.models.indicator_definition import IndicatorDefinition
+from app.models.indicator_value import IndicatorValue
+
+_fund_ind_cache: dict[str, int] = {}  # code → indicator_id
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +73,35 @@ def _upsert_quarterly(asset_id: int, quarters: list[dict], s) -> None:
             setattr(existing, k, v)
 
 
+def _write_fundamental_values(asset_id: int, snap_date: _date_type, values: dict, s) -> None:
+    global _fund_ind_cache
+    if not _fund_ind_cache:
+        for d in s.query(IndicatorDefinition).all():
+            _fund_ind_cache[d.code] = d.id
+
+    existing = {
+        iv.indicator_id: iv
+        for iv in s.query(IndicatorValue).filter(
+            IndicatorValue.asset_id == asset_id,
+            IndicatorValue.date == snap_date,
+            IndicatorValue.indicator_id.in_([
+                _fund_ind_cache[c] for c in values if c in _fund_ind_cache
+            ]),
+        ).all()
+    }
+
+    for code, val in values.items():
+        ind_id = _fund_ind_cache.get(code)
+        if ind_id is None or val is None:
+            continue
+        iv = existing.get(ind_id)
+        if iv is None:
+            iv = IndicatorValue(asset_id=asset_id, indicator_id=ind_id, date=snap_date)
+            s.add(iv)
+        iv.value_num = float(val)
+        iv.value_str = None
+
+
 def _compute_snapshot(asset_id: int, s) -> None:
     rows = (s.query(FundamentalQuarterly)
               .filter_by(asset_id=asset_id)
@@ -84,10 +119,10 @@ def _compute_snapshot(asset_id: int, s) -> None:
 
     # Márgenes (último trimestre)
     rev = latest.revenue
-    net_margin  = _safe_div(latest.net_income,       rev)
-    gross_margin= _safe_div(latest.gross_profit,     rev)
-    op_margin   = _safe_div(latest.operating_income, rev)
-    d_e         = _safe_div(latest.total_debt,       latest.equity)
+    net_margin   = _safe_div(latest.net_income,       rev)
+    gross_margin = _safe_div(latest.gross_profit,     rev)
+    op_margin    = _safe_div(latest.operating_income, rev)
+    d_e          = _safe_div(latest.total_debt,       latest.equity)
 
     # TTM (últimos 4 trimestres)
     ttm4 = rows[:4]
@@ -116,7 +151,7 @@ def _compute_snapshot(asset_id: int, s) -> None:
         if ni0 is not None and ni4 and ni4 != 0:
             eps_growth = round((ni0 - ni4) / abs(ni4), 4)
 
-    # ROIC — usa valores precisos si la fuente los provee, sino aproximación
+    # ROIC
     ttm_net_income = sum(r.net_income for r in ttm4 if r.net_income is not None)
     ttm_nopat      = sum(r.nopat for r in ttm4 if r.nopat is not None) or None
     ic_avg         = next((r.invested_capital_avg for r in ttm4 if r.invested_capital_avg), None)
@@ -126,35 +161,33 @@ def _compute_snapshot(asset_id: int, s) -> None:
         invested_capital = (latest.equity or 0) + (latest.total_debt or 0)
         roic = round(ttm_net_income / invested_capital, 4) if invested_capital and invested_capital != 0 else None
 
-    # P/E YoY: P/E TTM actual vs P/E TTM hace 1 año
+    # P/E YoY
     if len(rows) >= 8 and pe_ttm is not None:
-        ttm4_prev  = rows[4:8]
-        shares_prev = next((r.shares for r in ttm4_prev if r.shares), None)
-        ttm_eps_prev = sum(r.net_income for r in ttm4_prev if r.net_income is not None)
+        ttm4_prev       = rows[4:8]
+        shares_prev     = next((r.shares for r in ttm4_prev if r.shares), None)
+        ttm_eps_prev    = sum(r.net_income for r in ttm4_prev if r.net_income is not None)
         ttm_eps_ps_prev = _safe_div(ttm_eps_prev, shares_prev) if shares_prev else None
-        price_prev  = _price_1y_ago(asset_id, s)
+        price_prev      = _price_1y_ago(asset_id, s)
         pe_prev = _safe_div(price_prev, ttm_eps_ps_prev) if (
             price_prev and ttm_eps_ps_prev and ttm_eps_ps_prev > 0
         ) else None
         if pe_prev and pe_prev != 0:
             pe_growth = round((pe_ttm - pe_prev) / abs(pe_prev), 4)
 
-    snap = s.query(FundamentalSnapshot).filter_by(asset_id=asset_id).first()
-    if snap is None:
-        snap = FundamentalSnapshot(asset_id=asset_id)
-        s.add(snap)
-    snap.updated_at         = datetime.utcnow()
-    snap.pe_ttm             = pe_ttm
-    snap.pb                 = pb
-    snap.ps_ttm             = ps_ttm
-    snap.net_margin         = net_margin
-    snap.gross_margin       = gross_margin
-    snap.operating_margin   = op_margin
-    snap.debt_to_equity     = d_e
-    snap.revenue_growth_yoy = rev_growth
-    snap.eps_growth_yoy     = eps_growth
-    snap.pe_growth_yoy      = pe_growth
-    snap.roic               = roic
+    snap_date = _date_type.today()
+    _write_fundamental_values(asset_id, snap_date, {
+        "fundamental_pe_ttm":             pe_ttm,
+        "fundamental_pb":                 pb,
+        "fundamental_ps_ttm":             ps_ttm,
+        "fundamental_net_margin":         net_margin,
+        "fundamental_gross_margin":       gross_margin,
+        "fundamental_operating_margin":   op_margin,
+        "fundamental_debt_to_equity":     d_e,
+        "fundamental_revenue_growth_yoy": rev_growth,
+        "fundamental_eps_growth_yoy":     eps_growth,
+        "fundamental_pe_growth_yoy":      pe_growth,
+        "fundamental_roic":               roic,
+    }, s)
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
@@ -315,49 +348,96 @@ def get_fundamentals_log() -> list[dict]:
 
 def get_asset_fundamentals(asset_id: int) -> dict:
     """Devuelve datos para la pantalla de fundamentales de un activo."""
+    from sqlalchemy import func as _func
     s = get_session()
     quarters = (s.query(FundamentalQuarterly)
                   .filter_by(asset_id=asset_id)
                   .order_by(FundamentalQuarterly.period_date)
                   .all())
-    snap = s.query(FundamentalSnapshot).filter_by(asset_id=asset_id).first()
 
-    # Si hay datos trimestrales pero falta el snapshot (e.g. bug de autoflush anterior),
-    # recomputar on-the-fly
-    if quarters and snap is None:
+    # Leer snapshot desde indicator_values (última fecha disponible por indicador)
+    _FUND_CODES = [
+        "fundamental_pe_ttm", "fundamental_pb", "fundamental_ps_ttm",
+        "fundamental_net_margin", "fundamental_gross_margin", "fundamental_operating_margin",
+        "fundamental_debt_to_equity", "fundamental_revenue_growth_yoy",
+        "fundamental_eps_growth_yoy", "fundamental_pe_growth_yoy", "fundamental_roic",
+    ]
+    global _fund_ind_cache
+    if not _fund_ind_cache:
+        for d in s.query(IndicatorDefinition).all():
+            _fund_ind_cache[d.code] = d.id
+
+    fund_ids = {c: _fund_ind_cache[c] for c in _FUND_CODES if c in _fund_ind_cache}
+
+    # Subconsulta: fecha más reciente por (asset_id, indicator_id)
+    latest_date_sub = (
+        s.query(
+            IndicatorValue.indicator_id,
+            _func.max(IndicatorValue.date).label("max_date"),
+        )
+        .filter(
+            IndicatorValue.asset_id == asset_id,
+            IndicatorValue.indicator_id.in_(fund_ids.values()),
+        )
+        .group_by(IndicatorValue.indicator_id)
+        .subquery()
+    )
+    rows = (
+        s.query(IndicatorDefinition.code, IndicatorValue.value_num, IndicatorValue.date)
+        .join(IndicatorValue, IndicatorDefinition.id == IndicatorValue.indicator_id)
+        .join(
+            latest_date_sub,
+            (IndicatorValue.indicator_id == latest_date_sub.c.indicator_id)
+            & (IndicatorValue.date == latest_date_sub.c.max_date),
+        )
+        .filter(IndicatorValue.asset_id == asset_id)
+        .all()
+    )
+
+    snap_vals: dict = {}
+    updated_at = None
+    for code, val, snap_date in rows:
+        key = code.replace("fundamental_", "")
+        snap_vals[key] = val
+        if updated_at is None or snap_date > updated_at:
+            updated_at = snap_date
+
+    # Recomputar on-the-fly si hay trimestres pero no hay snapshot aún
+    if quarters and not snap_vals:
         _compute_snapshot(asset_id, s)
         s.commit()
-        snap = s.query(FundamentalSnapshot).filter_by(asset_id=asset_id).first()
+        return get_asset_fundamentals(asset_id)
+
     return {
         "quarters": [
             {
-                "period":          str(q.period_date),
-                "revenue":         q.revenue,
-                "gross_profit":    q.gross_profit,
-                "operating_income":q.operating_income,
-                "net_income":      q.net_income,
-                "ebitda":          q.ebitda,
-                "total_debt":      q.total_debt,
-                "equity":          q.equity,
-                "fcf":             q.fcf,
-                "eps_actual":      q.eps_actual,
+                "period":           str(q.period_date),
+                "revenue":          q.revenue,
+                "gross_profit":     q.gross_profit,
+                "operating_income": q.operating_income,
+                "net_income":       q.net_income,
+                "ebitda":           q.ebitda,
+                "total_debt":       q.total_debt,
+                "equity":           q.equity,
+                "fcf":              q.fcf,
+                "eps_actual":       q.eps_actual,
             }
             for q in quarters
         ],
         "snapshot": {
-            "pe_ttm":             snap.pe_ttm             if snap else None,
-            "pb":                 snap.pb                 if snap else None,
-            "ps_ttm":             snap.ps_ttm             if snap else None,
-            "net_margin":         snap.net_margin         if snap else None,
-            "gross_margin":       snap.gross_margin       if snap else None,
-            "operating_margin":   snap.operating_margin   if snap else None,
-            "debt_to_equity":     snap.debt_to_equity     if snap else None,
-            "revenue_growth_yoy": snap.revenue_growth_yoy if snap else None,
-            "eps_growth_yoy":     snap.eps_growth_yoy     if snap else None,
-            "pe_growth_yoy":      snap.pe_growth_yoy      if snap else None,
-            "roic":               snap.roic               if snap else None,
-            "updated_at":         str(snap.updated_at)[:19] if snap else None,
-        } if snap else {},
+            "pe_ttm":             snap_vals.get("pe_ttm"),
+            "pb":                 snap_vals.get("pb"),
+            "ps_ttm":             snap_vals.get("ps_ttm"),
+            "net_margin":         snap_vals.get("net_margin"),
+            "gross_margin":       snap_vals.get("gross_margin"),
+            "operating_margin":   snap_vals.get("operating_margin"),
+            "debt_to_equity":     snap_vals.get("debt_to_equity"),
+            "revenue_growth_yoy": snap_vals.get("revenue_growth_yoy"),
+            "eps_growth_yoy":     snap_vals.get("eps_growth_yoy"),
+            "pe_growth_yoy":      snap_vals.get("pe_growth_yoy"),
+            "roic":               snap_vals.get("roic"),
+            "updated_at":         str(updated_at) if updated_at else None,
+        } if snap_vals else {},
     }
 
 

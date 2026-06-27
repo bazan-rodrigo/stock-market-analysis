@@ -70,12 +70,6 @@ class Asset(Base):
         cascade="all, delete-orphan",
         order_by="FundamentalQuarterly.period_date",
     )
-    fundamental_snapshot = relationship(
-        "FundamentalSnapshot",
-        back_populates="asset",
-        uselist=False,
-        cascade="all, delete-orphan",
-    )
     fundamental_update_log = relationship(
         "FundamentalUpdateLog",
         back_populates="asset",
