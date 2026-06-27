@@ -63,54 +63,60 @@ _SS_DROP = [
 
 
 def upgrade():
+    from sqlalchemy import inspect as _inspect
+    conn = op.get_bind()
+    insp = _inspect(conn)
+    existing_tables = set(insp.get_table_names())
+
     # ── 1. Crear indicator_definitions ────────────────────────────────────────
-    op.create_table(
-        "indicator_definitions",
-        sa.Column("id",          sa.Integer(),     nullable=False, autoincrement=True),
-        sa.Column("code",        sa.String(50),    nullable=False),
-        sa.Column("name",        sa.String(100),   nullable=False),
-        sa.Column("category",    sa.String(50),    nullable=False),
-        sa.Column("scale",       sa.String(50),    nullable=True),
-        sa.Column("type",        sa.String(3),     nullable=False),
-        sa.Column("description", sa.Text(),        nullable=True),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("code"),
-    )
-    op.create_index("ix_indicator_definitions_code", "indicator_definitions", ["code"])
+    if "indicator_definitions" not in existing_tables:
+        op.create_table(
+            "indicator_definitions",
+            sa.Column("id",          sa.Integer(),     nullable=False, autoincrement=True),
+            sa.Column("code",        sa.String(50),    nullable=False),
+            sa.Column("name",        sa.String(100),   nullable=False),
+            sa.Column("category",    sa.String(50),    nullable=False),
+            sa.Column("scale",       sa.String(50),    nullable=True),
+            sa.Column("type",        sa.String(3),     nullable=False),
+            sa.Column("description", sa.Text(),        nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("code"),
+        )
+        op.create_index("ix_indicator_definitions_code", "indicator_definitions", ["code"])
 
     # ── 2. Crear indicator_values ─────────────────────────────────────────────
-    op.create_table(
-        "indicator_values",
-        sa.Column("id",           sa.Integer(), nullable=False, autoincrement=True),
-        sa.Column("asset_id",     sa.Integer(), nullable=False),
-        sa.Column("indicator_id", sa.Integer(), nullable=False),
-        sa.Column("date",         sa.Date(),    nullable=False),
-        sa.Column("value_num",    sa.Float(),   nullable=True),
-        sa.Column("value_str",    sa.String(50), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("asset_id", "indicator_id", "date"),
-        sa.ForeignKeyConstraint(["asset_id"],     ["assets.id"],              ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["indicator_id"], ["indicator_definitions.id"], ondelete="CASCADE"),
-    )
-    op.create_index("ix_indicator_values_asset_id",     "indicator_values", ["asset_id"])
-    op.create_index("ix_indicator_values_indicator_id", "indicator_values", ["indicator_id"])
-    op.create_index("ix_indicator_values_date",         "indicator_values", ["date"])
+    if "indicator_values" not in existing_tables:
+        op.create_table(
+            "indicator_values",
+            sa.Column("id",           sa.Integer(),     nullable=False, autoincrement=True),
+            sa.Column("asset_id",     sa.Integer(),     nullable=False),
+            sa.Column("indicator_id", sa.Integer(),     nullable=False),
+            sa.Column("date",         sa.Date(),        nullable=False),
+            sa.Column("value_num",    sa.Float(),       nullable=True),
+            sa.Column("value_str",    sa.String(50),    nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("asset_id", "indicator_id", "date"),
+            sa.ForeignKeyConstraint(["asset_id"],     ["assets.id"],               ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["indicator_id"], ["indicator_definitions.id"], ondelete="CASCADE"),
+        )
+        op.create_index("ix_indicator_values_asset_id",     "indicator_values", ["asset_id"])
+        op.create_index("ix_indicator_values_indicator_id", "indicator_values", ["indicator_id"])
+        op.create_index("ix_indicator_values_date",         "indicator_values", ["date"])
 
     # ── 3. Eliminar columnas de indicadores de screener_snapshot ──────────────
+    ss_cols = {c["name"] for c in insp.get_columns("screener_snapshot")}
     for col in _SS_DROP:
-        op.drop_column("screener_snapshot", col)
+        if col in ss_cols:
+            op.drop_column("screener_snapshot", col)
 
     # ── 4. Eliminar tabla indicator_snapshot ──────────────────────────────────
-    op.drop_table("indicator_snapshot")
+    if "indicator_snapshot" in existing_tables:
+        op.drop_table("indicator_snapshot")
 
-    # ── 5. Actualizar signal.indicator_key con nuevos códigos ────────────────
-    conn = op.get_bind()
+    # ── 5. Actualizar signal.indicator_key con nuevos códigos ─────────────────
     for old_key, new_code in _KEY_MAP.items():
         conn.execute(
-            sa.text(
-                "UPDATE signal SET indicator_key = :new "
-                "WHERE indicator_key = :old"
-            ),
+            sa.text("UPDATE signal SET indicator_key = :new WHERE indicator_key = :old"),
             {"new": new_code, "old": old_key},
         )
 
@@ -135,14 +141,11 @@ def downgrade():
     for col in _str_cols:
         op.add_column("screener_snapshot", sa.Column(col, sa.String(30), nullable=True))
 
-    # Revertir indicator_key en signal_definitions
+    # Revertir indicator_key en signal
     conn = op.get_bind()
     for old_key, new_code in _KEY_MAP.items():
         conn.execute(
-            sa.text(
-                "UPDATE signal_definitions SET indicator_key = :old "
-                "WHERE indicator_key = :new"
-            ),
+            sa.text("UPDATE signal SET indicator_key = :old WHERE indicator_key = :new"),
             {"old": old_key, "new": new_code},
         )
 
