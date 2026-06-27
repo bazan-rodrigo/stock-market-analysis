@@ -1,7 +1,21 @@
 import dash
+import dash_bootstrap_components as dbc
 from dash import dash_table, html
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER
+
+_CONVENTIONS = [
+    ("_d",       "timeframe diario"),
+    ("_w",       "timeframe semanal"),
+    ("_m",       "timeframe mensual"),
+    ("dd_",      "drawdown"),
+    ("vs_",      "distancia % al precio"),
+    ("dist_",    "distancia en σ (desviaciones estándar)"),
+    ("var_",     "variación porcentual"),
+    ("atr_pct_", "percentil del ATR"),
+    ("pivot_",   "nivel de soporte / resistencia pivot"),
+    ("vol_",     "volatilidad"),
+]
 
 _INDICATORS = [
     # Régimen
@@ -56,9 +70,27 @@ def layout(**kwargs):
             "Indicadores técnicos disponibles como input para las señales. "
             "Se calculan automáticamente a partir del historial de precios "
             "y se almacenan en screener_snapshot.",
-            className="text-muted mb-4",
+            className="text-muted mb-3",
             style={"fontSize": "0.83rem"},
         ),
+        dbc.Card(dbc.CardBody([
+            html.Div([
+                html.Span("Convenciones de código: ", style={"fontSize": "0.78rem",
+                          "color": "#9ca3af", "fontWeight": "600", "marginRight": "12px"}),
+                *[
+                    html.Span([
+                        html.Code(prefix, style={"fontSize": "0.76rem", "color": "#94a3b8",
+                                                  "backgroundColor": "#111827",
+                                                  "padding": "1px 5px", "borderRadius": "3px"}),
+                        html.Span(f" = {meaning}", style={"fontSize": "0.76rem",
+                                                           "color": "#6b7280"}),
+                    ], style={"marginRight": "16px", "whiteSpace": "nowrap"})
+                    for prefix, meaning in _CONVENTIONS
+                ],
+            ], style={"display": "flex", "flexWrap": "wrap", "gap": "4px 0",
+                      "alignItems": "center"}),
+        ]), style={"backgroundColor": "#1f2937", "border": "1px solid #374151"},
+           className="mb-4"),
         dash_table.DataTable(
             columns=[
                 {"name": "Código",      "id": "codigo"},
