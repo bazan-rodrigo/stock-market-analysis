@@ -863,8 +863,9 @@ def backfill_indicator_values(asset_id: int, session=None, *, force: bool = Fals
 
 
 def _worker_init():
-    """Descartar conexiones heredadas por fork antes de que el worker las use."""
-    from app.database import engine as _engine
+    """Descartar sesión y conexiones heredadas por fork antes de que el worker las use."""
+    from app.database import engine as _engine, Session as _Session
+    _Session.remove()
     _engine.dispose()
 
 
