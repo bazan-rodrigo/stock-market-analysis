@@ -6,7 +6,6 @@ from app.database import get_session
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_value import IndicatorValue
 
-_BG   = "#111827"
 _CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRadius": "8px"}
 
 _TREND_LABELS = {
@@ -30,101 +29,89 @@ _VOL_REGIME_COLOR = {
 }
 
 
-def _fmt_value(defn: IndicatorDefinition, iv: IndicatorValue) -> html.Span:
-    """Formatea el valor con color semántico según tipo y escala."""
+def _fmt(defn: IndicatorDefinition, iv: IndicatorValue) -> tuple[str, str]:
+    """Devuelve (texto_a_mostrar, color_hex)."""
 
-    _s = {"fontSize": "0.82rem", "fontWeight": "600"}
+    NEUTRAL = "#dee2e6"
+    MUTED   = "#6b7280"
 
     if defn.type == "str":
         val = iv.value_str or "—"
         if "trend" in defn.code:
-            label, color = _TREND_LABELS.get(val, (val.replace("_", " ").title(), "#9ca3af"))
-            return html.Span(label, style={**_s, "color": color})
+            label, color = _TREND_LABELS.get(val, (val.replace("_", " ").title(), MUTED))
+            return label, color
         if "volatility" in defn.code:
             parts = val.split("_") if "_" in val else [val]
             vol   = parts[0]
-            dur   = "_".join(parts[1:]) if len(parts) > 1 else ""
-            color = _VOL_REGIME_COLOR.get(vol, "#9ca3af")
-            label = f"{vol.title()} | {dur.replace('_',' ').title()}" if dur else vol.title()
-            return html.Span(label, style={**_s, "color": color})
-        return html.Span(val, style={"fontSize": "0.82rem", "color": "#dee2e6"})
+            dur   = "_".join(parts[1:]).replace("_", " ").title() if len(parts) > 1 else ""
+            color = _VOL_REGIME_COLOR.get(vol, MUTED)
+            label = f"{vol.title()} | {dur}" if dur else vol.title()
+            return label, color
+        return val, NEUTRAL
 
     num = iv.value_num
     if num is None:
-        return html.Span("—", style={"color": "#4b5563", "fontSize": "0.82rem"})
+        return "—", MUTED
 
     scale = defn.scale or ""
 
     if scale == "%":
-        color = "#4ade80" if num > 0 else "#f87171" if num < 0 else "#9ca3af"
-        return html.Span(f"{num:+.2f}%", style={**_s, "color": color})
+        color = "#4ade80" if num > 0 else "#f87171" if num < 0 else MUTED
+        return f"{num:+.2f}%", color
 
     if scale == "% (negative)":
-        color = "#f87171" if num < -15 else "#fb923c" if num < -5 else "#9ca3af"
-        return html.Span(f"{num:.2f}%", style={**_s, "color": color})
+        color = "#f87171" if num < -15 else "#fb923c" if num < -5 else MUTED
+        return f"{num:.2f}%", color
 
     if scale == "0 – 100":
         color = "#4ade80" if num <= 30 else "#f87171" if num >= 70 else "#f59e0b"
-        return html.Span(f"{num:.1f}", style={**_s, "color": color})
+        return f"{num:.1f}", color
 
     if scale == "σ":
-        color = "#4ade80" if num > 0 else "#f87171" if num < 0 else "#9ca3af"
-        return html.Span(f"{num:+.2f}σ", style={**_s, "color": color})
+        color = "#4ade80" if num > 0 else "#f87171" if num < 0 else MUTED
+        return f"{num:+.2f}σ", color
 
     if scale == "ratio":
-        return html.Span(f"{num:.2f}x", style={"fontSize": "0.82rem"})
+        return f"{num:.2f}x", NEUTRAL
 
     if scale == "period":
-        return html.Span(str(int(num)), style={"fontSize": "0.82rem", "color": "#93c5fd"})
+        return str(int(num)), "#93c5fd"
 
     if scale == "currency":
-        return html.Span(f"{num:.4g}", style={**_s, "color": "#dee2e6"})
+        return f"{num:.4g}", NEUTRAL
 
-    return html.Span(f"{num:.4g}", style={"fontSize": "0.82rem"})
+    return f"{num:.4g}", NEUTRAL
 
 
-def _category_card(category: str, items: list) -> dbc.Col:
-    rows = []
-    for defn, iv in items:
-        rows.append(html.Tr([
-            html.Td(
-                defn.name,
-                style={"color": "#9ca3af", "fontSize": "0.78rem",
-                       "paddingRight": "12px", "paddingBottom": "3px",
-                       "whiteSpace": "nowrap"},
-            ),
-            html.Td(
-                _fmt_value(defn, iv),
-                style={"paddingBottom": "3px"},
-            ),
-            html.Td(
-                iv.date.strftime("%d/%m/%y") if iv.date else "—",
-                style={"color": "#4b5563", "fontSize": "0.7rem",
-                       "paddingLeft": "10px", "paddingBottom": "3px",
-                       "whiteSpace": "nowrap"},
-            ),
-        ]))
-
+def _indicator_card(defn: IndicatorDefinition, iv: IndicatorValue) -> dbc.Col:
+    text, color = _fmt(defn, iv)
     return dbc.Col(
         dbc.Card(
             dbc.CardBody([
                 html.Div(
-                    category,
-                    style={
-                        "fontWeight": "600", "fontSize": "0.72rem",
-                        "color": "#60a5fa", "textTransform": "uppercase",
-                        "letterSpacing": "0.06em", "marginBottom": "6px",
-                    },
+                    defn.name,
+                    className="text-muted mb-1",
+                    style={"fontSize": "0.7rem", "textTransform": "uppercase",
+                           "letterSpacing": "0.05em"},
                 ),
-                html.Table(
-                    html.Tbody(rows),
-                    style={"width": "100%", "borderCollapse": "collapse"},
+                html.Div(
+                    text,
+                    style={"fontSize": "1.3rem", "fontWeight": "700", "color": color},
                 ),
-            ], style={"padding": "10px 14px"}),
+            ]),
             style=_CARD,
         ),
-        xs=12, md=6, xl=4, className="mb-3",
+        xs=6, sm=4, md=3, lg=2, className="mb-2",
     )
+
+
+def _section(category: str, items: list) -> html.Div:
+    cards = [_indicator_card(defn, iv) for defn, iv in items]
+    return html.Div([
+        html.Span(category, style={"fontWeight": "600", "fontSize": "0.85rem"}),
+        html.Hr(style={"borderColor": "#374151"}),
+        dbc.Row(cards, className="g-2 mb-3"),
+    ])
 
 
 @callback(
@@ -159,6 +146,7 @@ def load_indicators_panel(asset_id, active_tab):
                 IndicatorValue.asset_id     == int(asset_id),
             ),
         )
+        .filter(IndicatorDefinition.category != "Fundamental")
         .order_by(IndicatorDefinition.category, IndicatorDefinition.name)
         .all()
     )
@@ -170,10 +158,23 @@ def load_indicators_panel(asset_id, active_tab):
             color="warning",
         )
 
+    # Fecha de actualización más reciente entre todos los indicadores
+    max_date = max(iv.date for _, iv in rows)
+
     by_category: dict[str, list] = {}
     for defn, iv in rows:
         by_category.setdefault(defn.category, []).append((defn, iv))
 
-    cards = [_category_card(cat, items) for cat, items in by_category.items()]
+    _s = {"fontWeight": "600", "fontSize": "0.85rem"}
 
-    return dbc.Row(cards, className="g-3")
+    return html.Div([
+        html.Div([
+            html.Span("Indicadores técnicos", style=_s),
+            html.Span(
+                f" — datos al {max_date.strftime('%d/%m/%Y')}",
+                className="text-muted ms-2",
+                style={"fontSize": "0.75rem"},
+            ),
+        ], className="mb-3"),
+        *[_section(cat, items) for cat, items in by_category.items()],
+    ])
