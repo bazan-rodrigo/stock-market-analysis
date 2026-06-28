@@ -58,12 +58,6 @@ class Asset(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
-    screener_snapshot = relationship(
-        "ScreenerSnapshot",
-        back_populates="asset",
-        uselist=False,
-        cascade="all, delete-orphan",
-    )
     fundamental_quarterly = relationship(
         "FundamentalQuarterly",
         back_populates="asset",

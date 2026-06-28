@@ -6,7 +6,7 @@ from dash import Input, Output, State, callback, html, no_update
 from app.database import get_session, Session as _ScopedSession
 from app.models import (
     FundamentalUpdateLog, PriceUpdateLog,
-    ScreenerSnapshot, SyntheticFormula,
+    SyntheticFormula,
 )
 
 _OPS         = ("prices", "fund", "snap", "indicators", "synth")
@@ -71,10 +71,10 @@ def _status_snap():
 def _status_indicators():
     from app.models.indicator_value import IndicatorValue
     from sqlalchemy import func as _func
-    s     = get_session()
-    total = s.query(_func.count(ScreenerSnapshot.id)).scalar() or 0
+    s = get_session()
     iv_total = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).scalar() or 0
-    return f"Snapshots técnicos: {total} activos  |  Indicator values: {iv_total} activos"
+    iv_dates = s.query(_func.count(_func.distinct(IndicatorValue.date))).scalar() or 0
+    return f"Indicator values: {iv_total} activos  |  {iv_dates} fechas"
 
 
 def _status_synth():

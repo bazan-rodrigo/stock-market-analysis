@@ -5,7 +5,6 @@ from dash import dcc, html
 _TABLES_INFO = [
     ("prices",            "Historia de precios"),
     ("price_update_log",  "Logs de actualización de precios"),
-    ("screener_snapshot", "Snapshots del screener"),
     ("market_event",      "Eventos de mercado"),
     ("import_log",        "Logs de importación"),
     ("catalog_aliases",   "Aliases del catálogo"),

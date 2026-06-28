@@ -185,6 +185,12 @@ def layout(**kwargs):
         dcc.Store(id="chart-dd-dummy"),
         dcc.Store(id="chart-vol-dummy"),
         dcc.Store(id="chart-sr-pivot-dummy"),
+        dcc.Store(id="chart-regime-data"),
+        dcc.Store(id="chart-vol-data"),
+        dcc.Store(id="chart-dd-data"),
+        dcc.Store(id="chart-regime-data-dummy"),
+        dcc.Store(id="chart-vol-data-dummy"),
+        dcc.Store(id="chart-dd-data-dummy"),
 
         # ── Contenedor del gráfico ─────────────────────────────────────────────
         dcc.Loading(

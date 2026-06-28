@@ -15,7 +15,7 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import joinedload
 
 from app.database import get_session
-from app.models import Asset, DrawdownConfig, Price, RegimeConfig, ScreenerSnapshot, VolatilityConfig
+from app.models import Asset, DrawdownConfig, Price, RegimeConfig, VolatilityConfig
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_value import IndicatorValue
 from app.services import sr_service
@@ -478,14 +478,38 @@ def _closest_price_on_or_before(df: pd.DataFrame, target: date) -> float | None:
 
 # Cache de indicator_id por code para evitar queries repetidas por snapshot
 _ind_id_cache: dict[str, int] = {}
+# IDs de indicadores con keep_history=False (solo se conserva el valor vigente)
+_ind_no_history_ids: set[int] = set()
 
 
-def _write_indicator_values(session, asset_id: int, snap_date, values: dict) -> None:
-    """Upsert de indicator_values para un activo en snap_date."""
-    global _ind_id_cache
+def _ensure_ind_cache(session) -> None:
+    global _ind_id_cache, _ind_no_history_ids
     if not _ind_id_cache:
         for d in session.query(IndicatorDefinition).all():
             _ind_id_cache[d.code] = d.id
+            if not d.keep_history:
+                _ind_no_history_ids.add(d.id)
+
+
+def _write_indicator_values(session, asset_id: int, snap_date, values: dict) -> None:
+    """Upsert de indicator_values para un activo en snap_date.
+
+    Para indicadores con keep_history=False elimina filas previas de cualquier
+    fecha antes de insertar, conservando solo el valor vigente.
+    """
+    _ensure_ind_cache(session)
+
+    # Borrar filas previas para indicadores sin historia
+    no_hist_ids = [
+        _ind_id_cache[code]
+        for code in values
+        if code in _ind_id_cache and _ind_id_cache[code] in _ind_no_history_ids
+    ]
+    if no_hist_ids:
+        session.query(IndicatorValue).filter(
+            IndicatorValue.asset_id == asset_id,
+            IndicatorValue.indicator_id.in_(no_hist_ids),
+        ).delete(synchronize_session=False)
 
     existing = {
         iv.indicator_id: iv
@@ -535,12 +559,26 @@ def compute_and_save_snapshot(
     """
     s = get_session()
 
-    # Cargar snapshot existente siempre: en quick lo necesitamos antes de las queries;
-    # en full lo necesitamos al guardar. Un solo query en ambos casos.
-    snap = s.query(ScreenerSnapshot).filter(ScreenerSnapshot.asset_id == asset_id).first()
+    # En modo quick, leer best_ma previo desde indicator_values para reutilizarlo
+    _ensure_ind_cache(s)
+    _prev_best: dict[str, int] = {}
+    if quick:
+        _bm_codes = ["best_sma_d", "best_ema_d", "best_sma_w", "best_ema_w", "best_sma_m", "best_ema_m"]
+        _bm_ids = {code: _ind_id_cache[code] for code in _bm_codes if code in _ind_id_cache}
+        if _bm_ids:
+            _bm_rows = s.query(IndicatorValue.indicator_id, IndicatorValue.value_num).filter(
+                IndicatorValue.asset_id == asset_id,
+                IndicatorValue.indicator_id.in_(list(_bm_ids.values())),
+            ).all()
+            _id_to_code = {v: k for k, v in _bm_ids.items()}
+            _prev_best = {
+                _id_to_code[ind_id]: int(val)
+                for ind_id, val in _bm_rows
+                if val is not None and ind_id in _id_to_code
+            }
 
-    # Sin snap previo completo no hay valores que reutilizar → forzar full
-    if quick and (snap is None or snap.best_sma_d is None):
+    # Sin best_ma previo no hay valores que reutilizar → forzar full
+    if quick and not _prev_best.get("best_sma_d"):
         quick = False
 
     # --- Carga de precios ---
@@ -589,7 +627,7 @@ def compute_and_save_snapshot(
                     if code == "drawdown_max1": dd_max1 = row[0]
                     elif code == "drawdown_max2": dd_max2 = row[0]
                     else: dd_max3 = row[0]
-        dd_events = json.loads(snap.dd_events) if snap.dd_events else []
+        dd_events = []  # se calcula bajo demanda en el gráfico
     else:
         running_max = df["close"].cummax()
         dd_series   = (df["close"] - running_max) / running_max * 100
@@ -654,9 +692,12 @@ def compute_and_save_snapshot(
         vz_m = f_vz_m.result()
 
     if quick:
-        best_sma_d, best_ema_d = snap.best_sma_d, snap.best_ema_d
-        best_sma_w, best_ema_w = snap.best_sma_w, snap.best_ema_w
-        best_sma_m, best_ema_m = snap.best_sma_m, snap.best_ema_m
+        best_sma_d = _prev_best.get("best_sma_d")
+        best_ema_d = _prev_best.get("best_ema_d")
+        best_sma_w = _prev_best.get("best_sma_w")
+        best_ema_w = _prev_best.get("best_ema_w")
+        best_sma_m = _prev_best.get("best_sma_m")
+        best_ema_m = _prev_best.get("best_ema_m")
     else:
         best_sma_d, best_ema_d = f_sma_d.result(), f_ema_d.result()
         best_sma_w, best_ema_w = f_sma_w.result(), f_ema_w.result()
@@ -745,33 +786,14 @@ def compute_and_save_snapshot(
     except Exception as exc:
         logger.warning("SR compute falló para asset_id=%d: %s", asset_id, exc)
 
-    # --- Guardar / actualizar screener_snapshot (caché de gráficos) ---
-    if snap is None:
-        snap = ScreenerSnapshot(asset_id=asset_id)
-        s.add(snap)
-
-    snap.updated_at    = datetime.utcnow()
-    snap.sma20         = sma20_v
-    snap.sma50         = sma50_v
-    snap.sma200        = sma200_v
-    snap.best_sma_d    = best_sma_d
-    snap.best_ema_d    = best_ema_d
-    snap.best_sma_w    = best_sma_w
-    snap.best_ema_w    = best_ema_w
-    snap.best_sma_m    = best_sma_m
-    snap.best_ema_m    = best_ema_m
-    snap.regime_zones_d = json.dumps(rz_d)
-    snap.regime_zones_w = json.dumps(rz_w)
-    snap.regime_zones_m = json.dumps(rz_m)
-    snap.dd_events      = json.dumps(dd_events)
-    snap.vol_zones_d    = json.dumps(vz_d)
-    snap.vol_zones_w    = json.dumps(vz_w)
-    snap.vol_zones_m    = json.dumps(vz_m)
-
-    s.commit()
-
-    # --- Escribir indicator_values (serie temporal EAV) ---
+    # --- Escribir indicator_values (serie temporal EAV + best_ma vigente) ---
     _write_indicator_values(s, asset_id, today, {
+        "best_sma_d": best_sma_d,
+        "best_ema_d": best_ema_d,
+        "best_sma_w": best_sma_w,
+        "best_ema_w": best_ema_w,
+        "best_sma_m": best_sma_m,
+        "best_ema_m": best_ema_m,
         "trend_daily":              ind_trend_d,
         "trend_weekly":             ind_trend_w,
         "trend_monthly":            ind_trend_m,
@@ -850,6 +872,52 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
                 errors.append(aid)
 
     return {"total": total, "errors": errors}
+
+
+# ── Funciones públicas para cálculo lazy en el gráfico ───────────────────────
+
+def get_regime_zones_for_chart(df: "pd.DataFrame", cfg=None) -> dict:
+    """Devuelve {"D": [...], "W": [...], "M": [...]} con zonas de régimen."""
+    if cfg is None:
+        cfg = _get_regime_config()
+    sl, st_pct, cb = cfg.slope_lookback, cfg.slope_threshold_pct, cfg.confirm_bars
+    nb, sm = cfg.nascent_bars, cfg.strong_slope_multiplier
+    df_w = _resample_ohlc(df, "W")
+    df_m = _resample_ohlc(df, "M")
+    return {
+        "D": _compute_regime_zones(df,   cfg.ema_period_d, sl, st_pct, cb, nb, sm),
+        "W": _compute_regime_zones(df_w, cfg.ema_period_w, sl, st_pct, cb, nb, sm),
+        "M": _compute_regime_zones(df_m, cfg.ema_period_m, sl, st_pct, cb, nb, sm),
+    }
+
+
+def get_vol_zones_for_chart(df: "pd.DataFrame", cfg=None) -> dict:
+    """Devuelve {"D": [...], "W": [...], "M": [...]} con zonas de volatilidad."""
+    if cfg is None:
+        cfg = _get_volatility_config()
+    vol_args = dict(
+        atr_period=cfg.atr_period,
+        confirm_bars=cfg.confirm_bars,
+        pct_low=cfg.pct_low,
+        pct_high=cfg.pct_high,
+        pct_extreme=cfg.pct_extreme,
+        dur_short_pct=cfg.dur_short_pct,
+        dur_long_pct=cfg.dur_long_pct,
+    )
+    df_w = _resample_ohlc(df, "W")
+    df_m = _resample_ohlc(df, "M")
+    return {
+        "D": _compute_vol_zones(df,   **vol_args),
+        "W": _compute_vol_zones(df_w, **vol_args),
+        "M": _compute_vol_zones(df_m, **vol_args),
+    }
+
+
+def get_dd_events_for_chart(df: "pd.DataFrame", cfg=None) -> list:
+    """Devuelve lista de eventos de drawdown significativos."""
+    if cfg is None:
+        cfg = _get_drawdown_config()
+    return _compute_dd_events(df, cfg.min_depth_pct)
 
 
 def _fmt_dd_top3_from_events(dd_events_json: str | None) -> str:

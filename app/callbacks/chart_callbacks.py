@@ -146,16 +146,17 @@ def load_chart_data(asset_id, current_data):
         for row in df.itertuples(index=False)
     ]
 
-    # Cargar eventos y snapshot
     from app.database import get_session
-    from app.models import Asset, ScreenerSnapshot
+    from app.models import Asset, RegimeConfig
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_value import IndicatorValue
+    from sqlalchemy import func as _func, and_ as _and
+
     db = get_session()
     asset = db.query(Asset).filter(Asset.id == int(asset_id)).first()
     country_id = asset.country_id if asset else None
     events = event_svc.get_events_for_asset(int(asset_id), country_id)
 
-    import json as _json
-    from app.models import RegimeConfig
     regime_cfg = db.query(RegimeConfig).filter(RegimeConfig.id == 1).first()
     regime_ema_periods = {
         "D": regime_cfg.ema_period_d if regime_cfg else 200,
@@ -163,50 +164,27 @@ def load_chart_data(asset_id, current_data):
         "M": regime_cfg.ema_period_m if regime_cfg else 20,
     }
 
-    snap = db.query(ScreenerSnapshot).filter(ScreenerSnapshot.asset_id == int(asset_id)).first()
-    best_ma = {}
-    regime_zones = {}
-    regime_current = {}
-    vol_zones = {}
-    vol_current = {}
-    dd_events = []
-    if snap:
-        best_ma = {
-            "D": {"sma": snap.best_sma_d, "ema": snap.best_ema_d},
-            "W": {"sma": snap.best_sma_w, "ema": snap.best_ema_w},
-            "M": {"sma": snap.best_sma_m, "ema": snap.best_ema_m},
-        }
-        regime_zones = {
-            "D": _json.loads(snap.regime_zones_d) if snap.regime_zones_d else [],
-            "W": _json.loads(snap.regime_zones_w) if snap.regime_zones_w else [],
-            "M": _json.loads(snap.regime_zones_m) if snap.regime_zones_m else [],
-        }
-        vol_zones = {
-            "D": _json.loads(snap.vol_zones_d) if snap.vol_zones_d else [],
-            "W": _json.loads(snap.vol_zones_w) if snap.vol_zones_w else [],
-            "M": _json.loads(snap.vol_zones_m) if snap.vol_zones_m else [],
-        }
-        dd_events = _json.loads(snap.dd_events) if snap.dd_events else []
-
-    # Leer régimen y volatilidad actuales desde indicator_values
-    from app.models.indicator_definition import IndicatorDefinition
-    from app.models.indicator_value import IndicatorValue
-    from sqlalchemy import func as _func
-
-    _regime_codes = {
-        "trend_daily": "D", "trend_weekly": "W", "trend_monthly": "M",
+    # Leer best_ma y estado actual de régimen/volatilidad desde indicator_values
+    _query_codes = {
+        "trend_daily": ("regime_current", "D"), "trend_weekly": ("regime_current", "W"),
+        "trend_monthly": ("regime_current", "M"),
+        "volatility_daily": ("vol_current", "D"), "volatility_weekly": ("vol_current", "W"),
+        "volatility_monthly": ("vol_current", "M"),
+        "best_sma_d": ("best_ma_num", "D_sma"), "best_ema_d": ("best_ma_num", "D_ema"),
+        "best_sma_w": ("best_ma_num", "W_sma"), "best_ema_w": ("best_ma_num", "W_ema"),
+        "best_sma_m": ("best_ma_num", "M_sma"), "best_ema_m": ("best_ma_num", "M_ema"),
     }
-    _vol_codes = {
-        "volatility_daily": "D", "volatility_weekly": "W", "volatility_monthly": "M",
-    }
-    _all_codes = list(_regime_codes) + list(_vol_codes)
-
     _defs = {
         d.code: d.id
-        for d in db.query(IndicatorDefinition).filter(
-            IndicatorDefinition.code.in_(_all_codes)
-        ).all()
+        for d in db.query(IndicatorDefinition)
+        .filter(IndicatorDefinition.code.in_(list(_query_codes)))
+        .all()
     }
+
+    regime_current: dict = {}
+    vol_current: dict = {}
+    best_ma: dict = {"D": {}, "W": {}, "M": {}}
+
     if _defs:
         _max_date_sq = (
             db.query(
@@ -220,9 +198,8 @@ def load_chart_data(asset_id, current_data):
             .group_by(IndicatorValue.indicator_id)
             .subquery()
         )
-        from sqlalchemy import and_ as _and
         _iv_rows = (
-            db.query(IndicatorDefinition.code, IndicatorValue.value_str)
+            db.query(IndicatorDefinition.code, IndicatorValue.value_str, IndicatorValue.value_num)
             .join(IndicatorValue, IndicatorValue.indicator_id == IndicatorDefinition.id)
             .join(_max_date_sq, _and(
                 IndicatorValue.indicator_id == _max_date_sq.c.indicator_id,
@@ -231,21 +208,77 @@ def load_chart_data(asset_id, current_data):
             ))
             .all()
         )
-        for code, val_str in _iv_rows:
-            if code in _regime_codes:
-                regime_current[_regime_codes[code]] = val_str
-            elif code in _vol_codes:
-                vol_current[_vol_codes[code]] = val_str
+        for code, val_str, val_num in _iv_rows:
+            group, key = _query_codes[code]
+            if group == "regime_current":
+                regime_current[key] = val_str
+            elif group == "vol_current":
+                vol_current[key] = val_str
+            elif group == "best_ma_num" and val_num is not None:
+                tf, ma_type = key.split("_")
+                best_ma[tf][ma_type] = int(val_num)
 
     sr_data = sr_svc.compute_sr_for_asset(int(asset_id)) or {}
 
     return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events,
-            "best_ma": best_ma, "regime_zones": regime_zones,
+            "best_ma": best_ma,
             "regime_current": regime_current,
             "regime_ema_periods": regime_ema_periods,
-            "vol_zones": vol_zones, "vol_current": vol_current,
-            "dd_events": dd_events,
+            "vol_current": vol_current,
             "sr_pivots": sr_data.get("sr_pivots")}, ""
+
+
+# ─── Callbacks lazy: calculan overlays solo cuando el toggle se activa ────────
+
+@callback(
+    Output("chart-regime-data", "data"),
+    Input("chart-regime-enabled", "value"),
+    Input("chart-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def load_regime_overlay(enabled, asset_id):
+    if not enabled or not asset_id:
+        return no_update
+    from app.services.price_service import get_prices_df as _gpdf
+    from app.services.technical_service import get_regime_zones_for_chart
+    df = _gpdf(int(asset_id))
+    if df.empty:
+        return no_update
+    return get_regime_zones_for_chart(df)
+
+
+@callback(
+    Output("chart-vol-data", "data"),
+    Input("chart-vol-enabled", "value"),
+    Input("chart-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def load_vol_overlay(enabled, asset_id):
+    if not enabled or not asset_id:
+        return no_update
+    from app.services.price_service import get_prices_df as _gpdf
+    from app.services.technical_service import get_vol_zones_for_chart
+    df = _gpdf(int(asset_id))
+    if df.empty:
+        return no_update
+    return get_vol_zones_for_chart(df)
+
+
+@callback(
+    Output("chart-dd-data", "data"),
+    Input("chart-dd-enabled", "value"),
+    Input("chart-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def load_dd_overlay(enabled, asset_id):
+    if not enabled or not asset_id:
+        return no_update
+    from app.services.price_service import get_prices_df as _gpdf
+    from app.services.technical_service import get_dd_events_for_chart
+    df = _gpdf(int(asset_id))
+    if df.empty:
+        return no_update
+    return get_dd_events_for_chart(df)
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
@@ -976,12 +1009,12 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
   window._lwcState = {{
     rawDaily:          chartData.raw_daily,
     assetId:           chartData.asset_id,
-    events:            chartData.events            || [],
-    regimeZones:       chartData.regime_zones      || {{}},
+    events:            chartData.events             || [],
+    regimeZones:       {{}},
     regimeEmaPeriods:  chartData.regime_ema_periods || {{}},
-    volZones:          chartData.vol_zones          || {{}},
+    volZones:          {{}},
     volCurrent:        chartData.vol_current        || {{}},
-    ddEvents:          chartData.dd_events          || [],
+    ddEvents:          [],
     bestMa:            chartData.best_ma            || {{}},
     srPivots:          chartData.sr_pivots          || null,
     eventsEnabled:     !!(eventsEnabled  && eventsEnabled.length),
@@ -1106,6 +1139,29 @@ clientside_callback(
     "function(e){if(!window._lwcState||!window._lwc)return null;window._lwcState.volEnabled=!!(e&&e.length);window._lwc.fullRender();return null;}",
     Output("chart-vol-dummy", "data"),
     Input("chart-vol-enabled", "value"),
+    prevent_initial_call=True,
+)
+
+# ─── Clientside: actualiza _lwcState cuando llegan los datos lazy del servidor ──
+
+clientside_callback(
+    "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.regimeZones=d;window._lwc.fullRender();return null;}",
+    Output("chart-regime-data-dummy", "data"),
+    Input("chart-regime-data", "data"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.volZones=d;window._lwc.fullRender();return null;}",
+    Output("chart-vol-data-dummy", "data"),
+    Input("chart-vol-data", "data"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.ddEvents=d;window._lwc.fullRender();return null;}",
+    Output("chart-dd-data-dummy", "data"),
+    Input("chart-dd-data", "data"),
     prevent_initial_call=True,
 )
 

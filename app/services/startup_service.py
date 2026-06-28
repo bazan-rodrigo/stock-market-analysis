@@ -51,6 +51,13 @@ _BUILTIN_INDICATORS = [
     {"code": "last_close",               "name": "Last Close",                "category": "Price",            "type": "num", "scale": "currency",    "description": "Last closing price"},
     # Fuerza relativa
     {"code": "relative_strength_52w",    "name": "Relative Strength 52W",     "category": "Returns",          "type": "num", "scale": "%",           "description": "Return 52W minus benchmark return 52W"},
+    # MA óptima por timeframe (valor vigente, sin historia)
+    {"code": "best_sma_d", "name": "Best SMA Daily",   "category": "Trend - SMA", "type": "num", "scale": "period", "description": "SMA period that best acts as support/resistance in daily timeframe",   "keep_history": False},
+    {"code": "best_ema_d", "name": "Best EMA Daily",   "category": "Trend - SMA", "type": "num", "scale": "period", "description": "EMA period that best acts as support/resistance in daily timeframe",   "keep_history": False},
+    {"code": "best_sma_w", "name": "Best SMA Weekly",  "category": "Trend - SMA", "type": "num", "scale": "period", "description": "SMA period that best acts as support/resistance in weekly timeframe",  "keep_history": False},
+    {"code": "best_ema_w", "name": "Best EMA Weekly",  "category": "Trend - SMA", "type": "num", "scale": "period", "description": "EMA period that best acts as support/resistance in weekly timeframe",  "keep_history": False},
+    {"code": "best_sma_m", "name": "Best SMA Monthly", "category": "Trend - SMA", "type": "num", "scale": "period", "description": "SMA period that best acts as support/resistance in monthly timeframe", "keep_history": False},
+    {"code": "best_ema_m", "name": "Best EMA Monthly", "category": "Trend - SMA", "type": "num", "scale": "period", "description": "EMA period that best acts as support/resistance in monthly timeframe", "keep_history": False},
     # Fundamentales
     {"code": "fundamental_pe_ttm",             "name": "P/E TTM",                      "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Price / Trailing 12M EPS"},
     {"code": "fundamental_pb",                 "name": "P/B",                          "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Price / Book Value per Share"},
@@ -88,8 +95,9 @@ def ensure_builtin_data() -> None:
             logger.info("Creado indicador integrado: %s", ind["code"])
         else:
             # Actualizar metadatos si cambiaron
-            for field in ("name", "category", "scale", "type", "description"):
-                if getattr(exists, field) != ind[field]:
-                    setattr(exists, field, ind[field])
+            for field in ("name", "category", "scale", "type", "description", "keep_history"):
+                val = ind.get(field, True if field == "keep_history" else None)
+                if getattr(exists, field) != val:
+                    setattr(exists, field, val)
 
     s.commit()

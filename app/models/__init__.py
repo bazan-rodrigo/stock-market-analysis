@@ -14,7 +14,6 @@ from app.models.drawdown_config import DrawdownConfig
 from app.models.regime_config import RegimeConfig
 from app.models.volatility_config import VolatilityConfig
 from app.models.sr_config import SRConfig
-from app.models.screener_snapshot import ScreenerSnapshot
 from app.models.sector import Sector
 from app.models.synthetic_formula import SyntheticComponent, SyntheticFormula
 from app.models.currency_conversion import CurrencyConversionDivisor
@@ -48,7 +47,6 @@ __all__ = [
     "Price",
     "PriceUpdateLog",
     "ImportLog",
-    "ScreenerSnapshot",
     "MarketEvent",
     "DrawdownConfig",
     "RegimeConfig",
