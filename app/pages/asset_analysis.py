@@ -200,6 +200,18 @@ def layout(**kwargs):
         ),
     ])
 
+    indicators_tab = dbc.Tab(
+        label="Panel de Indicadores",
+        tab_id="tab-indicators",
+        children=[
+            html.Div(style={"height": "12px"}),
+            dcc.Loading(
+                html.Div(id="indicators-panel-content"),
+                type="circle", color="#dee2e6",
+            ),
+        ],
+    )
+
     distribution_tab = dbc.Tab(
         label="Posicionamiento Histórico",
         tab_id="tab-distribution",
@@ -259,7 +271,7 @@ def layout(**kwargs):
 
         # ── Tabs ──────────────────────────────────────────────────────────
         dbc.Tabs(
-            [chart_tab, fundamentals_tab, distribution_tab],
+            [chart_tab, fundamentals_tab, indicators_tab, distribution_tab],
             id="analysis-tabs",
             active_tab="tab-chart",
         ),
