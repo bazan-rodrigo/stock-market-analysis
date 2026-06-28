@@ -16,7 +16,6 @@ def _sep():
 
 
 def _chk(id_, label, default_on=False, color=None):
-    """Checkbox estilizado como botón toggle (mismo estilo que D/W/M)."""
     return dbc.Checklist(
         id=id_,
         options=[{"label": label, "value": 1}],
@@ -30,7 +29,6 @@ def _chk(id_, label, default_on=False, color=None):
 
 
 def _simple_slot(name, slot, color, default_period, dist_label_id=None):
-    """Botón toggle + periodo siempre visible (SMA / EMA)."""
     children = [
         _chk(f"chart-ind-{name}-{slot}-enabled", name.upper()),
         dbc.Input(
@@ -49,8 +47,6 @@ def _simple_slot(name, slot, color, default_period, dist_label_id=None):
 
 
 def _ind_toggle(label, name, params):
-    """Botón toggle con params colapsables (Bollinger, RSI, MACD, etc.)."""
-    # params: [(pname, short_label, default, min, max, step), ...]
     param_inputs = []
     for pname, plabel, pdef, pmin, pmax, pstep in params:
         param_inputs += [
@@ -77,20 +73,9 @@ def layout(**kwargs):
     if not current_user.is_authenticated:
         return html.Div()
 
-    return html.Div([
-        # ── Fila 1: activo + frecuencia + tipo + escala ────────────────────────
+    chart_tab = dbc.Tab(label="Gráfico Técnico", tab_id="tab-chart", children=[
+        # ── Controles de frecuencia / tipo / escala ──────────────────────
         dbc.Row([
-            dbc.Col(
-                dcc.Dropdown(
-                    id="chart-asset-select",
-                    options=[],
-                    placeholder="Selecciona un activo...",
-                    searchable=True,
-                    clearable=False,
-                    style={"fontSize": "0.8rem"},
-                ),
-                style={"minWidth": "220px", "maxWidth": "320px"},
-            ),
             dbc.Col(
                 html.Div(dbc.RadioItems(
                     id="chart-freq",
@@ -129,9 +114,9 @@ def layout(**kwargs):
                 ), className="ind-group", style={"padding": "1px 2px"}),
                 width="auto",
             ),
-        ], className="mb-1 g-2 align-items-center flex-wrap"),
+        ], className="mb-1 mt-2 g-2 align-items-center flex-wrap"),
 
-        # ── Fila 2: controles de indicadores ──────────────────────────────────
+        # ── Controles de indicadores ─────────────────────────────────────
         html.Div([
             html.Div([_chk("chart-volume-enabled", "Vol", default_on=True)], className="ind-group"),
             _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
@@ -172,7 +157,7 @@ def layout(**kwargs):
             ], className="d-flex align-items-center gap-1 ind-group"),
         ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
 
-        # ── Stores ─────────────────────────────────────────────────────────────
+        # ── Stores ───────────────────────────────────────────────────────
         dcc.Store(id="chart-data"),
         dcc.Store(id="chart-render-dummy"),
         dcc.Store(id="chart-type-dummy"),
@@ -192,7 +177,7 @@ def layout(**kwargs):
         dcc.Store(id="chart-vol-data-dummy"),
         dcc.Store(id="chart-dd-data-dummy"),
 
-        # ── Contenedor del gráfico ─────────────────────────────────────────────
+        # ── Gráfico ──────────────────────────────────────────────────────
         dcc.Loading(
             [
                 html.Div(id="chart-load-output", style={"display": "none"}),
@@ -204,7 +189,40 @@ def layout(**kwargs):
             type="circle",
             color="#dee2e6",
         ),
+    ])
+
+    fundamentals_tab = dbc.Tab(label="Fundamentales", tab_id="tab-fundamentals", children=[
+        html.Div(style={"height": "12px"}),
+        dbc.Alert(id="fund-alert", is_open=False, dismissable=True, className="mb-2"),
+        dcc.Loading(
+            html.Div(id="fund-content"),
+            type="circle", color="#dee2e6",
+        ),
+    ])
+
+    return html.Div([
+        # ── Selector de activo compartido ─────────────────────────────────
+        dbc.Row([
+            dbc.Col(
+                dcc.Dropdown(
+                    id="analysis-asset-select",
+                    options=[],
+                    placeholder="Seleccioná un activo...",
+                    searchable=True,
+                    clearable=False,
+                    style={"fontSize": "0.8rem"},
+                ),
+                style={"minWidth": "220px", "maxWidth": "380px"},
+            ),
+        ], className="mb-1 g-2 align-items-center"),
+
+        # ── Tabs ──────────────────────────────────────────────────────────
+        dbc.Tabs(
+            [chart_tab, fundamentals_tab],
+            id="analysis-tabs",
+            active_tab="tab-chart",
+        ),
     ], style={"padding": "0 8px"})
 
 
-dash.register_page(__name__, path="/chart", title="Grafico tecnico", layout=layout)
+dash.register_page(__name__, path="/activo", title="Análisis de Activo", layout=layout)

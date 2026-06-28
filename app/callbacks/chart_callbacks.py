@@ -86,8 +86,8 @@ def _t(d):
 
 # ─── Carga de activos ─────────────────────────────────────────────────────────
 @callback(
-    Output("chart-asset-select", "options"),
-    Input("chart-asset-select", "id"),
+    Output("analysis-asset-select", "options"),
+    Input("analysis-asset-select", "id"),
 )
 def load_chart_assets(_):
     assets = get_assets()
@@ -95,7 +95,7 @@ def load_chart_assets(_):
 
 
 @callback(
-    Output("chart-asset-select", "value"),
+    Output("analysis-asset-select", "value"),
     Input("url", "search"),
 )
 def preselect_asset_from_url(search):
@@ -126,7 +126,7 @@ for _name, _slot in [(e[1], e[2]) for e in _CANONICAL if e[0] == "enabled" and e
 @callback(
     Output("chart-data", "data"),
     Output("chart-load-output", "children"),
-    Input("chart-asset-select", "value"),
+    Input("analysis-asset-select", "value"),
     State("chart-data", "data"),
     prevent_initial_call=True,
 )
@@ -233,7 +233,7 @@ def load_chart_data(asset_id, current_data):
 @callback(
     Output("chart-regime-data", "data"),
     Input("chart-regime-enabled", "value"),
-    Input("chart-asset-select", "value"),
+    Input("analysis-asset-select", "value"),
     prevent_initial_call=True,
 )
 def load_regime_overlay(enabled, asset_id):
@@ -250,7 +250,7 @@ def load_regime_overlay(enabled, asset_id):
 @callback(
     Output("chart-vol-data", "data"),
     Input("chart-vol-enabled", "value"),
-    Input("chart-asset-select", "value"),
+    Input("analysis-asset-select", "value"),
     prevent_initial_call=True,
 )
 def load_vol_overlay(enabled, asset_id):
@@ -267,7 +267,7 @@ def load_vol_overlay(enabled, asset_id):
 @callback(
     Output("chart-dd-data", "data"),
     Input("chart-dd-enabled", "value"),
-    Input("chart-asset-select", "value"),
+    Input("analysis-asset-select", "value"),
     prevent_initial_call=True,
 )
 def load_dd_overlay(enabled, asset_id):

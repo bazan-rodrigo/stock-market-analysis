@@ -7,13 +7,12 @@ def build_navbar() -> dbc.Navbar:
     analisis_menu = dbc.DropdownMenu(
         label="Análisis",
         children=[
-            dbc.DropdownMenuItem("Gráfico técnico",    href="/chart"),
+            dbc.DropdownMenuItem("Análisis de Activo",  href="/activo"),
             dbc.DropdownMenuItem("Mapa de Tendencia de Mercado", href="/market-map"),
             dbc.DropdownMenuItem("Rotación Relativa",  href="/rrg"),
             dbc.DropdownMenuItem("Evolución",              href="/evolucion"),
             dbc.DropdownMenuItem("Análisis de Pares",    href="/par"),
             dbc.DropdownMenuItem("Comparador de Retornos", href="/retornos"),
-            dbc.DropdownMenuItem("Análisis de Fundamentales", href="/fundamentos"),
             dbc.DropdownMenuItem(divider=True),
             dbc.DropdownMenuItem("Screener de Señales",   href="/senales"),
             dbc.DropdownMenuItem("Historial de Señales",  href="/historial-senales"),

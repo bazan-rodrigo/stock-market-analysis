@@ -32,4 +32,4 @@ def handle_login(n_clicks, user_submit, pass_submit, username, password):
         return no_update, "Usuario inactivo. Contactá al administrador.", True
 
     login_user(user, remember=False)
-    return "/chart", no_update, False
+    return "/activo", no_update, False

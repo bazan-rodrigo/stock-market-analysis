@@ -128,7 +128,7 @@ def create_app():
     @server.route("/login", methods=["GET"])
     def login_page():
         if current_user.is_authenticated:
-            return redirect("/chart")
+            return redirect("/activo")
         error = _ERROR_MSGS.get(request.args.get("error", ""), "")
         return render_template_string(_LOGIN_TEMPLATE, error=error)
 
@@ -151,14 +151,14 @@ def create_app():
         if not user.is_active:
             return redirect("/login?error=inactive")
         login_user(user, remember=False)
-        return redirect("/chart")
+        return redirect("/activo")
 
     @server.route("/")
     def index():
         if not current_user.is_authenticated:
             error = _ERROR_MSGS.get(request.args.get("error", ""), "")
             return render_template_string(_LOGIN_TEMPLATE, error=error)
-        return redirect("/chart")
+        return redirect("/activo")
 
     @server.before_request
     def require_login():
@@ -195,7 +195,7 @@ def create_app():
     # -----------------------------------------------------------------
     _PAGES = [
         "app.pages.market_map",
-        "app.pages.chart",
+        "app.pages.asset_analysis",
         "app.pages.assets_list",
         "app.pages.assets_import",
         "app.pages.prices",
@@ -233,7 +233,6 @@ def create_app():
         "app.pages.strategy_history",
         "app.pages.returns",
         "app.pages.admin_app_settings",
-        "app.pages.fundamentals",
         "app.pages.admin_fundamental_update",
         "app.pages.admin_data_center",
     ]
@@ -322,13 +321,13 @@ def create_app():
 
     dash_app.layout = serve_layout
 
-    # Redirige "/" a "/chart"
+    # Redirige "/" a "/activo"
     from dash import Input, Output, callback as _callback, no_update as _no_update
 
     @_callback(Output("url", "pathname"), Input("url", "pathname"))
     def _redirect_root(pathname):
         if pathname == "/":
-            return "/chart"
+            return "/activo"
         return _no_update
 
     # -----------------------------------------------------------------

@@ -217,7 +217,7 @@ def render_table(rows_data, comp_meta, sort_col):
                 html.Span([
                     html.A(
                         html.Strong(r["ticker"]),
-                        href=f"/chart?asset_id={r['asset_id']}",
+                        href=f"/activo?asset_id={r['asset_id']}",
                         target="_blank",
                         style={"color": "#93c5fd", "textDecoration": "none"},
                     ),

@@ -147,11 +147,13 @@ def _charts_row(data):
     Output("fund-alert",   "children"),
     Output("fund-alert",   "is_open"),
     Output("fund-alert",   "color"),
-    Input("fund-asset-select", "value"),
+    Input("analysis-asset-select", "value"),
+    Input("analysis-tabs",         "active_tab"),
 )
-def load_fundamentals(asset_id):
-    if not asset_id:
-        return html.Div(), "", False, "info"
+def load_fundamentals(asset_id, active_tab):
+    if active_tab != "tab-fundamentals" or not asset_id:
+        from dash import no_update
+        return no_update, no_update, no_update, no_update
 
     try:
         data = svc.get_asset_fundamentals(int(asset_id))
