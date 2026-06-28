@@ -1,6 +1,6 @@
 """
 Servicio de indicadores.
-Agrega indicator_values por grupo (sector/market) para group_indicator_snapshot.
+Agrega indicator_values por grupo para group_indicator_snapshot.
 La escritura individual por activo ocurre en technical_service.compute_and_save_snapshot().
 """
 import logging
@@ -28,8 +28,11 @@ _REGIME_SCORE: dict[str, float] = {
 }
 
 _GROUP_DIMS = [
-    ("sector_id", "sector"),
-    ("market_id", "market"),
+    ("sector_id",          "sector"),
+    ("market_id",          "market"),
+    ("industry_id",        "industry"),
+    ("country_id",         "country"),
+    ("instrument_type_id", "instrument_type"),
 ]
 
 
@@ -41,7 +44,7 @@ def _avg(lst: list) -> float | None:
 
 def compute_group_snapshots(snap_date: date_type) -> None:
     """
-    Agrega indicator_values de tendencia por sector y market para snap_date.
+    Agrega indicator_values de tendencia por todos los tipos de grupo para snap_date.
     Calcula regime_score_d/w/m como promedio de los scores de cada activo.
     """
     s = get_session()
@@ -59,9 +62,13 @@ def compute_group_snapshots(snap_date: date_type) -> None:
 
     trend_ids = list(defs.values())
 
-    # Leer indicator_values de tendencia para snap_date
+    # Leer indicator_values de tendencia para snap_date (todos los grupos)
     iv_rows = (
-        s.query(Asset.sector_id, Asset.market_id, IndicatorDefinition.code, IndicatorValue.value_str)
+        s.query(
+            Asset.sector_id, Asset.market_id, Asset.industry_id,
+            Asset.country_id, Asset.instrument_type_id,
+            IndicatorDefinition.code, IndicatorValue.value_str,
+        )
         .join(IndicatorValue, IndicatorValue.asset_id == Asset.id)
         .join(IndicatorDefinition, IndicatorValue.indicator_id == IndicatorDefinition.id)
         .filter(
@@ -82,14 +89,14 @@ def compute_group_snapshots(snap_date: date_type) -> None:
         "trend_monthly": "m",
     }
 
-    for sector_id, market_id, code, value_str in iv_rows:
+    for *group_ids, code, value_str in iv_rows:
         tf = _code_tf.get(code)
         if tf is None:
             continue
         score = _REGIME_SCORE.get(value_str or "")
         if score is None:
             continue
-        for group_type, group_id in [("sector", sector_id), ("market", market_id)]:
+        for (_, group_type), group_id in zip(_GROUP_DIMS, group_ids):
             if group_id is None:
                 continue
             groups[(group_type, group_id)][tf].append(score)

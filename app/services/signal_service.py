@@ -21,9 +21,14 @@ from app.services import signal_engine
 logger = logging.getLogger(__name__)
 
 
+_VALID_GROUP_INDICATOR_KEYS = frozenset({"regime_score_d", "regime_score_w", "regime_score_m"})
+
+
 def _get_group_indicator_value(gsnap: GroupIndicatorSnapshot, key: str):
-    """Lee el campo `key` del GroupIndicatorSnapshot."""
-    return getattr(gsnap, key, None)
+    if key not in _VALID_GROUP_INDICATOR_KEYS:
+        logger.warning("signal_service: indicator_key '%s' no es un campo válido de GroupIndicatorSnapshot", key)
+        return None
+    return getattr(gsnap, key)
 
 
 def _build_composite_scores(
