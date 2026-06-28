@@ -1,8 +1,10 @@
+import bisect
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
+import numpy as np
 from datetime import date as _date_type
 
 from app.database import get_session, Session as _ScopedSession
@@ -18,6 +20,25 @@ logger = logging.getLogger(__name__)
 
 _STALE_DAYS    = 90  # re-fetch solo si los datos tienen más de 90 días (datos trimestrales)
 _UPDATE_WORKERS = 4  # workers paralelos para fetch de fundamentales
+
+# Indicadores fundamentales que cambian con el precio (se guardan diariamente)
+_FUND_DAILY_CODES = frozenset({
+    "fundamental_pe_ttm",
+    "fundamental_pb",
+    "fundamental_ps_ttm",
+    "fundamental_pe_growth_yoy",
+})
+
+# Indicadores que solo cambian trimestralmente (se guardan una vez por period_date)
+_FUND_QUARTERLY_CODES = frozenset({
+    "fundamental_net_margin",
+    "fundamental_gross_margin",
+    "fundamental_operating_margin",
+    "fundamental_debt_to_equity",
+    "fundamental_revenue_growth_yoy",
+    "fundamental_eps_growth_yoy",
+    "fundamental_roic",
+})
 
 
 # ── helpers internos ──────────────────────────────────────────────────────────
@@ -459,3 +480,279 @@ def get_assets_with_fundamentals() -> list[Asset]:
               .filter(Asset.fundamental_source_id.isnot(None))
               .order_by(Asset.ticker)
               .all())
+
+
+# ── Backfill histórico de indicadores fundamentales ───────────────────────────
+
+def _ensure_fund_cache(s) -> None:
+    global _fund_ind_cache
+    if not _fund_ind_cache:
+        for d in s.query(IndicatorDefinition).all():
+            _fund_ind_cache[d.code] = d.id
+
+
+def _safe_div_r(a, b, decimals=4) -> float | None:
+    if a is not None and b and b != 0:
+        return round(a / b, decimals)
+    return None
+
+
+def _compute_quarterly_ratios(quarters: list, idx: int) -> dict:
+    """Calcula indicadores trimestrales para el quarter en quarters[idx]."""
+    q      = quarters[idx]
+    ttm4   = quarters[max(0, idx - 3): idx + 1]
+    shares = next((r.shares for r in ttm4 if r.shares), None)
+
+    rev      = q.revenue
+    net_m    = _safe_div_r(q.net_income,       rev)
+    gross_m  = _safe_div_r(q.gross_profit,     rev)
+    op_m     = _safe_div_r(q.operating_income, rev)
+    d_e      = _safe_div_r(q.total_debt,       q.equity)
+
+    rev_growth = eps_growth = None
+    if idx >= 4:
+        q4 = quarters[idx - 4]
+        rev_growth = _safe_div_r(q.revenue     - q4.revenue,     abs(q4.revenue)     if q4.revenue     else None)
+        eps_growth = _safe_div_r(q.net_income  - q4.net_income,  abs(q4.net_income)  if q4.net_income  else None)
+
+    ttm_nopat = sum(r.nopat for r in ttm4 if r.nopat is not None) or None
+    ic_avg    = next((r.invested_capital_avg for r in ttm4 if r.invested_capital_avg), None)
+    ttm_ni    = sum(r.net_income for r in ttm4 if r.net_income is not None)
+    if ttm_nopat and ic_avg and ic_avg != 0:
+        roic = round(ttm_nopat / ic_avg, 4)
+    else:
+        inv_cap = (q.equity or 0) + (q.total_debt or 0)
+        roic = _safe_div_r(ttm_ni, inv_cap)
+
+    return {
+        "fundamental_net_margin":         net_m,
+        "fundamental_gross_margin":       gross_m,
+        "fundamental_operating_margin":   op_m,
+        "fundamental_debt_to_equity":     d_e,
+        "fundamental_revenue_growth_yoy": rev_growth,
+        "fundamental_eps_growth_yoy":     eps_growth,
+        "fundamental_roic":               roic,
+    }
+
+
+def _compute_daily_ratios(
+    price: float,
+    quarters: list,
+    q_ords: np.ndarray,
+    last_q_idx: int,
+    price_dates_ord: np.ndarray,
+    price_closes: np.ndarray,
+    price_day_ord: int,
+    ref_1y_ord: int,
+) -> dict:
+    """
+    Calcula P/E, P/B, P/S y P/E-YoY para un día dado.
+    Recibe índices pre-computados para evitar re-búsqueda.
+    """
+    ttm4   = quarters[max(0, last_q_idx - 3): last_q_idx + 1]
+    latest = quarters[last_q_idx]
+    shares = next((q.shares for q in ttm4 if q.shares), None)
+
+    ttm_eps = sum(q.net_income for q in ttm4 if q.net_income is not None)
+    ttm_rev = sum(q.revenue    for q in ttm4 if q.revenue    is not None)
+    book_ps = _safe_div_r(latest.equity, shares)
+
+    ttm_eps_ps = _safe_div_r(ttm_eps, shares)
+    ttm_rev_ps = _safe_div_r(ttm_rev, shares)
+
+    pe = _safe_div_r(price, ttm_eps_ps) if ttm_eps_ps and ttm_eps_ps > 0 else None
+    pb = _safe_div_r(price, book_ps)    if book_ps    and book_ps    > 0 else None
+    ps = _safe_div_r(price, ttm_rev_ps) if ttm_rev_ps and ttm_rev_ps > 0 else None
+
+    # P/E Growth YoY: (pe_hoy - pe_hace_1y) / abs(pe_hace_1y)
+    pe_growth = None
+    last_q_1y = int(np.searchsorted(q_ords, ref_1y_ord, side="right")) - 1
+    if last_q_1y >= 0:
+        ttm4_prev = quarters[max(0, last_q_1y - 3): last_q_1y + 1]
+        sh_prev   = next((q.shares for q in ttm4_prev if q.shares), None)
+        eps_prev  = sum(q.net_income for q in ttm4_prev if q.net_income is not None)
+        eps_ps_pv = _safe_div_r(eps_prev, sh_prev)
+        p_1y_idx  = int(np.searchsorted(price_dates_ord, ref_1y_ord, side="right")) - 1
+        price_1y  = float(price_closes[p_1y_idx]) if p_1y_idx >= 0 else None
+        pe_prev   = _safe_div_r(price_1y, eps_ps_pv) if eps_ps_pv and eps_ps_pv > 0 else None
+        if pe and pe_prev and pe_prev != 0:
+            pe_growth = round((pe - pe_prev) / abs(pe_prev), 4)
+
+    return {
+        "fundamental_pe_ttm":        pe,
+        "fundamental_pb":            pb,
+        "fundamental_ps_ttm":        ps,
+        "fundamental_pe_growth_yoy": pe_growth,
+    }
+
+
+def backfill_fundamental_values(asset_id: int, session=None, *, force: bool = False) -> dict:
+    """
+    Backfill de indicator_values para indicadores fundamentales.
+
+    Indicadores precio-dependientes (P/E, P/B, P/S, P/E YoY):
+        → un registro por día hábil con precio disponible.
+    Indicadores trimestrales (márgenes, ROIC, crecimientos):
+        → un registro por period_date de FundamentalQuarterly.
+
+    force=False: solo procesa fechas/quarters sin dato existente (delta).
+    force=True : borra todos los indicadores fundamentales del activo y
+                 recalcula todo (transaccional — rollback si algo falla).
+
+    Devuelve {"inserted": N, "dates_processed": M}.
+    """
+    s = session or get_session()
+    _ensure_fund_cache(s)
+
+    quarters = (s.query(FundamentalQuarterly)
+                  .filter_by(asset_id=asset_id)
+                  .order_by(FundamentalQuarterly.period_date.asc())
+                  .all())
+    if not quarters:
+        return {"inserted": 0, "dates_processed": 0}
+
+    price_rows = (s.query(Price.date, Price.close)
+                   .filter(Price.asset_id == asset_id, Price.close.isnot(None))
+                   .order_by(Price.date.asc())
+                   .all())
+
+    if force:
+        fund_ids = [iid for code, iid in _fund_ind_cache.items()
+                    if code in _FUND_DAILY_CODES | _FUND_QUARTERLY_CODES]
+        if fund_ids:
+            s.query(IndicatorValue).filter(
+                IndicatorValue.asset_id      == asset_id,
+                IndicatorValue.indicator_id.in_(fund_ids),
+            ).delete(synchronize_session=False)
+        missing_q_dates = {q.period_date for q in quarters}
+        missing_d_dates = {r[0] for r in price_rows}
+    else:
+        # Fechas con datos trimestrales ya en indicator_values
+        q_ids = [_fund_ind_cache[c] for c in _FUND_QUARTERLY_CODES if c in _fund_ind_cache]
+        d_ids = [_fund_ind_cache[c] for c in _FUND_DAILY_CODES      if c in _fund_ind_cache]
+
+        existing_q = set()
+        if q_ids:
+            existing_q = {r[0] for r in s.query(IndicatorValue.date).filter(
+                IndicatorValue.asset_id == asset_id,
+                IndicatorValue.indicator_id.in_(q_ids),
+            ).distinct().all()}
+
+        existing_d = set()
+        if d_ids:
+            existing_d = {r[0] for r in s.query(IndicatorValue.date).filter(
+                IndicatorValue.asset_id == asset_id,
+                IndicatorValue.indicator_id.in_(d_ids),
+            ).distinct().all()}
+
+        missing_q_dates = {q.period_date for q in quarters} - existing_q
+        missing_d_dates = {r[0] for r in price_rows}        - existing_d
+
+    if not missing_q_dates and not missing_d_dates:
+        return {"inserted": 0, "dates_processed": 0}
+
+    # Arrays numpy para búsquedas binarias eficientes
+    q_ords          = np.array([q.period_date.toordinal() for q in quarters])
+    price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
+    price_closes    = np.array([float(r[1]) for r in price_rows])
+
+    inserted = 0
+    processed = 0
+
+    # ── 1. Indicadores trimestrales ──────────────────────────────────────────
+    for idx, q in enumerate(quarters):
+        if q.period_date not in missing_q_dates:
+            continue
+        ratios = _compute_quarterly_ratios(quarters, idx)
+        for code, val in ratios.items():
+            ind_id = _fund_ind_cache.get(code)
+            if ind_id is None or val is None:
+                continue
+            iv = IndicatorValue(asset_id=asset_id, indicator_id=ind_id,
+                                date=q.period_date, value_num=float(val), value_str=None)
+            s.add(iv)
+            inserted += 1
+        processed += 1
+
+    # ── 2. Indicadores diarios ───────────────────────────────────────────────
+    for price_date, price_close in price_rows:
+        if price_date not in missing_d_dates:
+            continue
+        d_ord       = price_date.toordinal()
+        last_q_idx  = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
+        if last_q_idx < 0:
+            continue  # no hay datos trimestrales anteriores aún
+
+        try:
+            ref_1y_ord = _date_type(price_date.year - 1, price_date.month, price_date.day).toordinal()
+        except ValueError:
+            ref_1y_ord = _date_type(price_date.year - 1, price_date.month, 28).toordinal()
+
+        ratios = _compute_daily_ratios(
+            float(price_close), quarters, q_ords, last_q_idx,
+            price_dates_ord, price_closes, d_ord, ref_1y_ord,
+        )
+        for code, val in ratios.items():
+            ind_id = _fund_ind_cache.get(code)
+            if ind_id is None or val is None:
+                continue
+            iv = IndicatorValue(asset_id=asset_id, indicator_id=ind_id,
+                                date=price_date, value_num=float(val), value_str=None)
+            s.add(iv)
+            inserted += 1
+        processed += 1
+
+    s.commit()
+    return {"inserted": inserted, "dates_processed": processed}
+
+
+def _backfill_fund_worker(asset_id: int, force: bool = False) -> dict:
+    try:
+        s = get_session()
+        return backfill_fundamental_values(asset_id, s, force=force)
+    except Exception as exc:
+        logger.warning("Fund backfill error asset_id=%d: %s", asset_id, exc)
+        return {"inserted": 0, "dates_processed": 0, "error": str(exc)}
+    finally:
+        _ScopedSession.remove()
+
+
+def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) -> dict:
+    """
+    Backfill histórico de indicator_values fundamentales para todos los activos
+    que tienen datos en fundamental_quarterly.
+
+    force=False: delta — solo procesa lo que falta.
+    force=True : recalcula toda la historia (útil tras corrección de datos o cambio de lógica).
+
+    Devuelve {"total": N, "success": M, "inserted": K, "errors": [...]}.
+    """
+    s         = get_session()
+    asset_ids = [
+        r[0] for r in
+        s.query(FundamentalQuarterly.asset_id)
+         .join(Asset, FundamentalQuarterly.asset_id == Asset.id)
+         .distinct().all()
+    ]
+    total    = len(asset_ids)
+    done     = 0
+    inserted = 0
+    errors: list[dict] = []
+
+    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
+        futures = {pool.submit(_backfill_fund_worker, aid, force): aid for aid in asset_ids}
+        for future in as_completed(futures):
+            done += 1
+            aid  = futures[future]
+            if progress_cb:
+                progress_cb(done, total)
+            try:
+                res = future.result()
+                inserted += res.get("inserted", 0)
+                if "error" in res:
+                    errors.append({"asset_id": aid, "error": res["error"]})
+            except Exception as exc:
+                logger.warning("Fund backfill future error aid=%d: %s", aid, exc)
+                errors.append({"asset_id": aid, "error": str(exc)})
+
+    return {"total": total, "success": total - len(errors), "inserted": inserted, "errors": errors}

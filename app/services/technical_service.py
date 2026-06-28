@@ -3,8 +3,10 @@ Servicio de screener.
 Calcula métricas técnicas por activo y las persiste en screener_snapshot (caché de gráficos)
 e indicator_values (serie temporal EAV de indicadores).
 """
+import bisect
 import json
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor as _TPE
 from datetime import date, datetime
 
@@ -474,6 +476,433 @@ def _closest_price_on_or_before(df: pd.DataFrame, target: date) -> float | None:
     if subset.empty:
         return None
     return float(subset.iloc[-1]["close"])
+
+
+# ── Helpers para backfill vectorial ──────────────────────────────────────────
+
+_Q_MONTH = {1:1, 2:1, 3:1, 4:4, 5:4, 6:4, 7:7, 8:7, 9:7, 10:10, 11:10, 12:10}
+
+
+def _rsi_series(close: pd.Series, period: int = 14) -> pd.Series:
+    """RSI vectorial — devuelve Series del mismo largo que close."""
+    delta    = close.diff()
+    gain     = delta.clip(lower=0)
+    loss     = (-delta).clip(lower=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    rs       = avg_gain / avg_loss.replace(0, float("nan"))
+    return (100 - (100 / (1 + rs))).round(2)
+
+
+def _atr_pct_series_v(df: pd.DataFrame, period: int) -> pd.Series:
+    """Percentil de ATR usando distribución sobre toda la historia (idéntico a vol zones)."""
+    atr          = _atr_series(df, period)
+    valid_sorted = np.sort(atr.dropna().values)
+    n            = len(valid_sorted)
+    if n == 0:
+        return pd.Series(np.nan, index=df.index)
+    atr_vals = atr.values
+    pcts     = np.where(
+        np.isnan(atr_vals),
+        np.nan,
+        np.searchsorted(valid_sorted, atr_vals) / n * 100,
+    )
+    return pd.Series(np.round(pcts, 1), index=df.index)
+
+
+def _return_vs_ref_series(df: pd.DataFrame, ref_date_fn) -> pd.Series:
+    """
+    Para cada fecha d, (close[d] / close[<= ref_date_fn(d)] - 1) * 100.
+    Usa búsqueda binaria sobre ordinales → O(N log N).
+    """
+    dates    = df["date"].values
+    closes   = df["close"].values.astype(float)
+    ordinals = np.array([d.toordinal() for d in dates])
+    results  = np.full(len(dates), np.nan)
+    for i, d in enumerate(dates):
+        try:
+            ref_date = ref_date_fn(d)
+        except (ValueError, OverflowError):
+            continue
+        ref_ord = ref_date.toordinal()
+        j = int(np.searchsorted(ordinals[: i + 1], ref_ord, side="right")) - 1
+        if j >= 0 and closes[j] != 0:
+            results[i] = round((closes[i] / closes[j] - 1) * 100, 2)
+    return pd.Series(results, index=df.index)
+
+
+def _zones_to_series(zones: list[dict], df: pd.DataFrame, value_key: str) -> list:
+    """
+    Mapea lista de zonas {start, end, value_key} a lista de valores diarios
+    alineada con df.index. Usa búsqueda binaria (zonas ordenadas por start).
+    """
+    if not zones:
+        return [None] * len(df)
+    zone_starts = [z["start"] for z in zones]
+    out = []
+    for d in df["date"]:
+        d_str = _date_str(d)
+        idx   = bisect.bisect_right(zone_starts, d_str) - 1
+        if idx >= 0 and zones[idx]["end"] >= d_str:
+            out.append(zones[idx].get(value_key))
+        else:
+            out.append(None)
+    return out
+
+
+def _map_to_daily(series_on_resampled: pd.Series, df_resampled: pd.DataFrame,
+                  df_daily: pd.DataFrame) -> np.ndarray:
+    """
+    Forward-fill una Serie semanal/mensual a fechas diarias.
+    df_resampled['date'] puede ser Timestamp (salida de _resample_ohlc).
+    """
+    s         = pd.Series(series_on_resampled.values,
+                          index=pd.DatetimeIndex(df_resampled["date"]))
+    daily_idx = pd.DatetimeIndex([pd.Timestamp(d) for d in df_daily["date"]])
+    return s.reindex(daily_idx, method="ffill").values
+
+
+def _fv(x, decimals: int = 2):
+    """Convierte a float redondeado o None; NaN → None."""
+    if x is None:
+        return None
+    try:
+        f = float(x)
+        return None if math.isnan(f) else round(f, decimals)
+    except (TypeError, ValueError):
+        return None
+
+
+def _query_best_sma(asset_id: int, session) -> dict[str, int]:
+    """Lee best_sma_d/w/m desde indicator_values. Devuelve {} si no hay datos."""
+    _ensure_ind_cache(session)
+    result = {}
+    for code in ("best_sma_d", "best_sma_w", "best_sma_m"):
+        ind_id = _ind_id_cache.get(code)
+        if ind_id:
+            row = session.query(IndicatorValue.value_num).filter(
+                IndicatorValue.asset_id     == asset_id,
+                IndicatorValue.indicator_id == ind_id,
+            ).first()
+            if row and row[0] is not None:
+                result[code] = int(row[0])
+    return result
+
+
+def _compute_all_for_backfill(
+    df: pd.DataFrame,
+    df_w: pd.DataFrame,
+    df_m: pd.DataFrame,
+    asset_id: int,
+    session,
+    regime_cfg,
+    vol_cfg,
+    prev_best: dict | None = None,
+) -> dict[str, list]:
+    """
+    Calcula todos los indicadores vectorialmente sobre la historia completa.
+    Devuelve {code: lista_de_valores} alineada con df (índice diario).
+    Solo incluye indicadores con keep_history=True.
+    NaN / período de warmup → None (no se escribirá en la BD).
+    prev_best: valores de best_sma pre-consultados (necesario cuando force=True
+               borra indicator_values antes de llamar a esta función).
+    """
+    close = df["close"]
+    n     = len(df)
+    r: dict[str, list] = {}
+
+    # ── last_close ────────────────────────────────────────────────────────────
+    r["last_close"] = [_fv(v, 4) for v in close]
+
+    # ── return_daily ─────────────────────────────────────────────────────────
+    r["return_daily"] = [_fv(v) for v in close.pct_change() * 100]
+
+    # ── Retornos periódicos (misma definición que compute_and_save_snapshot) ──
+    def _w52_date(d):
+        try:
+            return date(d.year - 1, d.month, d.day)
+        except ValueError:
+            return date(d.year - 1, d.month, 28)
+
+    r["return_monthly"]   = [_fv(v) for v in _return_vs_ref_series(df, lambda d: d.replace(day=1))]
+    r["return_quarterly"] = [_fv(v) for v in _return_vs_ref_series(df, lambda d: date(d.year, _Q_MONTH[d.month], 1))]
+    r["return_yearly"]    = [_fv(v) for v in _return_vs_ref_series(df, lambda d: date(d.year, 1, 1))]
+    r["return_52w"]       = [_fv(v) for v in _return_vs_ref_series(df, _w52_date)]
+
+    # ── Distancias SMA (% desde la SMA) ──────────────────────────────────────
+    for period, code in [(20, "dist_sma20"), (50, "dist_sma50"), (200, "dist_sma200")]:
+        sma  = close.rolling(period).mean()
+        pct  = ((close - sma) / sma * 100).round(2)
+        r[code] = [_fv(v) for v in pct]
+
+    # ── RSI diario ────────────────────────────────────────────────────────────
+    r["rsi_daily"] = [_fv(v) for v in _rsi_series(close)]
+
+    # ── RSI semanal / mensual (ffill a diario) ────────────────────────────────
+    for df_tf, code in [(df_w, "rsi_weekly"), (df_m, "rsi_monthly")]:
+        if len(df_tf) >= 15:
+            daily_v = _map_to_daily(_rsi_series(df_tf["close"]), df_tf, df)
+            r[code] = [_fv(v) for v in daily_v]
+        else:
+            r[code] = [None] * n
+
+    # ── Drawdown current ─────────────────────────────────────────────────────
+    dd_cur = ((close - close.cummax()) / close.cummax() * 100).round(2)
+    r["drawdown_current"] = [_fv(v) for v in dd_cur]
+
+    # ── Drawdown max1 (peor valor registrado hasta esa fecha = cummin) ────────
+    r["drawdown_max1"] = [_fv(v) for v in dd_cur.cummin()]
+
+    # ── ATR percentile diario ─────────────────────────────────────────────────
+    r["atr_percentile_daily"] = [_fv(v, 1) for v in _atr_pct_series_v(df, vol_cfg.atr_period)]
+
+    # ── ATR percentile semanal / mensual ─────────────────────────────────────
+    for df_tf, code in [(df_w, "atr_percentile_weekly"), (df_m, "atr_percentile_monthly")]:
+        if len(df_tf) >= vol_cfg.atr_period * 3:
+            daily_v = _map_to_daily(_atr_pct_series_v(df_tf, vol_cfg.atr_period), df_tf, df)
+            r[code] = [_fv(v, 1) for v in daily_v]
+        else:
+            r[code] = [None] * n
+
+    # ── Régimen de tendencia (zonas → lookup O(N log M)) ─────────────────────
+    sl, st_pct, cb = regime_cfg.slope_lookback, regime_cfg.slope_threshold_pct, regime_cfg.confirm_bars
+    nb, sm         = regime_cfg.nascent_bars, regime_cfg.strong_slope_multiplier
+    rz_d = _compute_regime_zones(df,   regime_cfg.ema_period_d, sl, st_pct, cb, nb, sm)
+    rz_w = _compute_regime_zones(df_w, regime_cfg.ema_period_w, sl, st_pct, cb, nb, sm)
+    rz_m = _compute_regime_zones(df_m, regime_cfg.ema_period_m, sl, st_pct, cb, nb, sm)
+    r["trend_daily"]   = _zones_to_series(rz_d, df, "regime_detail")
+    r["trend_weekly"]  = _zones_to_series(rz_w, df, "regime_detail")
+    r["trend_monthly"] = _zones_to_series(rz_m, df, "regime_detail")
+
+    # ── Volatilidad (zonas → lookup) ──────────────────────────────────────────
+    _vol_args = dict(
+        atr_period=vol_cfg.atr_period,
+        confirm_bars=vol_cfg.confirm_bars,
+        pct_low=vol_cfg.pct_low,
+        pct_high=vol_cfg.pct_high,
+        pct_extreme=vol_cfg.pct_extreme,
+        dur_short_pct=vol_cfg.dur_short_pct,
+        dur_long_pct=vol_cfg.dur_long_pct,
+    )
+    for vz, code in [
+        (_compute_vol_zones(df,   **_vol_args), "volatility_daily"),
+        (_compute_vol_zones(df_w, **_vol_args), "volatility_weekly"),
+        (_compute_vol_zones(df_m, **_vol_args), "volatility_monthly"),
+    ]:
+        combined = [{**z, "_vk": f"{z['vol_regime']}_{z['dur_regime']}"} for z in vz]
+        r[code]  = _zones_to_series(combined, df, "_vk")
+
+    # ── dist_optimal_sma_* (z-score desde el best_sma actual como proxy) ──────
+    # prev_best se pasa pre-consultado cuando force=True borra indicator_values
+    # antes de llamar aquí; si no se pasó, se consulta en este momento.
+    _best = prev_best if prev_best is not None else _query_best_sma(asset_id, session)
+    for code_best, code_dist, df_tf in [
+        ("best_sma_d", "dist_optimal_sma_daily",   df),
+        ("best_sma_w", "dist_optimal_sma_weekly",  df_w),
+        ("best_sma_m", "dist_optimal_sma_monthly", df_m),
+    ]:
+        best_val = _best.get(code_best)
+        if best_val and best_val >= 2:
+            cl   = df_tf["close"]
+            sma  = cl.rolling(best_val).mean()
+            std  = cl.rolling(best_val).std().replace(0, np.nan)
+            dist = ((cl - sma) / std).round(2)
+            if df_tf is df:
+                r[code_dist] = [_fv(v) for v in dist]
+            else:
+                r[code_dist] = [_fv(v) for v in _map_to_daily(dist, df_tf, df)]
+        else:
+            r[code_dist] = [None] * n
+
+    # ── relative_strength_52w (vs benchmark) ─────────────────────────────────
+    rs_list = [None] * n
+    bm_id   = session.query(Asset.benchmark_id).filter(Asset.id == asset_id).scalar()
+    if bm_id:
+        bm_rows = session.query(Price.date, Price.close).filter(
+            Price.asset_id == bm_id
+        ).order_by(Price.date.asc()).all()
+        if bm_rows:
+            bm_df      = pd.DataFrame(bm_rows, columns=["date", "close"])
+            bm_ords    = np.array([d.toordinal() for d in bm_df["date"]])
+            bm_closes  = bm_df["close"].values.astype(float)
+            asset_ords = np.array([d.toordinal() for d in df["date"]])
+            asset_cls  = df["close"].values.astype(float)
+
+            def _lkup(ords, cls, target_ord):
+                j = int(np.searchsorted(ords, target_ord, side="right")) - 1
+                return cls[j] if j >= 0 else None
+
+            for i, d in enumerate(df["date"]):
+                try:
+                    ref_ord = date(d.year - 1, d.month, d.day).toordinal()
+                except ValueError:
+                    ref_ord = date(d.year - 1, d.month, 28).toordinal()
+                bm_now = _lkup(bm_ords, bm_closes, asset_ords[i])
+                bm_ref = _lkup(bm_ords, bm_closes, ref_ord)
+                a_ref  = _lkup(asset_ords[:i + 1], asset_cls[:i + 1], ref_ord)
+                if (bm_now is not None and bm_ref is not None and bm_ref != 0
+                        and a_ref is not None and a_ref != 0 and asset_cls[i] != 0):
+                    ret_a  = (asset_cls[i] - a_ref)  / a_ref  * 100
+                    ret_bm = (bm_now        - bm_ref) / bm_ref * 100
+                    rs_list[i] = round(ret_a - ret_bm, 2)
+    r["relative_strength_52w"] = rs_list
+
+    # Indicadores NO backfilleados:
+    # best_sma_*, best_ema_*   → keep_history=False
+    # resistance_pct/support_pct → cálculo por-fecha demasiado costoso
+    # drawdown_max2/max3        → requieren running 2nd/3rd minimum
+
+    return r
+
+
+def backfill_indicator_values(asset_id: int, session=None, *, force: bool = False) -> dict:
+    """
+    Rellena/recalcula indicator_values para un activo.
+
+    force=False (delta): solo procesa fechas con precio pero sin ningún indicador.
+    force=True  (full) : borra todos los indicadores keep_history del activo y
+                         recalcula toda la historia. Útil cuando cambia la
+                         configuración de parámetros o se corrigen precios históricos.
+                         La operación es transaccional: si falla se hace rollback.
+
+    Devuelve {"inserted": N, "dates_processed": M}.
+    """
+    s = session or get_session()
+    _ensure_ind_cache(s)
+
+    price_dates = sorted(
+        r[0] for r in s.query(Price.date).filter(Price.asset_id == asset_id).all()
+    )
+    if not price_dates:
+        return {"inserted": 0, "dates_processed": 0}
+
+    if force:
+        # Guardar best_sma ANTES de borrar (keep_history=False → se borraría también)
+        prev_best = _query_best_sma(asset_id, s)
+
+        # Borrar todos los indicadores keep_history=True para este activo
+        keep_hist_ids = [
+            ind_id for ind_id in _ind_id_cache.values()
+            if ind_id not in _ind_no_history_ids
+        ]
+        if keep_hist_ids:
+            s.query(IndicatorValue).filter(
+                IndicatorValue.asset_id      == asset_id,
+                IndicatorValue.indicator_id.in_(keep_hist_ids),
+            ).delete(synchronize_session=False)
+
+        missing = price_dates
+    else:
+        prev_best = None
+        ind_dates = {
+            r[0] for r in s.query(IndicatorValue.date)
+            .filter(IndicatorValue.asset_id == asset_id)
+            .distinct()
+            .all()
+        }
+        missing = [d for d in price_dates if d not in ind_dates]
+        if not missing:
+            return {"inserted": 0, "dates_processed": 0}
+
+    rows = s.query(Price.date, Price.close, Price.high, Price.low).filter(
+        Price.asset_id == asset_id
+    ).order_by(Price.date.asc()).all()
+    if len(rows) < _MIN_ROWS:
+        if force:
+            s.rollback()
+        return {"inserted": 0, "dates_processed": len(missing)}
+
+    df   = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
+    df_w = _resample_ohlc(df, "W")
+    df_m = _resample_ohlc(df, "M")
+
+    regime_cfg = _get_regime_config()
+    vol_cfg    = _get_volatility_config()
+
+    ind_series = _compute_all_for_backfill(
+        df, df_w, df_m, asset_id, s, regime_cfg, vol_cfg, prev_best=prev_best
+    )
+    date_to_idx = {d: i for i, d in enumerate(df["date"])}
+    keep_hist_codes = {
+        code for code, ind_id in _ind_id_cache.items()
+        if ind_id not in _ind_no_history_ids
+    }
+
+    inserted = 0
+    for snap_date in missing:
+        idx = date_to_idx.get(snap_date)
+        if idx is None:
+            continue
+        for code, vals in ind_series.items():
+            if code not in keep_hist_codes:
+                continue
+            ind_id = _ind_id_cache.get(code)
+            if ind_id is None:
+                continue
+            val = vals[idx] if idx < len(vals) else None
+            if val is None:
+                continue
+            iv = IndicatorValue(asset_id=asset_id, indicator_id=ind_id, date=snap_date)
+            if isinstance(val, str):
+                iv.value_str = val
+                iv.value_num = None
+            else:
+                iv.value_num = float(val)
+                iv.value_str = None
+            s.add(iv)
+            inserted += 1
+
+    s.commit()
+    return {"inserted": inserted, "dates_processed": len(missing)}
+
+
+def _backfill_worker(asset_id: int, force: bool = False) -> dict:
+    from app.database import Session as _DbSession
+    try:
+        s = get_session()
+        return backfill_indicator_values(asset_id, s, force=force)
+    except Exception as exc:
+        logger.warning("Backfill error asset_id=%d: %s", asset_id, exc)
+        return {"inserted": 0, "dates_processed": 0, "error": str(exc)}
+    finally:
+        _DbSession.remove()
+
+
+def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> dict:
+    """
+    Backfill histórico de indicator_values para todos los activos.
+
+    force=False: delta — solo procesa fechas sin datos existentes.
+    force=True : recalcula toda la historia (útil tras cambio de config o precios).
+
+    Devuelve {"total": N, "success": M, "inserted": K, "errors": [...]}.
+    """
+    from concurrent.futures import as_completed
+
+    s         = get_session()
+    asset_ids = [r[0] for r in s.query(Asset.id).all()]
+    total     = len(asset_ids)
+    done      = 0
+    inserted  = 0
+    errors: list[dict] = []
+
+    with _TPE(max_workers=_SNAPSHOT_WORKERS) as pool:
+        futures = {pool.submit(_backfill_worker, aid, force): aid for aid in asset_ids}
+        for future in as_completed(futures):
+            done += 1
+            aid  = futures[future]
+            if progress_cb:
+                progress_cb(done, total)
+            try:
+                res = future.result()
+                inserted += res.get("inserted", 0)
+                if "error" in res:
+                    errors.append({"asset_id": aid, "error": res["error"]})
+            except Exception as exc:
+                logger.warning("Backfill future error aid=%d: %s", aid, exc)
+                errors.append({"asset_id": aid, "error": str(exc)})
+
+    return {"total": total, "success": total - len(errors), "inserted": inserted, "errors": errors}
 
 
 # Cache de indicator_id por code para evitar queries repetidas por snapshot

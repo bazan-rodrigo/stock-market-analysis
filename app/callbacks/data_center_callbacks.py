@@ -9,8 +9,9 @@ from app.models import (
     SyntheticFormula,
 )
 
-_OPS         = ("prices", "fund", "snap", "indicators", "synth")
+_OPS          = ("prices", "fund", "snap", "indicators", "synth", "fund_backfill", "backfill")
 _HAS_NEW_ONLY = {"prices", "fund"}
+_HAS_FORCE    = {"backfill", "fund_backfill"}
 
 
 def _blank():
@@ -83,22 +84,68 @@ def _status_synth():
     return f"Fórmulas definidas: {total}"
 
 
+def _status_fund_backfill():
+    from app.models.indicator_value import IndicatorValue
+    from app.models.indicator_definition import IndicatorDefinition
+    from sqlalchemy import func as _func
+    s = get_session()
+    fund_ids = [
+        r[0] for r in s.query(IndicatorDefinition.id).filter(
+            IndicatorDefinition.category == "Fundamental"
+        ).all()
+    ]
+    if not fund_ids:
+        return "Sin indicadores fundamentales definidos"
+    rows = s.query(_func.count(IndicatorValue.id)).filter(
+        IndicatorValue.indicator_id.in_(fund_ids)
+    ).scalar() or 0
+    assets = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).filter(
+        IndicatorValue.indicator_id.in_(fund_ids)
+    ).scalar() or 0
+    return f"Historial fundamental: {rows:,} filas  |  {assets} activos con datos"
+
+
+def _status_backfill():
+    from app.models.indicator_value import IndicatorValue
+    from app.models.indicator_definition import IndicatorDefinition
+    from sqlalchemy import func as _func
+    s = get_session()
+    tech_ids = [
+        r[0] for r in s.query(IndicatorDefinition.id).filter(
+            IndicatorDefinition.category != "Fundamental"
+        ).all()
+    ]
+    if not tech_ids:
+        return "Sin indicadores técnicos definidos"
+    rows = s.query(_func.count(IndicatorValue.id)).filter(
+        IndicatorValue.indicator_id.in_(tech_ids)
+    ).scalar() or 0
+    assets = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).filter(
+        IndicatorValue.indicator_id.in_(tech_ids)
+    ).scalar() or 0
+    return f"Historial técnico: {rows:,} filas  |  {assets} activos con datos"
+
+
 _STATUS_FN = {
-    "prices":     _status_prices,
-    "fund":       _status_fund,
-    "snap":       _status_snap,
-    "indicators": _status_indicators,
-    "synth":      _status_synth,
+    "prices":       _status_prices,
+    "fund":         _status_fund,
+    "snap":         _status_snap,
+    "indicators":   _status_indicators,
+    "synth":        _status_synth,
+    "fund_backfill": _status_fund_backfill,
+    "backfill":     _status_backfill,
 }
 
 
 @callback(
-    Output("dc-status-prices",     "children"),
-    Output("dc-status-fund",       "children"),
-    Output("dc-status-snap",       "children"),
-    Output("dc-status-indicators", "children"),
-    Output("dc-status-synth",      "children"),
-    Input("dc-status-interval",    "n_intervals"),
+    Output("dc-status-prices",        "children"),
+    Output("dc-status-fund",          "children"),
+    Output("dc-status-snap",          "children"),
+    Output("dc-status-indicators",    "children"),
+    Output("dc-status-synth",         "children"),
+    Output("dc-status-fund_backfill", "children"),
+    Output("dc-status-backfill",      "children"),
+    Input("dc-status-interval",       "n_intervals"),
 )
 def refresh_status(_):
     return tuple(fn() for fn in _STATUS_FN.values())
@@ -138,7 +185,13 @@ def _run(op_id, service_fn):
 
 def _register(op_id):
     has_new_only = op_id in _HAS_NEW_ONLY
-    extra_states = [State(f"dc-new-only-{op_id}", "value")] if has_new_only else []
+    has_force    = op_id in _HAS_FORCE
+
+    extra_states = []
+    if has_new_only:
+        extra_states.append(State(f"dc-new-only-{op_id}", "value"))
+    elif has_force:
+        extra_states.append(State(f"dc-force-{op_id}", "value"))
 
     @callback(
         Output(f"dc-interval-{op_id}", "disabled",  allow_duplicate=True),
@@ -152,7 +205,9 @@ def _register(op_id):
         if not n:
             return no_update, no_update, no_update
 
-        new_only = bool(args[0]) if args else False
+        extra_val = bool(args[0]) if args else False
+        new_only  = extra_val if has_new_only else False
+        force     = extra_val if has_force    else False
 
         if op_id == "prices":
             from app.services.price_service import (
@@ -166,6 +221,14 @@ def _register(op_id):
             from app.services.fundamental_service import recompute_all_snapshots as fn
         elif op_id == "indicators":
             from app.services.technical_service import recompute_all_snapshots as fn
+        elif op_id == "fund_backfill":
+            import functools
+            from app.services.fundamental_service import backfill_all_fundamental_values
+            fn = functools.partial(backfill_all_fundamental_values, force=force)
+        elif op_id == "backfill":
+            import functools
+            from app.services.technical_service import backfill_all_indicator_values
+            fn = functools.partial(backfill_all_indicator_values, force=force)
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 

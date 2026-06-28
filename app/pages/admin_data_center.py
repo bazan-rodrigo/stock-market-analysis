@@ -25,10 +25,22 @@ _OPS = [
     ("synth", "Recalcular Sintéticos",
      "Recalcula los precios de todos los activos sintéticos a partir de sus componentes.",
      None, False),
+    ("fund_backfill", "Backfill de Fundamentales",
+     "Rellena el historial de indicadores fundamentales. "
+     "P/E, P/B y P/S se guardan diariamente (cambian con el precio). "
+     "Márgenes, ROIC y crecimientos se guardan una vez por trimestre. "
+     "Activá 'Recalcular todo' para pisar datos existentes.",
+     None, False, True),
+    ("backfill", "Backfill de Indicadores",
+     "Rellena el historial de indicadores técnicos para fechas que tienen precio pero no tienen "
+     "indicadores calculados. Detección delta automática: solo procesa lo que falta. "
+     "Activá 'Recalcular todo' para pisar datos existentes — útil si cambiaste parámetros "
+     "de configuración o corregiste precios históricos.",
+     None, False, True),
 ]
 
 
-def _op_card(op_id, title, description, log_href=None, has_new_only=False):
+def _op_card(op_id, title, description, log_href=None, has_new_only=False, has_force=False):
     buttons = [
         dbc.Button("Ejecutar", id=f"dc-btn-{op_id}",
                    size="sm", color="primary", outline=True, className="me-2"),
@@ -39,14 +51,23 @@ def _op_card(op_id, title, description, log_href=None, has_new_only=False):
                        size="sm", color="secondary", outline=True),
         )
 
-    new_only_switch = []
+    extra_switch = []
     if has_new_only:
-        new_only_switch = [
+        extra_switch = [
             dbc.Switch(
                 id=f"dc-new-only-{op_id}",
                 label="Solo activos nuevos",
                 value=False,
                 style={"fontSize": "0.74rem", "color": "#9ca3af", "marginBottom": "8px"},
+            )
+        ]
+    elif has_force:
+        extra_switch = [
+            dbc.Switch(
+                id=f"dc-force-{op_id}",
+                label="Recalcular todo (pisar datos existentes)",
+                value=False,
+                style={"fontSize": "0.74rem", "color": "#f59e0b", "marginBottom": "8px"},
             )
         ]
 
@@ -72,7 +93,7 @@ def _op_card(op_id, title, description, log_href=None, has_new_only=False):
                 html.Div(id=f"dc-msg-{op_id}",
                          style={"fontSize": "0.74rem", "minHeight": "16px",
                                 "color": "#9ca3af", "marginBottom": "10px"}),
-                *new_only_switch,
+                *extra_switch,
                 html.Div(buttons, className="d-flex"),
                 dcc.Interval(id=f"dc-interval-{op_id}", interval=600, disabled=True),
             ], style={"padding": "12px 14px"}),
@@ -91,8 +112,7 @@ def layout(**kwargs):
         html.P("Estado de los datos y operaciones de actualización.",
                className="text-muted mb-4", style={"fontSize": "0.8rem"}),
 
-        dbc.Row([_op_card(op_id, title, desc, href, new_only)
-                 for op_id, title, desc, href, new_only in _OPS]),
+        dbc.Row([_op_card(*op, *((False,) * (6 - len(op)))) for op in _OPS]),
 
         dcc.Interval(id="dc-status-interval", interval=30_000, n_intervals=0),
     ], style={"padding": "0 8px"})
