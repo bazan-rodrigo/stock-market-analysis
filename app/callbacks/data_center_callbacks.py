@@ -34,19 +34,25 @@ def _fmt_counts(ok, total, last):
 
 
 def _status_prices():
-    s     = get_session()
-    logs  = s.query(PriceUpdateLog).all()
-    ok    = sum(1 for l in logs if l.success)
-    last  = max((l.last_attempt_at for l in logs), default=None)
-    return _fmt_counts(ok, len(logs), last)
+    try:
+        s    = get_session()
+        logs = s.query(PriceUpdateLog).all()
+        ok   = sum(1 for l in logs if l.success)
+        last = max((l.last_attempt_at for l in logs), default=None)
+        return _fmt_counts(ok, len(logs), last)
+    except Exception:
+        return "—"
 
 
 def _status_fund():
-    s     = get_session()
-    logs  = s.query(FundamentalUpdateLog).all()
-    ok    = sum(1 for l in logs if l.success)
-    last  = max((l.last_attempt_at for l in logs), default=None)
-    return _fmt_counts(ok, len(logs), last)
+    try:
+        s    = get_session()
+        logs = s.query(FundamentalUpdateLog).all()
+        ok   = sum(1 for l in logs if l.success)
+        last = max((l.last_attempt_at for l in logs), default=None)
+        return _fmt_counts(ok, len(logs), last)
+    except Exception:
+        return "—"
 
 
 def _status_snap():
@@ -67,13 +73,16 @@ def _status_indicators():
     import sqlalchemy as sa
     from app.models.indicator_definition import IndicatorDefinition
     from app.models.indicator_store import get_ind_table
-    s = get_session()
-    tech_codes = [
-        r[0] for r in s.query(IndicatorDefinition.code).filter(
-            IndicatorDefinition.keep_history.is_(True),
-            IndicatorDefinition.category != "Fundamental",
-        ).all()
-    ]
+    try:
+        s = get_session()
+        tech_codes = [
+            r[0] for r in s.query(IndicatorDefinition.code).filter(
+                IndicatorDefinition.keep_history.is_(True),
+                IndicatorDefinition.category != "Fundamental",
+            ).all()
+        ]
+    except Exception:
+        return "—"
     assets_seen: set = set()
     dates_seen:  set = set()
     for code in tech_codes:
@@ -88,9 +97,12 @@ def _status_indicators():
 
 
 def _status_synth():
-    s     = get_session()
-    total = s.query(SyntheticFormula).count()
-    return f"Fórmulas definidas: {total}"
+    try:
+        s     = get_session()
+        total = s.query(SyntheticFormula).count()
+        return f"Fórmulas definidas: {total}"
+    except Exception:
+        return "—"
 
 
 def _status_fund_backfill():
@@ -123,13 +135,16 @@ def _status_backfill():
     import sqlalchemy as sa
     from app.models.indicator_definition import IndicatorDefinition
     from app.models.indicator_store import get_ind_table
-    s = get_session()
-    tech_codes = [
-        r[0] for r in s.query(IndicatorDefinition.code).filter(
-            IndicatorDefinition.category != "Fundamental",
-            IndicatorDefinition.keep_history.is_(True),
-        ).all()
-    ]
+    try:
+        s = get_session()
+        tech_codes = [
+            r[0] for r in s.query(IndicatorDefinition.code).filter(
+                IndicatorDefinition.category != "Fundamental",
+                IndicatorDefinition.keep_history.is_(True),
+            ).all()
+        ]
+    except Exception:
+        return "—"
     if not tech_codes:
         return "Sin indicadores técnicos definidos"
     total_rows = 0
