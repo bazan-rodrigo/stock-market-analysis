@@ -54,14 +54,21 @@ def _upsert_prices(asset_id: int, df, session) -> int:
     import math
     from sqlalchemy.dialects.mysql import insert as mysql_insert
 
+    def _f(v):
+        """Convierte NaN/None a None para columnas float."""
+        try:
+            return None if (v is None or math.isnan(float(v))) else float(v)
+        except (TypeError, ValueError):
+            return None
+
     mappings = [
         {
             "asset_id": asset_id,
             "date":     row.date,
-            "open":     row.open,
-            "high":     row.high,
-            "low":      row.low,
-            "close":    row.close,
+            "open":     _f(row.open),
+            "high":     _f(row.high),
+            "low":      _f(row.low),
+            "close":    _f(row.close),
             "volume":   int(row.volume) if (row.volume is not None and not math.isnan(float(row.volume))) else None,
         }
         for row in df.itertuples(index=False)
