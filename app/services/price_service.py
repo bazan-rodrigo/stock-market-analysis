@@ -44,12 +44,16 @@ def _delete_from_date(asset_id: int, from_date, session) -> None:
     ).delete(synchronize_session=False)
 
 
+_PRICE_BATCH = 500  # filas por INSERT — evita superar max_allowed_packet de MariaDB
+
+
 def _upsert_prices(asset_id: int, df, session) -> int:
-    """Inserta filas del DataFrame en la tabla de precios. Devuelve cantidad insertada."""
+    """Inserta filas del DataFrame en la tabla de precios en batches. Devuelve cantidad insertada."""
     if df.empty:
         return 0
     import math
     from sqlalchemy.dialects.mysql import insert as mysql_insert
+
     mappings = [
         {
             "asset_id": asset_id,
@@ -62,15 +66,19 @@ def _upsert_prices(asset_id: int, df, session) -> int:
         }
         for row in df.itertuples(index=False)
     ]
-    stmt = mysql_insert(Price).values(mappings)
-    stmt = stmt.on_duplicate_key_update(
-        open=stmt.inserted.open,
-        high=stmt.inserted.high,
-        low=stmt.inserted.low,
-        close=stmt.inserted.close,
-        volume=stmt.inserted.volume,
-    )
-    session.execute(stmt)
+
+    for i in range(0, len(mappings), _PRICE_BATCH):
+        chunk = mappings[i : i + _PRICE_BATCH]
+        stmt  = mysql_insert(Price).values(chunk)
+        stmt  = stmt.on_duplicate_key_update(
+            open=stmt.inserted.open,
+            high=stmt.inserted.high,
+            low=stmt.inserted.low,
+            close=stmt.inserted.close,
+            volume=stmt.inserted.volume,
+        )
+        session.execute(stmt)
+
     return len(mappings)
 
 
