@@ -862,13 +862,6 @@ def backfill_indicator_values(asset_id: int, session=None, *, force: bool = Fals
     return {"inserted": inserted, "dates_processed": len(missing)}
 
 
-def _worker_init():
-    """Descartar sesión y conexiones heredadas por fork antes de que el worker las use."""
-    from app.database import engine as _engine, Session as _Session
-    _Session.remove()
-    _engine.dispose()
-
-
 def _backfill_worker(asset_id: int, force: bool = False) -> dict:
     import time
     from app.database import Session as _DbSession
@@ -907,7 +900,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
     inserted  = 0
     errors: list[dict] = []
 
-    with _PPE(max_workers=_BACKFILL_WORKERS, initializer=_worker_init) as pool:
+    with _TPE(max_workers=_BACKFILL_WORKERS) as pool:
         futures = {pool.submit(_backfill_worker, aid, force): aid for aid in asset_ids}
         for future in as_completed(futures):
             done += 1
