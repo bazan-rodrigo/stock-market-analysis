@@ -1,5 +1,4 @@
 from sqlalchemy import Boolean, Column, Integer, String, Text
-from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -14,9 +13,6 @@ class IndicatorDefinition(Base):
     name         = Column(String(100), nullable=False)
     category     = Column(String(50),  nullable=False)
     scale        = Column(String(50))
-    type         = Column(String(3),   nullable=False)  # 'num' | 'str'
+    type         = Column(String(3),   nullable=False)  # 'num' | 'str' — usado para formateo en UI
     description  = Column(Text)
     keep_history = Column(Boolean,     nullable=False, default=True)
-
-    values = relationship("IndicatorValue", back_populates="definition",
-                          cascade="all, delete-orphan")

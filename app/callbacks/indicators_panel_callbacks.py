@@ -1,10 +1,10 @@
-from sqlalchemy import and_, func
+import sqlalchemy as sa
 from dash import Input, Output, callback, html, no_update
 import dash_bootstrap_components as dbc
 
 from app.database import get_session
 from app.models.indicator_definition import IndicatorDefinition
-from app.models.indicator_value import IndicatorValue
+from app.models.indicator_store import get_ind_table
 
 _CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRadius": "8px"}
 
@@ -29,14 +29,14 @@ _VOL_REGIME_COLOR = {
 }
 
 
-def _fmt(defn: IndicatorDefinition, iv: IndicatorValue) -> tuple[str, str]:
-    """Devuelve (texto_a_mostrar, color_hex)."""
+def _fmt(defn: IndicatorDefinition, value) -> tuple[str, str]:
+    """Devuelve (texto_a_mostrar, color_hex). value es el valor crudo de la columna."""
 
     NEUTRAL = "#dee2e6"
     MUTED   = "#6b7280"
 
     if defn.type == "str":
-        val = iv.value_str or "—"
+        val = value or "—"
         if "trend" in defn.code:
             label, color = _TREND_LABELS.get(val, (val.replace("_", " ").title(), MUTED))
             return label, color
@@ -47,9 +47,9 @@ def _fmt(defn: IndicatorDefinition, iv: IndicatorValue) -> tuple[str, str]:
             color = _VOL_REGIME_COLOR.get(vol, MUTED)
             label = f"{vol.title()} | {dur}" if dur else vol.title()
             return label, color
-        return val, NEUTRAL
+        return str(val), NEUTRAL
 
-    num = iv.value_num
+    num = value
     if num is None:
         return "—", MUTED
 
@@ -83,8 +83,8 @@ def _fmt(defn: IndicatorDefinition, iv: IndicatorValue) -> tuple[str, str]:
     return f"{num:.4g}", NEUTRAL
 
 
-def _indicator_card(defn: IndicatorDefinition, iv: IndicatorValue) -> dbc.Col:
-    text, color = _fmt(defn, iv)
+def _indicator_card(defn: IndicatorDefinition, value) -> dbc.Col:
+    text, color = _fmt(defn, value)
     return dbc.Col(
         dbc.Card(
             dbc.CardBody([
@@ -106,7 +106,7 @@ def _indicator_card(defn: IndicatorDefinition, iv: IndicatorValue) -> dbc.Col:
 
 
 def _section(category: str, items: list) -> html.Div:
-    cards = [_indicator_card(defn, iv) for defn, iv in items]
+    cards = [_indicator_card(defn, value) for defn, value in items]
     return html.Div([
         html.Span(category, style={"fontWeight": "600", "fontSize": "0.85rem"}),
         html.Hr(style={"borderColor": "#374151"}),
@@ -124,46 +124,46 @@ def load_indicators_panel(asset_id, active_tab):
         return no_update
 
     s = get_session()
+    aid = int(asset_id)
 
-    latest_sq = (
-        s.query(
-            IndicatorValue.indicator_id,
-            func.max(IndicatorValue.date).label("max_date"),
+    defs = (
+        s.query(IndicatorDefinition)
+        .filter(
+            IndicatorDefinition.keep_history.is_(True),
+            IndicatorDefinition.category != "Fundamental",
         )
-        .filter(IndicatorValue.asset_id == int(asset_id))
-        .group_by(IndicatorValue.indicator_id)
-        .subquery()
-    )
-
-    rows = (
-        s.query(IndicatorDefinition, IndicatorValue)
-        .join(IndicatorValue, IndicatorValue.indicator_id == IndicatorDefinition.id)
-        .join(
-            latest_sq,
-            and_(
-                IndicatorValue.indicator_id == latest_sq.c.indicator_id,
-                IndicatorValue.date         == latest_sq.c.max_date,
-                IndicatorValue.asset_id     == int(asset_id),
-            ),
-        )
-        .filter(IndicatorDefinition.category != "Fundamental")
         .order_by(IndicatorDefinition.category, IndicatorDefinition.name)
         .all()
     )
 
-    if not rows:
+    # Para cada indicador: leer el valor más reciente de su tabla ind_{code}
+    by_category: dict[str, list] = {}
+    max_date = None
+
+    for defn in defs:
+        try:
+            t = get_ind_table(defn.code)
+        except Exception:
+            continue
+        row = s.execute(
+            sa.select(t.c.value, t.c.date)
+            .where(t.c.asset_id == aid)
+            .order_by(t.c.date.desc())
+            .limit(1)
+        ).fetchone()
+        if row is None:
+            continue
+        value, snap_date = row[0], row[1]
+        if max_date is None or snap_date > max_date:
+            max_date = snap_date
+        by_category.setdefault(defn.category, []).append((defn, value))
+
+    if not by_category:
         return dbc.Alert(
             "No hay indicadores calculados para este activo. "
             "Ejecutá la actualización de precios para generarlos.",
             color="warning",
         )
-
-    # Fecha de actualización más reciente entre todos los indicadores
-    max_date = max(iv.date for _, iv in rows)
-
-    by_category: dict[str, list] = {}
-    for defn, iv in rows:
-        by_category.setdefault(defn.category, []).append((defn, iv))
 
     _s = {"fontWeight": "600", "fontSize": "0.85rem"}
 

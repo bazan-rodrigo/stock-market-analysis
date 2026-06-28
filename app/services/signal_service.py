@@ -1,9 +1,10 @@
 """
 Servicio de señales.
-Evalúa cada SignalDefinition contra indicator_values / group_indicator_snapshot
+Evalúa cada SignalDefinition contra indicadores (ind_*) / group_indicator_snapshot
 y persiste los resultados en signal_value / group_signal_value.
 """
 import logging
+import sqlalchemy as sa
 from datetime import date as date_type
 
 from app.database import get_session
@@ -15,7 +16,7 @@ from app.models import (
     SignalValue,
 )
 from app.models.indicator_definition import IndicatorDefinition
-from app.models.indicator_value import IndicatorValue
+from app.models.indicator_store import get_ind_table
 from app.services import signal_engine
 
 logger = logging.getLogger(__name__)
@@ -35,12 +36,8 @@ def _build_composite_scores(
     signals: list[SignalDefinition],
     asset_scores: dict[str, float | None],
 ) -> dict[str, float | None]:
-    """
-    Evalúa señales composite en orden topológico simple (dependencias ya evaluadas).
-    Las señales composite que referencien otras composite se evalúan hasta 3 pasos.
-    """
     composite = [s for s in signals if s.formula_type == "composite"]
-    for _ in range(3):  # max anidamiento
+    for _ in range(3):
         for sig in composite:
             if sig.key in asset_scores:
                 continue
@@ -52,9 +49,7 @@ def _build_composite_scores(
     unresolved = [sig.key for sig in composite if sig.key not in asset_scores]
     if unresolved:
         logger.warning(
-            "signal_service: señales composite sin resolver tras 3 iteraciones "
-            "(posible ciclo de dependencias): %s",
-            unresolved,
+            "signal_service: señales composite sin resolver: %s", unresolved,
         )
 
     return asset_scores
@@ -62,8 +57,8 @@ def _build_composite_scores(
 
 def compute_signal_values(snap_date: date_type) -> int:
     """
-    Calcula signal_value para todos los activos y todas las señales para snap_date.
-    Devuelve cantidad de valores escritos.
+    Calcula signal_value para todos los activos para snap_date.
+    Lee valores desde cada tabla ind_{code} por separado.
     """
     s = get_session()
 
@@ -73,38 +68,46 @@ def compute_signal_values(snap_date: date_type) -> int:
 
     asset_signals  = [sg for sg in signals if sg.source == "asset"]
     group_signals  = [sg for sg in signals if sg.source == "group"]
-    composite_sigs = [sg for sg in signals if sg.formula_type == "composite"]
 
-    # Cargar indicator_values del día como {asset_id: {code: value}}
-    iv_rows = (
-        s.query(
-            IndicatorValue.asset_id,
-            IndicatorDefinition.code,
-            IndicatorValue.value_num,
-            IndicatorValue.value_str,
-        )
-        .join(IndicatorDefinition, IndicatorValue.indicator_id == IndicatorDefinition.id)
-        .filter(IndicatorValue.date == snap_date)
-        .all()
-    )
+    # Descubrir qué indicator_keys necesitan las señales de activo
+    needed_codes = {sg.indicator_key for sg in asset_signals if sg.indicator_key}
 
+    # Cargar todos los indicadores con keep_history=True
+    all_defs = {
+        d.code: d
+        for d in s.query(IndicatorDefinition).filter(
+            IndicatorDefinition.keep_history.is_(True)
+        ).all()
+    }
+
+    # Solo los que las señales referencian
+    codes_to_load = needed_codes & set(all_defs.keys())
+
+    # Construir {asset_id: {code: value}} leyendo cada ind_* table
     isnaps: dict[int, dict] = {}
-    for asset_id_row, code, val_num, val_str in iv_rows:
-        isnaps.setdefault(asset_id_row, {})[code] = (
-            val_str if val_str is not None else val_num
-        )
+    for code in codes_to_load:
+        defn = all_defs[code]
+        try:
+            t = get_ind_table(code)
+        except Exception:
+            continue
+        rows = s.execute(
+            sa.select(t.c.asset_id, t.c.value).where(t.c.date == snap_date)
+        ).fetchall()
+        for asset_id_row, value in rows:
+            isnaps.setdefault(asset_id_row, {})[code] = value
 
     if not isnaps:
-        logger.info("signal_service: sin indicator_values para %s", snap_date)
+        logger.info("signal_service: sin valores de indicadores para %s", snap_date)
         return 0
 
-    # Cargar todos los group_indicator_snapshots del día indexados por (group_type, group_id)
+    # Cargar group_indicator_snapshots
     gsnaps: dict[tuple, GroupIndicatorSnapshot] = {
         (gs.group_type, gs.group_id): gs
         for gs in s.query(GroupIndicatorSnapshot).filter(GroupIndicatorSnapshot.date == snap_date).all()
     }
 
-    # Cargar info de grupo de cada activo (todas las dimensiones soportadas como group_type)
+    # Info de grupo de cada activo
     asset_groups: dict[int, dict] = {
         a.id: {
             "sector":          a.sector_id,
@@ -119,7 +122,6 @@ def compute_signal_values(snap_date: date_type) -> int:
         ).all()
     }
 
-    # Pre-cargar SignalValues del día: evita N×M queries en el upsert
     existing_svs: dict[tuple, SignalValue] = {
         (sv.signal_id, sv.asset_id): sv
         for sv in s.query(SignalValue).filter(SignalValue.date == snap_date).all()
@@ -128,7 +130,6 @@ def compute_signal_values(snap_date: date_type) -> int:
     written = 0
 
     for asset_id, isnap in isnaps.items():
-        # 1. Señales de activo (non-composite) primero
         asset_scores: dict[str, float | None] = {}
 
         for sig in asset_signals:
@@ -138,7 +139,6 @@ def compute_signal_values(snap_date: date_type) -> int:
             score = signal_engine.evaluate(sig.formula_type, sig.params, value)
             asset_scores[sig.key] = score
 
-        # 2. Señales de grupo (non-composite): buscar el grupo del activo
         groups = asset_groups.get(asset_id, {})
         for sig in group_signals:
             if sig.formula_type == "composite":
@@ -155,10 +155,8 @@ def compute_signal_values(snap_date: date_type) -> int:
             score = signal_engine.evaluate(sig.formula_type, sig.params, value)
             asset_scores[sig.key] = score
 
-        # 3. Señales composite (pueden depender de cualquier otra)
         _build_composite_scores(signals, asset_scores)
 
-        # 4. Persistir (upsert via dict precargado — sin queries adicionales)
         for sig in signals:
             score = asset_scores.get(sig.key)
             if score is None:
@@ -178,10 +176,6 @@ def compute_signal_values(snap_date: date_type) -> int:
 
 
 def compute_group_signal_values(snap_date: date_type) -> int:
-    """
-    Calcula group_signal_value para todas las señales de grupo y cada grupo del día.
-    Devuelve cantidad de valores escritos.
-    """
     s = get_session()
 
     group_signals = (
@@ -196,7 +190,6 @@ def compute_group_signal_values(snap_date: date_type) -> int:
         .all()
     )
 
-    # Pre-cargar GroupSignalValues del día
     existing_gsvs: dict[tuple, GroupSignalValue] = {
         (gsv.signal_id, gsv.group_type, gsv.group_id): gsv
         for gsv in s.query(GroupSignalValue).filter(GroupSignalValue.date == snap_date).all()
@@ -233,10 +226,6 @@ def compute_group_signal_values(snap_date: date_type) -> int:
 
 
 def run_daily(snap_date: date_type | None = None) -> dict:
-    """
-    Pipeline diario de señales: calcula signal_value y group_signal_value.
-    Devuelve resumen con conteos.
-    """
     from datetime import date as dt_date
 
     if snap_date is None:
@@ -274,7 +263,7 @@ def save_signal(
     signal_id: int | None = None,
 ) -> SignalDefinition:
     import json as _json
-    _json.loads(params_json)  # valida JSON antes de guardar
+    _json.loads(params_json)
 
     s = get_session()
     if signal_id:
@@ -361,7 +350,7 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
             continue
         try:
             params_str = str(data.get("params") or "{}")
-            _json.loads(params_str)  # valida JSON antes de guardar
+            _json.loads(params_str)
             sig = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
             if sig is None:
                 sig = SignalDefinition()
@@ -389,7 +378,6 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
 
 
 def run_recalculate(snap_date: date_type | None = None) -> dict:
-    """Recalcula indicadores + señales + estrategias para snap_date."""
     from datetime import date as dt_date
     from app.services import indicator_service, strategy_service
 

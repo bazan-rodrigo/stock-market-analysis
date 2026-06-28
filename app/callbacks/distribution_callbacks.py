@@ -1,3 +1,4 @@
+import sqlalchemy as sa
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -6,7 +7,7 @@ import dash_bootstrap_components as dbc
 
 from app.database import get_session
 from app.models.indicator_definition import IndicatorDefinition
-from app.models.indicator_value import IndicatorValue
+from app.models.indicator_store import get_ind_table
 
 _BG = "#111827"
 
@@ -42,29 +43,38 @@ def update_indicator_options(asset_id, active_tab):
         return no_update, no_update
 
     s = get_session()
-    rows = (
-        s.query(
-            IndicatorDefinition.id,
-            IndicatorDefinition.name,
-            IndicatorDefinition.category,
-        )
-        .join(IndicatorValue, IndicatorValue.indicator_id == IndicatorDefinition.id)
+    # Indicadores numéricos con historia
+    defs = (
+        s.query(IndicatorDefinition)
         .filter(
-            IndicatorValue.asset_id == int(asset_id),
             IndicatorDefinition.type == "num",
             IndicatorDefinition.keep_history.is_(True),
-            IndicatorValue.value_num.isnot(None),
         )
-        .distinct()
         .order_by(IndicatorDefinition.category, IndicatorDefinition.name)
         .all()
     )
 
-    options = [
-        {"label": f"{r.name}  [{r.category}]", "value": r.id}
-        for r in rows
-    ]
-    return options, (rows[0].id if rows else None)
+    # Solo los que tienen datos para este activo
+    options = []
+    first_code = None
+    for defn in defs:
+        try:
+            t = get_ind_table(defn.code)
+        except Exception:
+            continue
+        has_data = s.execute(
+            sa.select(sa.func.count()).select_from(
+                sa.select(t.c.date).where(
+                    (t.c.asset_id == int(asset_id)) & t.c.value.isnot(None)
+                ).limit(1).subquery()
+            )
+        ).scalar()
+        if has_data:
+            options.append({"label": f"{defn.name}  [{defn.category}]", "value": defn.code})
+            if first_code is None:
+                first_code = defn.code
+
+    return options, first_code
 
 
 @callback(
@@ -75,32 +85,38 @@ def update_indicator_options(asset_id, active_tab):
     Input("dist-indicator-select", "value"),
     Input("dist-bin-size",         "value"),
 )
-def load_distribution_chart(asset_id, active_tab, indicator_id, bin_size):
-    if active_tab != "tab-distribution" or not asset_id or not indicator_id:
+def load_distribution_chart(asset_id, active_tab, indicator_code, bin_size):
+    if active_tab != "tab-distribution" or not asset_id or not indicator_code:
         return no_update, no_update
 
     bin_size = max(float(bin_size or 5), 0.001)
 
     s    = get_session()
-    defn = s.get(IndicatorDefinition, int(indicator_id))
+    defn = s.query(IndicatorDefinition).filter(
+        IndicatorDefinition.code == indicator_code
+    ).first()
+    if defn is None:
+        return no_update, no_update
 
-    rows = (
-        s.query(IndicatorValue.value_num)
-        .filter(
-            IndicatorValue.asset_id     == int(asset_id),
-            IndicatorValue.indicator_id == int(indicator_id),
-            IndicatorValue.value_num.isnot(None),
-        )
-        .order_by(IndicatorValue.date)
-        .all()
-    )
+    try:
+        t = get_ind_table(indicator_code)
+    except Exception:
+        empty = go.Figure()
+        empty.update_layout(plot_bgcolor=_BG, paper_bgcolor=_BG)
+        return empty, dbc.Alert("Tabla de indicador no disponible.", color="warning")
+
+    rows = s.execute(
+        sa.select(t.c.value)
+        .where((t.c.asset_id == int(asset_id)) & t.c.value.isnot(None))
+        .order_by(t.c.date)
+    ).fetchall()
 
     if not rows:
         empty = go.Figure()
         empty.update_layout(plot_bgcolor=_BG, paper_bgcolor=_BG)
         return empty, dbc.Alert("Sin datos históricos para este indicador.", color="warning")
 
-    series      = pd.Series([r.value_num for r in rows])
+    series      = pd.Series([r[0] for r in rows])
     current_raw = series.iloc[-1]
 
     current_label, distribution = _bin_distribution(series, bin_size)

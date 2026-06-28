@@ -50,32 +50,41 @@ def _status_fund():
 
 
 def _status_snap():
-    from app.models.indicator_value import IndicatorValue
-    from app.models.indicator_definition import IndicatorDefinition
-    from sqlalchemy import func as _func
+    import sqlalchemy as sa
+    from app.models.indicator_store import get_ind_table
     s = get_session()
-    ind = s.query(IndicatorDefinition).filter(
-        IndicatorDefinition.code == "fundamental_pe_ttm"
-    ).first()
-    if ind is None:
+    try:
+        t = get_ind_table("fundamental_pe_ttm")
+        count     = s.execute(sa.select(sa.func.count(sa.distinct(t.c.asset_id)))).scalar() or 0
+        last_date = s.execute(sa.select(sa.func.max(t.c.date))).scalar()
+        last_s    = str(last_date) if last_date else "—"
+        return f"Snapshots fundamentales: {count} activos   Último: {last_s}"
+    except Exception:
         return "Snapshots fundamentales: —"
-    count = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).filter(
-        IndicatorValue.indicator_id == ind.id
-    ).scalar() or 0
-    last_date = s.query(_func.max(IndicatorValue.date)).filter(
-        IndicatorValue.indicator_id == ind.id
-    ).scalar()
-    last_s = str(last_date) if last_date else "—"
-    return f"Snapshots fundamentales: {count} activos   Último: {last_s}"
 
 
 def _status_indicators():
-    from app.models.indicator_value import IndicatorValue
-    from sqlalchemy import func as _func
+    import sqlalchemy as sa
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_store import get_ind_table
     s = get_session()
-    iv_total = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).scalar() or 0
-    iv_dates = s.query(_func.count(_func.distinct(IndicatorValue.date))).scalar() or 0
-    return f"Indicator values: {iv_total} activos  |  {iv_dates} fechas"
+    tech_codes = [
+        r[0] for r in s.query(IndicatorDefinition.code).filter(
+            IndicatorDefinition.keep_history.is_(True),
+            IndicatorDefinition.category != "Fundamental",
+        ).all()
+    ]
+    assets_seen: set = set()
+    dates_seen:  set = set()
+    for code in tech_codes:
+        try:
+            t = get_ind_table(code)
+            for row in s.execute(sa.select(t.c.asset_id, t.c.date)).fetchall():
+                assets_seen.add(row[0])
+                dates_seen.add(row[1])
+        except Exception:
+            continue
+    return f"Indicator values: {len(assets_seen)} activos  |  {len(dates_seen)} fechas"
 
 
 def _status_synth():
@@ -85,45 +94,55 @@ def _status_synth():
 
 
 def _status_fund_backfill():
-    from app.models.indicator_value import IndicatorValue
+    import sqlalchemy as sa
     from app.models.indicator_definition import IndicatorDefinition
-    from sqlalchemy import func as _func
+    from app.models.indicator_store import get_ind_table
     s = get_session()
-    fund_ids = [
-        r[0] for r in s.query(IndicatorDefinition.id).filter(
-            IndicatorDefinition.category == "Fundamental"
+    fund_codes = [
+        r[0] for r in s.query(IndicatorDefinition.code).filter(
+            IndicatorDefinition.category == "Fundamental",
+            IndicatorDefinition.keep_history.is_(True),
         ).all()
     ]
-    if not fund_ids:
+    if not fund_codes:
         return "Sin indicadores fundamentales definidos"
-    rows = s.query(_func.count(IndicatorValue.id)).filter(
-        IndicatorValue.indicator_id.in_(fund_ids)
-    ).scalar() or 0
-    assets = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).filter(
-        IndicatorValue.indicator_id.in_(fund_ids)
-    ).scalar() or 0
-    return f"Historial fundamental: {rows:,} filas  |  {assets} activos con datos"
+    total_rows = 0
+    assets_seen: set = set()
+    for code in fund_codes:
+        try:
+            t = get_ind_table(code)
+            total_rows += s.execute(sa.select(sa.func.count()).select_from(t)).scalar() or 0
+            for row in s.execute(sa.select(t.c.asset_id).distinct()).fetchall():
+                assets_seen.add(row[0])
+        except Exception:
+            continue
+    return f"Historial fundamental: {total_rows:,} filas  |  {len(assets_seen)} activos con datos"
 
 
 def _status_backfill():
-    from app.models.indicator_value import IndicatorValue
+    import sqlalchemy as sa
     from app.models.indicator_definition import IndicatorDefinition
-    from sqlalchemy import func as _func
+    from app.models.indicator_store import get_ind_table
     s = get_session()
-    tech_ids = [
-        r[0] for r in s.query(IndicatorDefinition.id).filter(
-            IndicatorDefinition.category != "Fundamental"
+    tech_codes = [
+        r[0] for r in s.query(IndicatorDefinition.code).filter(
+            IndicatorDefinition.category != "Fundamental",
+            IndicatorDefinition.keep_history.is_(True),
         ).all()
     ]
-    if not tech_ids:
+    if not tech_codes:
         return "Sin indicadores técnicos definidos"
-    rows = s.query(_func.count(IndicatorValue.id)).filter(
-        IndicatorValue.indicator_id.in_(tech_ids)
-    ).scalar() or 0
-    assets = s.query(_func.count(_func.distinct(IndicatorValue.asset_id))).filter(
-        IndicatorValue.indicator_id.in_(tech_ids)
-    ).scalar() or 0
-    return f"Historial técnico: {rows:,} filas  |  {assets} activos con datos"
+    total_rows = 0
+    assets_seen: set = set()
+    for code in tech_codes:
+        try:
+            t = get_ind_table(code)
+            total_rows += s.execute(sa.select(sa.func.count()).select_from(t)).scalar() or 0
+            for row in s.execute(sa.select(t.c.asset_id).distinct()).fetchall():
+                assets_seen.add(row[0])
+        except Exception:
+            continue
+    return f"Historial técnico: {total_rows:,} filas  |  {len(assets_seen)} activos con datos"
 
 
 _STATUS_FN = {

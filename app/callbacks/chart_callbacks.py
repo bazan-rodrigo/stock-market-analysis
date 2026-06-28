@@ -146,11 +146,10 @@ def load_chart_data(asset_id, current_data):
         for row in df.itertuples(index=False)
     ]
 
+    import sqlalchemy as sa
     from app.database import get_session
     from app.models import Asset, RegimeConfig
-    from app.models.indicator_definition import IndicatorDefinition
-    from app.models.indicator_value import IndicatorValue
-    from sqlalchemy import func as _func, and_ as _and
+    from app.models.indicator_store import get_ind_table, CurrentIndicatorValue
 
     db = get_session()
     asset = db.query(Asset).filter(Asset.id == int(asset_id)).first()
@@ -164,59 +163,52 @@ def load_chart_data(asset_id, current_data):
         "M": regime_cfg.ema_period_m if regime_cfg else 20,
     }
 
-    # Leer best_ma y estado actual de régimen/volatilidad desde indicator_values
-    _query_codes = {
-        "trend_daily": ("regime_current", "D"), "trend_weekly": ("regime_current", "W"),
-        "trend_monthly": ("regime_current", "M"),
-        "volatility_daily": ("vol_current", "D"), "volatility_weekly": ("vol_current", "W"),
-        "volatility_monthly": ("vol_current", "M"),
-        "best_sma_d": ("best_ma_num", "D_sma"), "best_ema_d": ("best_ma_num", "D_ema"),
-        "best_sma_w": ("best_ma_num", "W_sma"), "best_ema_w": ("best_ma_num", "W_ema"),
-        "best_sma_m": ("best_ma_num", "M_sma"), "best_ema_m": ("best_ma_num", "M_ema"),
-    }
-    _defs = {
-        d.code: d.id
-        for d in db.query(IndicatorDefinition)
-        .filter(IndicatorDefinition.code.in_(list(_query_codes)))
-        .all()
+    # Leer estado actual de régimen/volatilidad desde tablas ind_*
+    _str_codes = {
+        "trend_daily":       ("regime_current", "D"),
+        "trend_weekly":      ("regime_current", "W"),
+        "trend_monthly":     ("regime_current", "M"),
+        "volatility_daily":  ("vol_current",    "D"),
+        "volatility_weekly": ("vol_current",     "W"),
+        "volatility_monthly":("vol_current",     "M"),
     }
 
     regime_current: dict = {}
     vol_current: dict = {}
     best_ma: dict = {"D": {}, "W": {}, "M": {}}
 
-    if _defs:
-        _max_date_sq = (
-            db.query(
-                IndicatorValue.indicator_id,
-                _func.max(IndicatorValue.date).label("max_date"),
-            )
-            .filter(
-                IndicatorValue.asset_id == int(asset_id),
-                IndicatorValue.indicator_id.in_(list(_defs.values())),
-            )
-            .group_by(IndicatorValue.indicator_id)
-            .subquery()
-        )
-        _iv_rows = (
-            db.query(IndicatorDefinition.code, IndicatorValue.value_str, IndicatorValue.value_num)
-            .join(IndicatorValue, IndicatorValue.indicator_id == IndicatorDefinition.id)
-            .join(_max_date_sq, _and(
-                IndicatorValue.indicator_id == _max_date_sq.c.indicator_id,
-                IndicatorValue.date         == _max_date_sq.c.max_date,
-                IndicatorValue.asset_id     == int(asset_id),
-            ))
-            .all()
-        )
-        for code, val_str, val_num in _iv_rows:
-            group, key = _query_codes[code]
-            if group == "regime_current":
-                regime_current[key] = val_str
-            elif group == "vol_current":
-                vol_current[key] = val_str
-            elif group == "best_ma_num" and val_num is not None:
-                tf, ma_type = key.split("_")
-                best_ma[tf][ma_type] = int(val_num)
+    aid = int(asset_id)
+    for code, (group, key) in _str_codes.items():
+        try:
+            t   = get_ind_table(code)
+            row = db.execute(
+                sa.select(t.c.value)
+                .where(t.c.asset_id == aid)
+                .order_by(t.c.date.desc())
+                .limit(1)
+            ).fetchone()
+            if row is not None:
+                if group == "regime_current":
+                    regime_current[key] = row[0]
+                else:
+                    vol_current[key] = row[0]
+        except Exception:
+            pass
+
+    # best_ma desde current_indicator_values
+    _bm_map = {
+        "best_sma_d": ("D", "sma"), "best_ema_d": ("D", "ema"),
+        "best_sma_w": ("W", "sma"), "best_ema_w": ("W", "ema"),
+        "best_sma_m": ("M", "sma"), "best_ema_m": ("M", "ema"),
+    }
+    bm_rows = db.query(CurrentIndicatorValue.code, CurrentIndicatorValue.value_num).filter(
+        CurrentIndicatorValue.asset_id == aid,
+        CurrentIndicatorValue.code.in_(list(_bm_map.keys())),
+    ).all()
+    for code, val_num in bm_rows:
+        if val_num is not None:
+            tf, ma_type = _bm_map[code]
+            best_ma[tf][ma_type] = int(val_num)
 
     sr_data = sr_svc.compute_sr_for_asset(int(asset_id)) or {}
 

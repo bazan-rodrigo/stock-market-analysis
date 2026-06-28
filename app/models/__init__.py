@@ -24,7 +24,7 @@ from app.models.fundamental_quarterly import FundamentalQuarterly
 from app.models.fundamental_update_log import FundamentalUpdateLog
 from app.models.user import User
 from app.models.indicator_definition import IndicatorDefinition
-from app.models.indicator_value import IndicatorValue
+from app.models.indicator_store import CurrentIndicatorValue
 from app.models.group_indicator_snapshot import GroupIndicatorSnapshot
 from app.models.signal_definition import SignalDefinition
 from app.models.signal_value import SignalValue
@@ -61,7 +61,7 @@ __all__ = [
     "FundamentalQuarterly",
     "FundamentalUpdateLog",
     "IndicatorDefinition",
-    "IndicatorValue",
+    "CurrentIndicatorValue",
     "GroupIndicatorSnapshot",
     "SignalDefinition",
     "SignalValue",

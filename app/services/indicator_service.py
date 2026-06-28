@@ -1,16 +1,16 @@
 """
 Servicio de indicadores.
-Agrega indicator_values por grupo para group_indicator_snapshot.
+Agrega valores de tendencia por grupo para group_indicator_snapshot.
 La escritura individual por activo ocurre en technical_service.compute_and_save_snapshot().
 """
 import logging
+import sqlalchemy as sa
 from collections import defaultdict
 from datetime import date as date_type
 
 from app.database import get_session
 from app.models import Asset, GroupIndicatorSnapshot
-from app.models.indicator_definition import IndicatorDefinition
-from app.models.indicator_value import IndicatorValue
+from app.models.indicator_store import get_ind_table
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,9 @@ _GROUP_DIMS = [
     ("instrument_type_id", "instrument_type"),
 ]
 
+_TREND_CODES = ("trend_daily", "trend_weekly", "trend_monthly")
+_TF_MAP      = {"trend_daily": "d", "trend_weekly": "w", "trend_monthly": "m"}
+
 
 def _avg(lst: list) -> float | None:
     if not lst:
@@ -44,62 +47,55 @@ def _avg(lst: list) -> float | None:
 
 def compute_group_snapshots(snap_date: date_type) -> None:
     """
-    Agrega indicator_values de tendencia por todos los tipos de grupo para snap_date.
-    Calcula regime_score_d/w/m como promedio de los scores de cada activo.
+    Agrega valores de tendencia por grupos para snap_date.
+    Lee directamente desde las tablas ind_trend_*.
     """
     s = get_session()
 
-    # Obtener IDs de los indicadores de tendencia
-    trend_codes = ("trend_daily", "trend_weekly", "trend_monthly")
-    defs = {
-        d.code: d.id
-        for d in s.query(IndicatorDefinition).filter(
-            IndicatorDefinition.code.in_(trend_codes)
+    # Leer las tres tablas de tendencia → {asset_id: {tf: regime_detail}}
+    asset_trends: dict[int, dict[str, str]] = {}
+    for code in _TREND_CODES:
+        tf = _TF_MAP[code]
+        try:
+            t = get_ind_table(code)
+        except Exception:
+            continue
+        rows = s.execute(
+            sa.select(t.c.asset_id, t.c.value).where(t.c.date == snap_date)
+        ).fetchall()
+        for asset_id, value_str in rows:
+            asset_trends.setdefault(asset_id, {})[tf] = value_str
+
+    if not asset_trends:
+        return
+
+    # Leer metadatos de grupo de cada activo
+    asset_meta = {
+        a.id: {
+            "sector":          a.sector_id,
+            "market":          a.market_id,
+            "industry":        a.industry_id,
+            "country":         a.country_id,
+            "instrument_type": a.instrument_type_id,
+        }
+        for a in s.query(
+            Asset.id, Asset.sector_id, Asset.market_id,
+            Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
         ).all()
     }
-    if not defs:
-        return
-
-    trend_ids = list(defs.values())
-
-    # Leer indicator_values de tendencia para snap_date (todos los grupos)
-    iv_rows = (
-        s.query(
-            Asset.sector_id, Asset.market_id, Asset.industry_id,
-            Asset.country_id, Asset.instrument_type_id,
-            IndicatorDefinition.code, IndicatorValue.value_str,
-        )
-        .join(IndicatorValue, IndicatorValue.asset_id == Asset.id)
-        .join(IndicatorDefinition, IndicatorValue.indicator_id == IndicatorDefinition.id)
-        .filter(
-            IndicatorValue.date == snap_date,
-            IndicatorValue.indicator_id.in_(trend_ids),
-        )
-        .all()
-    )
-
-    if not iv_rows:
-        return
 
     groups: dict = defaultdict(lambda: {"d": [], "w": [], "m": []})
 
-    _code_tf = {
-        "trend_daily":   "d",
-        "trend_weekly":  "w",
-        "trend_monthly": "m",
-    }
-
-    for *group_ids, code, value_str in iv_rows:
-        tf = _code_tf.get(code)
-        if tf is None:
-            continue
-        score = _REGIME_SCORE.get(value_str or "")
-        if score is None:
-            continue
-        for (_, group_type), group_id in zip(_GROUP_DIMS, group_ids):
+    for asset_id, trends in asset_trends.items():
+        meta = asset_meta.get(asset_id, {})
+        for _, group_type in _GROUP_DIMS:
+            group_id = meta.get(group_type)
             if group_id is None:
                 continue
-            groups[(group_type, group_id)][tf].append(score)
+            for tf, value_str in trends.items():
+                score = _REGIME_SCORE.get(value_str or "")
+                if score is not None:
+                    groups[(group_type, group_id)][tf].append(score)
 
     for (group_type, group_id), scores in groups.items():
         gsnap = (
@@ -130,11 +126,6 @@ def compute_group_snapshots(snap_date: date_type) -> None:
 
 
 def run_daily(snap_date: date_type | None = None) -> int:
-    """
-    Pipeline diario de indicadores de grupo.
-    Agrega group_indicator_snapshot para snap_date a partir de indicator_values
-    (ya escritos por technical_service.compute_and_save_snapshot por cada activo).
-    """
     from datetime import date as dt_date
 
     if snap_date is None:
