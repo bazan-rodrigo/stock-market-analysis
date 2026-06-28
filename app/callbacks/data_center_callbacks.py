@@ -167,6 +167,10 @@ _STATUS_FN = {
     Input("dc-status-interval",       "n_intervals"),
 )
 def refresh_status(_):
+    try:
+        get_session().rollback()
+    except Exception:
+        pass
     return tuple(fn() for fn in _STATUS_FN.values())
 
 
