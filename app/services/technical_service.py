@@ -35,7 +35,7 @@ _CALC_WORKERS = 4
 # Workers para paralelizar snapshots en recompute_all (un activo por thread)
 _SNAPSHOT_WORKERS = 6
 # Procesos para backfill histórico (evita GIL en cómputo pandas intensivo)
-_BACKFILL_WORKERS = 8
+_BACKFILL_WORKERS = 3
 
 # Score de tendencia por régimen: -100 a +100
 _REGIME_SCORE: dict[str, int] = {
@@ -831,7 +831,8 @@ def backfill_indicator_values(asset_id: int, session=None, *, force: bool = Fals
     }
 
     inserted = 0
-    for snap_date in missing:
+    _BATCH_DATES = 500
+    for i, snap_date in enumerate(missing):
         idx = date_to_idx.get(snap_date)
         if idx is None:
             continue
@@ -854,20 +855,31 @@ def backfill_indicator_values(asset_id: int, session=None, *, force: bool = Fals
             s.add(iv)
             inserted += 1
 
+        if (i + 1) % _BATCH_DATES == 0:
+            s.commit()
+
     s.commit()
     return {"inserted": inserted, "dates_processed": len(missing)}
 
 
 def _backfill_worker(asset_id: int, force: bool = False) -> dict:
+    import time
     from app.database import Session as _DbSession
-    try:
-        s = get_session()
-        return backfill_indicator_values(asset_id, s, force=force)
-    except Exception as exc:
-        logger.warning("Backfill error asset_id=%d: %s", asset_id, exc)
-        return {"inserted": 0, "dates_processed": 0, "error": str(exc)}
-    finally:
-        _DbSession.remove()
+    _MAX_RETRIES = 3
+    for attempt in range(_MAX_RETRIES):
+        try:
+            s = get_session()
+            return backfill_indicator_values(asset_id, s, force=force)
+        except Exception as exc:
+            is_lock_timeout = "1205" in str(exc)
+            if is_lock_timeout and attempt < _MAX_RETRIES - 1:
+                _DbSession.remove()
+                time.sleep(2 ** attempt)
+                continue
+            logger.warning("Backfill error asset_id=%d: %s", asset_id, exc)
+            return {"inserted": 0, "dates_processed": 0, "error": str(exc)}
+        finally:
+            _DbSession.remove()
 
 
 def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> dict:
