@@ -78,6 +78,8 @@ def load_page(_):
     from app.models import Asset
     from app.models.currency import Currency
 
+    from app.models.instrument_type import InstrumentType
+
     s = get_session()
     cur_opts = [
         {"label": f"{c.iso_code} — {c.name}" if c.iso_code else c.name, "value": c.id}
@@ -85,7 +87,11 @@ def load_page(_):
     ]
     asset_opts = [
         {"label": f"{a.ticker} — {a.name}", "value": a.id}
-        for a in s.query(Asset).order_by(Asset.ticker).all()
+        for a in s.query(Asset)
+        .join(Asset.instrument_type)
+        .filter(InstrumentType.name.in_(["CURRENCY", "cryptoCURRENCY"]))
+        .order_by(Asset.ticker)
+        .all()
     ]
     return cur_opts, asset_opts, _build_divisors_table(), _build_stats()
 
