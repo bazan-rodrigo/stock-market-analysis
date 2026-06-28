@@ -14,13 +14,13 @@ _BUILTIN_INDICATORS = [
     {"code": "trend_weekly",             "name": "Trend Weekly",              "category": "Trend",            "type": "str", "scale": "Categorical", "description": "Trend regime in weekly timeframe"},
     {"code": "trend_monthly",            "name": "Trend Monthly",             "category": "Trend",            "type": "str", "scale": "Categorical", "description": "Trend regime in monthly timeframe"},
     # Volatilidad — régimen
-    {"code": "volatility_daily",         "name": "Volatility Daily",          "category": "Volatility",       "type": "str", "scale": "Categorical", "description": "ATR volatility regime in daily timeframe (e.g. high_long, normal_short)"},
-    {"code": "volatility_weekly",        "name": "Volatility Weekly",         "category": "Volatility",       "type": "str", "scale": "Categorical", "description": "ATR volatility regime in weekly timeframe"},
-    {"code": "volatility_monthly",       "name": "Volatility Monthly",        "category": "Volatility",       "type": "str", "scale": "Categorical", "description": "ATR volatility regime in monthly timeframe"},
+    {"code": "volatility_daily",         "name": "Volatility Daily",          "category": "Volatility",       "type": "str", "scale": "Categorical", "full_sample": True,  "description": "ATR volatility regime in daily timeframe (e.g. high_long, normal_short)"},
+    {"code": "volatility_weekly",        "name": "Volatility Weekly",         "category": "Volatility",       "type": "str", "scale": "Categorical", "full_sample": True,  "description": "ATR volatility regime in weekly timeframe"},
+    {"code": "volatility_monthly",       "name": "Volatility Monthly",        "category": "Volatility",       "type": "str", "scale": "Categorical", "full_sample": True,  "description": "ATR volatility regime in monthly timeframe"},
     # Volatilidad — percentil ATR
-    {"code": "atr_percentile_daily",     "name": "ATR Percentile Daily",      "category": "Volatility",       "type": "num", "scale": "0 – 100",     "description": "Percentile of current ATR relative to asset history (daily)"},
-    {"code": "atr_percentile_weekly",    "name": "ATR Percentile Weekly",     "category": "Volatility",       "type": "num", "scale": "0 – 100",     "description": "Percentile of current ATR relative to asset history (weekly)"},
-    {"code": "atr_percentile_monthly",   "name": "ATR Percentile Monthly",    "category": "Volatility",       "type": "num", "scale": "0 – 100",     "description": "Percentile of current ATR relative to asset history (monthly)"},
+    {"code": "atr_percentile_daily",     "name": "ATR Percentile Daily",      "category": "Volatility",       "type": "num", "scale": "0 – 100",     "full_sample": True,  "description": "Percentile of current ATR relative to asset history (daily)"},
+    {"code": "atr_percentile_weekly",    "name": "ATR Percentile Weekly",     "category": "Volatility",       "type": "num", "scale": "0 – 100",     "full_sample": True,  "description": "Percentile of current ATR relative to asset history (weekly)"},
+    {"code": "atr_percentile_monthly",   "name": "ATR Percentile Monthly",    "category": "Volatility",       "type": "num", "scale": "0 – 100",     "full_sample": True,  "description": "Percentile of current ATR relative to asset history (monthly)"},
     # RSI
     {"code": "rsi_daily",                "name": "RSI Daily",                 "category": "Momentum",         "type": "num", "scale": "0 – 100",     "description": "Relative Strength Index 14 periods (daily)"},
     {"code": "rsi_weekly",               "name": "RSI Weekly",                "category": "Momentum",         "type": "num", "scale": "0 – 100",     "description": "RSI 14 periods (weekly)"},
@@ -95,8 +95,9 @@ def ensure_builtin_data() -> None:
             logger.info("Creado indicador integrado: %s", ind["code"])
         else:
             # Actualizar metadatos si cambiaron
-            for field in ("name", "category", "scale", "type", "description", "keep_history"):
-                val = ind.get(field, True if field == "keep_history" else None)
+            for field in ("name", "category", "scale", "type", "description", "keep_history", "full_sample"):
+                default = True if field == "keep_history" else False if field == "full_sample" else None
+                val = ind.get(field, default)
                 if getattr(exists, field) != val:
                     setattr(exists, field, val)
 

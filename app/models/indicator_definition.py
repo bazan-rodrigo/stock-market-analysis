@@ -15,4 +15,5 @@ class IndicatorDefinition(Base):
     scale        = Column(String(50))
     type         = Column(String(3),   nullable=False)  # 'num' | 'str' — usado para formateo en UI
     description  = Column(Text)
-    keep_history = Column(Boolean,     nullable=False, default=True)
+    keep_history = Column(Boolean, nullable=False, default=True)
+    full_sample  = Column(Boolean, nullable=False, default=False)  # requiere force en backfill histórico

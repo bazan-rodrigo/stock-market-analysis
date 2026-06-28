@@ -671,18 +671,6 @@ def _bf_relative_strength_52w(df, df_w, df_m, session, asset_id, **kw):
 
 
 # Mapa código → función de cómputo para backfill
-# Indicadores que usan estadísticos full-sample (percentiles sobre toda la serie).
-# En modo delta los valores existentes quedarían inconsistentes con los nuevos
-# porque la distribución cambia al agregar datos. El backfill los fuerza siempre.
-_FULL_SAMPLE_INDICATORS = frozenset({
-    "atr_percentile_daily",
-    "atr_percentile_weekly",
-    "atr_percentile_monthly",
-    "volatility_daily",
-    "volatility_weekly",
-    "volatility_monthly",
-})
-
 _BACKFILL_FNS: dict[str, callable] = {
     "last_close":               _bf_last_close,
     "return_daily":             _bf_return_daily,
@@ -723,17 +711,22 @@ def backfill_indicator(code: str, *, force: bool = False) -> dict:
     Backfill histórico de un indicador específico para todos los activos.
     Escribe en la tabla ind_{code}.
 
-    Los indicadores full-sample (atr_percentile_*, volatility_*) siempre
-    ejecutan en modo force, independientemente del argumento recibido.
+    Si el indicador tiene full_sample=True en indicator_definitions (usa
+    estadísticos sobre toda la serie, como percentiles de ATR), se fuerza
+    mode force independientemente del argumento recibido.
     """
-    if code in _FULL_SAMPLE_INDICATORS:
-        force = True
-
     compute_fn = _BACKFILL_FNS.get(code)
     if compute_fn is None:
         return {"inserted": 0, "skipped": True, "reason": "no_compute_fn"}
 
-    s          = get_session()
+    s = get_session()
+
+    # Si el indicador usa estadísticos full-sample, forzar recálculo completo
+    # independientemente de lo que pida el caller (lógica en indicator_definitions)
+    defn = s.query(IndicatorDefinition).filter(IndicatorDefinition.code == code).first()
+    if defn and defn.full_sample:
+        force = True
+
     t          = get_ind_table(code)
     regime_cfg = _get_regime_config()
     vol_cfg    = _get_volatility_config()
