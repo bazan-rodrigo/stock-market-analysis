@@ -786,6 +786,28 @@ def compute_and_save_snapshot(
     except Exception as exc:
         logger.warning("SR compute falló para asset_id=%d: %s", asset_id, exc)
 
+    # --- Relative Strength 52W vs benchmark ---
+    ind_rs_52w = None
+    bm_id = s.query(Asset.benchmark_id).filter(Asset.id == asset_id).scalar()
+    if bm_id:
+        bm_last = (
+            s.query(Price.close)
+            .filter(Price.asset_id == bm_id)
+            .order_by(Price.date.desc())
+            .first()
+        )
+        bm_ref = (
+            s.query(Price.close)
+            .filter(Price.asset_id == bm_id, Price.date <= w52_start)
+            .order_by(Price.date.desc())
+            .first()
+        )
+        if bm_last and bm_ref:
+            bm_return_52w = _pct_change(float(bm_last[0]), float(bm_ref[0]))
+            ret_52w       = _pct_change(last_close, ref_52w)
+            if bm_return_52w is not None and ret_52w is not None:
+                ind_rs_52w = round(ret_52w - bm_return_52w, 2)
+
     # --- Escribir indicator_values (serie temporal EAV + best_ma vigente) ---
     _write_indicator_values(s, asset_id, today, {
         "best_sma_d": best_sma_d,
@@ -824,6 +846,7 @@ def compute_and_save_snapshot(
         "resistance_pct":           ind_resist_pct,
         "support_pct":              ind_support_pct,
         "last_close":               last_close,
+        "relative_strength_52w":    ind_rs_52w,
     })
 
 
