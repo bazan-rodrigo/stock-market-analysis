@@ -11,6 +11,13 @@ _ROLE_OPTS = [
     {"label": "Denominador", "value": "denominator"},
 ]
 
+_TYPE_LABELS = {
+    "ratio":        "Ratio",
+    "weighted_avg": "Prom. ponderado",
+    "weighted_sum": "Suma ponderada",
+    "index":        "Índice base",
+}
+
 
 # ── Cachear opciones de activos ───────────────────────────────────────────────
 
@@ -49,112 +56,55 @@ def update_help(ft):
 # ── Tabla principal ───────────────────────────────────────────────────────────
 
 @callback(
-    Output("syn-table-container",  "children"),
-    Output("syn-btn-edit-sel",     "disabled"),
-    Output("syn-btn-calc-sel",     "disabled"),
-    Output("syn-btn-full-sel",     "disabled"),
-    Output("syn-btn-delete-sel",   "disabled"),
-    Output("syn-formula-ids",      "data"),
-    Input("syn-alert",             "is_open"),
-    Input("syn-modal",             "is_open"),
-    Input("syn-selected-ids",      "data"),
+    Output("syn-datatable",  "data"),
+    Output("syn-datatable",  "selected_rows"),
+    Output("syn-formula-ids", "data"),
+    Input("syn-alert",        "is_open"),
+    Input("syn-modal",        "is_open"),
 )
-def load_table(_a, _m, selected_ids):
-    selected_ids = selected_ids or []
+def load_datatable(_a, _m):
     formulas = svc.get_all_formulas()
+    data = [
+        {
+            "ticker":  f.asset.ticker if f.asset else "—",
+            "name":    f.asset.name   if f.asset else "—",
+            "type":    _TYPE_LABELS.get(f.formula_type, f.formula_type),
+            "formula": svc.formula_preview_str(f),
+        }
+        for f in formulas
+    ]
     formula_ids = [f.id for f in formulas]
-
-    n_sel = len(selected_ids)
-    btn_edit    = (n_sel != 1)
-    btn_calc    = (n_sel == 0)
-    btn_full    = (n_sel == 0)
-    btn_delete  = (n_sel == 0)
-
-    if not formulas:
-        empty = html.P("Sin activos sintéticos configurados.",
-                       className="text-muted mt-2", style={"fontSize": "0.82rem"})
-        return empty, btn_edit, btn_calc, btn_full, btn_delete, formula_ids
-
-    _TYPE_LABELS = {
-        "ratio":        "Ratio",
-        "weighted_avg": "Prom. ponderado",
-        "weighted_sum": "Suma ponderada",
-        "index":        "Índice base",
-    }
-    rows = []
-    for f in formulas:
-        is_sel = f.id in selected_ids
-        rows.append(html.Tr([
-            html.Td(
-                dbc.Button(
-                    html.I(className="fa fa-check-square" if is_sel else "fa fa-square-o"),
-                    id={"type": "syn-check", "index": f.id},
-                    color="link", size="sm",
-                    style={"color": "#38bdf8" if is_sel else "#6b7280",
-                           "padding": "2px 4px", "lineHeight": 1},
-                ),
-                style={**_td, "width": "32px", "padding": "2px"},
-            ),
-            html.Td(f.asset.ticker if f.asset else "—", style=_td),
-            html.Td(f.asset.name   if f.asset else "—",
-                    style={**_td, "color": "#9ca3af", "fontSize": "0.76rem"}),
-            html.Td(_TYPE_LABELS.get(f.formula_type, f.formula_type), style=_td),
-            html.Td(svc.formula_preview_str(f),
-                    style={**_td, "fontFamily": "monospace", "fontSize": "0.74rem",
-                           "color": "#94a3b8", "maxWidth": "280px",
-                           "overflow": "hidden", "textOverflow": "ellipsis",
-                           "whiteSpace": "nowrap"}),
-        ]))
-
-    table = html.Table([
-        html.Thead(html.Tr([
-            html.Th("",         style={**_th, "width": "32px", "padding": "5px 2px"}),
-            html.Th("Ticker",   style=_th),
-            html.Th("Nombre",   style=_th),
-            html.Th("Tipo",     style=_th),
-            html.Th("Fórmula",  style=_th),
-        ])),
-        html.Tbody(rows),
-    ], style={"width": "100%", "borderCollapse": "collapse"})
-
-    return table, btn_edit, btn_calc, btn_full, btn_delete, formula_ids
+    return data, [], formula_ids
 
 
-# ── Selección de filas ────────────────────────────────────────────────────────
+# ── Botones de acción según selección ────────────────────────────────────────
 
 @callback(
-    Output("syn-selected-ids", "data", allow_duplicate=True),
-    Input({"type": "syn-check", "index": ALL}, "n_clicks"),
-    State("syn-selected-ids", "data"),
-    prevent_initial_call=True,
+    Output("syn-btn-edit-sel",   "disabled"),
+    Output("syn-btn-calc-sel",   "disabled"),
+    Output("syn-btn-full-sel",   "disabled"),
+    Output("syn-btn-delete-sel", "disabled"),
+    Input("syn-datatable",       "selected_rows"),
 )
-def toggle_checkbox(check_clicks, selected_ids):
-    if not any(n for n in check_clicks if n):
-        return no_update
-    trigger = ctx.triggered_id
-    if not isinstance(trigger, dict):
-        return no_update
-    fid = trigger["index"]
-    selected = list(selected_ids or [])
-    if fid in selected:
-        selected.remove(fid)
-    else:
-        selected.append(fid)
-    return selected
+def update_action_buttons(selected_rows):
+    n = len(selected_rows or [])
+    return (n != 1), (n == 0), (n == 0), (n == 0)
 
+
+# ── Selección masiva ──────────────────────────────────────────────────────────
 
 @callback(
-    Output("syn-selected-ids", "data", allow_duplicate=True),
+    Output("syn-datatable",  "selected_rows", allow_duplicate=True),
     Input("syn-btn-select-all", "n_clicks"),
     State("syn-formula-ids",    "data"),
     prevent_initial_call=True,
 )
 def select_all(_, formula_ids):
-    return formula_ids or []
+    return list(range(len(formula_ids or [])))
 
 
 @callback(
-    Output("syn-selected-ids", "data", allow_duplicate=True),
+    Output("syn-datatable",      "selected_rows", allow_duplicate=True),
     Input("syn-btn-deselect-all", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -177,11 +127,12 @@ def deselect_all(_):
     Input("syn-btn-add",       "n_clicks"),
     Input("syn-btn-cancel",    "n_clicks"),
     Input("syn-btn-edit-sel",  "n_clicks"),
-    State("syn-selected-ids",  "data"),
+    State("syn-datatable",     "selected_rows"),
+    State("syn-formula-ids",   "data"),
     State("syn-editing-id",    "data"),
     prevent_initial_call=True,
 )
-def toggle_modal(n_add, n_cancel, n_edit_sel, selected_ids, editing_id):
+def toggle_modal(n_add, n_cancel, n_edit_sel, selected_rows, formula_ids, editing_id):
     trigger = ctx.triggered_id
     _empty = {"uids": [], "counter": 0, "initial_values": {}}
     _noup9 = (no_update,) * 9
@@ -193,9 +144,10 @@ def toggle_modal(n_add, n_cancel, n_edit_sel, selected_ids, editing_id):
         return True, "Nueva fórmula sintética", None, None, 100, None, None, _empty, False
 
     if trigger == "syn-btn-edit-sel":
-        if not selected_ids or len(selected_ids) != 1:
+        if not selected_rows or len(selected_rows) != 1:
             return *_noup9,
-        f = next((x for x in svc.get_all_formulas() if x.id == selected_ids[0]), None)
+        fid = (formula_ids or [])[selected_rows[0]]
+        f = next((x for x in svc.get_all_formulas() if x.id == fid), None)
         if f is None:
             return *_noup9,
         uids, ivs = [], {}
@@ -299,7 +251,6 @@ def update_comp_store(add_clicks, remove_clicks, store, assets, roles, weights):
     uids    = store.get("uids", [])
     counter = store.get("counter", 0)
 
-    # Sincronizar valores actuales al store antes de añadir/quitar
     ivs = {}
     for i, uid in enumerate(uids):
         ivs[str(uid)] = {
@@ -394,7 +345,7 @@ def update_preview(uid_store, ft, dest_id, base_val, base_date,
     Output("syn-modal",        "is_open",  allow_duplicate=True),
     Output("syn-modal-error",  "children"),
     Output("syn-modal-error",  "is_open"),
-    Output("syn-selected-ids", "data",    allow_duplicate=True),
+    Output("syn-datatable",    "selected_rows", allow_duplicate=True),
     Input("syn-btn-save",  "n_clicks"),
     State("syn-uid-store",                             "data"),
     State({"type": "syn-comp-asset",  "index": ALL},  "value"),
@@ -416,7 +367,6 @@ def save(_, uid_store, assets, roles, weights, ft, dest_id,
     if not dest_id:
         return *_no_close[:4], "Seleccioná el activo destino.", True, no_update
 
-    # Evitar pisar una fórmula existente al crear nueva
     if not editing_id:
         existing = svc.get_formula_by_asset(dest_id)
         if existing:
@@ -463,12 +413,14 @@ def save(_, uid_store, assets, roles, weights, ft, dest_id,
     Output("syn-alert",        "children",  allow_duplicate=True),
     Output("syn-alert",        "is_open",   allow_duplicate=True),
     Output("syn-alert",        "color",     allow_duplicate=True),
-    Output("syn-selected-ids", "data",      allow_duplicate=True),
+    Output("syn-datatable",    "selected_rows", allow_duplicate=True),
     Input("syn-btn-delete-sel", "n_clicks"),
-    State("syn-selected-ids",   "data"),
+    State("syn-datatable",      "selected_rows"),
+    State("syn-formula-ids",    "data"),
     prevent_initial_call=True,
 )
-def delete_selected(_, selected_ids):
+def delete_selected(_, selected_rows, formula_ids):
+    selected_ids = [(formula_ids or [])[i] for i in (selected_rows or [])]
     if not selected_ids:
         return no_update, no_update, no_update, no_update
     errors = []
@@ -491,10 +443,12 @@ def delete_selected(_, selected_ids):
     Output("syn-alert",       "color",     allow_duplicate=True),
     Output("syn-calc-status", "children",  allow_duplicate=True),
     Input("syn-btn-calc-sel", "n_clicks"),
-    State("syn-selected-ids", "data"),
+    State("syn-datatable",    "selected_rows"),
+    State("syn-formula-ids",  "data"),
     prevent_initial_call=True,
 )
-def calc_delta_selected(_, selected_ids):
+def calc_delta_selected(_, selected_rows, formula_ids):
+    selected_ids = [(formula_ids or [])[i] for i in (selected_rows or [])]
     if not selected_ids:
         return no_update, no_update, no_update, no_update
     formulas = [x for x in svc.get_all_formulas() if x.id in selected_ids]
@@ -517,10 +471,12 @@ def calc_delta_selected(_, selected_ids):
     Output("syn-alert",       "color",     allow_duplicate=True),
     Output("syn-calc-status", "children",  allow_duplicate=True),
     Input("syn-btn-full-sel", "n_clicks"),
-    State("syn-selected-ids", "data"),
+    State("syn-datatable",    "selected_rows"),
+    State("syn-formula-ids",  "data"),
     prevent_initial_call=True,
 )
-def calc_full_selected(_, selected_ids):
+def calc_full_selected(_, selected_rows, formula_ids):
+    selected_ids = [(formula_ids or [])[i] for i in (selected_rows or [])]
     if not selected_ids:
         return no_update, no_update, no_update, no_update
     formulas = [x for x in svc.get_all_formulas() if x.id in selected_ids]

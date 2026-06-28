@@ -1,6 +1,9 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import dcc, html
+from dash import dash_table, dcc, html
+
+from app.components.table_styles import CELL, DATA, HEADER, SELECTED_ROW
+from app.components.ui_constants import TH as _th, TD as _td, CARD_STYLE
 
 _FORMULA_TYPES = [
     {"label": "Ratio (cociente ponderado)",     "value": "ratio"},
@@ -98,9 +101,6 @@ def _help_card(ft: str | None):
                "borderLeft": f"3px solid {c}"}, className="mb-3")
 
 
-from app.components.ui_constants import TH as _th, TD as _td, CARD_STYLE
-
-
 def layout(**kwargs):
     from flask_login import current_user
     if not current_user.is_authenticated or not current_user.is_admin:
@@ -176,7 +176,6 @@ def layout(**kwargs):
         dcc.Store(id="syn-editing-id",   data=None),
         dcc.Store(id="syn-uid-store",    data={"uids": [], "counter": 0, "initial_values": {}}),
         dcc.Store(id="syn-all-opts",     data=[]),
-        dcc.Store(id="syn-selected-ids", data=[]),
         dcc.Store(id="syn-formula-ids",  data=[]),
         dcc.Download(id="syn-download"),
 
@@ -252,7 +251,33 @@ def layout(**kwargs):
 
         dbc.Alert(id="syn-alert", is_open=False, dismissable=True, className="mb-3"),
         html.Div(id="syn-import-results", className="mb-3"),
-        html.Div(id="syn-table-container"),
+
+        dash_table.DataTable(
+            id="syn-datatable",
+            columns=[
+                {"name": "Ticker",  "id": "ticker"},
+                {"name": "Nombre",  "id": "name"},
+                {"name": "Tipo",    "id": "type"},
+                {"name": "Fórmula", "id": "formula"},
+            ],
+            data=[],
+            row_selectable="multi",
+            selected_rows=[],
+            style_table={"overflowX": "auto"},
+            style_header=HEADER,
+            style_data=DATA,
+            style_cell=CELL,
+            style_data_conditional=SELECTED_ROW,
+            style_cell_conditional=[
+                {"if": {"column_id": "ticker"}, "width": "90px",  "minWidth": "80px"},
+                {"if": {"column_id": "name"},   "width": "200px", "minWidth": "140px"},
+                {"if": {"column_id": "type"},   "width": "130px", "minWidth": "110px"},
+                {"if": {"column_id": "formula"},
+                 "fontFamily": "monospace", "fontSize": "0.74rem", "color": "#94a3b8",
+                 "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
+            ],
+            page_size=50,
+        ),
 
         modal,
     ], style={"padding": "0 8px"})
