@@ -7,7 +7,7 @@ import bisect
 import json
 import logging
 import math
-from concurrent.futures import ThreadPoolExecutor as _TPE
+from concurrent.futures import ProcessPoolExecutor as _PPE, ThreadPoolExecutor as _TPE
 from datetime import date, datetime
 
 import numpy as np
@@ -34,6 +34,8 @@ _QUICK_DAYS = 1500
 _CALC_WORKERS = 4
 # Workers para paralelizar snapshots en recompute_all (un activo por thread)
 _SNAPSHOT_WORKERS = 6
+# Procesos para backfill histórico (evita GIL en cómputo pandas intensivo)
+_BACKFILL_WORKERS = 8
 
 # Score de tendencia por régimen: -100 a +100
 _REGIME_SCORE: dict[str, int] = {
@@ -886,7 +888,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
     inserted  = 0
     errors: list[dict] = []
 
-    with _TPE(max_workers=_SNAPSHOT_WORKERS) as pool:
+    with _PPE(max_workers=_BACKFILL_WORKERS) as pool:
         futures = {pool.submit(_backfill_worker, aid, force): aid for aid in asset_ids}
         for future in as_completed(futures):
             done += 1

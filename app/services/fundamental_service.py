@@ -1,7 +1,7 @@
 import bisect
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -18,8 +18,9 @@ _fund_ind_cache: dict[str, int] = {}  # code → indicator_id
 
 logger = logging.getLogger(__name__)
 
-_STALE_DAYS    = 90  # re-fetch solo si los datos tienen más de 90 días (datos trimestrales)
-_UPDATE_WORKERS = 4  # workers paralelos para fetch de fundamentales
+_STALE_DAYS      = 90  # re-fetch solo si los datos tienen más de 90 días (datos trimestrales)
+_UPDATE_WORKERS  = 4   # workers paralelos para fetch de fundamentales
+_BACKFILL_WORKERS = 8  # procesos para backfill histórico (evita GIL en cómputo intensivo)
 
 # Indicadores fundamentales que cambian con el precio (se guardan diariamente)
 _FUND_DAILY_CODES = frozenset({
@@ -739,7 +740,7 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) ->
     inserted = 0
     errors: list[dict] = []
 
-    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
+    with ProcessPoolExecutor(max_workers=_BACKFILL_WORKERS) as pool:
         futures = {pool.submit(_backfill_fund_worker, aid, force): aid for aid in asset_ids}
         for future in as_completed(futures):
             done += 1
