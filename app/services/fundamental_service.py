@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 _STALE_DAYS      = 90
 _UPDATE_WORKERS  = 4
-_BACKFILL_WORKERS = 8
+_BACKFILL_WORKERS = 4
 
 _FUND_DAILY_CODES = frozenset({
     "fundamental_pe_ttm",

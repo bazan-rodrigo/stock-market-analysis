@@ -34,7 +34,7 @@ _CALC_WORKERS = 4
 # Workers para paralelizar snapshots en recompute_all (un activo por thread)
 _SNAPSHOT_WORKERS = 6
 # Workers para backfill histórico — se adapta dinámicamente al nº de indicadores
-_BACKFILL_WORKERS = 8
+_BACKFILL_WORKERS = 4
 
 # Score de tendencia por régimen
 _REGIME_SCORE: dict[str, int] = {
