@@ -200,6 +200,47 @@ def layout(**kwargs):
         ),
     ])
 
+    distribution_tab = dbc.Tab(
+        label="Posicionamiento Histórico",
+        tab_id="tab-distribution",
+        children=[
+            dbc.Row([
+                dbc.Col(
+                    dcc.Dropdown(
+                        id="dist-indicator-select",
+                        options=[],
+                        placeholder="Seleccioná un indicador...",
+                        searchable=True,
+                        clearable=False,
+                        style={"fontSize": "0.8rem", "minWidth": "280px"},
+                    ),
+                    width="auto",
+                ),
+                dbc.Col(
+                    [
+                        html.Small("Ancho de bin", style={"color": "#9ca3af", "whiteSpace": "nowrap"}),
+                        dbc.Input(
+                            id="dist-bin-size",
+                            type="number", value=5, min=0.01, max=1000, step=0.01,
+                            style={"width": "80px", "fontSize": "0.8rem"},
+                        ),
+                    ],
+                    width="auto",
+                    className="d-flex align-items-center gap-2",
+                ),
+            ], className="mb-2 mt-2 g-2 align-items-center"),
+            html.Div(id="dist-stats", className="mb-2"),
+            dcc.Loading(
+                dcc.Graph(
+                    id="dist-graph",
+                    config={"displayModeBar": False},
+                    style={"height": "450px"},
+                ),
+                type="circle", color="#dee2e6",
+            ),
+        ],
+    )
+
     return html.Div([
         # ── Selector de activo compartido ─────────────────────────────────
         dbc.Row([
@@ -218,7 +259,7 @@ def layout(**kwargs):
 
         # ── Tabs ──────────────────────────────────────────────────────────
         dbc.Tabs(
-            [chart_tab, fundamentals_tab],
+            [chart_tab, fundamentals_tab, distribution_tab],
             id="analysis-tabs",
             active_tab="tab-chart",
         ),
