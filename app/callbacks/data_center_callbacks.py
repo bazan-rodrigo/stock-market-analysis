@@ -1,4 +1,5 @@
 import threading
+from datetime import datetime as _dt
 
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, html, no_update
@@ -18,8 +19,13 @@ def _blank():
     return {
         "running": False, "current": 0, "total": 0,
         "label": "", "msg": "", "error": False, "done": False,
-        "workers": {},   # code -> (assets_done, assets_total)
+        "start_time": None, "end_time": None,
+        "workers": {},   # code -> {"dn", "tn", "start", "end"}
     }
+
+
+def _fmt_time(dt) -> str:
+    return dt.strftime("%H:%M:%S") if dt else "—"
 
 _state = {op: _blank() for op in _OPS}
 
@@ -197,32 +203,38 @@ def refresh_status(_):
 
 def _run(op_id, service_fn):
     st = _state[op_id]
-    st.update(_blank(), running=True, msg="Iniciando...")
+    st.update(_blank(), running=True, msg="Iniciando...", start_time=_dt.now())
 
     def _cb(cur, tot, label=""):
         st["current"] = cur
         st["total"]   = tot
         st["label"]   = label
         if label and label.startswith("__init__:"):
-            # Pre-pobla todos los workers antes de que arranquen los threads
             try:
                 _, n_str, codes_str = label.split(":", 2)
                 n = int(n_str)
                 for c in codes_str.split(","):
                     if c:
-                        st["workers"].setdefault(c, (0, n))
+                        st["workers"].setdefault(
+                            c, {"dn": 0, "tn": n, "start": None, "end": None})
             except Exception:
                 pass
             st["msg"] = "calculando..."
             return
-        # Parsea "code: N/M" para actualizar progreso por worker
         if label and ": " in label:
             try:
                 sep  = label.index(": ")
                 code = label[:sep].strip()
-                prog = label[sep + 2:].strip().split()[0]   # "234/560"
-                dn, tn = prog.split("/")
-                st["workers"][code] = (int(dn), int(tn))
+                prog = label[sep + 2:].strip().split()[0]
+                dn, tn = int(prog.split("/")[0]), int(prog.split("/")[1])
+                w = st["workers"].setdefault(
+                    code, {"dn": 0, "tn": tn, "start": None, "end": None})
+                if dn == 1 and w["start"] is None:
+                    w["start"] = _dt.now()
+                w["dn"] = dn
+                w["tn"] = tn
+                if dn >= tn and w["end"] is None:
+                    w["end"] = _dt.now()
             except Exception:
                 pass
         st["msg"] = f"{cur} / {tot}" + (f"  —  {label}" if label else "")
@@ -240,8 +252,9 @@ def _run(op_id, service_fn):
         st["msg"]   = f"Error: {exc}"
         st["error"] = True
     finally:
-        st["running"] = False
-        st["done"]    = True
+        st["running"]  = False
+        st["done"]     = True
+        st["end_time"] = _dt.now()
         _ScopedSession.remove()
 
 
@@ -327,38 +340,51 @@ def _register(op_id):
                      else "#4ade80" if done
                      else "#9ca3af")
 
+        t_start = _fmt_time(st.get("start_time"))
+        t_end   = _fmt_time(st.get("end_time"))
+
         workers = st.get("workers", {})
-        if workers and st["running"]:
-            done_cnt = sum(1 for dn, tn in workers.values() if dn >= tn)
-            # pct usa current/total (ya calculado arriba): avanza con cada activo,
-            # no solo cuando completa un indicador entero
+        if workers and (st["running"] or st["done"]):
+            done_cnt = sum(1 for w in workers.values() if w["dn"] >= w["tn"])
             rows = []
-            for code, (dn, tn) in sorted(workers.items(), key=lambda x: x[1][0], reverse=True):
+            for code, w in sorted(workers.items(),
+                                   key=lambda x: x[1]["dn"], reverse=True):
+                dn, tn = w["dn"], w["tn"]
+                ws = _fmt_time(w["start"])
+                we = _fmt_time(w["end"]) if w["end"] else ""
                 if dn >= tn:
                     color = "#4ade80"
-                    text  = f"✓ {code}"
+                    text  = f"✓ {code}   {ws} → {we}"
                 elif dn > 0:
                     color = "#d1d5db"
-                    text  = f"{code}: {dn}/{tn}"
+                    text  = f"{code}: {dn}/{tn}   desde {ws}"
                 else:
                     color = "#4b5563"
                     text  = code
                 rows.append(html.Div(text, style={"fontSize": "0.72rem",
                                                    "color": color,
-                                                   "lineHeight": "1.6"}))
+                                                   "lineHeight": "1.6",
+                                                   "fontVariantNumeric": "tabular-nums"}))
+            if done:
+                overall = f"Completado: {done_cnt}/{len(workers)} OK  •  {t_start} → {t_end}"
+            else:
+                overall = (f"{st['current']} / {st['total']}  •  "
+                           f"{done_cnt} / {len(workers)} indicadores listos  •  "
+                           f"{t_start} → {t_end}")
             msg_children = [
-                html.Div(
-                    f"{st['current']} / {st['total']}  •  "
-                    f"{done_cnt} / {len(workers)} indicadores listos",
-                    style={"fontSize": "0.73rem", "color": "#9ca3af", "marginBottom": "4px"},
-                ),
+                html.Div(overall, style={"fontSize": "0.73rem", "color": "#9ca3af",
+                                         "marginBottom": "4px",
+                                         "fontVariantNumeric": "tabular-nums"}),
                 html.Div(rows),
             ]
             msg_style = {"minHeight": "16px", "marginBottom": "10px"}
         else:
-            msg_children = st["msg"]
+            overall_times = (f"  •  {t_start} → {t_end}"
+                             if st.get("start_time") else "")
+            msg_children = str(st["msg"]) + overall_times if st.get("start_time") else st["msg"]
             msg_style    = {"fontSize": "0.74rem", "minHeight": "16px",
-                            "marginBottom": "10px", "color": msg_color}
+                            "marginBottom": "10px", "color": msg_color,
+                            "fontVariantNumeric": "tabular-nums"}
 
         return (
             pct if st["running"] else (100 if done else 0),
