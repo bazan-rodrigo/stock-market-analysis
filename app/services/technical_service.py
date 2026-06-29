@@ -774,10 +774,10 @@ _SNAPSHOT_LOOKBACK_DAYS = 1500  # ~6 años; suficiente para RSI, ATR, zonas, RS5
 def _load_snapshot_prices(s) -> tuple[dict, dict, dict]:
     """Carga precios para snapshot.
 
-    Retorna (price_cache, ath_cache, drawdown_cache) donde:
-    - price_cache:     {asset_id: df} con close/high/low de los últimos 1500 días
-    - ath_cache:       {asset_id: float} con el máximo histórico de close
-    - drawdown_cache:  {asset_id: {1: pct, 2: pct, 3: pct}} 3 peores drawdowns históricos
+    Retorna (price_cache, ath_cache, close_cache) donde:
+    - price_cache:  {asset_id: df} con close/high/low de los últimos 1500 días
+    - ath_cache:    {asset_id: float} con el máximo histórico de close
+    - close_cache:  {asset_id: np.ndarray} con cierre completo histórico (para drawdowns)
     """
     from sqlalchemy import text as _text
 
@@ -791,44 +791,28 @@ def _load_snapshot_prices(s) -> tuple[dict, dict, dict]:
         ).fetchall()
         ath_cache = {aid: float(ath) for aid, ath in ath_rows if ath is not None}
 
-        # Precios recientes: fetchall + DataFrame evita el overhead row-by-row de pd.read_sql
+        # Precios recientes
         price_rows = conn.execute(
             _text(f"SELECT asset_id, date, close, high, low FROM prices"
                   f" WHERE date >= '{cutoff}' ORDER BY asset_id, date")
         ).fetchall()
 
-        # 3 peores drawdowns por activo via window functions (retorna ~3 filas/activo)
-        dd_rows = conn.execute(_text("""
-            SELECT asset_id, dd_pct, rn FROM (
-                SELECT asset_id, dd_pct,
-                    ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY dd_pct) AS rn
-                FROM (
-                    SELECT asset_id,
-                        (close
-                         - MAX(close) OVER (PARTITION BY asset_id ORDER BY date
-                                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW))
-                        / NULLIF(
-                            MAX(close) OVER (PARTITION BY asset_id ORDER BY date
-                                             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW),
-                            0) * 100 AS dd_pct
-                    FROM prices
-                    WHERE close IS NOT NULL
-                ) inner_t
-            ) ranked
-            WHERE rn <= 3
-            ORDER BY asset_id, rn
-        """)).fetchall()
+        # Cierre completo histórico para drawdowns (2 columnas, mysqlclient lo hace rápido)
+        close_rows = conn.execute(
+            _text("SELECT asset_id, close FROM prices"
+                  " WHERE close IS NOT NULL ORDER BY asset_id, date")
+        ).fetchall()
 
     df = pd.DataFrame(price_rows, columns=["asset_id", "date", "close", "high", "low"])
     price_cache = {int(aid): sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
 
-    drawdown_cache: dict[int, dict[int, float | None]] = {}
-    for aid, dd_pct, rn in dd_rows:
-        drawdown_cache.setdefault(int(aid), {})[int(rn)] = (
-            float(dd_pct) if dd_pct is not None else None
-        )
+    df_c = pd.DataFrame(close_rows, columns=["asset_id", "close"])
+    close_cache = {
+        int(aid): sub["close"].to_numpy(dtype=float)
+        for aid, sub in df_c.groupby("asset_id")
+    }
 
-    return price_cache, ath_cache, drawdown_cache
+    return price_cache, ath_cache, close_cache
 
 
 def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
@@ -1320,26 +1304,23 @@ def _ss_drawdown_current(df, asset_id=None, ath_cache=None, **kw):
     return round((last - ath) / ath * 100, 2) if ath else 0.0
 
 
-def _ss_drawdown_max1(df, asset_id=None, drawdown_cache=None, **kw):
-    if drawdown_cache is not None and asset_id is not None:
-        return drawdown_cache.get(int(asset_id), {}).get(1)
-    c = pd.Series(df["close"].to_numpy(dtype=float))
+def _ss_drawdown_max1(df, asset_id=None, close_cache=None, **kw):
+    c = pd.Series(close_cache.get(int(asset_id)) if (close_cache and asset_id is not None)
+                  else df["close"].to_numpy(dtype=float))
     vals = ((c - c.cummax()) / c.cummax() * 100).nsmallest(3).values
     return round(float(vals[0]), 2) if len(vals) >= 1 else None
 
 
-def _ss_drawdown_max2(df, asset_id=None, drawdown_cache=None, **kw):
-    if drawdown_cache is not None and asset_id is not None:
-        return drawdown_cache.get(int(asset_id), {}).get(2)
-    c = pd.Series(df["close"].to_numpy(dtype=float))
+def _ss_drawdown_max2(df, asset_id=None, close_cache=None, **kw):
+    c = pd.Series(close_cache.get(int(asset_id)) if (close_cache and asset_id is not None)
+                  else df["close"].to_numpy(dtype=float))
     vals = ((c - c.cummax()) / c.cummax() * 100).nsmallest(3).values
     return round(float(vals[1]), 2) if len(vals) >= 2 else None
 
 
-def _ss_drawdown_max3(df, asset_id=None, drawdown_cache=None, **kw):
-    if drawdown_cache is not None and asset_id is not None:
-        return drawdown_cache.get(int(asset_id), {}).get(3)
-    c = pd.Series(df["close"].to_numpy(dtype=float))
+def _ss_drawdown_max3(df, asset_id=None, close_cache=None, **kw):
+    c = pd.Series(close_cache.get(int(asset_id)) if (close_cache and asset_id is not None)
+                  else df["close"].to_numpy(dtype=float))
     vals = ((c - c.cummax()) / c.cummax() * 100).nsmallest(3).values
     return round(float(vals[2]), 2) if len(vals) >= 3 else None
 
@@ -1469,7 +1450,7 @@ def _snapshot_indicator(code: str, asset_ids: list,
                         *, price_cache: dict, df_w_cache: dict, df_m_cache: dict,
                         best_sma_cache: dict,
                         benchmark_cache: dict, ath_cache: dict,
-                        drawdown_cache: dict,
+                        close_cache: dict,
                         regime_cfg, vol_cfg, sr_cfg,
                         asset_tick=None) -> None:
     s = get_session()
@@ -1494,7 +1475,7 @@ def _snapshot_indicator(code: str, asset_ids: list,
                 session=s, asset_id=asset_id,
                 price_cache=price_cache, best_sma_cache=best_sma_cache,
                 benchmark_cache=benchmark_cache, ath_cache=ath_cache,
-                drawdown_cache=drawdown_cache,
+                close_cache=close_cache,
                 sr_cfg=sr_cfg,
             )
             if val is not None and pd.notna(val):
@@ -1516,7 +1497,7 @@ def _snapshot_indicator(code: str, asset_ids: list,
 def _snapshot_indicator_worker(code, asset_ids,
                                price_cache, df_w_cache, df_m_cache,
                                best_sma_cache, benchmark_cache,
-                               ath_cache, drawdown_cache, regime_cfg, vol_cfg, sr_cfg, asset_tick):
+                               ath_cache, close_cache, regime_cfg, vol_cfg, sr_cfg, asset_tick):
     from app.database import Session as _DbSession
     try:
         _snapshot_indicator(
@@ -1524,7 +1505,7 @@ def _snapshot_indicator_worker(code, asset_ids,
             price_cache=price_cache, df_w_cache=df_w_cache, df_m_cache=df_m_cache,
             best_sma_cache=best_sma_cache,
             benchmark_cache=benchmark_cache, ath_cache=ath_cache,
-            drawdown_cache=drawdown_cache,
+            close_cache=close_cache,
             regime_cfg=regime_cfg, vol_cfg=vol_cfg, sr_cfg=sr_cfg,
             asset_tick=asset_tick,
         )
@@ -1544,7 +1525,7 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
         progress_cb(0, 1, "Cargando precios en memoria...")
 
     s                                         = get_session()
-    price_cache, ath_cache, drawdown_cache    = _load_snapshot_prices(s)
+    price_cache, ath_cache, close_cache    = _load_snapshot_prices(s)
     best_sma_cache                            = _load_best_sma_cache(s)
     benchmark_cache                           = _load_benchmark_cache(s)
     asset_ids       = sorted(price_cache.keys())
@@ -1586,7 +1567,7 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
                 code, asset_ids,
                 price_cache, df_w_cache, df_m_cache,
                 best_sma_cache, benchmark_cache,
-                ath_cache, drawdown_cache, regime_cfg, vol_cfg, sr_cfg,
+                ath_cache, close_cache, regime_cfg, vol_cfg, sr_cfg,
                 _make_tick(code),
             ): code
             for code in snap_codes
