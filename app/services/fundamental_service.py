@@ -808,12 +808,124 @@ def _backfill_fund_indicator_worker(
         _ScopedSession.remove()
 
 
+def _backfill_fund_daily_all(
+    daily_codes: list, asset_ids: list, *,
+    force: bool, tick_fns: dict,
+    quarters_cache: dict, price_cache: dict,
+) -> dict:
+    """Procesa todos los daily codes en un único pass por activo×fecha.
+
+    Llama a _compute_daily_ratios una sola vez por (activo, fecha) en lugar de
+    una vez por código, eliminando 4x de cómputo redundante.
+    """
+    import sqlalchemy as sa
+    s      = get_session()
+    tables = {code: get_ind_table(code) for code in daily_codes}
+    inserted = 0
+
+    for asset_id in asset_ids:
+        quarters = quarters_cache.get(asset_id, [])
+        if not quarters:
+            for code in daily_codes:
+                tick_fns[code]()
+            continue
+
+        q_ords     = np.array([q.period_date.toordinal() for q in quarters])
+        price_rows = price_cache.get(asset_id, [])
+        if not price_rows:
+            for code in daily_codes:
+                tick_fns[code]()
+            continue
+
+        price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
+        price_closes    = np.array([float(r[1]) for r in price_rows])
+
+        if force:
+            for code, t in tables.items():
+                s.execute(t.delete().where(t.c.asset_id == asset_id))
+            all_dates = {r[0] for r in price_rows}
+            targets   = {code: all_dates for code in daily_codes}
+        else:
+            targets = {}
+            for code, t in tables.items():
+                existing = {r[0] for r in s.execute(
+                    sa.select(t.c.date).where(t.c.asset_id == asset_id)
+                ).fetchall()}
+                targets[code] = {r[0] for r in price_rows} - existing
+
+        combined_target = set().union(*targets.values())
+        batches = {code: [] for code in daily_codes}
+
+        for price_date, price_close in price_rows:
+            if price_date not in combined_target:
+                continue
+            d_ord      = price_date.toordinal()
+            last_q_idx = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
+            if last_q_idx < 0:
+                continue
+            try:
+                ref_1y_ord = _date_type(
+                    price_date.year - 1, price_date.month, price_date.day
+                ).toordinal()
+            except ValueError:
+                ref_1y_ord = _date_type(
+                    price_date.year - 1, price_date.month, 28
+                ).toordinal()
+            ratios = _compute_daily_ratios(
+                float(price_close), quarters, q_ords, last_q_idx,
+                price_dates_ord, price_closes, d_ord, ref_1y_ord,
+            )
+            for code in daily_codes:
+                if price_date in targets[code]:
+                    val = ratios.get(code)
+                    if val is not None:
+                        batches[code].append({"asset_id": asset_id,
+                                              "date": price_date,
+                                              "value": float(val)})
+
+        for code, batch in batches.items():
+            if batch:
+                t    = tables[code]
+                stmt = _mysql_insert(t).values(batch)
+                s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                inserted += len(batch)
+
+        s.commit()
+        for code in daily_codes:
+            tick_fns[code]()
+
+    return {"inserted": inserted, "codes": daily_codes}
+
+
+def _backfill_fund_daily_all_worker(
+    daily_codes: list, asset_ids: list, force: bool,
+    tick_fns: dict, quarters_cache: dict, price_cache: dict,
+) -> dict:
+    try:
+        return _backfill_fund_daily_all(
+            daily_codes, asset_ids, force=force, tick_fns=tick_fns,
+            quarters_cache=quarters_cache, price_cache=price_cache,
+        )
+    except Exception as exc:
+        logger.warning("Fund backfill daily error codes=%s: %s", daily_codes, exc)
+        return {"inserted": 0, "codes": daily_codes, "error": str(exc)}
+    finally:
+        _ScopedSession.remove()
+
+
 def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) -> dict:
-    """Backfill histórico de indicadores fundamentales — 1 thread por indicador."""
+    """Backfill histórico de indicadores fundamentales.
+
+    Indicadores trimestrales: 1 thread por código.
+    Indicadores diarios (pe_ttm, pb, ps_ttm, pe_growth_yoy): 1 thread combinado
+    que llama _compute_daily_ratios una sola vez por (activo, fecha).
+    """
     import threading as _th
-    s          = get_session()
-    fund_codes = sorted(_ALL_FUND_CODES)
-    n_ind      = len(fund_codes)
+    s               = get_session()
+    fund_codes      = sorted(_ALL_FUND_CODES)
+    daily_codes     = sorted(c for c in fund_codes if c in _FUND_DAILY_CODES)
+    quarterly_codes = sorted(c for c in fund_codes if c not in _FUND_DAILY_CODES)
+    n_ind           = len(fund_codes)
 
     if progress_cb:
         progress_cb(0, 1, "Cargando datos fundamentales en memoria...")
@@ -845,28 +957,42 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) ->
                 progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
         return _tick
 
-    with ThreadPoolExecutor(max_workers=n_ind) as pool:
-        futures = {
-            pool.submit(
+    tick_fns = {code: _make_tick(code) for code in fund_codes}
+
+    # n_workers = quarterly codes + 1 combined daily worker
+    n_workers = len(quarterly_codes) + (1 if daily_codes else 0)
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        futures: dict = {}
+
+        for code in quarterly_codes:
+            futures[pool.submit(
                 _backfill_fund_indicator_worker,
-                code, asset_ids, force, _make_tick(code),
+                code, asset_ids, force, tick_fns[code],
                 quarters_cache, price_cache,
-            ): code
-            for code in fund_codes
-        }
+            )] = [code]
+
+        if daily_codes:
+            futures[pool.submit(
+                _backfill_fund_daily_all_worker,
+                daily_codes, asset_ids, force,
+                {c: tick_fns[c] for c in daily_codes},
+                quarters_cache, price_cache,
+            )] = daily_codes
+
         if progress_cb:
             progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(fund_codes)}")
+
         for future in as_completed(futures):
             done_ind += 1
-            code = futures[future]
+            codes = futures[future]
             try:
                 res = future.result()
                 inserted += res.get("inserted", 0)
                 if "error" in res:
-                    errors.append({"code": code, "error": res["error"]})
+                    errors.append({"code": str(codes), "error": res["error"]})
             except Exception as exc:
-                logger.warning("Fund backfill future error code=%s: %s", code, exc)
-                errors.append({"code": code, "error": str(exc)})
+                logger.warning("Fund backfill future error codes=%s: %s", codes, exc)
+                errors.append({"code": str(codes), "error": str(exc)})
 
     return {"total": n_ind, "success": n_ind - len(errors),
             "inserted": inserted, "errors": errors}
