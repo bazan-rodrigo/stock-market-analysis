@@ -613,15 +613,6 @@ def _bf_rsi_monthly(df, df_w, df_m, **kw):
                          index=_period_index(df_m))
     return pd.Series(dtype=float)
 
-def _bf_drawdown_current(df, df_w, df_m, **kw):
-    close = df["close"]
-    return [_fv(v) for v in ((close - close.cummax()) / close.cummax() * 100).round(2)]
-
-def _bf_drawdown_max1(df, df_w, df_m, **kw):
-    close = df["close"]
-    dd    = (close - close.cummax()) / close.cummax() * 100
-    return [_fv(v) for v in dd.cummin()]
-
 def _bf_atr_daily(df, df_w, df_m, vol_cfg, **kw):
     return [_fv(v, 1) for v in _atr_pct_series_v(df, vol_cfg.atr_period)]
 
@@ -733,8 +724,6 @@ _BACKFILL_FNS: dict[str, callable] = {
     "rsi_daily":                _bf_rsi_daily,
     "rsi_weekly":               _bf_rsi_weekly,
     "rsi_monthly":              _bf_rsi_monthly,
-    "drawdown_current":         _bf_drawdown_current,
-    "drawdown_max1":            _bf_drawdown_max1,
     "atr_percentile_daily":     _bf_atr_daily,
     "atr_percentile_weekly":    _bf_atr_weekly,
     "atr_percentile_monthly":   _bf_atr_monthly,
@@ -1173,8 +1162,6 @@ def compute_and_save_snapshot(
         "dist_optimal_sma_daily":   dist_sma_d,
         "dist_optimal_sma_weekly":  dist_sma_w,
         "dist_optimal_sma_monthly": dist_sma_m,
-        "drawdown_current":         round(dd_current, 2),
-        "drawdown_max1":            round(dd_max1, 2) if dd_max1 is not None else None,
         "drawdown_max2":            round(dd_max2, 2) if dd_max2 is not None else None,
         "drawdown_max3":            round(dd_max3, 2) if dd_max3 is not None else None,
         "return_daily":             _pct_change(last_close, prev_close),
@@ -1194,6 +1181,8 @@ def compute_and_save_snapshot(
         ("best_sma_d", best_sma_d), ("best_ema_d", best_ema_d),
         ("best_sma_w", best_sma_w), ("best_ema_w", best_ema_w),
         ("best_sma_m", best_sma_m), ("best_ema_m", best_ema_m),
+        ("drawdown_current", round(dd_current, 2)),
+        ("drawdown_max1",    round(dd_max1, 2) if dd_max1 is not None else None),
     ]:
         if val is not None:
             _upsert_current_ind(s, asset_id, code, value_num=float(val))

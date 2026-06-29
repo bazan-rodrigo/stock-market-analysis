@@ -34,8 +34,8 @@ _BUILTIN_INDICATORS = [
     {"code": "dist_optimal_sma_weekly",  "name": "Distance σ Optimal SMA Weekly",  "category": "Trend - SMA", "type": "num", "scale": "σ",           "description": "Distance in standard deviations from the best-fit MA (weekly)"},
     {"code": "dist_optimal_sma_monthly", "name": "Distance σ Optimal SMA Monthly", "category": "Trend - SMA", "type": "num", "scale": "σ",           "description": "Distance in standard deviations from the best-fit MA (monthly)"},
     # Drawdown
-    {"code": "drawdown_current",         "name": "Drawdown Current",          "category": "Drawdown",         "type": "num", "scale": "% (negative)", "description": "Percentage fall from recent peak to current price"},
-    {"code": "drawdown_max1",            "name": "Drawdown Max 1",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "description": "Largest drawdown in asset history"},
+    {"code": "drawdown_current",         "name": "Drawdown Current",          "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Percentage fall from recent peak to current price"},
+    {"code": "drawdown_max1",            "name": "Drawdown Max 1",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Largest drawdown in asset history"},
     {"code": "drawdown_max2",            "name": "Drawdown Max 2",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "description": "Second largest drawdown in asset history"},
     {"code": "drawdown_max3",            "name": "Drawdown Max 3",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "description": "Third largest drawdown in asset history"},
     # Retornos
