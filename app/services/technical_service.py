@@ -730,20 +730,15 @@ _BACKFILL_FNS: dict[str, callable] = {
 
 # ── Backfill por indicador ────────────────────────────────────────────────────
 
-def _load_all_prices(s) -> dict:
-    """Carga todos los precios en memoria de una sola query. {asset_id: df}."""
-    from itertools import groupby as _groupby
-    rows = (s.query(Price.asset_id, Price.date, Price.close, Price.high, Price.low)
-              .order_by(Price.asset_id, Price.date.asc())
-              .all())
-    cache: dict = {}
-    for asset_id, group in _groupby(rows, key=lambda r: r[0]):
-        data = list(group)
-        cache[asset_id] = pd.DataFrame(
-            [(r[1], r[2], r[3], r[4]) for r in data],
-            columns=["date", "close", "high", "low"],
+def _load_all_prices(_s) -> dict:
+    """Carga todos los precios en memoria via pd.read_sql. {asset_id: df}."""
+    from sqlalchemy import text as _text
+    with engine.connect() as conn:
+        df = pd.read_sql(
+            _text("SELECT asset_id, date, close, high, low FROM prices ORDER BY asset_id, date"),
+            conn,
         )
-    return cache
+    return {aid: sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
 
 
 def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
@@ -882,6 +877,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
     n_assets     = len(price_cache)
     total_work   = n_indicators * n_assets
     logger.info("Precios cargados: %d activos", n_assets)
+    from app.database import Session as _DbSession
     _DbSession.remove()   # libera la conexión principal antes de lanzar workers
 
     done_ind = 0

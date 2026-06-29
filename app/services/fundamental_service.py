@@ -8,7 +8,7 @@ from datetime import date as _date_type
 
 from sqlalchemy.dialects.mysql import insert as _mysql_insert
 
-from app.database import get_session, Session as _ScopedSession
+from app.database import engine, get_session, Session as _ScopedSession
 from app.models import (
     Asset, FundamentalQuarterly, FundamentalUpdateLog, Price,
 )
@@ -655,17 +655,22 @@ def _load_all_quarters(s) -> dict:
     return cache
 
 
-def _load_fund_prices(s, asset_ids: list) -> dict:
-    """Carga (date, close) para los activos con fundamentales. {asset_id: [(date, close)]}"""
-    from itertools import groupby as _gb
-    rows = (s.query(Price.asset_id, Price.date, Price.close)
-              .filter(Price.asset_id.in_(asset_ids), Price.close.isnot(None))
-              .order_by(Price.asset_id, Price.date.asc())
-              .all())
-    cache: dict = {}
-    for asset_id, grp in _gb(rows, key=lambda r: r[0]):
-        cache[asset_id] = [(r[1], r[2]) for r in grp]
-    return cache
+def _load_fund_prices(_s, asset_ids: list) -> dict:
+    """Carga (date, close) para los activos con fundamentales via pd.read_sql."""
+    import pandas as pd
+    from sqlalchemy import text as _text
+    ids_csv = ",".join(str(i) for i in asset_ids)
+    with engine.connect() as conn:
+        df = pd.read_sql(
+            _text(f"SELECT asset_id, date, close FROM prices"
+                  f" WHERE asset_id IN ({ids_csv}) AND close IS NOT NULL"
+                  f" ORDER BY asset_id, date"),
+            conn,
+        )
+    return {
+        aid: list(zip(sub["date"], sub["close"].astype(float)))
+        for aid, sub in df.groupby("asset_id")
+    }
 
 
 def _backfill_fund_indicator(
