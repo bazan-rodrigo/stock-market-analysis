@@ -18,6 +18,7 @@ def _blank():
     return {
         "running": False, "current": 0, "total": 0,
         "label": "", "msg": "", "error": False, "done": False,
+        "workers": {},   # code -> (assets_done, assets_total)
     }
 
 _state = {op: _blank() for op in _OPS}
@@ -202,7 +203,17 @@ def _run(op_id, service_fn):
         st["current"] = cur
         st["total"]   = tot
         st["label"]   = label
-        st["msg"]     = f"{cur} / {tot}" + (f"  —  {label}" if label else "")
+        # Parsea "code: N/M" para actualizar progreso por worker
+        if label and ": " in label:
+            try:
+                sep  = label.index(": ")
+                code = label[:sep].strip()
+                prog = label[sep + 2:].strip().split()[0]   # "234/560"
+                dn, tn = prog.split("/")
+                st["workers"][code] = (int(dn), int(tn))
+            except Exception:
+                pass
+        st["msg"] = f"{cur} / {tot}" + (f"  —  {label}" if label else "")
 
     try:
         result = service_fn(progress_cb=_cb)
@@ -304,14 +315,48 @@ def _register(op_id):
                      else "#4ade80" if done
                      else "#9ca3af")
 
+        workers = st.get("workers", {})
+        if workers and st["running"]:
+            # Una fila por worker activo (aún no terminó sus activos)
+            active = [(c, dn, tn) for c, (dn, tn) in workers.items() if dn < tn]
+            done_cnt = len(workers) - len(active)
+            n_ref    = (active[0][2] if active
+                        else next(iter(workers.values()))[1])
+            n_ind_total = st["total"] // n_ref if n_ref else len(workers)
+            rows = [
+                html.Div(
+                    [
+                        html.Span(code + ": ",
+                                  style={"color": "#d1d5db", "fontWeight": "500",
+                                         "fontSize": "0.72rem"}),
+                        html.Span(f"{dn} / {tn}",
+                                  style={"color": "#9ca3af", "fontSize": "0.72rem"}),
+                    ],
+                    style={"lineHeight": "1.8"},
+                )
+                for code, dn, tn in sorted(active)
+            ]
+            msg_children = [
+                html.Div(
+                    f"{st['current']} / {st['total']}  •  "
+                    f"{done_cnt} / {n_ind_total} indicadores listos",
+                    style={"fontSize": "0.73rem", "color": "#9ca3af", "marginBottom": "4px"},
+                ),
+                *rows,
+            ]
+            msg_style = {"minHeight": "16px", "marginBottom": "10px"}
+        else:
+            msg_children = st["msg"]
+            msg_style    = {"fontSize": "0.74rem", "minHeight": "16px",
+                            "marginBottom": "10px", "color": msg_color}
+
         return (
             pct if st["running"] else (100 if done else 0),
             bar_style,
-            st["msg"],
-            {"fontSize": "0.74rem", "minHeight": "16px",
-             "marginBottom": "10px", "color": msg_color},
-            done,    # deshabilita interval al terminar
-            not done,  # habilita botón al terminar
+            msg_children,
+            msg_style,
+            done,
+            not done,
         )
 
 

@@ -835,8 +835,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
                 _assets_done += 1
                 n = _assets_done
             if progress_cb:
-                label = f"{code}: {per_ind[0]}/{n_assets}  (ind {done_ind}/{n_indicators} terminados)"
-                progress_cb(n, total_work, label)
+                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
         return _tick
 
     n_workers = min(n_indicators, _BACKFILL_WORKERS)
