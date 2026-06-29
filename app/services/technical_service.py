@@ -1466,7 +1466,8 @@ _SNAPSHOT_CURRENT_ONLY = frozenset({
 
 
 def _snapshot_indicator(code: str, asset_ids: list,
-                        *, price_cache: dict, best_sma_cache: dict,
+                        *, price_cache: dict, df_w_cache: dict, df_m_cache: dict,
+                        best_sma_cache: dict,
                         benchmark_cache: dict, ath_cache: dict,
                         drawdown_cache: dict,
                         regime_cfg, vol_cfg, sr_cfg,
@@ -1483,8 +1484,8 @@ def _snapshot_indicator(code: str, asset_ids: list,
             continue
 
         asset_date = df["date"].iloc[-1]
-        df_w = _resample_ohlc(df, "W")
-        df_m = _resample_ohlc(df, "M")
+        df_w = df_w_cache.get(asset_id)
+        df_m = df_m_cache.get(asset_id)
 
         try:
             val = compute_fn(
@@ -1513,13 +1514,15 @@ def _snapshot_indicator(code: str, asset_ids: list,
 
 
 def _snapshot_indicator_worker(code, asset_ids,
-                               price_cache, best_sma_cache, benchmark_cache,
+                               price_cache, df_w_cache, df_m_cache,
+                               best_sma_cache, benchmark_cache,
                                ath_cache, drawdown_cache, regime_cfg, vol_cfg, sr_cfg, asset_tick):
     from app.database import Session as _DbSession
     try:
         _snapshot_indicator(
             code, asset_ids,
-            price_cache=price_cache, best_sma_cache=best_sma_cache,
+            price_cache=price_cache, df_w_cache=df_w_cache, df_m_cache=df_m_cache,
+            best_sma_cache=best_sma_cache,
             benchmark_cache=benchmark_cache, ath_cache=ath_cache,
             drawdown_cache=drawdown_cache,
             regime_cfg=regime_cfg, vol_cfg=vol_cfg, sr_cfg=sr_cfg,
@@ -1547,6 +1550,11 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
     asset_ids       = sorted(price_cache.keys())
     n_assets        = len(asset_ids)
     total_work      = n_ind * n_assets
+
+    if progress_cb:
+        progress_cb(0, 1, "Precalculando resamples semanales y mensuales...")
+    df_w_cache = {aid: _resample_ohlc(df, "W") for aid, df in price_cache.items()}
+    df_m_cache = {aid: _resample_ohlc(df, "M") for aid, df in price_cache.items()}
 
     regime_cfg = _get_regime_config()
     vol_cfg    = _get_volatility_config()
@@ -1576,7 +1584,8 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
             pool.submit(
                 _snapshot_indicator_worker,
                 code, asset_ids,
-                price_cache, best_sma_cache, benchmark_cache,
+                price_cache, df_w_cache, df_m_cache,
+                best_sma_cache, benchmark_cache,
                 ath_cache, drawdown_cache, regime_cfg, vol_cfg, sr_cfg,
                 _make_tick(code),
             ): code
