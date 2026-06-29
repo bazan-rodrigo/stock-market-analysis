@@ -706,7 +706,7 @@ _BACKFILL_FNS: dict[str, callable] = {
 
 # ── Backfill por indicador ────────────────────────────────────────────────────
 
-def backfill_indicator(code: str, *, force: bool = False) -> dict:
+def backfill_indicator(code: str, *, force: bool = False, asset_tick=None) -> dict:
     """
     Backfill histórico de un indicador específico para todos los activos.
     Escribe en la tabla ind_{code}.
@@ -781,13 +781,16 @@ def backfill_indicator(code: str, *, force: bool = False) -> dict:
             s.commit()
             inserted += len(batch)
 
+        if asset_tick:
+            asset_tick()
+
     return {"inserted": inserted, "code": code}
 
 
-def _backfill_indicator_worker(code: str, force: bool = False) -> dict:
+def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None) -> dict:
     from app.database import Session as _DbSession
     try:
-        return backfill_indicator(code, force=force)
+        return backfill_indicator(code, force=force, asset_tick=asset_tick)
     except Exception as exc:
         logger.warning("Backfill error code=%s: %s", code, exc)
         return {"inserted": 0, "code": code, "error": str(exc)}
@@ -800,7 +803,9 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
     Backfill histórico parallelizado por indicador.
     Un worker por indicador (keep_history=True con función de cómputo definida).
     El número de workers se adapta dinámicamente al número de indicadores.
+    Progreso reportado por activo procesado (no por indicador) para feedback más fino.
     """
+    import threading as _th
     s    = get_session()
     hist = [
         d.code for d in s.query(IndicatorDefinition).filter(
@@ -809,22 +814,38 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
         if d.code in _BACKFILL_FNS
     ]
 
-    total    = len(hist)
-    done     = 0
+    n_indicators  = len(hist)
+    n_assets      = s.query(Asset.id).count()
+    total_work    = n_indicators * n_assets  # unidades: activo × indicador
+
+    done_ind = 0
     inserted = 0
     errors: list[dict] = []
 
-    n_workers = min(total, _BACKFILL_WORKERS)
+    # Contador compartido entre worker threads (activos procesados en total)
+    _assets_done = 0
+    _lock        = _th.Lock()
+
+    def _asset_tick():
+        nonlocal _assets_done
+        with _lock:
+            _assets_done += 1
+            n = _assets_done
+        if progress_cb:
+            progress_cb(n, total_work, f"ind {done_ind}/{n_indicators}")
+
+    n_workers = min(n_indicators, _BACKFILL_WORKERS)
 
     with _TPE(max_workers=n_workers) as pool:
-        futures = {pool.submit(_backfill_indicator_worker, code, force): code for code in hist}
+        futures = {
+            pool.submit(_backfill_indicator_worker, code, force, _asset_tick): code
+            for code in hist
+        }
         if progress_cb:
-            progress_cb(0, total, "calculando...")
+            progress_cb(0, total_work, "calculando...")
         for future in as_completed(futures):
-            done += 1
-            code  = futures[future]
-            if progress_cb:
-                progress_cb(done, total, code)
+            done_ind += 1
+            code      = futures[future]
             try:
                 res = future.result()
                 inserted += res.get("inserted", 0)
@@ -834,7 +855,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
                 logger.warning("Backfill future error code=%s: %s", code, exc)
                 errors.append({"code": code, "error": str(exc)})
 
-    return {"total": total, "success": total - len(errors),
+    return {"total": n_indicators, "success": n_indicators - len(errors),
             "inserted": inserted, "errors": errors}
 
 
