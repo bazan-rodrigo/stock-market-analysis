@@ -756,28 +756,15 @@ _BACKFILL_FNS: dict[str, callable] = {
 
 # ── Backfill por indicador ────────────────────────────────────────────────────
 
-_PRICE_CHUNK = 80   # activos por query; evita "Lost connection" por result sets grandes
-
 def _load_all_prices(_s) -> dict:
     """Carga todos los precios en memoria via pd.read_sql. {asset_id: df}."""
     from sqlalchemy import text as _text
     with engine.connect() as conn:
-        asset_ids = [
-            r[0] for r in conn.execute(
-                _text("SELECT DISTINCT asset_id FROM prices ORDER BY asset_id"))
-        ]
-    frames = []
-    with engine.connect() as conn:
-        for i in range(0, len(asset_ids), _PRICE_CHUNK):
-            chunk   = asset_ids[i: i + _PRICE_CHUNK]
-            ids_csv = ",".join(str(x) for x in chunk)
-            frames.append(pd.read_sql(
-                _text(f"SELECT asset_id, date, close, high, low FROM prices"
-                      f" WHERE asset_id IN ({ids_csv}) ORDER BY asset_id, date"),
-                conn,
-            ))
-    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
-        columns=["asset_id", "date", "close", "high", "low"])
+        df = pd.read_sql(
+            _text("SELECT asset_id, date, close, high, low FROM prices"
+                  " ORDER BY asset_id, date"),
+            conn,
+        )
     return {aid: sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
 
 
@@ -796,30 +783,18 @@ def _load_snapshot_prices(s) -> tuple[dict, dict]:
     cutoff = (date.today() - timedelta(days=_SNAPSHOT_LOOKBACK_DAYS)).isoformat()
 
     with engine.connect() as conn:
-        asset_ids = [
-            r[0] for r in conn.execute(
-                _text("SELECT DISTINCT asset_id FROM prices ORDER BY asset_id"))
-        ]
         ath_rows = conn.execute(
             _text("SELECT asset_id, MAX(close) FROM prices"
                   " WHERE close IS NOT NULL GROUP BY asset_id")
         ).fetchall()
+        ath_cache = {aid: float(ath) for aid, ath in ath_rows if ath is not None}
 
-    ath_cache = {aid: float(ath) for aid, ath in ath_rows if ath is not None}
+        df = pd.read_sql(
+            _text(f"SELECT asset_id, date, close, high, low FROM prices"
+                  f" WHERE date >= '{cutoff}' ORDER BY asset_id, date"),
+            conn,
+        )
 
-    frames = []
-    with engine.connect() as conn:
-        for i in range(0, len(asset_ids), _PRICE_CHUNK):
-            chunk   = asset_ids[i: i + _PRICE_CHUNK]
-            ids_csv = ",".join(str(x) for x in chunk)
-            frames.append(pd.read_sql(
-                _text(f"SELECT asset_id, date, close, high, low FROM prices"
-                      f" WHERE asset_id IN ({ids_csv}) AND date >= '{cutoff}'"
-                      f" ORDER BY asset_id, date"),
-                conn,
-            ))
-    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
-        columns=["asset_id", "date", "close", "high", "low"])
     price_cache = {aid: sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
     return price_cache, ath_cache
 
