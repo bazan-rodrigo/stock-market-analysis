@@ -216,7 +216,7 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False) -> None:
         logger.info("Fundamentales actualizados: %s (%d trimestres)", asset.ticker, len(quarters))
     except Exception as exc:
         s.rollback()
-        error_msg = str(exc)
+        error_msg = f"{type(exc).__name__}: {exc}"
         logger.error("Error fundamentales %s: %s", asset.ticker, error_msg)
         _save_log(asset_id, success=False, error=error_msg, s=s)
         s.commit()

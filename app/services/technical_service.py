@@ -822,23 +822,28 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
     inserted = 0
     errors: list[dict] = []
 
-    # Contador compartido entre worker threads (activos procesados en total)
+    # Contador total compartido + contador por indicador (thread-safe)
     _assets_done = 0
     _lock        = _th.Lock()
 
-    def _asset_tick():
-        nonlocal _assets_done
-        with _lock:
-            _assets_done += 1
-            n = _assets_done
-        if progress_cb:
-            progress_cb(n, total_work, f"ind {done_ind}/{n_indicators}")
+    def _make_tick(code):
+        per_ind = [0]
+        def _tick():
+            nonlocal _assets_done
+            per_ind[0] += 1
+            with _lock:
+                _assets_done += 1
+                n = _assets_done
+            if progress_cb:
+                label = f"{code}: {per_ind[0]}/{n_assets}  (ind {done_ind}/{n_indicators} terminados)"
+                progress_cb(n, total_work, label)
+        return _tick
 
     n_workers = min(n_indicators, _BACKFILL_WORKERS)
 
     with _TPE(max_workers=n_workers) as pool:
         futures = {
-            pool.submit(_backfill_indicator_worker, code, force, _asset_tick): code
+            pool.submit(_backfill_indicator_worker, code, force, _make_tick(code)): code
             for code in hist
         }
         if progress_cb:
