@@ -203,6 +203,18 @@ def _run(op_id, service_fn):
         st["current"] = cur
         st["total"]   = tot
         st["label"]   = label
+        if label and label.startswith("__init__:"):
+            # Pre-pobla todos los workers antes de que arranquen los threads
+            try:
+                _, n_str, codes_str = label.split(":", 2)
+                n = int(n_str)
+                for c in codes_str.split(","):
+                    if c:
+                        st["workers"].setdefault(c, (0, n))
+            except Exception:
+                pass
+            st["msg"] = "calculando..."
+            return
         # Parsea "code: N/M" para actualizar progreso por worker
         if label and ": " in label:
             try:
@@ -317,32 +329,28 @@ def _register(op_id):
 
         workers = st.get("workers", {})
         if workers and st["running"]:
-            # Una fila por worker activo (aún no terminó sus activos)
-            active = [(c, dn, tn) for c, (dn, tn) in workers.items() if dn < tn]
-            done_cnt = len(workers) - len(active)
-            n_ref    = (active[0][2] if active
-                        else next(iter(workers.values()))[1])
-            n_ind_total = st["total"] // n_ref if n_ref else len(workers)
-            rows = [
-                html.Div(
-                    [
-                        html.Span(code + ": ",
-                                  style={"color": "#d1d5db", "fontWeight": "500",
-                                         "fontSize": "0.72rem"}),
-                        html.Span(f"{dn} / {tn}",
-                                  style={"color": "#9ca3af", "fontSize": "0.72rem"}),
-                    ],
-                    style={"lineHeight": "1.8"},
-                )
-                for code, dn, tn in sorted(active)
-            ]
+            done_cnt = sum(1 for dn, tn in workers.values() if dn >= tn)
+            rows = []
+            for code, (dn, tn) in sorted(workers.items()):
+                if dn >= tn:
+                    color = "#4ade80"
+                    text  = f"✓ {code}"
+                elif dn > 0:
+                    color = "#d1d5db"
+                    text  = f"{code}: {dn}/{tn}"
+                else:
+                    color = "#4b5563"
+                    text  = code
+                rows.append(html.Div(text, style={"fontSize": "0.72rem",
+                                                   "color": color,
+                                                   "lineHeight": "1.6"}))
             msg_children = [
                 html.Div(
                     f"{st['current']} / {st['total']}  •  "
-                    f"{done_cnt} / {n_ind_total} indicadores listos",
+                    f"{done_cnt} / {len(workers)} indicadores listos",
                     style={"fontSize": "0.73rem", "color": "#9ca3af", "marginBottom": "4px"},
                 ),
-                *rows,
+                html.Div(rows, style={"overflowY": "auto", "maxHeight": "260px"}),
             ]
             msg_style = {"minHeight": "16px", "marginBottom": "10px"}
         else:

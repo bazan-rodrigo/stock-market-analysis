@@ -838,15 +838,14 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
                 progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
         return _tick
 
-    n_workers = min(n_indicators, _BACKFILL_WORKERS)
-
-    with _TPE(max_workers=n_workers) as pool:
+    with _TPE(max_workers=n_indicators) as pool:
         futures = {
             pool.submit(_backfill_indicator_worker, code, force, _make_tick(code)): code
             for code in hist
         }
         if progress_cb:
-            progress_cb(0, total_work, "calculando...")
+            # Mensaje especial para pre-poblar todos los workers en el UI
+            progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(hist)}")
         for future in as_completed(futures):
             done_ind += 1
             code      = futures[future]
