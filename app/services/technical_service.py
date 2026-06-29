@@ -32,7 +32,7 @@ _QUICK_DAYS = 1500
 # Workers para paralelizar cálculos pandas dentro de un snapshot
 _CALC_WORKERS = 4
 # Workers para paralelizar snapshots en recompute_all (un activo por thread)
-_SNAPSHOT_WORKERS = 6
+_SNAPSHOT_WORKERS = 2
 # Workers para backfill histórico — se adapta dinámicamente al nº de indicadores
 _BACKFILL_WORKERS = 4
 
@@ -940,22 +940,14 @@ def compute_and_save_snapshot(
         vz_w = _compute_vol_zones(df_w_reg, **_vol_args)
         vz_m = _compute_vol_zones(df_m_reg, **_vol_args)
     else:
-        from concurrent.futures import ThreadPoolExecutor as _T
-        with _T(max_workers=_CALC_WORKERS) as _pool:
-            f_rz_d  = _pool.submit(_compute_regime_zones, df,       cfg.ema_period_d, sl, st_pct, cb, nb, sm)
-            f_rz_w  = _pool.submit(_compute_regime_zones, df_w_reg, cfg.ema_period_w, sl, st_pct, cb, nb, sm)
-            f_rz_m  = _pool.submit(_compute_regime_zones, df_m_reg, cfg.ema_period_m, sl, st_pct, cb, nb, sm)
-            f_vz_d  = _pool.submit(_compute_vol_zones, df,       **_vol_args)
-            f_vz_w  = _pool.submit(_compute_vol_zones, df_w_reg, **_vol_args)
-            f_vz_m  = _pool.submit(_compute_vol_zones, df_m_reg, **_vol_args)
-            f_sma_d = _pool.submit(_find_best_ma, df["close"],       df["high"],       df["low"],       "sma")
-            f_ema_d = _pool.submit(_find_best_ma, df["close"],       df["high"],       df["low"],       "ema")
-            f_sma_w = _pool.submit(_find_best_ma, df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "sma")
-            f_ema_w = _pool.submit(_find_best_ma, df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "ema")
-            f_sma_m = _pool.submit(_find_best_ma, df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "sma")
-            f_ema_m = _pool.submit(_find_best_ma, df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "ema")
-        rz_d = f_rz_d.result(); rz_w = f_rz_w.result(); rz_m = f_rz_m.result()
-        vz_d = f_vz_d.result(); vz_w = f_vz_w.result(); vz_m = f_vz_m.result()
+        # Secuencial: en Codespace (2 CPUs) el pool interno genera contención de GIL
+        # y es más lento que ejecutar numpy/pandas en serie.
+        rz_d = _compute_regime_zones(df,       cfg.ema_period_d, sl, st_pct, cb, nb, sm)
+        rz_w = _compute_regime_zones(df_w_reg, cfg.ema_period_w, sl, st_pct, cb, nb, sm)
+        rz_m = _compute_regime_zones(df_m_reg, cfg.ema_period_m, sl, st_pct, cb, nb, sm)
+        vz_d = _compute_vol_zones(df,       **_vol_args)
+        vz_w = _compute_vol_zones(df_w_reg, **_vol_args)
+        vz_m = _compute_vol_zones(df_m_reg, **_vol_args)
 
     if quick:
         best_sma_d = _prev_best.get("best_sma_d")
@@ -965,9 +957,12 @@ def compute_and_save_snapshot(
         best_sma_m = _prev_best.get("best_sma_m")
         best_ema_m = _prev_best.get("best_ema_m")
     else:
-        best_sma_d, best_ema_d = f_sma_d.result(), f_ema_d.result()
-        best_sma_w, best_ema_w = f_sma_w.result(), f_ema_w.result()
-        best_sma_m, best_ema_m = f_sma_m.result(), f_ema_m.result()
+        best_sma_d = _find_best_ma(df["close"],       df["high"],       df["low"],       "sma")
+        best_ema_d = _find_best_ma(df["close"],       df["high"],       df["low"],       "ema")
+        best_sma_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "sma")
+        best_ema_w = _find_best_ma(df_w_reg["close"], df_w_reg["high"], df_w_reg["low"], "ema")
+        best_sma_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "sma")
+        best_ema_m = _find_best_ma(df_m_reg["close"], df_m_reg["high"], df_m_reg["low"], "ema")
 
     dist_sma_d = _sma_zscore(df["close"], best_sma_d)       if best_sma_d else None
     dist_sma_w = _sma_zscore(df_w_reg["close"], best_sma_w) if best_sma_w else None
