@@ -330,7 +330,8 @@ def _register(op_id):
         workers = st.get("workers", {})
         if workers and st["running"]:
             done_cnt = sum(1 for dn, tn in workers.values() if dn >= tn)
-            pct      = int(done_cnt / len(workers) * 100) if workers else 0
+            # pct usa current/total (ya calculado arriba): avanza con cada activo,
+            # no solo cuando completa un indicador entero
             rows = []
             for code, (dn, tn) in sorted(workers.items(), key=lambda x: x[1][0], reverse=True):
                 if dn >= tn:
