@@ -448,8 +448,14 @@ def _compute_quarterly_ratios(quarters: list, idx: int) -> dict:
     rev_growth = eps_growth = None
     if idx >= 4:
         q4 = quarters[idx - 4]
-        rev_growth = _safe_div_r(q.revenue    - q4.revenue,    abs(q4.revenue)    if q4.revenue    else None)
-        eps_growth = _safe_div_r(q.net_income - q4.net_income, abs(q4.net_income) if q4.net_income else None)
+        rev_growth = _safe_div_r(
+            (q.revenue - q4.revenue) if (q.revenue is not None and q4.revenue is not None) else None,
+            abs(q4.revenue) if q4.revenue else None,
+        )
+        eps_growth = _safe_div_r(
+            (q.net_income - q4.net_income) if (q.net_income is not None and q4.net_income is not None) else None,
+            abs(q4.net_income) if q4.net_income else None,
+        )
 
     ttm_nopat = sum(r.nopat for r in ttm4 if r.nopat is not None) or None
     ic_avg    = next((r.invested_capital_avg for r in ttm4 if r.invested_capital_avg), None)
