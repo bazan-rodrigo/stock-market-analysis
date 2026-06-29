@@ -731,6 +731,7 @@ def _backfill_fund_indicator(
                 ).fetchall()}
                 target = {r[0] for r in price_rows} - existing
 
+            batch = []
             for price_date, price_close in price_rows:
                 if price_date not in target:
                     continue
@@ -752,10 +753,12 @@ def _backfill_fund_indicator(
                 )
                 val = ratios.get(code)
                 if val is not None:
-                    v    = float(val)
-                    stmt = _mysql_insert(t).values(asset_id=asset_id, date=price_date, value=v)
-                    s.execute(stmt.on_duplicate_key_update(value=v))
-                    inserted += 1
+                    batch.append({"asset_id": asset_id, "date": price_date,
+                                  "value": float(val)})
+            if batch:
+                stmt = _mysql_insert(t).values(batch)
+                s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                inserted += len(batch)
         else:
             if force:
                 s.execute(t.delete().where(t.c.asset_id == asset_id))
@@ -766,16 +769,19 @@ def _backfill_fund_indicator(
                 ).fetchall()}
                 target = {q.period_date for q in quarters} - existing
 
+            batch = []
             for idx, q in enumerate(quarters):
                 if q.period_date not in target:
                     continue
                 ratios = _compute_quarterly_ratios(quarters, idx)
                 val = ratios.get(code)
                 if val is not None:
-                    v    = float(val)
-                    stmt = _mysql_insert(t).values(asset_id=asset_id, date=q.period_date, value=v)
-                    s.execute(stmt.on_duplicate_key_update(value=v))
-                    inserted += 1
+                    batch.append({"asset_id": asset_id, "date": q.period_date,
+                                  "value": float(val)})
+            if batch:
+                stmt = _mysql_insert(t).values(batch)
+                s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                inserted += len(batch)
 
         s.commit()
         if asset_tick:
