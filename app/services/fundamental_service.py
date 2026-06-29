@@ -800,6 +800,9 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) ->
     fund_codes = sorted(_ALL_FUND_CODES)
     n_ind      = len(fund_codes)
 
+    if progress_cb:
+        progress_cb(0, 1, "Cargando datos fundamentales en memoria...")
+
     logger.info("Pre-cargando datos fundamentales en memoria...")
     quarters_cache = _load_all_quarters(s)
     asset_ids      = sorted(quarters_cache.keys())

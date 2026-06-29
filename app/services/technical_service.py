@@ -877,7 +877,10 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
 
     n_indicators = len(hist)
 
-    # Opt 2: carga todos los precios una sola vez antes de lanzar workers
+    # Avisa al UI antes de la carga (puede tardar varios segundos)
+    if progress_cb:
+        progress_cb(0, 1, "Cargando precios en memoria...")
+
     logger.info("Pre-cargando precios en memoria...")
     price_cache  = _load_all_prices(s)
     n_assets     = len(price_cache)
