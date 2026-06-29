@@ -261,17 +261,20 @@ def _compute_by_type(formula, comps, price_maps) -> dict:
 
 def compute_all_synthetic(progress_cb=None) -> dict:
     formulas = get_all_formulas()
+    total    = len(formulas)
     errors   = []
+    if progress_cb:
+        progress_cb(0, total)
     for i, f in enumerate(formulas):
-        if progress_cb:
-            progress_cb(i + 1, len(formulas))
         try:
             compute_synthetic_prices(f.asset_id, full=False)
         except Exception as exc:
             ticker = f.asset.ticker if f.asset else str(f.asset_id)
             logger.warning("Error sintético %s: %s", ticker, exc)
             errors.append({"ticker": ticker, "error": str(exc)})
-    return {"total": len(formulas), "errors": errors}
+        if progress_cb:
+            progress_cb(i + 1, total)
+    return {"total": total, "errors": errors}
 
 
 def formula_preview_str(formula: SyntheticFormula) -> str:

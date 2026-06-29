@@ -330,6 +330,7 @@ def _register(op_id):
         workers = st.get("workers", {})
         if workers and st["running"]:
             done_cnt = sum(1 for dn, tn in workers.values() if dn >= tn)
+            pct      = int(done_cnt / len(workers) * 100) if workers else 0
             rows = []
             for code, (dn, tn) in sorted(workers.items(), key=lambda x: x[1][0], reverse=True):
                 if dn >= tn:
@@ -350,7 +351,7 @@ def _register(op_id):
                     f"{done_cnt} / {len(workers)} indicadores listos",
                     style={"fontSize": "0.73rem", "color": "#9ca3af", "marginBottom": "4px"},
                 ),
-                html.Div(rows, style={"overflowY": "auto", "maxHeight": "260px"}),
+                html.Div(rows),
             ]
             msg_style = {"minHeight": "16px", "marginBottom": "10px"}
         else:

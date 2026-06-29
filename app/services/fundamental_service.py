@@ -244,9 +244,9 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
     ]
     total   = len(asset_ids)
     summary = {"total": total, "success": 0, "errors": []}
+    if progress_cb:
+        progress_cb(0, total)
     for i, asset_id in enumerate(asset_ids, 1):
-        if progress_cb:
-            progress_cb(i, total)
         try:
             recompute_snapshot_for_asset(asset_id)
             summary["success"] += 1
@@ -254,6 +254,8 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
             get_session().rollback()
             logger.error("Error recompute fundamental asset_id=%d: %s", asset_id, exc, exc_info=True)
             summary["errors"].append({"asset_id": asset_id, "error": str(exc)})
+        if progress_cb:
+            progress_cb(i, total)
     return summary
 
 

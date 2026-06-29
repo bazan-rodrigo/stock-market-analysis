@@ -255,7 +255,7 @@ def recompute_snapshots(_):
     _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
 
     def _run():
-        def _progress(current, total):
+        def _progress(current, total, *_):
             _prices_state["current"] = current
             _prices_state["total"]   = total
         try:

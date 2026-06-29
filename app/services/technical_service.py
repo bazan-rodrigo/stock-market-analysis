@@ -522,6 +522,12 @@ def _query_best_sma(asset_id: int, session, best_sma_cache: dict | None = None) 
     return {code: int(val) for code, val in rows if val is not None}
 
 
+def _load_benchmark_cache(s) -> dict:
+    """Precarga {asset_id: benchmark_id} para todos los activos con benchmark."""
+    rows = s.query(Asset.id, Asset.benchmark_id).filter(Asset.benchmark_id.isnot(None)).all()
+    return {aid: bid for aid, bid in rows}
+
+
 def _load_best_sma_cache(s) -> dict:
     """Precarga best_sma_d/w/m para todos los activos. {asset_id: {code: val}}"""
     rows = s.query(
@@ -674,11 +680,10 @@ def _bf_dist_optimal_sma(tf_key):
     return fn
 
 def _bf_relative_strength_52w(df, df_w, df_m, session, asset_id, price_cache=None, **kw):
-    n       = len(df)
-    rs_list = [None] * n
-    bm_id   = session.query(Asset.benchmark_id).filter(Asset.id == asset_id).scalar()
+    n   = len(df)
+    bm_id = session.query(Asset.benchmark_id).filter(Asset.id == asset_id).scalar()
     if not bm_id:
-        return rs_list
+        return [None] * n
     if price_cache and bm_id in price_cache:
         bm_df = price_cache[bm_id]
     else:
@@ -686,29 +691,36 @@ def _bf_relative_strength_52w(df, df_w, df_m, session, asset_id, price_cache=Non
             Price.asset_id == bm_id
         ).order_by(Price.date.asc()).all()
         if not bm_rows:
-            return rs_list
+            return [None] * n
         bm_df = pd.DataFrame(bm_rows, columns=["date", "close"])
+
     bm_ords   = np.array([d.toordinal() for d in bm_df["date"]])
     bm_closes = bm_df["close"].values.astype(float)
     a_ords    = np.array([d.toordinal() for d in df["date"]])
     a_cls     = df["close"].values.astype(float)
 
-    def _lkup(ords, cls, target_ord):
-        j = int(np.searchsorted(ords, target_ord, side="right")) - 1
-        return cls[j] if j >= 0 else None
-
+    # Ordinal de referencia (52 semanas atrás) para cada fecha
+    ref_ords = np.empty(n, dtype=np.int64)
     for i, d in enumerate(df["date"]):
-        try:    ref_ord = date(d.year - 1, d.month, d.day).toordinal()
-        except: ref_ord = date(d.year - 1, d.month, 28).toordinal()
-        bm_now = _lkup(bm_ords, bm_closes, a_ords[i])
-        bm_ref = _lkup(bm_ords, bm_closes, ref_ord)
-        a_ref  = _lkup(a_ords[: i + 1], a_cls[: i + 1], ref_ord)
-        if (bm_now is not None and bm_ref and bm_ref != 0
-                and a_ref is not None and a_ref != 0 and a_cls[i] != 0):
-            ret_a  = (a_cls[i] - a_ref)  / a_ref  * 100
-            ret_bm = (bm_now   - bm_ref) / bm_ref * 100
-            rs_list[i] = round(ret_a - ret_bm, 2)
-    return rs_list
+        try:    ref_ords[i] = date(d.year - 1, d.month, d.day).toordinal()
+        except: ref_ords[i] = date(d.year - 1, d.month, 28).toordinal()
+
+    def _vlkup(ords, closes, targets):
+        idx = np.searchsorted(ords, targets, side="right") - 1
+        valid = idx >= 0
+        return np.where(valid, closes[np.where(valid, idx, 0)], np.nan)
+
+    bm_now = _vlkup(bm_ords, bm_closes, a_ords)   # precio benchmark en fecha i
+    bm_ref = _vlkup(bm_ords, bm_closes, ref_ords)  # precio benchmark hace 52w
+    a_ref  = _vlkup(a_ords,  a_cls,     ref_ords)  # precio activo hace 52w
+    # ref_ords[i] < a_ords[i] siempre, por lo que no se necesita slice
+
+    ok = (~np.isnan(bm_now) & ~np.isnan(bm_ref) & (bm_ref != 0) &
+          ~np.isnan(a_ref)  & (a_ref  != 0) & (a_cls != 0))
+    ret_a  = np.where(ok, (a_cls    - a_ref)  / a_ref  * 100, np.nan)
+    ret_bm = np.where(ok, (bm_now   - bm_ref) / bm_ref * 100, np.nan)
+    rs     = np.where(ok, np.round(ret_a - ret_bm, 2), np.nan)
+    return [None if np.isnan(v) else float(v) for v in rs]
 
 
 # Mapa código → función de cómputo para backfill
@@ -1202,37 +1214,312 @@ def _snapshot_worker(asset_id: int, dd_cfg, regime_cfg, vol_cfg, sr_cfg) -> None
         Session.remove()
 
 
-def recompute_all_snapshots(progress_cb=None) -> dict:
-    s = get_session()
-    asset_ids = [r[0] for r in s.query(Asset.id).all()]
-    total     = len(asset_ids)
-    errors    = []
+# ── Snapshot por indicador (mismo UI que backfill) ────────────────────────────
 
-    dd_cfg     = _get_drawdown_config()
+def _ss_trend(tf_key: str):
+    def fn(df, df_w, df_m, regime_cfg, **kw):
+        df_tf  = {"d": df, "w": df_w, "m": df_m}[tf_key]
+        period = {"d": regime_cfg.ema_period_d, "w": regime_cfg.ema_period_w,
+                  "m": regime_cfg.ema_period_m}[tf_key]
+        zones  = _compute_regime_zones(
+            df_tf, period,
+            regime_cfg.slope_lookback, regime_cfg.slope_threshold_pct,
+            regime_cfg.confirm_bars, regime_cfg.nascent_bars,
+            regime_cfg.strong_slope_multiplier,
+        )
+        return zones[-1]["regime_detail"] if zones else None
+    return fn
+
+
+def _ss_volatility(tf_key: str):
+    def fn(df, df_w, df_m, vol_cfg, **kw):
+        df_tf    = {"d": df, "w": df_w, "m": df_m}[tf_key]
+        vol_args = dict(
+            atr_period=vol_cfg.atr_period, confirm_bars=vol_cfg.confirm_bars,
+            pct_low=vol_cfg.pct_low, pct_high=vol_cfg.pct_high,
+            pct_extreme=vol_cfg.pct_extreme,
+            dur_short_pct=vol_cfg.dur_short_pct, dur_long_pct=vol_cfg.dur_long_pct,
+        )
+        vz = _compute_vol_zones(df_tf, **vol_args)
+        if not vz:
+            return None
+        last = vz[-1]
+        return f"{last['vol_regime']}_{last['dur_regime']}"
+    return fn
+
+
+def _ss_drawdown_current(df, **kw):
+    """Caída desde ATH: usa la serie completa del price_cache."""
+    c   = df["close"].astype(float)
+    ath = float(c.max())
+    last = float(c.iloc[-1])
+    return round((last - ath) / ath * 100, 2) if ath else 0.0
+
+
+def _ss_drawdown_max1(df, **kw):
+    dd = (df["close"] - df["close"].cummax()) / df["close"].cummax() * 100
+    vals = dd.nsmallest(3).values
+    return round(float(vals[0]), 2) if len(vals) >= 1 else None
+
+
+def _ss_drawdown_max2(df, **kw):
+    dd = (df["close"] - df["close"].cummax()) / df["close"].cummax() * 100
+    vals = dd.nsmallest(3).values
+    return round(float(vals[1]), 2) if len(vals) >= 2 else None
+
+
+def _ss_drawdown_max3(df, **kw):
+    dd = (df["close"] - df["close"].cummax()) / df["close"].cummax() * 100
+    vals = dd.nsmallest(3).values
+    return round(float(vals[2]), 2) if len(vals) >= 3 else None
+
+
+def _ss_best_ma(tf_key: str, kind: str):
+    def fn(df, df_w, df_m, **kw):
+        df_tf = {"d": df, "w": df_w, "m": df_m}[tf_key]
+        return _find_best_ma(df_tf["close"], df_tf["high"], df_tf["low"], kind)
+    return fn
+
+
+def _ss_resistance_pct(df, **kw):
+    try:
+        cfg = kw.get("sr_cfg") or sr_service._get_sr_config()
+        r = sr_service.compute_sr_from_df(df.tail(260).reset_index(drop=True), cfg=cfg)
+        return r["pivot_resist_pct"] if r else None
+    except Exception:
+        return None
+
+
+def _ss_support_pct(df, **kw):
+    try:
+        cfg = kw.get("sr_cfg") or sr_service._get_sr_config()
+        r = sr_service.compute_sr_from_df(df.tail(260).reset_index(drop=True), cfg=cfg)
+        return r["pivot_support_pct"] if r else None
+    except Exception:
+        return None
+
+
+def _ss_relative_strength_52w(df, session, asset_id,
+                              price_cache=None, benchmark_cache=None, **kw):
+    """Snapshot: solo el valor actual — O(log N) sin loop completo."""
+    d          = df.iloc[-1]["date"]
+    last_close = float(df.iloc[-1]["close"])
+    try:    ref_ord = date(d.year - 1, d.month, d.day).toordinal()
+    except: ref_ord = date(d.year - 1, d.month, 28).toordinal()
+
+    if benchmark_cache is not None:
+        bm_id = benchmark_cache.get(asset_id)
+    else:
+        bm_id = session.query(Asset.benchmark_id).filter(Asset.id == asset_id).scalar()
+    if not bm_id:
+        return None
+
+    if price_cache and bm_id in price_cache:
+        bm_df = price_cache[bm_id]
+    else:
+        bm_rows = session.query(Price.date, Price.close).filter(
+            Price.asset_id == bm_id
+        ).order_by(Price.date.asc()).all()
+        if not bm_rows:
+            return None
+        bm_df = pd.DataFrame(bm_rows, columns=["date", "close"])
+
+    bm_ords   = np.array([dd.toordinal() for dd in bm_df["date"]])
+    bm_closes = bm_df["close"].values.astype(float)
+    a_ords    = np.array([dd.toordinal() for dd in df["date"]])
+    a_cls     = df["close"].values.astype(float)
+
+    def _lkup(ords, cls, target):
+        j = int(np.searchsorted(ords, target, side="right")) - 1
+        return float(cls[j]) if j >= 0 else None
+
+    bm_now = _lkup(bm_ords, bm_closes, a_ords[-1])
+    bm_ref = _lkup(bm_ords, bm_closes, ref_ord)
+    a_ref  = _lkup(a_ords,  a_cls,     ref_ord)
+
+    if (bm_now is not None and bm_ref and bm_ref != 0
+            and a_ref is not None and a_ref != 0 and last_close != 0):
+        return round(
+            (last_close - a_ref) / a_ref * 100 - (bm_now - bm_ref) / bm_ref * 100,
+            2,
+        )
+    return None
+
+
+def _make_snap_fn(code: str):
+    """Envuelve _BACKFILL_FNS[code] para retornar solo el último valor."""
+    bf = _BACKFILL_FNS[code]
+    def fn(**kw):
+        values = bf(**kw)
+        if isinstance(values, pd.Series):
+            return values.iloc[-1] if len(values) > 0 else None
+        return values[-1] if values else None
+    return fn
+
+
+# Código → función snapshot: retorna un único valor (el vigente de hoy)
+_SNAPSHOT_FNS: dict[str, callable] = {
+    code: _make_snap_fn(code) for code in _BACKFILL_FNS
+}
+_SNAPSHOT_FNS.update({
+    # trend/volatility: sobreescriben _make_snap_fn, evitan _zones_to_series loop
+    "trend_daily":           _ss_trend("d"),
+    "trend_weekly":          _ss_trend("w"),
+    "trend_monthly":         _ss_trend("m"),
+    "volatility_daily":      _ss_volatility("d"),
+    "volatility_weekly":     _ss_volatility("w"),
+    "volatility_monthly":    _ss_volatility("m"),
+    # keep_history=False
+    "drawdown_current":      _ss_drawdown_current,
+    "drawdown_max1":         _ss_drawdown_max1,
+    # keep_history=True, sin backfill fn
+    "drawdown_max2":         _ss_drawdown_max2,
+    "drawdown_max3":         _ss_drawdown_max3,
+    "best_sma_d":            _ss_best_ma("d", "sma"),
+    "best_ema_d":            _ss_best_ma("d", "ema"),
+    "best_sma_w":            _ss_best_ma("w", "sma"),
+    "best_ema_w":            _ss_best_ma("w", "ema"),
+    "best_sma_m":            _ss_best_ma("m", "sma"),
+    "best_ema_m":            _ss_best_ma("m", "ema"),
+    "resistance_pct":        _ss_resistance_pct,
+    "support_pct":           _ss_support_pct,
+    "relative_strength_52w": _ss_relative_strength_52w,
+})
+
+# Estos indicadores no tienen tabla ind_*; van a current_indicator_values
+_SNAPSHOT_CURRENT_ONLY = frozenset({
+    "drawdown_current", "drawdown_max1",
+    "best_sma_d", "best_ema_d",
+    "best_sma_w", "best_ema_w",
+    "best_sma_m", "best_ema_m",
+})
+
+
+def _snapshot_indicator(code: str, asset_ids: list,
+                        *, price_cache: dict, best_sma_cache: dict,
+                        benchmark_cache: dict,
+                        regime_cfg, vol_cfg, sr_cfg,
+                        asset_tick=None) -> None:
+    s = get_session()
+    compute_fn   = _SNAPSHOT_FNS[code]
+    current_only = code in _SNAPSHOT_CURRENT_ONLY
+
+    for asset_id in asset_ids:
+        df = price_cache.get(asset_id)
+        if df is None or len(df) < _MIN_ROWS:
+            if asset_tick:
+                asset_tick()
+            continue
+
+        asset_date = df["date"].iloc[-1]
+        df_w = _resample_ohlc(df, "W")
+        df_m = _resample_ohlc(df, "M")
+
+        try:
+            val = compute_fn(
+                df=df, df_w=df_w, df_m=df_m,
+                regime_cfg=regime_cfg, vol_cfg=vol_cfg,
+                session=s, asset_id=asset_id,
+                price_cache=price_cache, best_sma_cache=best_sma_cache,
+                benchmark_cache=benchmark_cache,
+                sr_cfg=sr_cfg,
+            )
+            if val is not None and pd.notna(val):
+                if current_only:
+                    v_num = float(val) if isinstance(val, (int, float, np.floating)) else None
+                    v_str = str(val) if v_num is None else None
+                    _upsert_current_ind(s, asset_id, code, value_num=v_num, value_str=v_str)
+                else:
+                    _upsert_ind(s, code, asset_id, asset_date, val)
+            s.commit()
+        except Exception as exc:
+            logger.warning("Snapshot error code=%s asset_id=%d: %s", code, asset_id, exc)
+            s.rollback()
+        finally:
+            if asset_tick:
+                asset_tick()
+
+
+def _snapshot_indicator_worker(code, asset_ids,
+                               price_cache, best_sma_cache, benchmark_cache,
+                               regime_cfg, vol_cfg, sr_cfg, asset_tick):
+    from app.database import Session as _DbSession
+    try:
+        _snapshot_indicator(
+            code, asset_ids,
+            price_cache=price_cache, best_sma_cache=best_sma_cache,
+            benchmark_cache=benchmark_cache,
+            regime_cfg=regime_cfg, vol_cfg=vol_cfg, sr_cfg=sr_cfg,
+            asset_tick=asset_tick,
+        )
+    except Exception as exc:
+        logger.warning("Snapshot worker error code=%s: %s", code, exc)
+    finally:
+        _DbSession.remove()
+
+
+def recompute_all_snapshots(progress_cb=None) -> dict:
+    import threading as _th
+
+    snap_codes = sorted(_SNAPSHOT_FNS.keys())
+    n_ind      = len(snap_codes)
+
+    if progress_cb:
+        progress_cb(0, 1, "Cargando precios en memoria...")
+
+    s               = get_session()
+    price_cache     = _load_all_prices(s)
+    best_sma_cache  = _load_best_sma_cache(s)
+    benchmark_cache = _load_benchmark_cache(s)
+    asset_ids       = sorted(price_cache.keys())
+    n_assets        = len(asset_ids)
+    total_work      = n_ind * n_assets
+
     regime_cfg = _get_regime_config()
     vol_cfg    = _get_volatility_config()
     sr_cfg     = sr_service._get_sr_config()
 
-    done = 0
-    with _TPE(max_workers=_SNAPSHOT_WORKERS) as pool:
+    from app.database import Session as _DbSession
+    _DbSession.remove()
+
+    _assets_done = 0
+    _lock        = _th.Lock()
+    errors: list = []
+
+    def _make_tick(code):
+        per_ind = [0]
+        def _tick():
+            nonlocal _assets_done
+            per_ind[0] += 1
+            with _lock:
+                _assets_done += 1
+                n = _assets_done
+            if progress_cb:
+                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
+        return _tick
+
+    with _TPE(max_workers=n_ind) as pool:
         futures = {
-            pool.submit(_snapshot_worker, aid, dd_cfg, regime_cfg, vol_cfg, sr_cfg): aid
-            for aid in asset_ids
+            pool.submit(
+                _snapshot_indicator_worker,
+                code, asset_ids,
+                price_cache, best_sma_cache, benchmark_cache,
+                regime_cfg, vol_cfg, sr_cfg,
+                _make_tick(code),
+            ): code
+            for code in snap_codes
         }
         if progress_cb:
-            progress_cb(0, total, "calculando...")
+            progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(snap_codes)}")
         for future in as_completed(futures):
-            done += 1
-            aid = futures[future]
+            code = futures[future]
             try:
                 future.result()
             except Exception as exc:
-                logger.warning("Error snapshot activo id=%d: %s", aid, exc)
-                errors.append(aid)
-            if progress_cb:
-                progress_cb(done, total)
+                logger.warning("Snapshot error code=%s: %s", code, exc)
+                errors.append({"code": code, "error": str(exc)})
 
-    return {"total": total, "errors": errors}
+    return {"total": n_ind, "success": n_ind - len(errors), "errors": errors}
 
 
 # ── Funciones públicas para gráficos ─────────────────────────────────────────

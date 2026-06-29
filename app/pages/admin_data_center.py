@@ -53,7 +53,7 @@ def _op_section(op_id, title, description, *, has_new_only=False, has_force=Fals
         html.Div(id=f"dc-msg-{op_id}", style=_TXT_MSG),
         *extra,
         html.Div(buttons, className="d-flex"),
-        dcc.Interval(id=f"dc-interval-{op_id}", interval=600, disabled=True),
+        dcc.Interval(id=f"dc-interval-{op_id}", interval=2000, disabled=True),
     ])
 
 
