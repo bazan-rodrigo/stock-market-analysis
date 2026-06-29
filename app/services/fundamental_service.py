@@ -97,8 +97,9 @@ def _upsert_fund_value(code: str, asset_id: int, snap_date, val: float, s) -> No
     if val is None:
         return
     t    = get_ind_table(code)
-    stmt = _mysql_insert(t).values(asset_id=asset_id, date=snap_date, value=float(val))
-    stmt = stmt.on_duplicate_key_update(value=stmt.inserted.value)
+    v    = float(val)
+    stmt = _mysql_insert(t).values(asset_id=asset_id, date=snap_date, value=v)
+    stmt = stmt.on_duplicate_key_update(value=v)
     s.execute(stmt)
 
 

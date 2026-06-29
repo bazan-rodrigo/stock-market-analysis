@@ -7,19 +7,27 @@ con PK (asset_id, date), sin contención entre indicadores al escribir.
 Los indicadores con keep_history=False (best_sma_*, best_ema_*) se
 almacenan en current_indicator_values (un solo valor vigente por activo).
 """
+import threading
+
 from sqlalchemy import Column, Date, Float, ForeignKey, Integer, MetaData, String, Table
 
 from app.database import Base, engine
 
-_meta = MetaData()
+_meta      = MetaData()
+_meta_lock = threading.Lock()
 
 
 def get_ind_table(code: str) -> Table:
     """Refleja la tabla ind_{code} desde la BD (usa caché interno de MetaData)."""
     name = f"ind_{code}"
-    if name in _meta.tables:
+    # Fast path: tabla ya reflejada con columnas
+    if name in _meta.tables and len(_meta.tables[name].columns) > 0:
         return _meta.tables[name]
-    return Table(name, _meta, autoload_with=engine, extend_existing=True)
+    # Slow path: un solo thread refleja a la vez para evitar race condition
+    with _meta_lock:
+        if name in _meta.tables and len(_meta.tables[name].columns) > 0:
+            return _meta.tables[name]
+        return Table(name, _meta, autoload_with=engine, extend_existing=True)
 
 
 def create_ind_table(code: str, is_numeric: bool) -> Table:
