@@ -756,14 +756,28 @@ _BACKFILL_FNS: dict[str, callable] = {
 
 # ── Backfill por indicador ────────────────────────────────────────────────────
 
+_PRICE_CHUNK = 80   # activos por query; evita "Lost connection" por result sets grandes
+
 def _load_all_prices(_s) -> dict:
     """Carga todos los precios en memoria via pd.read_sql. {asset_id: df}."""
     from sqlalchemy import text as _text
     with engine.connect() as conn:
-        df = pd.read_sql(
-            _text("SELECT asset_id, date, close, high, low FROM prices ORDER BY asset_id, date"),
-            conn,
-        )
+        asset_ids = [
+            r[0] for r in conn.execute(
+                _text("SELECT DISTINCT asset_id FROM prices ORDER BY asset_id"))
+        ]
+    frames = []
+    with engine.connect() as conn:
+        for i in range(0, len(asset_ids), _PRICE_CHUNK):
+            chunk   = asset_ids[i: i + _PRICE_CHUNK]
+            ids_csv = ",".join(str(x) for x in chunk)
+            frames.append(pd.read_sql(
+                _text(f"SELECT asset_id, date, close, high, low FROM prices"
+                      f" WHERE asset_id IN ({ids_csv}) ORDER BY asset_id, date"),
+                conn,
+            ))
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+        columns=["asset_id", "date", "close", "high", "low"])
     return {aid: sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
 
 
