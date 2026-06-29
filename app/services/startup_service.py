@@ -47,8 +47,6 @@ _BUILTIN_INDICATORS = [
     # Soporte / Resistencia
     {"code": "resistance_pct",           "name": "Distance % to Resistance",  "category": "Support/Resistance", "type": "num", "scale": "%",         "description": "Percentage distance to the nearest pivot resistance above price"},
     {"code": "support_pct",              "name": "Distance % to Support",     "category": "Support/Resistance", "type": "num", "scale": "%",         "description": "Percentage distance to the nearest pivot support below price"},
-    # Precio
-    {"code": "last_close",               "name": "Last Close",                "category": "Price",            "type": "num", "scale": "currency",    "description": "Last closing price"},
     # Fuerza relativa
     {"code": "relative_strength_52w",    "name": "Relative Strength 52W",     "category": "Returns",          "type": "num", "scale": "%",           "description": "Return 52W minus benchmark return 52W"},
     # MA óptima por timeframe (valor vigente, sin historia)

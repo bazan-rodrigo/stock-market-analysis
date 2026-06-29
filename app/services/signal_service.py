@@ -17,12 +17,24 @@ from app.models import (
 )
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import get_ind_table
+from app.models.price import Price
 from app.services import signal_engine
 
 logger = logging.getLogger(__name__)
 
 
 _VALID_GROUP_INDICATOR_KEYS = frozenset({"regime_score_d", "regime_score_w", "regime_score_m"})
+
+# Indicadores virtuales: no tienen tabla ind_*, se leen de otra fuente
+_VIRTUAL_CODES = frozenset({"last_close"})
+
+
+def _load_virtual(s, code: str, snap_date) -> dict:
+    """Carga un indicador virtual. Retorna {asset_id: value}."""
+    if code == "last_close":
+        rows = s.query(Price.asset_id, Price.close).filter(Price.date == snap_date).all()
+        return {r[0]: float(r[1]) for r in rows if r[1] is not None}
+    return {}
 
 
 def _get_group_indicator_value(gsnap: GroupIndicatorSnapshot, key: str):
@@ -80,8 +92,9 @@ def compute_signal_values(snap_date: date_type) -> int:
         ).all()
     }
 
-    # Solo los que las señales referencian
-    codes_to_load = needed_codes & set(all_defs.keys())
+    # Solo los que las señales referencian (virtuales se manejan aparte)
+    codes_to_load = (needed_codes - _VIRTUAL_CODES) & set(all_defs.keys())
+    virtual_to_load = needed_codes & _VIRTUAL_CODES
 
     # Construir {asset_id: {code: value}} leyendo cada ind_* table
     isnaps: dict[int, dict] = {}
@@ -96,6 +109,11 @@ def compute_signal_values(snap_date: date_type) -> int:
         ).fetchall()
         for asset_id_row, value in rows:
             isnaps.setdefault(asset_id_row, {})[code] = value
+
+    # Indicadores virtuales (last_close → prices table)
+    for code in virtual_to_load:
+        for asset_id, value in _load_virtual(s, code, snap_date).items():
+            isnaps.setdefault(asset_id, {})[code] = value
 
     if not isnaps:
         logger.info("signal_service: sin valores de indicadores para %s", snap_date)

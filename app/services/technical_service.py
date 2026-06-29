@@ -550,9 +550,6 @@ def _batch_upsert_ind(session, code: str, rows: list[dict]) -> None:
 
 # ── Compute functions para backfill por indicador ────────────────────────────
 
-def _bf_last_close(df, df_w, df_m, **kw):
-    return [_fv(v, 4) for v in df["close"]]
-
 def _bf_return_daily(df, df_w, df_m, **kw):
     return [_fv(v) for v in df["close"].pct_change() * 100]
 
@@ -700,7 +697,6 @@ def _bf_relative_strength_52w(df, df_w, df_m, session, asset_id, **kw):
 
 # Mapa código → función de cómputo para backfill
 _BACKFILL_FNS: dict[str, callable] = {
-    "last_close":               _bf_last_close,
     "return_daily":             _bf_return_daily,
     "return_monthly":           _bf_return_monthly,
     "return_quarterly":         _bf_return_quarterly,
@@ -1163,7 +1159,6 @@ def compute_and_save_snapshot(
         "return_52w":               _pct_change(last_close, ref_52w),
         "resistance_pct":           ind_resist_pct,
         "support_pct":              ind_support_pct,
-        "last_close":               last_close,
         "relative_strength_52w":    ind_rs_52w,
     }
     for code, value in _snap_inds.items():
