@@ -14,7 +14,7 @@ import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.dialects.mysql import insert as _mysql_insert
 
-from app.database import get_session
+from app.database import engine, get_session
 from app.models import Asset, DrawdownConfig, Price, RegimeConfig, VolatilityConfig
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import CurrentIndicatorValue, get_ind_table
