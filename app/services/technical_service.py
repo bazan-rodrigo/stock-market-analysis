@@ -449,18 +449,29 @@ def _return_vs_ref_series(df: pd.DataFrame, ref_date_fn) -> pd.Series:
     return pd.Series(results, index=df.index)
 
 
-def _zones_to_series(zones: list[dict], df: pd.DataFrame, value_key: str) -> list:
+def _zones_to_series(zones: list[dict], df: pd.DataFrame, value_key: str,
+                     df_period: pd.DataFrame | None = None) -> list | pd.Series:
+    """Mapea zonas a una serie de valores.
+
+    Sin df_period → lista diaria (comportamiento original).
+    Con df_period → pd.Series con índice del período (weekly/monthly).
+    """
+    target = df_period if df_period is not None else df
     if not zones:
+        if df_period is not None:
+            return pd.Series(dtype=object)
         return [None] * len(df)
     zone_starts = [z["start"] for z in zones]
     out = []
-    for d in df["date"]:
+    for d in target["date"]:
         d_str = _date_str(d)
         idx   = bisect.bisect_right(zone_starts, d_str) - 1
         if idx >= 0 and zones[idx]["end"] >= d_str:
             out.append(zones[idx].get(value_key))
         else:
             out.append(None)
+    if df_period is not None:
+        return pd.Series(out, index=_period_index(df_period))
     return out
 
 
@@ -470,6 +481,16 @@ def _map_to_daily(series_on_resampled: pd.Series, df_resampled: pd.DataFrame,
                           index=pd.DatetimeIndex(df_resampled["date"]))
     daily_idx = pd.DatetimeIndex([pd.Timestamp(d) for d in df_daily["date"]])
     return s.reindex(daily_idx, method="ffill").values
+
+
+def _to_date(x):
+    """Convierte pd.Timestamp o datetime a datetime.date."""
+    return x.date() if isinstance(x, pd.Timestamp) else x
+
+
+def _period_index(df_period: pd.DataFrame) -> list:
+    """Retorna lista de datetime.date a partir de un df semanal/mensual."""
+    return [_to_date(d) for d in df_period["date"]]
 
 
 def _fv(x, decimals: int = 2):
@@ -563,13 +584,15 @@ def _bf_rsi_daily(df, df_w, df_m, **kw):
 
 def _bf_rsi_weekly(df, df_w, df_m, **kw):
     if len(df_w) >= 15:
-        return [_fv(v) for v in _map_to_daily(_rsi_series(df_w["close"]), df_w, df)]
-    return [None] * len(df)
+        return pd.Series([_fv(v) for v in _rsi_series(df_w["close"])],
+                         index=_period_index(df_w))
+    return pd.Series(dtype=float)
 
 def _bf_rsi_monthly(df, df_w, df_m, **kw):
     if len(df_m) >= 15:
-        return [_fv(v) for v in _map_to_daily(_rsi_series(df_m["close"]), df_m, df)]
-    return [None] * len(df)
+        return pd.Series([_fv(v) for v in _rsi_series(df_m["close"])],
+                         index=_period_index(df_m))
+    return pd.Series(dtype=float)
 
 def _bf_drawdown_current(df, df_w, df_m, **kw):
     close = df["close"]
@@ -585,15 +608,15 @@ def _bf_atr_daily(df, df_w, df_m, vol_cfg, **kw):
 
 def _bf_atr_weekly(df, df_w, df_m, vol_cfg, **kw):
     if len(df_w) >= vol_cfg.atr_period * 3:
-        return [_fv(v, 1) for v in _map_to_daily(
-            _atr_pct_series_v(df_w, vol_cfg.atr_period), df_w, df)]
-    return [None] * len(df)
+        return pd.Series([_fv(v, 1) for v in _atr_pct_series_v(df_w, vol_cfg.atr_period)],
+                         index=_period_index(df_w))
+    return pd.Series(dtype=float)
 
 def _bf_atr_monthly(df, df_w, df_m, vol_cfg, **kw):
     if len(df_m) >= vol_cfg.atr_period * 3:
-        return [_fv(v, 1) for v in _map_to_daily(
-            _atr_pct_series_v(df_m, vol_cfg.atr_period), df_m, df)]
-    return [None] * len(df)
+        return pd.Series([_fv(v, 1) for v in _atr_pct_series_v(df_m, vol_cfg.atr_period)],
+                         index=_period_index(df_m))
+    return pd.Series(dtype=float)
 
 def _bf_trend(tf_key):
     def fn(df, df_w, df_m, regime_cfg, **kw):
@@ -603,7 +626,8 @@ def _bf_trend(tf_key):
         sl, st, cb = regime_cfg.slope_lookback, regime_cfg.slope_threshold_pct, regime_cfg.confirm_bars
         nb, sm    = regime_cfg.nascent_bars, regime_cfg.strong_slope_multiplier
         zones     = _compute_regime_zones(df_tf, period, sl, st, cb, nb, sm)
-        return _zones_to_series(zones, df, "regime_detail")
+        return _zones_to_series(zones, df, "regime_detail",
+                                df_period=None if tf_key == "d" else df_tf)
     return fn
 
 def _bf_volatility(tf_key):
@@ -616,7 +640,8 @@ def _bf_volatility(tf_key):
         )
         vz       = _compute_vol_zones(df_tf, **vol_args)
         combined = [{**z, "_vk": f"{z['vol_regime']}_{z['dur_regime']}"} for z in vz]
-        return _zones_to_series(combined, df, "_vk")
+        return _zones_to_series(combined, df, "_vk",
+                                df_period=None if tf_key == "d" else df_tf)
     return fn
 
 def _bf_dist_optimal_sma(tf_key):
@@ -630,8 +655,11 @@ def _bf_dist_optimal_sma(tf_key):
             sma  = cl.rolling(best_val).mean()
             std  = cl.rolling(best_val).std().replace(0, np.nan)
             dist = ((cl - sma) / std).round(2)
-            vals = dist if tf_key == "d" else pd.Series(_map_to_daily(dist, df_tf, df))
-            return [_fv(v) for v in vals]
+            if tf_key == "d":
+                return [_fv(v) for v in dist]
+            return pd.Series([_fv(v) for v in dist], index=_period_index(df_tf))
+        if tf_key != "d":
+            return pd.Series(dtype=float)
         return [None] * len(df)
     return fn
 
@@ -706,7 +734,24 @@ _BACKFILL_FNS: dict[str, callable] = {
 
 # ── Backfill por indicador ────────────────────────────────────────────────────
 
-def backfill_indicator(code: str, *, force: bool = False, asset_tick=None) -> dict:
+def _load_all_prices(s) -> dict:
+    """Carga todos los precios en memoria de una sola query. {asset_id: df}."""
+    from itertools import groupby as _groupby
+    rows = (s.query(Price.asset_id, Price.date, Price.close, Price.high, Price.low)
+              .order_by(Price.asset_id, Price.date.asc())
+              .all())
+    cache: dict = {}
+    for asset_id, group in _groupby(rows, key=lambda r: r[0]):
+        data = list(group)
+        cache[asset_id] = pd.DataFrame(
+            [(r[1], r[2], r[3], r[4]) for r in data],
+            columns=["date", "close", "high", "low"],
+        )
+    return cache
+
+
+def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
+                       price_cache: dict | None = None) -> dict:
     """
     Backfill histórico de un indicador específico para todos los activos.
     Escribe en la tabla ind_{code}.
@@ -736,14 +781,22 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None) -> di
     _BATCH = 500
 
     for asset_id in asset_ids:
-        rows = s.query(Price.date, Price.close, Price.high, Price.low).filter(
-            Price.asset_id == asset_id
-        ).order_by(Price.date.asc()).all()
+        if price_cache is not None:
+            df = price_cache.get(asset_id)
+            if df is None or len(df) < _MIN_ROWS:
+                if asset_tick:
+                    asset_tick()
+                continue
+        else:
+            rows = s.query(Price.date, Price.close, Price.high, Price.low).filter(
+                Price.asset_id == asset_id
+            ).order_by(Price.date.asc()).all()
+            if len(rows) < _MIN_ROWS:
+                if asset_tick:
+                    asset_tick()
+                continue
+            df = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
 
-        if len(rows) < _MIN_ROWS:
-            continue
-
-        df   = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
         df_w = _resample_ohlc(df, "W")
         df_m = _resample_ohlc(df, "M")
 
@@ -753,23 +806,29 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None) -> di
             session=s, asset_id=asset_id,
         )
 
+        # Opt 1: compute_fn puede retornar list (diario) o pd.Series (semanal/mensual)
+        if isinstance(values, pd.Series):
+            dates_list = values.index.tolist()
+            vals_list  = values.tolist()
+        else:
+            dates_list = df["date"].tolist()
+            vals_list  = list(values)
+
         if force:
             s.execute(t.delete().where(t.c.asset_id == asset_id))
-            missing_idx = range(len(df))
+            pairs = [(d, v) for d, v in zip(dates_list, vals_list) if v is not None]
         else:
-            existing_dates = {
+            existing = {
                 r[0] for r in s.execute(
                     sa.select(t.c.date).where(t.c.asset_id == asset_id)
                 ).fetchall()
             }
-            missing_idx = [i for i, d in enumerate(df["date"]) if d not in existing_dates]
+            pairs = [(d, v) for d, v in zip(dates_list, vals_list)
+                     if v is not None and d not in existing]
 
         batch = []
-        for i in missing_idx:
-            v = values[i] if i < len(values) else None
-            if v is None:
-                continue
-            batch.append({"asset_id": asset_id, "date": df.iloc[i]["date"], "value": v})
+        for d, v in pairs:
+            batch.append({"asset_id": asset_id, "date": d, "value": v})
             if len(batch) >= _BATCH:
                 _batch_upsert_ind(s, code, batch)
                 s.commit()
@@ -787,10 +846,12 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None) -> di
     return {"inserted": inserted, "code": code}
 
 
-def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None) -> dict:
+def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
+                               price_cache: dict | None = None) -> dict:
     from app.database import Session as _DbSession
     try:
-        return backfill_indicator(code, force=force, asset_tick=asset_tick)
+        return backfill_indicator(code, force=force, asset_tick=asset_tick,
+                                  price_cache=price_cache)
     except Exception as exc:
         logger.warning("Backfill error code=%s: %s", code, exc)
         return {"inserted": 0, "code": code, "error": str(exc)}
@@ -814,9 +875,14 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
         if d.code in _BACKFILL_FNS
     ]
 
-    n_indicators  = len(hist)
-    n_assets      = s.query(Asset.id).count()
-    total_work    = n_indicators * n_assets  # unidades: activo × indicador
+    n_indicators = len(hist)
+
+    # Opt 2: carga todos los precios una sola vez antes de lanzar workers
+    logger.info("Pre-cargando precios en memoria...")
+    price_cache  = _load_all_prices(s)
+    n_assets     = len(price_cache)
+    total_work   = n_indicators * n_assets
+    logger.info("Precios cargados: %d activos", n_assets)
 
     done_ind = 0
     inserted = 0
@@ -840,7 +906,8 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
 
     with _TPE(max_workers=n_indicators) as pool:
         futures = {
-            pool.submit(_backfill_indicator_worker, code, force, _make_tick(code)): code
+            pool.submit(_backfill_indicator_worker, code, force, _make_tick(code),
+                        price_cache): code
             for code in hist
         }
         if progress_cb:
