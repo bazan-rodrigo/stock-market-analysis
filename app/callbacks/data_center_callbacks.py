@@ -331,7 +331,7 @@ def _register(op_id):
         if workers and st["running"]:
             done_cnt = sum(1 for dn, tn in workers.values() if dn >= tn)
             rows = []
-            for code, (dn, tn) in sorted(workers.items()):
+            for code, (dn, tn) in sorted(workers.items(), key=lambda x: x[1][0], reverse=True):
                 if dn >= tn:
                     color = "#4ade80"
                     text  = f"✓ {code}"
