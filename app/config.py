@@ -36,7 +36,7 @@ class Config:
     DB_PASSWORD: str = _get("db_password", "")
 
     DATABASE_URL: str = (
-        f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
+        f"mysql+mysqldb://{DB_USER}:{DB_PASSWORD}"
         f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
     )
 

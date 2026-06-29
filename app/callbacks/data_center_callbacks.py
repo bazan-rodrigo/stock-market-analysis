@@ -90,17 +90,17 @@ def _status_indicators():
         ]
     except Exception:
         return "—"
+    total_rows:  int = 0
     assets_seen: set = set()
-    dates_seen:  set = set()
     for code in tech_codes:
         try:
             t = get_ind_table(code)
-            for row in s.execute(sa.select(t.c.asset_id, t.c.date)).fetchall():
+            total_rows += s.execute(sa.select(sa.func.count()).select_from(t)).scalar() or 0
+            for row in s.execute(sa.select(t.c.asset_id).distinct()).fetchall():
                 assets_seen.add(row[0])
-                dates_seen.add(row[1])
         except Exception:
             continue
-    return f"Indicator values: {len(assets_seen)} activos  |  {len(dates_seen)} fechas"
+    return f"Indicator values: {total_rows:,} filas  |  {len(assets_seen)} activos con datos"
 
 
 def _status_synth():
