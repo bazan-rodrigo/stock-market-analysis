@@ -620,45 +620,235 @@ def backfill_fundamental_values(asset_id: int, session=None, *, force: bool = Fa
     return {"inserted": inserted, "dates_processed": processed}
 
 
-def _backfill_fund_worker(asset_id: int, force: bool = False) -> dict:
+# ── Backfill por indicador (1 thread por código) ──────────────────────────────
+
+from collections import namedtuple as _nt
+
+_Quarter = _nt("_Quarter", [
+    "period_date", "revenue", "gross_profit", "operating_income", "net_income",
+    "ebitda", "total_debt", "equity", "shares", "fcf", "operating_cf",
+    "eps_actual", "eps_estimated", "nopat", "invested_capital_avg",
+])
+
+
+def _load_all_quarters(s) -> dict:
+    """Carga todos los quarters como namedtuples thread-safe. {asset_id: [_Quarter]}"""
+    from itertools import groupby as _gb
+    rows = (s.query(FundamentalQuarterly)
+              .order_by(FundamentalQuarterly.asset_id,
+                        FundamentalQuarterly.period_date.asc())
+              .all())
+    cache: dict = {}
+    for asset_id, grp in _gb(rows, key=lambda q: q.asset_id):
+        cache[asset_id] = [
+            _Quarter(
+                period_date=q.period_date,
+                revenue=q.revenue, gross_profit=q.gross_profit,
+                operating_income=q.operating_income, net_income=q.net_income,
+                ebitda=q.ebitda, total_debt=q.total_debt, equity=q.equity,
+                shares=q.shares, fcf=q.fcf, operating_cf=q.operating_cf,
+                eps_actual=q.eps_actual, eps_estimated=q.eps_estimated,
+                nopat=q.nopat, invested_capital_avg=q.invested_capital_avg,
+            )
+            for q in grp
+        ]
+    return cache
+
+
+def _load_fund_prices(s, asset_ids: list) -> dict:
+    """Carga (date, close) para los activos con fundamentales. {asset_id: [(date, close)]}"""
+    from itertools import groupby as _gb
+    rows = (s.query(Price.asset_id, Price.date, Price.close)
+              .filter(Price.asset_id.in_(asset_ids), Price.close.isnot(None))
+              .order_by(Price.asset_id, Price.date.asc())
+              .all())
+    cache: dict = {}
+    for asset_id, grp in _gb(rows, key=lambda r: r[0]):
+        cache[asset_id] = [(r[1], r[2]) for r in grp]
+    return cache
+
+
+def _backfill_fund_indicator(
+    code: str,
+    asset_ids: list,
+    *,
+    force: bool = False,
+    asset_tick=None,
+    quarters_cache: dict | None = None,
+    price_cache: dict | None = None,
+) -> dict:
+    """Backfill de un indicador fundamental para todos los activos."""
+    import sqlalchemy as sa
+    s        = get_session()
+    t        = get_ind_table(code)
+    is_daily = code in _FUND_DAILY_CODES
+    inserted = 0
+
+    for asset_id in asset_ids:
+        quarters = quarters_cache.get(asset_id) if quarters_cache else [
+            _Quarter(**{f: getattr(q, f) for f in _Quarter._fields})
+            for q in s.query(FundamentalQuarterly)
+                      .filter_by(asset_id=asset_id)
+                      .order_by(FundamentalQuarterly.period_date.asc())
+                      .all()
+        ]
+        if not quarters:
+            if asset_tick:
+                asset_tick()
+            continue
+
+        q_ords = np.array([q.period_date.toordinal() for q in quarters])
+
+        if is_daily:
+            price_rows = price_cache.get(asset_id) if price_cache else [
+                (r[0], r[1]) for r in
+                s.query(Price.date, Price.close)
+                 .filter(Price.asset_id == asset_id, Price.close.isnot(None))
+                 .order_by(Price.date.asc())
+                 .all()
+            ]
+            if not price_rows:
+                if asset_tick:
+                    asset_tick()
+                continue
+
+            price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
+            price_closes    = np.array([float(r[1]) for r in price_rows])
+
+            if force:
+                s.execute(t.delete().where(t.c.asset_id == asset_id))
+                target = set(r[0] for r in price_rows)
+            else:
+                existing = {r[0] for r in s.execute(
+                    sa.select(t.c.date).where(t.c.asset_id == asset_id)
+                ).fetchall()}
+                target = {r[0] for r in price_rows} - existing
+
+            for price_date, price_close in price_rows:
+                if price_date not in target:
+                    continue
+                d_ord      = price_date.toordinal()
+                last_q_idx = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
+                if last_q_idx < 0:
+                    continue
+                try:
+                    ref_1y_ord = _date_type(
+                        price_date.year - 1, price_date.month, price_date.day
+                    ).toordinal()
+                except ValueError:
+                    ref_1y_ord = _date_type(
+                        price_date.year - 1, price_date.month, 28
+                    ).toordinal()
+                ratios = _compute_daily_ratios(
+                    float(price_close), quarters, q_ords, last_q_idx,
+                    price_dates_ord, price_closes, d_ord, ref_1y_ord,
+                )
+                val = ratios.get(code)
+                if val is not None:
+                    v    = float(val)
+                    stmt = _mysql_insert(t).values(asset_id=asset_id, date=price_date, value=v)
+                    s.execute(stmt.on_duplicate_key_update(value=v))
+                    inserted += 1
+        else:
+            if force:
+                s.execute(t.delete().where(t.c.asset_id == asset_id))
+                target = {q.period_date for q in quarters}
+            else:
+                existing = {r[0] for r in s.execute(
+                    sa.select(t.c.date).where(t.c.asset_id == asset_id)
+                ).fetchall()}
+                target = {q.period_date for q in quarters} - existing
+
+            for idx, q in enumerate(quarters):
+                if q.period_date not in target:
+                    continue
+                ratios = _compute_quarterly_ratios(quarters, idx)
+                val = ratios.get(code)
+                if val is not None:
+                    v    = float(val)
+                    stmt = _mysql_insert(t).values(asset_id=asset_id, date=q.period_date, value=v)
+                    s.execute(stmt.on_duplicate_key_update(value=v))
+                    inserted += 1
+
+        s.commit()
+        if asset_tick:
+            asset_tick()
+
+    return {"inserted": inserted, "code": code}
+
+
+def _backfill_fund_indicator_worker(
+    code: str, asset_ids: list, force: bool,
+    asset_tick, quarters_cache: dict, price_cache: dict,
+) -> dict:
     try:
-        s = get_session()
-        return backfill_fundamental_values(asset_id, s, force=force)
+        return _backfill_fund_indicator(
+            code, asset_ids, force=force, asset_tick=asset_tick,
+            quarters_cache=quarters_cache, price_cache=price_cache,
+        )
     except Exception as exc:
-        logger.warning("Fund backfill error asset_id=%d: %s", asset_id, exc)
-        return {"inserted": 0, "dates_processed": 0, "error": str(exc)}
+        logger.warning("Fund backfill indicator error code=%s: %s", code, exc)
+        return {"inserted": 0, "code": code, "error": str(exc)}
     finally:
         _ScopedSession.remove()
 
 
 def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) -> dict:
-    """Backfill histórico de indicadores fundamentales para todos los activos."""
-    s         = get_session()
-    asset_ids = [
-        r[0] for r in
-        s.query(FundamentalQuarterly.asset_id)
-         .join(Asset, FundamentalQuarterly.asset_id == Asset.id)
-         .distinct().all()
-    ]
-    total    = len(asset_ids)
-    done     = 0
-    inserted = 0
-    errors: list[dict] = []
+    """Backfill histórico de indicadores fundamentales — 1 thread por indicador."""
+    import threading as _th
+    s          = get_session()
+    fund_codes = sorted(_ALL_FUND_CODES)
+    n_ind      = len(fund_codes)
 
-    with ThreadPoolExecutor(max_workers=_BACKFILL_WORKERS) as pool:
-        futures = {pool.submit(_backfill_fund_worker, aid, force): aid for aid in asset_ids}
-        for future in as_completed(futures):
-            done += 1
-            aid  = futures[future]
+    logger.info("Pre-cargando datos fundamentales en memoria...")
+    quarters_cache = _load_all_quarters(s)
+    asset_ids      = sorted(quarters_cache.keys())
+    price_cache    = _load_fund_prices(s, asset_ids)
+    n_assets       = len(asset_ids)
+    total_work     = n_ind * n_assets
+    logger.info("Datos cargados: %d activos, %d indicadores", n_assets, n_ind)
+
+    done_ind = 0
+    inserted = 0
+    errors:  list[dict] = []
+
+    _assets_done = 0
+    _lock        = _th.Lock()
+
+    def _make_tick(code):
+        per_ind = [0]
+        def _tick():
+            nonlocal _assets_done
+            per_ind[0] += 1
+            with _lock:
+                _assets_done += 1
+                n = _assets_done
             if progress_cb:
-                progress_cb(done, total)
+                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
+        return _tick
+
+    with ThreadPoolExecutor(max_workers=n_ind) as pool:
+        futures = {
+            pool.submit(
+                _backfill_fund_indicator_worker,
+                code, asset_ids, force, _make_tick(code),
+                quarters_cache, price_cache,
+            ): code
+            for code in fund_codes
+        }
+        if progress_cb:
+            progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(fund_codes)}")
+        for future in as_completed(futures):
+            done_ind += 1
+            code = futures[future]
             try:
                 res = future.result()
                 inserted += res.get("inserted", 0)
                 if "error" in res:
-                    errors.append({"asset_id": aid, "error": res["error"]})
+                    errors.append({"code": code, "error": res["error"]})
             except Exception as exc:
-                logger.warning("Fund backfill future error aid=%d: %s", aid, exc)
-                errors.append({"asset_id": aid, "error": str(exc)})
+                logger.warning("Fund backfill future error code=%s: %s", code, exc)
+                errors.append({"code": code, "error": str(exc)})
 
-    return {"total": total, "success": total - len(errors), "inserted": inserted, "errors": errors}
+    return {"total": n_ind, "success": n_ind - len(errors),
+            "inserted": inserted, "errors": errors}
