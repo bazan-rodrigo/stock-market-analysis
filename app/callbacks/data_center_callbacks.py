@@ -109,13 +109,16 @@ def _status_fund_backfill():
     import sqlalchemy as sa
     from app.models.indicator_definition import IndicatorDefinition
     from app.models.indicator_store import get_ind_table
-    s = get_session()
-    fund_codes = [
-        r[0] for r in s.query(IndicatorDefinition.code).filter(
-            IndicatorDefinition.category == "Fundamental",
-            IndicatorDefinition.keep_history.is_(True),
-        ).all()
-    ]
+    try:
+        s = get_session()
+        fund_codes = [
+            r[0] for r in s.query(IndicatorDefinition.code).filter(
+                IndicatorDefinition.category == "Fundamental",
+                IndicatorDefinition.keep_history.is_(True),
+            ).all()
+        ]
+    except Exception:
+        return "—"
     if not fund_codes:
         return "Sin indicadores fundamentales definidos"
     total_rows = 0
@@ -183,7 +186,7 @@ _STATUS_FN = {
 )
 def refresh_status(_):
     try:
-        get_session().rollback()
+        _ScopedSession.remove()
     except Exception:
         pass
     return tuple(fn() for fn in _STATUS_FN.values())
