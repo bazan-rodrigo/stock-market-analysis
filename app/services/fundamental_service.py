@@ -657,25 +657,20 @@ def _load_all_quarters(s) -> dict:
     return cache
 
 
-_PRICE_CHUNK = 80   # activos por query; evita "Lost connection" por result sets grandes
-
 def _load_fund_prices(_s, asset_ids: list) -> dict:
-    """Carga (date, close) para los activos con fundamentales via pd.read_sql."""
+    """Carga (date, close) para los activos con fundamentales."""
     import pandas as pd
     from sqlalchemy import text as _text
-    frames = []
+    if not asset_ids:
+        return {}
+    ids_csv = ",".join(str(x) for x in asset_ids)
     with engine.connect() as conn:
-        for i in range(0, len(asset_ids), _PRICE_CHUNK):
-            chunk   = asset_ids[i: i + _PRICE_CHUNK]
-            ids_csv = ",".join(str(x) for x in chunk)
-            frames.append(pd.read_sql(
-                _text(f"SELECT asset_id, date, close FROM prices"
-                      f" WHERE asset_id IN ({ids_csv}) AND close IS NOT NULL"
-                      f" ORDER BY asset_id, date"),
-                conn,
-            ))
-    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
-        columns=["asset_id", "date", "close"])
+        rows = conn.execute(
+            _text(f"SELECT asset_id, date, close FROM prices"
+                  f" WHERE asset_id IN ({ids_csv}) AND close IS NOT NULL"
+                  f" ORDER BY asset_id, date")
+        ).fetchall()
+    df = pd.DataFrame(rows, columns=["asset_id", "date", "close"])
     return {
         aid: list(zip(sub["date"], sub["close"].astype(float)))
         for aid, sub in df.groupby("asset_id")
