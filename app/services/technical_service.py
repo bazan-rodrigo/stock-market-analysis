@@ -660,18 +660,21 @@ def _bf_dist_optimal_sma(tf_key):
         return [None] * len(df)
     return fn
 
-def _bf_relative_strength_52w(df, df_w, df_m, session, asset_id, **kw):
+def _bf_relative_strength_52w(df, df_w, df_m, session, asset_id, price_cache=None, **kw):
     n       = len(df)
     rs_list = [None] * n
     bm_id   = session.query(Asset.benchmark_id).filter(Asset.id == asset_id).scalar()
     if not bm_id:
         return rs_list
-    bm_rows = session.query(Price.date, Price.close).filter(
-        Price.asset_id == bm_id
-    ).order_by(Price.date.asc()).all()
-    if not bm_rows:
-        return rs_list
-    bm_df     = pd.DataFrame(bm_rows, columns=["date", "close"])
+    if price_cache and bm_id in price_cache:
+        bm_df = price_cache[bm_id]
+    else:
+        bm_rows = session.query(Price.date, Price.close).filter(
+            Price.asset_id == bm_id
+        ).order_by(Price.date.asc()).all()
+        if not bm_rows:
+            return rs_list
+        bm_df = pd.DataFrame(bm_rows, columns=["date", "close"])
     bm_ords   = np.array([d.toordinal() for d in bm_df["date"]])
     bm_closes = bm_df["close"].values.astype(float)
     a_ords    = np.array([d.toordinal() for d in df["date"]])
