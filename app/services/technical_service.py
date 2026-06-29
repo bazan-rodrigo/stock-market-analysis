@@ -816,7 +816,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
 
         if force:
             s.execute(t.delete().where(t.c.asset_id == asset_id))
-            pairs = [(d, v) for d, v in zip(dates_list, vals_list) if v is not None]
+            pairs = [(d, v) for d, v in zip(dates_list, vals_list) if pd.notna(v)]
         else:
             existing = {
                 r[0] for r in s.execute(
@@ -824,7 +824,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 ).fetchall()
             }
             pairs = [(d, v) for d, v in zip(dates_list, vals_list)
-                     if v is not None and d not in existing]
+                     if pd.notna(v) and d not in existing]
 
         batch = []
         for d, v in pairs:
@@ -886,6 +886,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
     n_assets     = len(price_cache)
     total_work   = n_indicators * n_assets
     logger.info("Precios cargados: %d activos", n_assets)
+    _DbSession.remove()   # libera la conexión principal antes de lanzar workers
 
     done_ind = 0
     inserted = 0
