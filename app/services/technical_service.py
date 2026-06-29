@@ -818,6 +818,8 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
 
     with _TPE(max_workers=n_workers) as pool:
         futures = {pool.submit(_backfill_indicator_worker, code, force): code for code in hist}
+        if progress_cb:
+            progress_cb(0, total, "calculando...")
         for future in as_completed(futures):
             done += 1
             code  = futures[future]
@@ -1118,16 +1120,18 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
             pool.submit(_snapshot_worker, aid, dd_cfg, regime_cfg, vol_cfg, sr_cfg): aid
             for aid in asset_ids
         }
+        if progress_cb:
+            progress_cb(0, total, "calculando...")
         for future in as_completed(futures):
             done += 1
-            if progress_cb:
-                progress_cb(done, total)
             aid = futures[future]
             try:
                 future.result()
             except Exception as exc:
                 logger.warning("Error snapshot activo id=%d: %s", aid, exc)
                 errors.append(aid)
+            if progress_cb:
+                progress_cb(done, total)
 
     return {"total": total, "errors": errors}
 
