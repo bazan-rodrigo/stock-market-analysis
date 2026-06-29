@@ -37,6 +37,10 @@ sudo mysql -e "UPDATE mysql.user SET authentication_string='' WHERE User='root';
 echo "=== Creando base de datos '$DB_NAME' ==="
 mysql -u root -h 127.0.0.1 -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
+echo "=== Instalando dependencias del sistema para mysqlclient ==="
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    python3-dev default-libmysqlclient-dev build-essential pkg-config
+
 echo "=== Instalando dependencias Python ==="
 pip install --upgrade pip -q
 pip install -r requirements.txt -q
