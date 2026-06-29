@@ -436,16 +436,20 @@ def _return_vs_ref_series(df: pd.DataFrame, ref_date_fn) -> pd.Series:
     dates    = df["date"].values
     closes   = df["close"].values.astype(float)
     ordinals = np.array([d.toordinal() for d in dates])
-    results  = np.full(len(dates), np.nan)
+
+    ref_ords = np.empty(len(dates), dtype=np.int64)
     for i, d in enumerate(dates):
-        try:
-            ref_date = ref_date_fn(d)
-        except (ValueError, OverflowError):
-            continue
-        ref_ord = ref_date.toordinal()
-        j = int(np.searchsorted(ordinals[: i + 1], ref_ord, side="right")) - 1
-        if j >= 0 and closes[j] != 0:
-            results[i] = round((closes[i] / closes[j] - 1) * 100, 2)
+        try:    ref_ords[i] = ref_date_fn(d).toordinal()
+        except: ref_ords[i] = -1
+
+    indices    = np.searchsorted(ordinals, ref_ords, side="right") - 1
+    valid      = (indices >= 0) & (ref_ords >= 0)
+    ref_closes = closes[np.where(valid, indices, 0)]
+    results    = np.where(
+        valid & (ref_closes != 0),
+        np.round((closes / ref_closes - 1) * 100, 2),
+        np.nan,
+    )
     return pd.Series(results, index=df.index)
 
 
@@ -505,7 +509,9 @@ def _fv(x, decimals: int = 2):
 
 # ── Lectura de best_sma desde current_indicator_values ───────────────────────
 
-def _query_best_sma(asset_id: int, session) -> dict[str, int]:
+def _query_best_sma(asset_id: int, session, best_sma_cache: dict | None = None) -> dict[str, int]:
+    if best_sma_cache is not None:
+        return best_sma_cache.get(asset_id, {})
     rows = session.query(
         CurrentIndicatorValue.code,
         CurrentIndicatorValue.value_num,
@@ -514,6 +520,22 @@ def _query_best_sma(asset_id: int, session) -> dict[str, int]:
         CurrentIndicatorValue.code.in_(["best_sma_d", "best_sma_w", "best_sma_m"]),
     ).all()
     return {code: int(val) for code, val in rows if val is not None}
+
+
+def _load_best_sma_cache(s) -> dict:
+    """Precarga best_sma_d/w/m para todos los activos. {asset_id: {code: val}}"""
+    rows = s.query(
+        CurrentIndicatorValue.asset_id,
+        CurrentIndicatorValue.code,
+        CurrentIndicatorValue.value_num,
+    ).filter(
+        CurrentIndicatorValue.code.in_(["best_sma_d", "best_sma_w", "best_sma_m"])
+    ).all()
+    cache: dict = {}
+    for asset_id, code, val in rows:
+        if val is not None:
+            cache.setdefault(asset_id, {})[code] = int(val)
+    return cache
 
 
 # ── Escritura a tablas ind_* y current_indicator_values ──────────────────────
@@ -643,9 +665,9 @@ def _bf_volatility(tf_key):
 
 def _bf_dist_optimal_sma(tf_key):
     code_map = {"d": "best_sma_d", "w": "best_sma_w", "m": "best_sma_m"}
-    def fn(df, df_w, df_m, session, asset_id, **kw):
+    def fn(df, df_w, df_m, session, asset_id, best_sma_cache=None, **kw):
         df_tf    = {"d": df, "w": df_w, "m": df_m}[tf_key]
-        best     = _query_best_sma(asset_id, session)
+        best     = _query_best_sma(asset_id, session, best_sma_cache)
         best_val = best.get(code_map[tf_key])
         if best_val and best_val >= 2:
             cl   = df_tf["close"]
@@ -745,7 +767,8 @@ def _load_all_prices(_s) -> dict:
 
 
 def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
-                       price_cache: dict | None = None) -> dict:
+                       price_cache: dict | None = None,
+                       best_sma_cache: dict | None = None) -> dict:
     """
     Backfill histórico de un indicador específico para todos los activos.
     Escribe en la tabla ind_{code}.
@@ -798,6 +821,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
             df=df, df_w=df_w, df_m=df_m,
             regime_cfg=regime_cfg, vol_cfg=vol_cfg,
             session=s, asset_id=asset_id,
+            price_cache=price_cache, best_sma_cache=best_sma_cache,
         )
 
         # Opt 1: compute_fn puede retornar list (diario) o pd.Series (semanal/mensual)
@@ -841,11 +865,12 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
 
 
 def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
-                               price_cache: dict | None = None) -> dict:
+                               price_cache: dict | None = None,
+                               best_sma_cache: dict | None = None) -> dict:
     from app.database import Session as _DbSession
     try:
         return backfill_indicator(code, force=force, asset_tick=asset_tick,
-                                  price_cache=price_cache)
+                                  price_cache=price_cache, best_sma_cache=best_sma_cache)
     except Exception as exc:
         logger.warning("Backfill error code=%s: %s", code, exc)
         return {"inserted": 0, "code": code, "error": str(exc)}
@@ -876,9 +901,10 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
         progress_cb(0, 1, "Cargando precios en memoria...")
 
     logger.info("Pre-cargando precios en memoria...")
-    price_cache  = _load_all_prices(s)
-    n_assets     = len(price_cache)
-    total_work   = n_indicators * n_assets
+    price_cache     = _load_all_prices(s)
+    best_sma_cache  = _load_best_sma_cache(s)
+    n_assets        = len(price_cache)
+    total_work      = n_indicators * n_assets
     logger.info("Precios cargados: %d activos", n_assets)
     from app.database import Session as _DbSession
     _DbSession.remove()   # libera la conexión principal antes de lanzar workers
@@ -906,7 +932,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
     with _TPE(max_workers=n_indicators) as pool:
         futures = {
             pool.submit(_backfill_indicator_worker, code, force, _make_tick(code),
-                        price_cache): code
+                        price_cache, best_sma_cache): code
             for code in hist
         }
         if progress_cb:
