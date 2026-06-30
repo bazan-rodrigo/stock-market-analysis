@@ -270,7 +270,7 @@ def _register(op_id):
     elif has_force:
         extra_states.append(State(f"dc-force-{op_id}", "value"))
 
-    _BAR_RUNNING = {"height": "5px", "display": "block"}
+    _BAR_RUNNING = {"height": "5px", "display": "flex"}
 
     @callback(
         Output(f"dc-interval-{op_id}", "disabled",  allow_duplicate=True),
@@ -334,9 +334,9 @@ def _register(op_id):
         done  = st["done"] and not st["running"]
 
         if st["running"]:
-            bar_style = {"height": "5px", "display": "block"}
+            bar_style = {"height": "5px", "display": "flex"}
         elif st["done"]:
-            bar_style = {"height": "5px", "display": "block"}
+            bar_style = {"height": "5px", "display": "flex"}
         else:
             bar_style = {"height": "5px", "display": "none"}
 
