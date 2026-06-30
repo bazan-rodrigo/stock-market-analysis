@@ -270,17 +270,21 @@ def _register(op_id):
     elif has_force:
         extra_states.append(State(f"dc-force-{op_id}", "value"))
 
+    _BAR_RUNNING = {"height": "5px", "display": "block"}
+
     @callback(
         Output(f"dc-interval-{op_id}", "disabled",  allow_duplicate=True),
         Output(f"dc-btn-{op_id}",      "disabled",  allow_duplicate=True),
         Output(f"dc-msg-{op_id}",      "children",  allow_duplicate=True),
+        Output(f"dc-progress-{op_id}", "value",     allow_duplicate=True),
+        Output(f"dc-progress-{op_id}", "style",     allow_duplicate=True),
         Input(f"dc-btn-{op_id}",       "n_clicks"),
         *extra_states,
         prevent_initial_call=True,
     )
     def _start(n, *args):
         if not n:
-            return no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update
 
         extra_val = bool(args[0]) if args else False
         new_only  = extra_val if has_new_only else False
@@ -311,11 +315,11 @@ def _register(op_id):
 
         _state[op_id].update(_blank())
         threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
-        return False, True, "Iniciando..."
+        return False, True, "Iniciando...", 0, _BAR_RUNNING
 
     @callback(
-        Output(f"dc-progress-{op_id}", "value"),
-        Output(f"dc-progress-{op_id}", "style"),
+        Output(f"dc-progress-{op_id}", "value",     allow_duplicate=True),
+        Output(f"dc-progress-{op_id}", "style",     allow_duplicate=True),
         Output(f"dc-msg-{op_id}",      "children",  allow_duplicate=True),
         Output(f"dc-msg-{op_id}",      "style"),
         Output(f"dc-interval-{op_id}", "disabled",  allow_duplicate=True),
