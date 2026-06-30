@@ -556,6 +556,15 @@ td.dash-datepicker-calendar-date-inside[aria-disabled="true"] {
     background: transparent !important;
 }
 
+/* ── Progress bars — visibilidad en dark theme ───────────────────────────── */
+.progress {
+    background-color: #374151 !important;
+    border-radius: 4px !important;
+}
+.progress-bar {
+    background-color: #38bdf8 !important;
+}
+
 /* ── DataTable tooltips: modo oscuro ─────────────────────────────────────── */
 .dash-table-tooltip {
     background-color: #1f2937 !important;
