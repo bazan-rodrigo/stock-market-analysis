@@ -20,12 +20,13 @@ def layout(**kwargs):
 
     data = [
         {
-            "code":        d.code,
-            "name":        d.name,
-            "category":    d.category,
-            "type":        d.type,
-            "scale":       d.scale or "—",
-            "description": d.description or "—",
+            "code":         d.code,
+            "name":         d.name,
+            "category":     d.category,
+            "type":         d.type,
+            "scale":        d.scale or "—",
+            "keep_history": "Sí" if d.keep_history else "No",
+            "description":  d.description or "—",
         }
         for d in defs
     ]
@@ -41,12 +42,13 @@ def layout(**kwargs):
         ),
         dash_table.DataTable(
             columns=[
-                {"name": "Código",      "id": "code"},
-                {"name": "Nombre",      "id": "name"},
-                {"name": "Categoría",   "id": "category"},
-                {"name": "Tipo",        "id": "type"},
-                {"name": "Escala",      "id": "scale"},
-                {"name": "Descripción", "id": "description"},
+                {"name": "Código",        "id": "code"},
+                {"name": "Nombre",        "id": "name"},
+                {"name": "Categoría",     "id": "category"},
+                {"name": "Tipo",          "id": "type"},
+                {"name": "Escala",        "id": "scale"},
+                {"name": "Guarda histórico", "id": "keep_history"},
+                {"name": "Descripción",   "id": "description"},
             ],
             data=data,
             style_table={"overflowX": "auto"},
@@ -60,7 +62,12 @@ def layout(**kwargs):
                 {"if": {"column_id": "category"},    "width": "160px", "minWidth": "160px"},
                 {"if": {"column_id": "type"},        "width": "60px",  "minWidth": "60px"},
                 {"if": {"column_id": "scale"},       "width": "110px", "minWidth": "110px"},
+                {"if": {"column_id": "keep_history"}, "width": "110px", "minWidth": "110px"},
                 {"if": {"column_id": "description"}, "minWidth": "300px"},
+            ],
+            style_data_conditional=[
+                {"if": {"filter_query": '{keep_history} = "No"', "column_id": "keep_history"},
+                 "color": "#f59e0b"},
             ],
             page_size=35,
             filter_action="native",
