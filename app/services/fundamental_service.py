@@ -194,6 +194,7 @@ def _compute_snapshot(asset_id: int, s) -> None:
 
 def update_asset_fundamentals(asset_id: int, *, force: bool = False) -> None:
     from app.sources.fundamental.registry import get_fundamental_source
+    from app.services.technical_service import _save_indicator_log
 
     s = get_session()
     asset = s.get(Asset, asset_id)
@@ -211,7 +212,6 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False) -> None:
             raise ValueError(f"No se obtuvieron datos trimestrales para {asset.ticker}")
         _upsert_quarterly(asset_id, quarters, s)
         s.flush()
-        _compute_snapshot(asset_id, s)
         _save_log(asset_id, success=True, error=None, s=s)
         s.commit()
         logger.info("Fundamentales actualizados: %s (%d trimestres)", asset.ticker, len(quarters))
@@ -222,6 +222,17 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False) -> None:
         _save_log(asset_id, success=False, error=error_msg, s=s)
         s.commit()
         raise
+
+    # Recálculo de ratios (P/E, P/B, etc.): error independiente de la descarga.
+    # Si falla, no invalida el éxito de la descarga de trimestrales de arriba.
+    try:
+        _compute_snapshot(asset_id, s)
+        _save_indicator_log(asset_id, success=True, error=None, session=s)
+    except Exception as exc:
+        s.rollback()
+        error_msg = f"{type(exc).__name__}: {exc}"
+        logger.warning("Error recomputo ratios %s: %s", asset.ticker, error_msg)
+        _save_indicator_log(asset_id, success=False, error=error_msg, session=s)
 
 
 def recompute_snapshot_for_asset(asset_id: int) -> None:
@@ -355,12 +366,24 @@ def redownload_all_fundamentals(progress_cb=None) -> dict:
 
 
 def get_fundamentals_log() -> list[dict]:
+    from app.models import IndicatorUpdateLog
+
     s = get_session()
     logs   = (s.query(FundamentalUpdateLog)
                 .join(Asset)
                 .order_by(Asset.ticker)
                 .all())
-    assets = {a.id: a for a in s.query(Asset).all()}
+    assets   = {a.id: a for a in s.query(Asset).all()}
+    ind_logs = {log.asset_id: log for log in s.query(IndicatorUpdateLog).all()}
+
+    def _ind_fields(asset_id):
+        ind_log = ind_logs.get(asset_id)
+        return {
+            "last_indicator_at":      str(ind_log.last_attempt_at)[:19] if ind_log else "—",
+            "indicator_result":       ("Éxito" if ind_log.success else "Error") if ind_log else "—",
+            "indicator_error_detail": (ind_log.error_detail or "") if ind_log else "",
+        }
+
     result = []
     for log in logs:
         a = assets.get(log.asset_id)
@@ -370,6 +393,7 @@ def get_fundamentals_log() -> list[dict]:
             "last_attempt_at": str(log.last_attempt_at)[:19],
             "result":         "Éxito" if log.success else "Error",
             "error_detail":   log.error_detail or "",
+            **_ind_fields(log.asset_id),
         })
     logged_ids = {log.asset_id for log in logs}
     for a in s.query(Asset).filter(Asset.fundamental_source_id.isnot(None)).all():
@@ -377,6 +401,7 @@ def get_fundamentals_log() -> list[dict]:
             result.append({
                 "ticker": a.ticker, "name": a.name or "",
                 "last_attempt_at": "—", "result": "—", "error_detail": "",
+                **_ind_fields(a.id),
             })
     return result
 

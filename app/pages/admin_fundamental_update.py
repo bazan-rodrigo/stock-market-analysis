@@ -10,6 +10,9 @@ _LOG_COLUMNS = [
     {"name": "Último intento", "id": "last_attempt_at"},
     {"name": "Resultado",      "id": "result"},
     {"name": "Detalle error",  "id": "error_detail"},
+    {"name": "Último indicador",        "id": "last_indicator_at"},
+    {"name": "Resultado indicador",     "id": "indicator_result"},
+    {"name": "Detalle error indicador", "id": "indicator_error_detail"},
 ]
 
 
@@ -56,6 +59,10 @@ def layout(**kwargs):
                 {"if": {"filter_query": '{result} = "Éxito"'}, "color": "#4caf50"},
                 {"if": {"filter_query": '{result} = "Error"'}, "color": "#ef5350"},
                 {"if": {"filter_query": '{result} = "—"'},     "color": "#6b7280"},
+                {"if": {"filter_query": '{indicator_result} = "Éxito"', "column_id": "indicator_result"},
+                 "color": "#4caf50"},
+                {"if": {"filter_query": '{indicator_result} = "Error"', "column_id": "indicator_result"},
+                 "color": "#ef5350"},
             ],
             page_size=30,
             sort_action="native",
