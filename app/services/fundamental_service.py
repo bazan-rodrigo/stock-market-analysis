@@ -259,9 +259,19 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
     return summary
 
 
-def _fund_worker(asset_id: int, ticker: str) -> tuple[bool, dict | None]:
+def clear_fundamentals(asset_id: int) -> None:
+    """Borra todo el historial trimestral de un activo."""
+    s = get_session()
+    s.query(FundamentalQuarterly).filter(FundamentalQuarterly.asset_id == asset_id).delete()
+    s.commit()
+    logger.info("Historia fundamental borrada para activo id=%d", asset_id)
+
+
+def _fund_worker(asset_id: int, ticker: str, *, clear: bool = False) -> tuple[bool, dict | None]:
     try:
-        update_asset_fundamentals(asset_id)
+        if clear:
+            clear_fundamentals(asset_id)
+        update_asset_fundamentals(asset_id, force=clear)
         return True, None
     except Exception as exc:
         return False, {"ticker": ticker, "error": str(exc)}
@@ -306,6 +316,31 @@ def update_all_fundamentals(progress_cb=None) -> dict:
     lock = threading.Lock()
     with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
         futures = {pool.submit(_fund_worker, aid, ticker): ticker for aid, ticker in pairs}
+        for future in as_completed(futures):
+            ok, err = future.result()
+            with lock:
+                done_count += 1
+                if progress_cb:
+                    progress_cb(done_count, total)
+            if ok:
+                summary["success"] += 1
+            elif err:
+                summary["errors"].append(err)
+    return summary
+
+
+def redownload_all_fundamentals(progress_cb=None) -> dict:
+    """Borra el historial trimestral de todos los activos con fuente configurada
+    y lo redescarga completo desde la fuente."""
+    s = get_session()
+    assets = s.query(Asset).filter(Asset.fundamental_source_id.isnot(None)).all()
+    pairs  = [(a.id, a.ticker) for a in assets]
+    total  = len(pairs)
+    summary = {"total": total, "success": 0, "errors": []}
+    done_count = 0
+    lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
+        futures = {pool.submit(_fund_worker, aid, ticker, clear=True): ticker for aid, ticker in pairs}
         for future in as_completed(futures):
             ok, err = future.result()
             with lock:
@@ -996,3 +1031,23 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) ->
 
     return {"total": n_ind, "success": n_ind - len(errors),
             "inserted": inserted, "errors": errors}
+
+
+# ── Acciones combinadas (Centro de Datos) ───────────────────────────────────────
+
+def delta_update_ratios(progress_cb=None) -> dict:
+    """Recomputa los ratios vigentes y completa huecos históricos (backfill delta)."""
+    r1 = recompute_all_snapshots(progress_cb=progress_cb)
+    r2 = backfill_all_fundamental_values(progress_cb=progress_cb, force=False)
+    errors = r1["errors"] + r2["errors"]
+    total  = r1["total"]
+    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
+
+
+def full_recompute_ratios(progress_cb=None) -> dict:
+    """Borra y recalcula todo el historial de ratios fundamentales desde cero."""
+    r1 = backfill_all_fundamental_values(progress_cb=progress_cb, force=True)
+    r2 = recompute_all_snapshots(progress_cb=progress_cb)
+    errors = r1["errors"] + r2["errors"]
+    total  = r2["total"]
+    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}

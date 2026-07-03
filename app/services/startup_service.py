@@ -36,8 +36,8 @@ _BUILTIN_INDICATORS = [
     # Drawdown
     {"code": "drawdown_current",         "name": "Drawdown Current",          "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Percentage fall from recent peak to current price"},
     {"code": "drawdown_max1",            "name": "Drawdown Max 1",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Largest drawdown in asset history"},
-    {"code": "drawdown_max2",            "name": "Drawdown Max 2",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "description": "Second largest drawdown in asset history"},
-    {"code": "drawdown_max3",            "name": "Drawdown Max 3",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "description": "Third largest drawdown in asset history"},
+    {"code": "drawdown_max2",            "name": "Drawdown Max 2",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Second largest drawdown in asset history"},
+    {"code": "drawdown_max3",            "name": "Drawdown Max 3",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Third largest drawdown in asset history"},
     # Retornos
     {"code": "return_daily",             "name": "Return Daily",              "category": "Returns",          "type": "num", "scale": "%",           "description": "Return of the last trading day"},
     {"code": "return_monthly",           "name": "Return Monthly",            "category": "Returns",          "type": "num", "scale": "%",           "description": "Return over the last calendar month"},
@@ -45,8 +45,8 @@ _BUILTIN_INDICATORS = [
     {"code": "return_yearly",            "name": "Return Yearly",             "category": "Returns",          "type": "num", "scale": "%",           "description": "Return over the last 12 months"},
     {"code": "return_52w",               "name": "Return 52 Weeks",           "category": "Returns",          "type": "num", "scale": "%",           "description": "Return over the last 52 calendar weeks"},
     # Soporte / Resistencia
-    {"code": "resistance_pct",           "name": "Distance % to Resistance",  "category": "Support/Resistance", "type": "num", "scale": "%",         "description": "Percentage distance to the nearest pivot resistance above price"},
-    {"code": "support_pct",              "name": "Distance % to Support",     "category": "Support/Resistance", "type": "num", "scale": "%",         "description": "Percentage distance to the nearest pivot support below price"},
+    {"code": "resistance_pct",           "name": "Distance % to Resistance",  "category": "Support/Resistance", "type": "num", "scale": "%",         "keep_history": False, "description": "Percentage distance to the nearest pivot resistance above price"},
+    {"code": "support_pct",              "name": "Distance % to Support",     "category": "Support/Resistance", "type": "num", "scale": "%",         "keep_history": False, "description": "Percentage distance to the nearest pivot support below price"},
     # Fuerza relativa
     {"code": "relative_strength_52w",    "name": "Relative Strength 52W",     "category": "Returns",          "type": "num", "scale": "%",           "description": "Return 52W minus benchmark return 52W"},
     # MA óptima por timeframe (valor vigente, sin historia)

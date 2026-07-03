@@ -9,6 +9,7 @@ from app.models.market import Market
 from app.models.price import Price
 from app.models.price_source import PriceSource
 from app.models.price_update_log import PriceUpdateLog
+from app.models.indicator_update_log import IndicatorUpdateLog
 from app.models.market_event import MarketEvent
 from app.models.drawdown_config import DrawdownConfig
 from app.models.regime_config import RegimeConfig
@@ -46,6 +47,7 @@ __all__ = [
     "CatalogAlias",
     "Price",
     "PriceUpdateLog",
+    "IndicatorUpdateLog",
     "ImportLog",
     "MarketEvent",
     "DrawdownConfig",

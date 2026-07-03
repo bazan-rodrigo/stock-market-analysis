@@ -10,9 +10,9 @@ from app.models import (
     SyntheticFormula,
 )
 
-_OPS          = ("prices", "fund", "snap", "indicators", "synth", "fund_backfill", "backfill")
+_OPS          = ("prices", "fund", "snap", "indicators", "synth")
 _HAS_NEW_ONLY = {"prices", "fund"}
-_HAS_FORCE    = {"backfill", "fund_backfill"}
+_HAS_REDOWNLOAD = {"prices", "fund", "synth", "snap", "indicators"}
 
 
 def _blank():
@@ -112,72 +112,12 @@ def _status_synth():
         return "—"
 
 
-def _status_fund_backfill():
-    import sqlalchemy as sa
-    from app.models.indicator_definition import IndicatorDefinition
-    from app.models.indicator_store import get_ind_table
-    try:
-        s = get_session()
-        fund_codes = [
-            r[0] for r in s.query(IndicatorDefinition.code).filter(
-                IndicatorDefinition.category == "Fundamental",
-                IndicatorDefinition.keep_history.is_(True),
-            ).all()
-        ]
-    except Exception:
-        return "—"
-    if not fund_codes:
-        return "Sin indicadores fundamentales definidos"
-    total_rows = 0
-    assets_seen: set = set()
-    for code in fund_codes:
-        try:
-            t = get_ind_table(code)
-            total_rows += s.execute(sa.select(sa.func.count()).select_from(t)).scalar() or 0
-            for row in s.execute(sa.select(t.c.asset_id).distinct()).fetchall():
-                assets_seen.add(row[0])
-        except Exception:
-            continue
-    return f"Historial fundamental: {total_rows:,} filas  |  {len(assets_seen)} activos con datos"
-
-
-def _status_backfill():
-    import sqlalchemy as sa
-    from app.models.indicator_definition import IndicatorDefinition
-    from app.models.indicator_store import get_ind_table
-    try:
-        s = get_session()
-        tech_codes = [
-            r[0] for r in s.query(IndicatorDefinition.code).filter(
-                IndicatorDefinition.category != "Fundamental",
-                IndicatorDefinition.keep_history.is_(True),
-            ).all()
-        ]
-    except Exception:
-        return "—"
-    if not tech_codes:
-        return "Sin indicadores técnicos definidos"
-    total_rows = 0
-    assets_seen: set = set()
-    for code in tech_codes:
-        try:
-            t = get_ind_table(code)
-            total_rows += s.execute(sa.select(sa.func.count()).select_from(t)).scalar() or 0
-            for row in s.execute(sa.select(t.c.asset_id).distinct()).fetchall():
-                assets_seen.add(row[0])
-        except Exception:
-            continue
-    return f"Historial técnico: {total_rows:,} filas  |  {len(assets_seen)} activos con datos"
-
-
 _STATUS_FN = {
     "prices":       _status_prices,
     "fund":         _status_fund,
     "snap":         _status_snap,
     "indicators":   _status_indicators,
     "synth":        _status_synth,
-    "fund_backfill": _status_fund_backfill,
-    "backfill":     _status_backfill,
 }
 
 
@@ -187,8 +127,6 @@ _STATUS_FN = {
     Output("dc-status-snap",          "children"),
     Output("dc-status-indicators",    "children"),
     Output("dc-status-synth",         "children"),
-    Output("dc-status-fund_backfill", "children"),
-    Output("dc-status-backfill",      "children"),
     Input("dc-status-interval",       "n_intervals"),
 )
 def refresh_status(_):
@@ -262,13 +200,10 @@ def _run(op_id, service_fn):
 
 def _register(op_id):
     has_new_only = op_id in _HAS_NEW_ONLY
-    has_force    = op_id in _HAS_FORCE
 
     extra_states = []
     if has_new_only:
         extra_states.append(State(f"dc-new-only-{op_id}", "value"))
-    elif has_force:
-        extra_states.append(State(f"dc-force-{op_id}", "value"))
 
     _BAR_RUNNING = {"height": "5px", "display": "flex"}
 
@@ -288,7 +223,6 @@ def _register(op_id):
 
         extra_val = bool(args[0]) if args else False
         new_only  = extra_val if has_new_only else False
-        force     = extra_val if has_force    else False
 
         if op_id == "prices":
             from app.services.price_service import (
@@ -299,23 +233,59 @@ def _register(op_id):
                 update_all_fundamentals, update_new_fundamentals)
             fn = update_new_fundamentals if new_only else update_all_fundamentals
         elif op_id == "snap":
-            from app.services.fundamental_service import recompute_all_snapshots as fn
+            from app.services.fundamental_service import delta_update_ratios as fn
         elif op_id == "indicators":
-            from app.services.technical_service import recompute_all_snapshots as fn
-        elif op_id == "fund_backfill":
-            import functools
-            from app.services.fundamental_service import backfill_all_fundamental_values
-            fn = functools.partial(backfill_all_fundamental_values, force=force)
-        elif op_id == "backfill":
-            import functools
-            from app.services.technical_service import backfill_all_indicator_values
-            fn = functools.partial(backfill_all_indicator_values, force=force)
+            from app.services.technical_service import delta_update_indicators as fn
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 
         _state[op_id].update(_blank())
         threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
         return False, True, "Iniciando...", 0, _BAR_RUNNING
+
+    has_redownload = op_id in _HAS_REDOWNLOAD
+    if has_redownload:
+        @callback(
+            Output(f"dc-redownload-modal-{op_id}", "is_open"),
+            Input(f"dc-btn-redownload-{op_id}",         "n_clicks"),
+            Input(f"dc-btn-redownload-{op_id}-confirm", "n_clicks"),
+            Input(f"dc-btn-redownload-{op_id}-cancel",  "n_clicks"),
+            prevent_initial_call=True,
+        )
+        def _toggle_redownload_modal(n_open, n_confirm, n_cancel):
+            from dash import ctx
+            return ctx.triggered_id == f"dc-btn-redownload-{op_id}"
+
+        @callback(
+            Output(f"dc-redownload-modal-{op_id}", "is_open",  allow_duplicate=True),
+            Output(f"dc-interval-{op_id}",          "disabled", allow_duplicate=True),
+            Output(f"dc-btn-{op_id}",               "disabled", allow_duplicate=True),
+            Output(f"dc-msg-{op_id}",               "children", allow_duplicate=True),
+            Output(f"dc-progress-{op_id}",          "value",    allow_duplicate=True),
+            Output(f"dc-progress-{op_id}",          "style",    allow_duplicate=True),
+            Input(f"dc-btn-redownload-{op_id}-confirm", "n_clicks"),
+            prevent_initial_call=True,
+        )
+        def _start_redownload(n):
+            if not n:
+                return no_update, no_update, no_update, no_update, no_update, no_update
+
+            if op_id == "prices":
+                from app.services.price_service import redownload_prices as fn
+            elif op_id == "fund":
+                from app.services.fundamental_service import redownload_all_fundamentals as fn
+            elif op_id == "snap":
+                from app.services.fundamental_service import full_recompute_ratios as fn
+            elif op_id == "indicators":
+                from app.services.technical_service import full_recompute_indicators as fn
+            else:
+                import functools
+                from app.services.synthetic_service import compute_all_synthetic
+                fn = functools.partial(compute_all_synthetic, full=True)
+
+            _state[op_id].update(_blank())
+            threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
+            return False, False, True, "Iniciando...", 0, _BAR_RUNNING
 
     @callback(
         Output(f"dc-progress-{op_id}", "value",     allow_duplicate=True),

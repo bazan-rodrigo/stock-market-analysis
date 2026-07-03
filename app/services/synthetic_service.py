@@ -16,7 +16,7 @@ from sqlalchemy import func
 
 from app.database import get_session
 from app.models import Asset, Price, SyntheticComponent, SyntheticFormula
-from app.services.technical_service import compute_and_save_snapshot
+from app.services.technical_service import compute_and_save_snapshot, _save_indicator_log
 
 logger = logging.getLogger(__name__)
 
@@ -177,8 +177,10 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
 
     try:
         compute_and_save_snapshot(asset_id, quick=not full)
+        _save_indicator_log(asset_id, success=True, error=None, session=s)
     except Exception as exc:
         logger.warning("Error snapshot sintético id=%d: %s", asset_id, exc)
+        _save_indicator_log(asset_id, success=False, error=str(exc), session=s)
 
     return count
 
@@ -259,7 +261,7 @@ def _compute_by_type(formula, comps, price_maps) -> dict:
     return {}
 
 
-def compute_all_synthetic(progress_cb=None) -> dict:
+def compute_all_synthetic(progress_cb=None, *, full: bool = False) -> dict:
     formulas = get_all_formulas()
     total    = len(formulas)
     errors   = []
@@ -267,7 +269,7 @@ def compute_all_synthetic(progress_cb=None) -> dict:
         progress_cb(0, total)
     for i, f in enumerate(formulas):
         try:
-            compute_synthetic_prices(f.asset_id, full=False)
+            compute_synthetic_prices(f.asset_id, full=full)
         except Exception as exc:
             ticker = f.asset.ticker if f.asset else str(f.asset_id)
             logger.warning("Error sintético %s: %s", ticker, exc)

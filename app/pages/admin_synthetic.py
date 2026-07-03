@@ -241,13 +241,11 @@ def layout(**kwargs):
                        color="outline-secondary", size="sm"),
         ], className="mb-2 d-flex align-items-center"),
 
-        # Indicador de procesamiento
-        dcc.Loading(
-            html.Div(id="syn-calc-status",
-                     style={"fontSize": "0.82rem", "color": "#94a3b8",
-                            "minHeight": "24px", "padding": "2px 0"}),
-            type="circle", color="#dee2e6",
-        ),
+        # Progreso de cálculo (delta / completo)
+        dcc.Interval(id="syn-interval", interval=500, disabled=True, n_intervals=0),
+        dbc.Progress(id="syn-progress", value=0, striped=True, animated=True,
+                     label="", className="mb-2",
+                     style={"height": "18px", "display": "none"}),
 
         dbc.Alert(id="syn-alert", is_open=False, dismissable=True, className="mb-3"),
         html.Div(id="syn-import-results", className="mb-3"),

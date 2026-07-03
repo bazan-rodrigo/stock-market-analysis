@@ -1,10 +1,38 @@
 import base64
+import threading
 
 from dash import ALL, Input, Output, State, callback, ctx, dcc, html, no_update
 import dash_bootstrap_components as dbc
 
 import app.services.synthetic_service as svc
 from app.pages.admin_synthetic import _help_card, _th, _td
+
+_syn_state = {"running": False, "current": 0, "total": 0, "msg": "", "has_errors": False}
+
+
+def _start_calc(selected_ids: list[int], *, full: bool):
+    formulas = [x for x in svc.get_all_formulas() if x.id in selected_ids]
+    total = len(formulas)
+    _syn_state.update({"running": True, "current": 0, "total": total, "msg": "", "has_errors": False})
+
+    def _run():
+        inserted, errors = 0, []
+        for i, f in enumerate(formulas, 1):
+            _syn_state["current"] = i
+            ticker = f.asset.ticker if f.asset else str(f.id)
+            try:
+                inserted += svc.compute_synthetic_prices(f.asset_id, full=full)
+            except Exception as exc:
+                errors.append(f"{ticker}: {exc}")
+        _syn_state["has_errors"] = bool(errors)
+        label = "Recálculo completo" if full else "Delta calculado"
+        msg = f"{label}: {inserted} precio(s) insertado(s)."
+        if errors:
+            msg += f" {len(errors)} error(es): {'; '.join(errors[:5])}"
+        _syn_state["msg"] = msg
+        _syn_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
 
 _ROLE_OPTS = [
     {"label": "Numerador",   "value": "numerator"},
@@ -438,10 +466,10 @@ def delete_selected(_, selected_rows, formula_ids):
 # ── Calcular delta (seleccionados) ────────────────────────────────────────────
 
 @callback(
-    Output("syn-alert",       "children",  allow_duplicate=True),
-    Output("syn-alert",       "is_open",   allow_duplicate=True),
-    Output("syn-alert",       "color",     allow_duplicate=True),
-    Output("syn-calc-status", "children",  allow_duplicate=True),
+    Output("syn-interval",     "disabled", allow_duplicate=True),
+    Output("syn-progress",     "style",    allow_duplicate=True),
+    Output("syn-btn-calc-sel", "disabled", allow_duplicate=True),
+    Output("syn-btn-full-sel", "disabled", allow_duplicate=True),
     Input("syn-btn-calc-sel", "n_clicks"),
     State("syn-datatable",    "selected_rows"),
     State("syn-formula-ids",  "data"),
@@ -451,25 +479,17 @@ def calc_delta_selected(_, selected_rows, formula_ids):
     selected_ids = [(formula_ids or [])[i] for i in (selected_rows or [])]
     if not selected_ids:
         return no_update, no_update, no_update, no_update
-    formulas = [x for x in svc.get_all_formulas() if x.id in selected_ids]
-    total, errors = 0, []
-    for f in formulas:
-        try:
-            total += svc.compute_synthetic_prices(f.asset_id, full=False)
-        except Exception as exc:
-            errors.append(f"{f.asset.ticker if f.asset else f.id}: {exc}")
-    if errors:
-        return "; ".join(errors), True, "danger", ""
-    return f"Delta calculado: {total} precio(s) insertado(s).", True, "success", ""
+    _start_calc(selected_ids, full=False)
+    return False, {"height": "18px", "display": "block"}, True, True
 
 
 # ── Calcular completo (seleccionados) ─────────────────────────────────────────
 
 @callback(
-    Output("syn-alert",       "children",  allow_duplicate=True),
-    Output("syn-alert",       "is_open",   allow_duplicate=True),
-    Output("syn-alert",       "color",     allow_duplicate=True),
-    Output("syn-calc-status", "children",  allow_duplicate=True),
+    Output("syn-interval",     "disabled", allow_duplicate=True),
+    Output("syn-progress",     "style",    allow_duplicate=True),
+    Output("syn-btn-calc-sel", "disabled", allow_duplicate=True),
+    Output("syn-btn-full-sel", "disabled", allow_duplicate=True),
     Input("syn-btn-full-sel", "n_clicks"),
     State("syn-datatable",    "selected_rows"),
     State("syn-formula-ids",  "data"),
@@ -479,16 +499,37 @@ def calc_full_selected(_, selected_rows, formula_ids):
     selected_ids = [(formula_ids or [])[i] for i in (selected_rows or [])]
     if not selected_ids:
         return no_update, no_update, no_update, no_update
-    formulas = [x for x in svc.get_all_formulas() if x.id in selected_ids]
-    total, errors = 0, []
-    for f in formulas:
-        try:
-            total += svc.compute_synthetic_prices(f.asset_id, full=True)
-        except Exception as exc:
-            errors.append(f"{f.asset.ticker if f.asset else f.id}: {exc}")
-    if errors:
-        return "; ".join(errors), True, "danger", ""
-    return f"Recálculo completo: {total} precio(s) insertado(s).", True, "success", ""
+    _start_calc(selected_ids, full=True)
+    return False, {"height": "18px", "display": "block"}, True, True
+
+
+# ── Polling de progreso ────────────────────────────────────────────────────────
+
+@callback(
+    Output("syn-progress",     "value",     allow_duplicate=True),
+    Output("syn-progress",     "label",     allow_duplicate=True),
+    Output("syn-progress",     "style",     allow_duplicate=True),
+    Output("syn-interval",     "disabled",  allow_duplicate=True),
+    Output("syn-alert",        "children",  allow_duplicate=True),
+    Output("syn-alert",        "is_open",   allow_duplicate=True),
+    Output("syn-alert",        "color",     allow_duplicate=True),
+    Output("syn-btn-calc-sel", "disabled",  allow_duplicate=True),
+    Output("syn-btn-full-sel", "disabled",  allow_duplicate=True),
+    Input("syn-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def poll_calc(_):
+    st = _syn_state
+    if st["running"]:
+        total = st["total"] or 1
+        pct   = int(st["current"] / total * 100)
+        label = f"{st['current']} / {st['total']}"
+        return (pct, label, {"height": "18px", "display": "block"}, False,
+                no_update, no_update, no_update, True, True)
+
+    color = "success" if not st.get("has_errors") else "danger"
+    return (100, "Listo", {"height": "18px", "display": "none"}, True,
+            st["msg"], True, color, False, False)
 
 
 # ── Exportar fórmulas ─────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ from app.services.technical_service import (
     _get_drawdown_config,
     _get_regime_config,
     _get_volatility_config,
+    _save_indicator_log,
 )
 from app.services import sr_service
 from app.sources.registry import get_source
@@ -155,7 +156,8 @@ def update_asset_prices(
         s.commit()
         logger.info("Activo %s: %d filas importadas", asset.ticker, count)
 
-        # Recalcular snapshot del screener
+        # Recalcular snapshot del screener (técnico + ratios fundamentales)
+        ind_errors = []
         try:
             compute_and_save_snapshot(
                 asset_id,
@@ -169,11 +171,15 @@ def update_asset_prices(
             logger.warning(
                 "Error calculando snapshot screener para %s: %s", asset.ticker, snap_exc
             )
+            ind_errors.append(f"técnico: {snap_exc}")
         try:
             from app.services.fundamental_service import recompute_snapshot_for_asset
             recompute_snapshot_for_asset(asset_id)
         except Exception as fund_exc:
             logger.warning("Error recomputo fundamental snapshot %s: %s", asset.ticker, fund_exc)
+            ind_errors.append(f"fundamental: {fund_exc}")
+        _save_indicator_log(asset_id, success=not ind_errors,
+                            error="; ".join(ind_errors) or None, session=s)
 
     except NotImplementedError:
         # Fuente válida pero sin descarga externa — no es un error operativo
@@ -290,6 +296,7 @@ def _process_yf_asset_worker(
         _save_update_log(asset_id, success=True, error=None, session=s)
         s.commit()
         logger.info("Activo %s: %d filas importadas (batch)", ticker, count)
+        ind_errors = []
         try:
             compute_and_save_snapshot(
                 asset_id,
@@ -299,11 +306,15 @@ def _process_yf_asset_worker(
             )
         except Exception as snap_exc:
             logger.warning("Error snapshot %s: %s", ticker, snap_exc)
+            ind_errors.append(f"técnico: {snap_exc}")
         try:
             from app.services.fundamental_service import recompute_snapshot_for_asset
             recompute_snapshot_for_asset(asset_id)
         except Exception as fund_exc:
             logger.warning("Error recomputo fundamental snapshot %s: %s", ticker, fund_exc)
+            ind_errors.append(f"fundamental: {fund_exc}")
+        _save_indicator_log(asset_id, success=not ind_errors,
+                            error="; ".join(ind_errors) or None, session=s)
         return True, None
     except Exception as exc:
         s.rollback()
@@ -466,6 +477,31 @@ def clear_prices(asset_id: int) -> None:
     logger.info("Historia de precios borrada para activo id=%d", asset_id)
 
 
+def redownload_prices(asset_ids: list[int] | None = None, progress_cb=None) -> dict:
+    """Borra el historial de precios y lo redescarga completo desde la fuente.
+    Si asset_ids es None, aplica a todos los activos activos."""
+    from app.services.asset_service import get_assets
+
+    if asset_ids is None:
+        assets = get_assets()
+    else:
+        s = get_session()
+        assets = s.query(Asset).filter(Asset.id.in_(asset_ids)).all()
+
+    total   = len(assets)
+    summary = {"total": total, "success": 0, "errors": []}
+    for i, asset in enumerate(assets, 1):
+        if progress_cb:
+            progress_cb(i, total, asset.ticker)
+        try:
+            clear_prices(asset.id)
+            update_asset_prices(asset.id)
+            summary["success"] += 1
+        except Exception as exc:
+            summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
+    return summary
+
+
 def get_prices_df(asset_id: int):
     """Devuelve todos los precios del activo como DataFrame ordenado por fecha."""
     s = get_session()
@@ -492,18 +528,25 @@ def get_update_logs() -> list[PriceUpdateLog]:
 
 def get_all_assets_with_log() -> list[dict]:
     """Devuelve todos los activos activos con su último log de actualización (si existe)."""
+    from app.models import IndicatorUpdateLog
+
     s = get_session()
     assets = s.query(Asset).order_by(Asset.ticker).all()
-    logs = {log.asset_id: log for log in s.query(PriceUpdateLog).all()}
+    logs     = {log.asset_id: log for log in s.query(PriceUpdateLog).all()}
+    ind_logs = {log.asset_id: log for log in s.query(IndicatorUpdateLog).all()}
     result = []
     for asset in assets:
-        log = logs.get(asset.id)
+        log     = logs.get(asset.id)
+        ind_log = ind_logs.get(asset.id)
         result.append({
             "ticker": asset.ticker,
             "asset_name": asset.name,
             "last_attempt_at": str(log.last_attempt_at)[:19] if log else "—",
             "result": ("Éxito" if log.success else "Error") if log else "—",
             "error_detail": (log.error_detail or "") if log else "",
+            "last_indicator_at": str(ind_log.last_attempt_at)[:19] if ind_log else "—",
+            "indicator_result": ("Éxito" if ind_log.success else "Error") if ind_log else "—",
+            "indicator_error_detail": (ind_log.error_detail or "") if ind_log else "",
         })
     return result
 

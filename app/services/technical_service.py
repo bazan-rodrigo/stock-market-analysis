@@ -749,8 +749,8 @@ _BACKFILL_FNS: dict[str, callable] = {
     "dist_optimal_sma_weekly":  _bf_dist_optimal_sma("w"),
     "dist_optimal_sma_monthly": _bf_dist_optimal_sma("m"),
     "relative_strength_52w":    _bf_relative_strength_52w,
-    # drawdown_max2/max3, resistance_pct, support_pct no tienen función de backfill
-    # (se calculan solo en snapshots)
+    # drawdown_max2/max3, resistance_pct, support_pct son keep_history=False
+    # (ver _SNAPSHOT_CURRENT_ONLY) — pendiente evaluar si se implementa backfill.
 }
 
 
@@ -1003,6 +1003,25 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False) -> d
             "inserted": inserted, "errors": errors}
 
 
+# ── Log de actualización de indicadores ────────────────────────────────────────
+
+def _save_indicator_log(asset_id: int, success: bool, error: str | None, session=None) -> None:
+    """Registra éxito/error del último recálculo de indicadores de un activo."""
+    from app.models import IndicatorUpdateLog
+    s = session if session is not None else get_session()
+    log = s.query(IndicatorUpdateLog).filter(
+        IndicatorUpdateLog.asset_id == asset_id
+    ).first()
+    if log is None:
+        log = IndicatorUpdateLog(asset_id=asset_id, success=success, error_detail=error)
+        s.add(log)
+    else:
+        log.last_attempt_at = datetime.utcnow()
+        log.success = success
+        log.error_detail = error
+    s.commit()
+
+
 # ── compute_and_save_snapshot ─────────────────────────────────────────────────
 
 def compute_and_save_snapshot(
@@ -1222,15 +1241,11 @@ def compute_and_save_snapshot(
         "dist_optimal_sma_daily":   dist_sma_d,
         "dist_optimal_sma_weekly":  dist_sma_w,
         "dist_optimal_sma_monthly": dist_sma_m,
-        "drawdown_max2":            round(dd_max2, 2) if dd_max2 is not None else None,
-        "drawdown_max3":            round(dd_max3, 2) if dd_max3 is not None else None,
         "return_daily":             _pct_change(last_close, prev_close),
         "return_monthly":           _pct_change(last_close, ref_month),
         "return_quarterly":         _pct_change(last_close, ref_quarter),
         "return_yearly":            _pct_change(last_close, ref_year),
         "return_52w":               _pct_change(last_close, ref_52w),
-        "resistance_pct":           ind_resist_pct,
-        "support_pct":              ind_support_pct,
         "relative_strength_52w":    ind_rs_52w,
     }
     for code, value in _snap_inds.items():
@@ -1243,6 +1258,10 @@ def compute_and_save_snapshot(
         ("best_sma_m", best_sma_m), ("best_ema_m", best_ema_m),
         ("drawdown_current", round(dd_current, 2)),
         ("drawdown_max1",    round(dd_max1, 2) if dd_max1 is not None else None),
+        ("drawdown_max2",    round(dd_max2, 2) if dd_max2 is not None else None),
+        ("drawdown_max3",    round(dd_max3, 2) if dd_max3 is not None else None),
+        ("resistance_pct",   ind_resist_pct),
+        ("support_pct",      ind_support_pct),
     ]:
         if val is not None:
             _upsert_current_ind(s, asset_id, code, value_num=float(val))
@@ -1439,7 +1458,8 @@ _SNAPSHOT_FNS.update({
 
 # Estos indicadores no tienen tabla ind_*; van a current_indicator_values
 _SNAPSHOT_CURRENT_ONLY = frozenset({
-    "drawdown_current", "drawdown_max1",
+    "drawdown_current", "drawdown_max1", "drawdown_max2", "drawdown_max3",
+    "resistance_pct", "support_pct",
     "best_sma_d", "best_ema_d",
     "best_sma_w", "best_ema_w",
     "best_sma_m", "best_ema_m",
@@ -1452,7 +1472,8 @@ def _snapshot_indicator(code: str, asset_ids: list,
                         benchmark_cache: dict, ath_cache: dict,
                         close_cache: dict,
                         regime_cfg, vol_cfg, sr_cfg,
-                        asset_tick=None) -> None:
+                        asset_tick=None,
+                        error_collector=None, collector_lock=None) -> None:
     s = get_session()
     compute_fn   = _SNAPSHOT_FNS[code]
     current_only = code in _SNAPSHOT_CURRENT_ONLY
@@ -1489,6 +1510,9 @@ def _snapshot_indicator(code: str, asset_ids: list,
         except Exception as exc:
             logger.warning("Snapshot error code=%s asset_id=%d: %s", code, asset_id, exc)
             s.rollback()
+            if error_collector is not None:
+                with collector_lock:
+                    error_collector.setdefault(asset_id, []).append(f"{code}: {exc}")
         finally:
             if asset_tick:
                 asset_tick()
@@ -1497,7 +1521,8 @@ def _snapshot_indicator(code: str, asset_ids: list,
 def _snapshot_indicator_worker(code, asset_ids,
                                price_cache, df_w_cache, df_m_cache,
                                best_sma_cache, benchmark_cache,
-                               ath_cache, close_cache, regime_cfg, vol_cfg, sr_cfg, asset_tick):
+                               ath_cache, close_cache, regime_cfg, vol_cfg, sr_cfg, asset_tick,
+                               error_collector=None, collector_lock=None):
     from app.database import Session as _DbSession
     try:
         _snapshot_indicator(
@@ -1508,9 +1533,14 @@ def _snapshot_indicator_worker(code, asset_ids,
             close_cache=close_cache,
             regime_cfg=regime_cfg, vol_cfg=vol_cfg, sr_cfg=sr_cfg,
             asset_tick=asset_tick,
+            error_collector=error_collector, collector_lock=collector_lock,
         )
     except Exception as exc:
         logger.warning("Snapshot worker error code=%s: %s", code, exc)
+        if error_collector is not None:
+            with collector_lock:
+                for asset_id in asset_ids:
+                    error_collector.setdefault(asset_id, []).append(f"{code}: {exc}")
     finally:
         _DbSession.remove()
 
@@ -1546,7 +1576,7 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
 
     _assets_done = 0
     _lock        = _th.Lock()
-    errors: list = []
+    asset_errors: dict = {}   # asset_id -> [errores de cualquier indicador]
 
     def _make_tick(code):
         per_ind = [0]
@@ -1569,6 +1599,7 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
                 best_sma_cache, benchmark_cache,
                 ath_cache, close_cache, regime_cfg, vol_cfg, sr_cfg,
                 _make_tick(code),
+                error_collector=asset_errors, collector_lock=_lock,
             ): code
             for code in snap_codes
         }
@@ -1580,9 +1611,48 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
                 future.result()
             except Exception as exc:
                 logger.warning("Snapshot error code=%s: %s", code, exc)
-                errors.append({"code": code, "error": str(exc)})
 
-    return {"total": n_ind, "success": n_ind - len(errors), "errors": errors}
+    # Un registro por activo en indicator_update_log, agregando errores de
+    # todos los indicadores (no solo el último que se haya procesado).
+    log_session = get_session()
+    for asset_id in asset_ids:
+        errs = asset_errors.get(asset_id)
+        _save_indicator_log(
+            asset_id, success=not errs,
+            error="; ".join(errs) if errs else None,
+            session=log_session,
+        )
+
+    ticker_map = {
+        r[0]: r[1] for r in log_session.query(Asset.id, Asset.ticker)
+                          .filter(Asset.id.in_(asset_ids)).all()
+    }
+    errors = [
+        {"ticker": ticker_map.get(aid, str(aid)), "error": "; ".join(errs)}
+        for aid, errs in asset_errors.items()
+    ]
+
+    return {"total": n_assets, "success": n_assets - len(errors), "errors": errors}
+
+
+# ── Acciones combinadas (Centro de Datos) ───────────────────────────────────────
+
+def delta_update_indicators(progress_cb=None) -> dict:
+    """Recomputa el snapshot vigente y completa huecos históricos (backfill delta)."""
+    r1 = recompute_all_snapshots(progress_cb=progress_cb)
+    r2 = backfill_all_indicator_values(progress_cb=progress_cb, force=False)
+    errors = r1["errors"] + r2["errors"]
+    total  = r1["total"]
+    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
+
+
+def full_recompute_indicators(progress_cb=None) -> dict:
+    """Borra y recalcula toda la historia de indicadores técnicos desde cero."""
+    r1 = backfill_all_indicator_values(progress_cb=progress_cb, force=True)
+    r2 = recompute_all_snapshots(progress_cb=progress_cb)
+    errors = r1["errors"] + r2["errors"]
+    total  = r2["total"]
+    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
 
 
 # ── Funciones públicas para gráficos ─────────────────────────────────────────

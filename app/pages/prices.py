@@ -9,6 +9,9 @@ _LOG_COLUMNS = [
     {"name": "Último intento", "id": "last_attempt_at"},
     {"name": "Resultado", "id": "result"},
     {"name": "Detalle error", "id": "error_detail"},
+    {"name": "Último indicador", "id": "last_indicator_at"},
+    {"name": "Resultado indicador", "id": "indicator_result"},
+    {"name": "Detalle error indicador", "id": "indicator_error_detail"},
 ]
 
 
@@ -25,8 +28,10 @@ def layout(**kwargs):
             dbc.Button("Limpiar log", id="prices-btn-clear-log", color="link", size="sm"),
         ], className="d-flex align-items-center mb-2"),
         html.Div([
-            dbc.Button("Actualizar seleccionado", id="prices-btn-one", color="secondary", size="sm", disabled=True, className="me-2"),
+            dbc.Button("Actualizar seleccionados", id="prices-btn-one", color="secondary", size="sm", disabled=True, className="me-2"),
             dbc.Button("Reintentar fallidos", id="prices-btn-retry", color="warning", size="sm", className="me-2"),
+            dbc.Button("Redescargar completo (seleccionados)", id="prices-btn-redownload-selected",
+                       color="danger", size="sm", outline=True, disabled=True, className="me-2"),
             dbc.Button("Borrar históricos y redescargar todos", id="prices-btn-redownload", color="danger", size="sm"),
         ], className="mb-3"),
         dbc.Alert(id="prices-alert", is_open=False, dismissable=True),
@@ -37,7 +42,7 @@ def layout(**kwargs):
             id="prices-log-table",
             columns=_LOG_COLUMNS,
             data=[],
-            row_selectable="single",
+            row_selectable="multi",
             selected_rows=[],
             style_table={"overflowX": "auto"},
             style_header=HEADER,
@@ -47,6 +52,10 @@ def layout(**kwargs):
             style_data_conditional=SELECTED_ROW + [
                 {"if": {"filter_query": '{result} = "Éxito"'}, "color": "#4caf50"},
                 {"if": {"filter_query": '{result} = "Error"'}, "color": "#ef5350"},
+                {"if": {"filter_query": '{indicator_result} = "Éxito"', "column_id": "indicator_result"},
+                 "color": "#4caf50"},
+                {"if": {"filter_query": '{indicator_result} = "Error"', "column_id": "indicator_result"},
+                 "color": "#ef5350"},
             ],
             page_size=30,
             sort_action="native",
@@ -64,6 +73,17 @@ def layout(**kwargs):
                 dbc.Button("Cancelar", id="prices-btn-redownload-cancel", color="secondary", className="ms-2"),
             ]),
         ], id="prices-redownload-modal", is_open=False),
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),
+            dbc.ModalBody(
+                "Esta acción borrará toda la historia de precios de los activos "
+                "seleccionados y la redescargará desde Yahoo Finance. ¿Confirmás?"
+            ),
+            dbc.ModalFooter([
+                dbc.Button("Sí, borrar y redescargar", id="prices-btn-redownload-selected-confirm", color="danger"),
+                dbc.Button("Cancelar", id="prices-btn-redownload-selected-cancel", color="secondary", className="ms-2"),
+            ]),
+        ], id="prices-redownload-selected-modal", is_open=False),
     ])
 
 

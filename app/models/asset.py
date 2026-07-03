@@ -70,3 +70,9 @@ class Asset(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    indicator_update_log = relationship(
+        "IndicatorUpdateLog",
+        back_populates="asset",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
