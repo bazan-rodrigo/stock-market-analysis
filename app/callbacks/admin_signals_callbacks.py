@@ -240,10 +240,10 @@ def delete_selected(_, selected_ids):
 )
 def recalculate(_, date_str):
     from datetime import date as dt_date
-    snap_date = dt_date.fromisoformat(date_str) if date_str else dt_date.today()
+    target_date = dt_date.fromisoformat(date_str) if date_str else dt_date.today()
     try:
-        result = svc.run_recalculate(snap_date)
-        msg = (f"Pipeline {snap_date}: "
+        result = svc.run_recalculate(target_date)
+        msg = (f"Pipeline {target_date}: "
                f"{result['signal_values']} signal_value, "
                f"{result['group_signal_values']} group_signal_value, "
                f"{result.get('strategy_results', 0)} strategy_result.")

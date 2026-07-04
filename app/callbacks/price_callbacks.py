@@ -80,7 +80,7 @@ def update_all(_):
     Output("prices-alert",        "is_open",  allow_duplicate=True),
     Output("prices-alert",        "color",    allow_duplicate=True),
     Output("prices-btn-all",      "disabled", allow_duplicate=True),
-    Output("prices-btn-snapshot", "disabled", allow_duplicate=True),
+    Output("prices-btn-indicators", "disabled", allow_duplicate=True),
     Input("prices-interval", "n_intervals"),
     prevent_initial_call=True,
 )
@@ -294,12 +294,12 @@ def clear_log(_):
     Output("prices-interval",      "disabled",  allow_duplicate=True),
     Output("prices-progress",      "style",     allow_duplicate=True),
     Output("prices-btn-all",       "disabled",  allow_duplicate=True),
-    Output("prices-btn-snapshot",  "disabled"),
-    Input("prices-btn-snapshot", "n_clicks"),
+    Output("prices-btn-indicators",  "disabled"),
+    Input("prices-btn-indicators", "n_clicks"),
     prevent_initial_call=True,
 )
-def recompute_snapshots(_):
-    from app.services.technical_service import recompute_all_snapshots
+def recompute_indicators(_):
+    from app.services.technical_service import recompute_current_indicators
     _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
 
     def _run():
@@ -307,11 +307,11 @@ def recompute_snapshots(_):
             _prices_state["current"] = current
             _prices_state["total"]   = total
         try:
-            result = recompute_all_snapshots(progress_cb=_progress)
+            result = recompute_current_indicators(progress_cb=_progress)
             n_err = len(result["errors"])
             _prices_state["has_errors"] = bool(n_err)
             _prices_state["msg"] = (
-                f"Snapshots recalculados: {result['total'] - n_err}/{result['total']} exitosos, {n_err} errores."
+                f"Indicadores recalculados: {result['total'] - n_err}/{result['total']} exitosos, {n_err} errores."
             )
         except Exception as exc:
             _prices_state["error"] = str(exc)

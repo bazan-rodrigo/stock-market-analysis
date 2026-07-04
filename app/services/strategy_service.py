@@ -67,9 +67,9 @@ def _compute_asset_score(
     return round(weighted_sum / total_weight, 4)
 
 
-def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
+def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
     """
-    Calcula StrategyResult para todos los activos para strategy_id y snap_date.
+    Calcula StrategyResult para todos los activos para strategy_id y target_date.
     Devuelve cantidad de resultados escritos.
     """
     s = get_session()
@@ -90,7 +90,7 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
         s.query(SignalValue.signal_id, SignalValue.asset_id, SignalValue.score)
         .filter(
             SignalValue.signal_id.in_(signal_ids),
-            SignalValue.date == snap_date,
+            SignalValue.date == target_date,
         )
         .all()
     )
@@ -108,7 +108,7 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
         )
         .filter(
             GroupSignalValue.signal_id.in_(signal_ids),
-            GroupSignalValue.date == snap_date,
+            GroupSignalValue.date == target_date,
         )
         .all()
     )
@@ -170,7 +170,7 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
         sr.asset_id: sr
         for sr in s.query(StrategyResult).filter(
             StrategyResult.strategy_id == strategy_id,
-            StrategyResult.date == snap_date,
+            StrategyResult.date == target_date,
         ).all()
     }
 
@@ -189,7 +189,7 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
             sr = StrategyResult(
                 strategy_id=strategy_id,
                 asset_id=asset_id,
-                date=snap_date,
+                date=target_date,
             )
             s.add(sr)
             existing_srs[asset_id] = sr
@@ -200,28 +200,28 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
     s.commit()
     logger.info(
         "strategy_service: %d resultados escritos para strategy_id=%d en %s",
-        written, strategy_id, snap_date,
+        written, strategy_id, target_date,
     )
     return written
 
 
-def compute_all_strategies(snap_date: date_type) -> dict:
-    """Calcula los resultados de todas las estrategias para snap_date."""
+def compute_all_strategies(target_date: date_type) -> dict:
+    """Calcula los resultados de todas las estrategias para target_date."""
     s = get_session()
     strategies = s.query(Strategy.id).all()
     total = 0
     for (sid,) in strategies:
-        total += compute_strategy_results(sid, snap_date)
-    return {"date": str(snap_date), "strategy_results": total}
+        total += compute_strategy_results(sid, target_date)
+    return {"date": str(target_date), "strategy_results": total}
 
 
-def run_daily(snap_date: date_type | None = None) -> dict:
+def run_daily(target_date: date_type | None = None) -> dict:
     """Pipeline diario de estrategias."""
-    if snap_date is None:
-        from app.services.indicator_service import get_default_snap_date
-        snap_date = get_default_snap_date()
+    if target_date is None:
+        from app.services.indicator_service import get_default_target_date
+        target_date = get_default_target_date()
 
-    return compute_all_strategies(snap_date)
+    return compute_all_strategies(target_date)
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -296,14 +296,14 @@ def delete_strategy(strategy_id: int) -> None:
     s.commit()
 
 
-def get_strategy_results(strategy_id: int, snap_date) -> list[dict]:
+def get_strategy_results(strategy_id: int, target_date) -> list[dict]:
     s = get_session()
     rows = (
         s.query(StrategyResult, Asset.ticker, Asset.name)
         .join(Asset, Asset.id == StrategyResult.asset_id)
         .filter(
             StrategyResult.strategy_id == strategy_id,
-            StrategyResult.date == snap_date,
+            StrategyResult.date == target_date,
         )
         .order_by(StrategyResult.rank)
         .all()
@@ -317,7 +317,7 @@ def get_strategy_results(strategy_id: int, snap_date) -> list[dict]:
 
 def get_strategy_results_with_breakdown(
     strategy_id: int,
-    snap_date,
+    target_date,
     *,
     sector_id: int | None = None,
     market_id: int | None = None,
@@ -352,7 +352,7 @@ def get_strategy_results_with_breakdown(
         .join(Asset, Asset.id == StrategyResult.asset_id)
         .filter(
             StrategyResult.strategy_id == strategy_id,
-            StrategyResult.date == snap_date,
+            StrategyResult.date == target_date,
         )
     )
     if sector_id is not None:
@@ -373,7 +373,7 @@ def get_strategy_results_with_breakdown(
         .filter(
             SignalValue.signal_id.in_(sig_ids),
             SignalValue.asset_id.in_(asset_ids),
-            SignalValue.date == snap_date,
+            SignalValue.date == target_date,
         )
         .all()
     }
@@ -388,7 +388,7 @@ def get_strategy_results_with_breakdown(
         )
         .filter(
             GroupSignalValue.signal_id.in_(sig_ids),
-            GroupSignalValue.date == snap_date,
+            GroupSignalValue.date == target_date,
         )
         .all()
     }
@@ -416,7 +416,7 @@ def get_strategy_results_with_breakdown(
         s.query(_distinct(StrategyResult.date))
         .filter(
             StrategyResult.strategy_id == strategy_id,
-            StrategyResult.date < snap_date,
+            StrategyResult.date < target_date,
         )
         .order_by(StrategyResult.date.desc())
         .first()
@@ -480,7 +480,7 @@ def get_strategy_results_with_breakdown(
     return results, comp_meta
 
 
-def get_filter_options(strategy_id: int, snap_date) -> dict:
+def get_filter_options(strategy_id: int, target_date) -> dict:
     """Devuelve opciones de sector y market para los activos con resultados."""
     from app.models import Sector, Market
     s = get_session()
@@ -489,7 +489,7 @@ def get_filter_options(strategy_id: int, snap_date) -> dict:
         r[0]
         for r in s.query(StrategyResult.asset_id)
         .filter(StrategyResult.strategy_id == strategy_id,
-                StrategyResult.date == snap_date)
+                StrategyResult.date == target_date)
         .all()
     ]
     if not asset_ids:
@@ -560,9 +560,9 @@ def get_strategy_score_history(
     return result
 
 
-def get_top_assets_for_strategy(strategy_id: int, snap_date, limit: int = 20) -> list[dict]:
-    """Top activos por score en snap_date, para usar como sugerencia en el historial."""
-    return get_strategy_results(strategy_id, snap_date)[:limit]
+def get_top_assets_for_strategy(strategy_id: int, target_date, limit: int = 20) -> list[dict]:
+    """Top activos por score en target_date, para usar como sugerencia en el historial."""
+    return get_strategy_results(strategy_id, target_date)[:limit]
 
 
 # ── Export / Import Excel ──────────────────────────────────────────────────────

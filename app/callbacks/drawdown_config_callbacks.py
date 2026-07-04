@@ -44,6 +44,6 @@ def save_config(_, min_depth):
     cfg.min_depth_pct = float(min_depth)
     s.commit()
     return (
-        "Configuración guardada. Recalculá los snapshots para aplicar el nuevo umbral.",
+        "Configuración guardada. Recalculá los indicadores para aplicar el nuevo umbral.",
         True, "success",
     )

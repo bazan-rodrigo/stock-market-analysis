@@ -68,7 +68,7 @@ def save_sr_config(_, lookback, window, cluster, touches):
     s.commit()
 
     return (
-        "Configuración guardada. Recalculá los snapshots para aplicar los nuevos parámetros.",
+        "Configuración guardada. Recalculá los indicadores para aplicar los nuevos parámetros.",
         True,
         "success",
     )

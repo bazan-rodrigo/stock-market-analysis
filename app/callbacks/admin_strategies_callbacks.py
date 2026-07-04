@@ -342,11 +342,11 @@ def calc_results(_, selected_ids, date_str):
     from datetime import date as dt_date
     if not selected_ids:
         return no_update, no_update, no_update, no_update, no_update
-    snap_date = dt_date.fromisoformat(date_str) if date_str else dt_date.today()
+    target_date = dt_date.fromisoformat(date_str) if date_str else dt_date.today()
     total, errors = 0, []
     for sid in selected_ids:
         try:
-            total += svc.compute_strategy_results(sid, snap_date)
+            total += svc.compute_strategy_results(sid, target_date)
         except Exception as exc:
             errors.append(str(exc))
     if errors:
@@ -355,7 +355,7 @@ def calc_results(_, selected_ids, date_str):
     # Preview: top 10 de la primera (o única) estrategia seleccionada
     preview = html.Div()
     if len(selected_ids) == 1:
-        results = svc.get_strategy_results(selected_ids[0], snap_date)
+        results = svc.get_strategy_results(selected_ids[0], target_date)
         if results:
             top = results[:10]
             strat = svc.get_strategy_by_id(selected_ids[0])
@@ -383,7 +383,7 @@ def calc_results(_, selected_ids, date_str):
             link_href = f"/senales"
             preview = dbc.Card(dbc.CardBody([
                 html.Div([
-                    html.Span(f"Top 10 — {strat_name} ({snap_date})",
+                    html.Span(f"Top 10 — {strat_name} ({target_date})",
                               style={"fontSize": "0.84rem", "fontWeight": "500",
                                      "color": "#e5e7eb"}),
                     html.A("Ver en screener →", href=link_href,
@@ -401,7 +401,7 @@ def calc_results(_, selected_ids, date_str):
                 ], style={"width": "100%", "borderCollapse": "collapse"}),
             ]), style={"backgroundColor": "#1f2937", "border": "1px solid #374151"})
 
-    return "", f"Calculados {total} resultado(s) para {snap_date}.", True, "success", preview
+    return "", f"Calculados {total} resultado(s) para {target_date}.", True, "success", preview
 
 
 # ── Exportar ──────────────────────────────────────────────────────────────────

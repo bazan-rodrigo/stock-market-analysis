@@ -16,7 +16,7 @@ class SignalDefinition(Base):
 
     source:
       asset  — la señal lee de indicator_values del activo
-      group  — la señal lee de group_indicator_snapshot del grupo del activo
+      group  — la señal lee de group_scores del grupo del activo
     """
 
     __tablename__ = "signal"
@@ -27,7 +27,7 @@ class SignalDefinition(Base):
     description   = Column(Text)
     source        = Column(String(10),  nullable=False)  # asset | group
     group_type    = Column(String(30))                   # sector|market|industry|... (solo si source=group)
-    indicator_key = Column(String(50))                   # campo en indicator/group_indicator_snapshot
+    indicator_key = Column(String(50))                   # campo en indicator/group_scores
     formula_type  = Column(String(20),  nullable=False)  # discrete_map|threshold|range|composite
     params        = Column(Text,        nullable=False)  # JSON
     is_system     = Column(Boolean,     nullable=False, default=False)

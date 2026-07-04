@@ -2,13 +2,13 @@ from sqlalchemy import Column, Date, Float, Integer, String, UniqueConstraint
 from app.database import Base
 
 
-class GroupIndicatorSnapshot(Base):
+class GroupScore(Base):
     """
     Serie temporal de indicadores agregados por grupo (sector, market, industry, etc.).
     Una fila por (group_type, group_id, date).
     """
 
-    __tablename__ = "group_indicator_snapshot"
+    __tablename__ = "group_scores"
     __table_args__ = (UniqueConstraint("group_type", "group_id", "date"),)
 
     id         = Column(Integer, primary_key=True)

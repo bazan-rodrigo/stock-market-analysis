@@ -26,7 +26,7 @@ from app.models.fundamental_update_log import FundamentalUpdateLog
 from app.models.user import User
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import CurrentIndicatorValue
-from app.models.group_indicator_snapshot import GroupIndicatorSnapshot
+from app.models.group_scores import GroupScore
 from app.models.signal_definition import SignalDefinition
 from app.models.signal_value import SignalValue
 from app.models.group_signal_value import GroupSignalValue
@@ -64,7 +64,7 @@ __all__ = [
     "FundamentalUpdateLog",
     "IndicatorDefinition",
     "CurrentIndicatorValue",
-    "GroupIndicatorSnapshot",
+    "GroupScore",
     "SignalDefinition",
     "SignalValue",
     "GroupSignalValue",

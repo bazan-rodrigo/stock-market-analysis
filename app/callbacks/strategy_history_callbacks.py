@@ -38,7 +38,7 @@ def load_asset_suggestions(_, strategy_id, date_to_str):
     if not strategy_id:
         return [], [], _hidden
 
-    snap_date = dt_date.fromisoformat(date_to_str) if date_to_str else dt_date.today()
+    target_date = dt_date.fromisoformat(date_to_str) if date_to_str else dt_date.today()
 
     # Usar la fecha más reciente disponible si la indicada no tiene datos
     dates = svc.get_available_dates(strategy_id)
@@ -46,7 +46,7 @@ def load_asset_suggestions(_, strategy_id, date_to_str):
         return [], [], _hidden
 
     # Tomar la fecha más próxima al date_to
-    best_date = min(dates, key=lambda d: abs((d - snap_date).days))
+    best_date = min(dates, key=lambda d: abs((d - target_date).days))
     top_assets = svc.get_top_assets_for_strategy(strategy_id, best_date, limit=30)
 
     if not top_assets:

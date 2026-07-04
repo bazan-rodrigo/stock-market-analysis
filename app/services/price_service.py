@@ -15,7 +15,7 @@ from sqlalchemy import func
 from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, PriceUpdateLog
 from app.services.technical_service import (
-    compute_and_save_snapshot,
+    compute_current_indicators,
     _get_drawdown_config,
     _get_regime_config,
     _get_volatility_config,
@@ -26,7 +26,7 @@ from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
 
-# Activos procesados en paralelo (DB write + snapshot por activo)
+# Activos procesados en paralelo (DB write + indicadores por activo)
 _UPDATE_WORKERS = 6
 
 
@@ -162,10 +162,10 @@ def update_asset_prices(
         s.commit()
         logger.info("Activo %s: %d filas importadas", asset.ticker, count)
 
-        # Recalcular snapshot del screener (técnico + ratios fundamentales)
+        # Recalcular indicadores vigentes (técnicos + ratios fundamentales)
         ind_errors = []
         try:
-            compute_and_save_snapshot(
+            compute_current_indicators(
                 asset_id,
                 _dd_cfg=_dd_cfg,
                 _regime_cfg=_regime_cfg,
@@ -173,16 +173,16 @@ def update_asset_prices(
                 _sr_cfg=_sr_cfg,
                 quick=True,
             )
-        except Exception as snap_exc:
+        except Exception as ind_exc:
             logger.warning(
-                "Error calculando snapshot screener para %s: %s", asset.ticker, snap_exc
+                "Error calculando indicadores para %s: %s", asset.ticker, ind_exc
             )
-            ind_errors.append(f"técnico: {snap_exc}")
+            ind_errors.append(f"técnico: {ind_exc}")
         try:
-            from app.services.fundamental_service import recompute_snapshot_for_asset
-            recompute_snapshot_for_asset(asset_id)
+            from app.services.fundamental_service import recompute_ratios_for_asset
+            recompute_ratios_for_asset(asset_id)
         except Exception as fund_exc:
-            logger.warning("Error recomputo fundamental snapshot %s: %s", asset.ticker, fund_exc)
+            logger.warning("Error recomputo ratios fundamentales %s: %s", asset.ticker, fund_exc)
             ind_errors.append(f"fundamental: {fund_exc}")
         _save_indicator_log(asset_id, success=not ind_errors,
                             error="; ".join(ind_errors) or None, session=s)
@@ -288,7 +288,7 @@ def _process_yf_asset_worker(
     last_date,
     _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
 ) -> tuple[bool, dict | None]:
-    """Procesa un activo Yahoo Finance en su propio thread: escribe precios y calcula snapshot."""
+    """Procesa un activo Yahoo Finance en su propio thread: escribe precios y calcula indicadores."""
     s = get_session()
     try:
         if df.empty:
@@ -304,20 +304,20 @@ def _process_yf_asset_worker(
         logger.info("Activo %s: %d filas importadas (batch)", ticker, count)
         ind_errors = []
         try:
-            compute_and_save_snapshot(
+            compute_current_indicators(
                 asset_id,
                 _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
                 _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
                 quick=True,
             )
-        except Exception as snap_exc:
-            logger.warning("Error snapshot %s: %s", ticker, snap_exc)
-            ind_errors.append(f"técnico: {snap_exc}")
+        except Exception as ind_exc:
+            logger.warning("Error indicadores %s: %s", ticker, ind_exc)
+            ind_errors.append(f"técnico: {ind_exc}")
         try:
-            from app.services.fundamental_service import recompute_snapshot_for_asset
-            recompute_snapshot_for_asset(asset_id)
+            from app.services.fundamental_service import recompute_ratios_for_asset
+            recompute_ratios_for_asset(asset_id)
         except Exception as fund_exc:
-            logger.warning("Error recomputo fundamental snapshot %s: %s", ticker, fund_exc)
+            logger.warning("Error recomputo ratios fundamentales %s: %s", ticker, fund_exc)
             ind_errors.append(f"fundamental: {fund_exc}")
         _save_indicator_log(asset_id, success=not ind_errors,
                             error="; ".join(ind_errors) or None, session=s)
@@ -387,7 +387,7 @@ def update_all_active_assets(progress_cb=None) -> dict:
     total     = len(all_assets)
     summary   = {"total": total, "success": 0, "errors": []}
 
-    # Pre-cargar configs de snapshot una sola vez (evita N × 4 queries)
+    # Pre-cargar configs de indicadores una sola vez (evita N × 4 queries)
     _dd_cfg     = _get_drawdown_config()
     _regime_cfg = _get_regime_config()
     _vol_cfg    = _get_volatility_config()
@@ -473,8 +473,8 @@ def update_all_active_assets(progress_cb=None) -> dict:
         logger.warning("Error actualizando fundamentales: %s", exc)
 
     # Refrescar agregados de tendencia por grupo (mapa de mercado)
-    from app.services.technical_service import _refresh_group_snapshots
-    _refresh_group_snapshots()
+    from app.services.technical_service import _refresh_group_scores
+    _refresh_group_scores()
 
     return summary
 

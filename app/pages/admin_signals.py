@@ -136,7 +136,7 @@ def layout(**kwargs):
                 "normalizados de −100 a +100. Usá ",
                 html.Strong('"Ejecutar pipeline"', style={"color": "#38bdf8"}),
                 " para calcular señales → estrategias para la fecha seleccionada. "
-                "Requiere que los snapshots de indicadores estén actualizados.",
+                "Requiere que los indicadores estén actualizados.",
             ], className="mb-0", style={"fontSize": "0.78rem", "color": "#d1d5db"}),
         ]), className="mb-3",
            style=CARD_STYLE),

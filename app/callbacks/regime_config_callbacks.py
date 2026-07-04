@@ -84,7 +84,7 @@ def save_config(_, ema_d, ema_w, ema_m, slope_lb, slope_thr, confirm, nascent, s
     s.commit()
 
     return (
-        "Configuración guardada. Recalculá los snapshots para aplicar los nuevos parámetros.",
+        "Configuración guardada. Recalculá los indicadores para aplicar los nuevos parámetros.",
         True,
         "success",
     )

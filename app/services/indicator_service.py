@@ -1,7 +1,7 @@
 """
 Servicio de indicadores.
-Agrega valores de tendencia por grupo para group_indicator_snapshot.
-La escritura individual por activo ocurre en technical_service.compute_and_save_snapshot().
+Agrega valores de tendencia por grupo para group_scores.
+La escritura individual por activo ocurre en technical_service.compute_current_indicators().
 """
 import logging
 import sqlalchemy as sa
@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import date as date_type
 
 from app.database import get_session
-from app.models import Asset, GroupIndicatorSnapshot
+from app.models import Asset, GroupScore
 from app.models.indicator_store import get_ind_table
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ def _avg(lst: list) -> float | None:
     return round(sum(lst) / len(lst), 2)
 
 
-def get_default_snap_date() -> date_type:
+def get_default_target_date() -> date_type:
     """Última fecha con precios cargados (fallback: hoy).
 
     Los indicadores ind_* se escriben con la última fecha de precio de cada
@@ -60,9 +60,9 @@ def get_default_snap_date() -> date_type:
     return last or dt_date.today()
 
 
-def compute_group_snapshots(snap_date: date_type) -> None:
+def compute_group_scores(target_date: date_type) -> None:
     """
-    Agrega valores de tendencia por grupos para snap_date.
+    Agrega valores de tendencia por grupos para target_date.
     Lee directamente desde las tablas ind_trend_*.
     """
     s = get_session()
@@ -76,7 +76,7 @@ def compute_group_snapshots(snap_date: date_type) -> None:
         except Exception:
             continue
         rows = s.execute(
-            sa.select(t.c.asset_id, t.c.value).where(t.c.date == snap_date)
+            sa.select(t.c.asset_id, t.c.value).where(t.c.date == target_date)
         ).fetchall()
         for asset_id, value_str in rows:
             asset_trends.setdefault(asset_id, {})[tf] = value_str
@@ -113,43 +113,43 @@ def compute_group_snapshots(snap_date: date_type) -> None:
                     groups[(group_type, group_id)][tf].append(score)
 
     for (group_type, group_id), scores in groups.items():
-        gsnap = (
-            s.query(GroupIndicatorSnapshot)
+        gscore = (
+            s.query(GroupScore)
             .filter(
-                GroupIndicatorSnapshot.group_type == group_type,
-                GroupIndicatorSnapshot.group_id == group_id,
-                GroupIndicatorSnapshot.date == snap_date,
+                GroupScore.group_type == group_type,
+                GroupScore.group_id == group_id,
+                GroupScore.date == target_date,
             )
             .first()
         )
 
-        if gsnap is None:
-            gsnap = GroupIndicatorSnapshot(
+        if gscore is None:
+            gscore = GroupScore(
                 group_type=group_type,
                 group_id=group_id,
-                date=snap_date,
+                date=target_date,
             )
-            s.add(gsnap)
+            s.add(gscore)
 
-        gsnap.regime_score_d = _avg(scores["d"])
-        gsnap.regime_score_w = _avg(scores["w"])
-        gsnap.regime_score_m = _avg(scores["m"])
+        gscore.regime_score_d = _avg(scores["d"])
+        gscore.regime_score_w = _avg(scores["w"])
+        gscore.regime_score_m = _avg(scores["m"])
         counts = [len(scores["d"]), len(scores["w"]), len(scores["m"])]
-        gsnap.n_assets = max(counts) if any(counts) else 0
+        gscore.n_assets = max(counts) if any(counts) else 0
 
     s.commit()
 
 
-def run_daily(snap_date: date_type | None = None) -> int:
-    if snap_date is None:
-        snap_date = get_default_snap_date()
+def run_daily(target_date: date_type | None = None) -> int:
+    if target_date is None:
+        target_date = get_default_target_date()
 
     try:
-        compute_group_snapshots(snap_date)
+        compute_group_scores(target_date)
     except Exception as exc:
         logger.error(
-            "indicator_service: error en compute_group_snapshots para %s: %s", snap_date, exc
+            "indicator_service: error en compute_group_scores para %s: %s", target_date, exc
         )
 
-    logger.info("indicator_service: run_daily completado para %s", snap_date)
+    logger.info("indicator_service: run_daily completado para %s", target_date)
     return 0

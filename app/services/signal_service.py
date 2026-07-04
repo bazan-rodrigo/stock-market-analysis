@@ -1,6 +1,6 @@
 """
 Servicio de señales.
-Evalúa cada SignalDefinition contra indicadores (ind_*) / group_indicator_snapshot
+Evalúa cada SignalDefinition contra indicadores (ind_*) / group_scores
 y persiste los resultados en signal_value / group_signal_value.
 """
 import logging
@@ -10,7 +10,7 @@ from datetime import date as date_type
 from app.database import get_session
 from app.models import (
     Asset,
-    GroupIndicatorSnapshot,
+    GroupScore,
     GroupSignalValue,
     SignalDefinition,
     SignalValue,
@@ -29,19 +29,19 @@ _VALID_GROUP_INDICATOR_KEYS = frozenset({"regime_score_d", "regime_score_w", "re
 _VIRTUAL_CODES = frozenset({"last_close"})
 
 
-def _load_virtual(s, code: str, snap_date) -> dict:
+def _load_virtual(s, code: str, target_date) -> dict:
     """Carga un indicador virtual. Retorna {asset_id: value}."""
     if code == "last_close":
-        rows = s.query(Price.asset_id, Price.close).filter(Price.date == snap_date).all()
+        rows = s.query(Price.asset_id, Price.close).filter(Price.date == target_date).all()
         return {r[0]: float(r[1]) for r in rows if r[1] is not None}
     return {}
 
 
-def _get_group_indicator_value(gsnap: GroupIndicatorSnapshot, key: str):
+def _get_group_indicator_value(gscore: GroupScore, key: str):
     if key not in _VALID_GROUP_INDICATOR_KEYS:
-        logger.warning("signal_service: indicator_key '%s' no es un campo válido de GroupIndicatorSnapshot", key)
+        logger.warning("signal_service: indicator_key '%s' no es un campo válido de GroupScore", key)
         return None
-    return getattr(gsnap, key)
+    return getattr(gscore, key)
 
 
 def _composite_refs(sig: SignalDefinition) -> set[str]:
@@ -103,9 +103,9 @@ def _build_composite_scores(
     return asset_scores
 
 
-def compute_signal_values(snap_date: date_type) -> int:
+def compute_signal_values(target_date: date_type) -> int:
     """
-    Calcula signal_value para todos los activos para snap_date.
+    Calcula signal_value para todos los activos para target_date.
     Lee valores desde cada tabla ind_{code} por separado.
     """
     s = get_session()
@@ -158,24 +158,24 @@ def compute_signal_values(snap_date: date_type) -> int:
         except Exception:
             continue
         rows = s.execute(
-            sa.select(t.c.asset_id, t.c.value).where(t.c.date == snap_date)
+            sa.select(t.c.asset_id, t.c.value).where(t.c.date == target_date)
         ).fetchall()
         for asset_id_row, value in rows:
             isnaps.setdefault(asset_id_row, {})[code] = value
 
     # Indicadores virtuales (last_close → prices table)
     for code in virtual_to_load:
-        for asset_id, value in _load_virtual(s, code, snap_date).items():
+        for asset_id, value in _load_virtual(s, code, target_date).items():
             isnaps.setdefault(asset_id, {})[code] = value
 
     if not isnaps:
-        logger.info("signal_service: sin valores de indicadores para %s", snap_date)
+        logger.info("signal_service: sin valores de indicadores para %s", target_date)
         return 0
 
-    # Cargar group_indicator_snapshots
-    gsnaps: dict[tuple, GroupIndicatorSnapshot] = {
+    # Cargar group_scores del día
+    gscores: dict[tuple, GroupScore] = {
         (gs.group_type, gs.group_id): gs
-        for gs in s.query(GroupIndicatorSnapshot).filter(GroupIndicatorSnapshot.date == snap_date).all()
+        for gs in s.query(GroupScore).filter(GroupScore.date == target_date).all()
     }
 
     # Info de grupo de cada activo
@@ -195,7 +195,7 @@ def compute_signal_values(snap_date: date_type) -> int:
 
     existing_svs: dict[tuple, SignalValue] = {
         (sv.signal_id, sv.asset_id): sv
-        for sv in s.query(SignalValue).filter(SignalValue.date == snap_date).all()
+        for sv in s.query(SignalValue).filter(SignalValue.date == target_date).all()
     }
 
     written = 0
@@ -227,12 +227,12 @@ def compute_signal_values(snap_date: date_type) -> int:
             if memo_key in group_score_memo:
                 asset_scores[sig.key] = group_score_memo[memo_key]
                 continue
-            gsnap = gsnaps.get((sig.group_type, group_id))
-            if gsnap is None:
+            gscore = gscores.get((sig.group_type, group_id))
+            if gscore is None:
                 group_score_memo[memo_key] = None
                 asset_scores[sig.key] = None
                 continue
-            value = _get_group_indicator_value(gsnap, sig.indicator_key) if sig.indicator_key else None
+            value = _get_group_indicator_value(gscore, sig.indicator_key) if sig.indicator_key else None
             score = signal_engine.evaluate(sig.formula_type, sig.params, value,
                                            params=params_by_id.get(sig.id))
             group_score_memo[memo_key] = score
@@ -248,18 +248,18 @@ def compute_signal_values(snap_date: date_type) -> int:
             key = (sig.id, asset_id)
             sv = existing_svs.get(key)
             if sv is None:
-                sv = SignalValue(signal_id=sig.id, asset_id=asset_id, date=snap_date)
+                sv = SignalValue(signal_id=sig.id, asset_id=asset_id, date=target_date)
                 s.add(sv)
                 existing_svs[key] = sv
             sv.score = score
             written += 1
 
     s.commit()
-    logger.info("signal_service: %d signal_value escritos para %s", written, snap_date)
+    logger.info("signal_service: %d signal_value escritos para %s", written, target_date)
     return written
 
 
-def compute_group_signal_values(snap_date: date_type) -> int:
+def compute_group_signal_values(target_date: date_type) -> int:
     s = get_session()
 
     group_signals = (
@@ -276,37 +276,37 @@ def compute_group_signal_values(snap_date: date_type) -> int:
         except (TypeError, ValueError):
             params_by_id[sig.id] = None
 
-    gsnaps = (
-        s.query(GroupIndicatorSnapshot)
-        .filter(GroupIndicatorSnapshot.date == snap_date)
+    gscores = (
+        s.query(GroupScore)
+        .filter(GroupScore.date == target_date)
         .all()
     )
 
     existing_gsvs: dict[tuple, GroupSignalValue] = {
         (gsv.signal_id, gsv.group_type, gsv.group_id): gsv
-        for gsv in s.query(GroupSignalValue).filter(GroupSignalValue.date == snap_date).all()
+        for gsv in s.query(GroupSignalValue).filter(GroupSignalValue.date == target_date).all()
     }
 
     written = 0
 
-    for gsnap in gsnaps:
+    for gscore in gscores:
         for sig in group_signals:
-            if sig.group_type and sig.group_type != gsnap.group_type:
+            if sig.group_type and sig.group_type != gscore.group_type:
                 continue
-            value = _get_group_indicator_value(gsnap, sig.indicator_key) if sig.indicator_key else None
+            value = _get_group_indicator_value(gscore, sig.indicator_key) if sig.indicator_key else None
             score = signal_engine.evaluate(sig.formula_type, sig.params, value,
                                            params=params_by_id.get(sig.id))
             if score is None:
                 continue
 
-            key = (sig.id, gsnap.group_type, gsnap.group_id)
+            key = (sig.id, gscore.group_type, gscore.group_id)
             gsv = existing_gsvs.get(key)
             if gsv is None:
                 gsv = GroupSignalValue(
                     signal_id=sig.id,
-                    group_type=gsnap.group_type,
-                    group_id=gsnap.group_id,
-                    date=snap_date,
+                    group_type=gscore.group_type,
+                    group_id=gscore.group_id,
+                    date=target_date,
                 )
                 s.add(gsv)
                 existing_gsvs[key] = gsv
@@ -314,19 +314,19 @@ def compute_group_signal_values(snap_date: date_type) -> int:
             written += 1
 
     s.commit()
-    logger.info("signal_service: %d group_signal_value escritos para %s", written, snap_date)
+    logger.info("signal_service: %d group_signal_value escritos para %s", written, target_date)
     return written
 
 
-def run_daily(snap_date: date_type | None = None) -> dict:
-    if snap_date is None:
-        from app.services.indicator_service import get_default_snap_date
-        snap_date = get_default_snap_date()
+def run_daily(target_date: date_type | None = None) -> dict:
+    if target_date is None:
+        from app.services.indicator_service import get_default_target_date
+        target_date = get_default_target_date()
 
-    asset_written = compute_signal_values(snap_date)
-    group_written = compute_group_signal_values(snap_date)
+    asset_written = compute_signal_values(target_date)
+    group_written = compute_group_signal_values(target_date)
 
-    return {"date": str(snap_date), "signal_values": asset_written, "group_signal_values": group_written}
+    return {"date": str(target_date), "signal_values": asset_written, "group_signal_values": group_written}
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -499,15 +499,15 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
     return results
 
 
-def run_recalculate(snap_date: date_type | None = None) -> dict:
+def run_recalculate(target_date: date_type | None = None) -> dict:
     from app.services import indicator_service, strategy_service
 
-    if snap_date is None:
-        snap_date = indicator_service.get_default_snap_date()
+    if target_date is None:
+        target_date = indicator_service.get_default_target_date()
 
-    indicator_service.run_daily(snap_date)
-    result = run_daily(snap_date)
+    indicator_service.run_daily(target_date)
+    result = run_daily(target_date)
 
-    strat_result = strategy_service.run_daily(snap_date)
+    strat_result = strategy_service.run_daily(target_date)
     result["strategy_results"] = strat_result.get("strategy_results", 0)
     return result

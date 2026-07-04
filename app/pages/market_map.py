@@ -236,7 +236,7 @@ def layout(**kwargs):
             dbc.Col(
                 html.Small(
                     "Score de tendencia por grupo. "
-                    "Calculado sobre todos los activos activos con snapshot.",
+                    "Calculado sobre todos los activos con indicadores calculados.",
                     className="text-muted",
                     style={"fontSize": "0.75rem"},
                 ),

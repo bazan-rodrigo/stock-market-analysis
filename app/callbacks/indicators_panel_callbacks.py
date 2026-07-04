@@ -153,9 +153,9 @@ def load_indicators_panel(asset_id, active_tab):
         ).fetchone()
         if row is None:
             continue
-        value, snap_date = row[0], row[1]
-        if max_date is None or snap_date > max_date:
-            max_date = snap_date
+        value, target_date = row[0], row[1]
+        if max_date is None or target_date > max_date:
+            max_date = target_date
         by_category.setdefault(defn.category, []).append((defn, value))
 
     if not by_category:

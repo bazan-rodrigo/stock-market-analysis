@@ -39,12 +39,12 @@ def update_filters(strategy_id, current_date):
         dates = svc.get_available_dates(strategy_id)
         new_date = str(dates[0]) if dates else no_update
 
-    snap_date_str = new_date if new_date is not no_update else current_date
-    if not snap_date_str or snap_date_str is no_update:
+    target_date_str = new_date if new_date is not no_update else current_date
+    if not target_date_str or target_date_str is no_update:
         return new_date, [], []
 
-    snap_date = dt_date.fromisoformat(snap_date_str)
-    opts = svc.get_filter_options(strategy_id, snap_date)
+    target_date = dt_date.fromisoformat(target_date_str)
+    opts = svc.get_filter_options(strategy_id, target_date)
     return new_date, opts["sectors"], opts["markets"]
 
 
@@ -66,17 +66,17 @@ def render_heatmap(_, strategy_id, date_str, sector_id, market_id, top_n):
         return html.Div(), ""
 
     from datetime import date as dt_date
-    snap_date = dt_date.fromisoformat(date_str)
+    target_date = dt_date.fromisoformat(date_str)
 
     rows_data, comp_meta = svc.get_strategy_results_with_breakdown(
-        strategy_id, snap_date,
+        strategy_id, target_date,
         sector_id=sector_id or None,
         market_id=market_id or None,
     )
 
     if not rows_data:
         return (
-            html.P(f"Sin resultados para esta estrategia en {snap_date}.",
+            html.P(f"Sin resultados para esta estrategia en {target_date}.",
                    className="text-muted mt-2", style={"fontSize": "0.82rem"}),
             "0 activos",
         )

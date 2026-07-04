@@ -62,7 +62,7 @@ def _status_fund():
         return "—"
 
 
-def _status_snap():
+def _status_ratios():
     import sqlalchemy as sa
     from app.models.indicator_store import get_ind_table
     s = get_session()
@@ -71,9 +71,9 @@ def _status_snap():
         count     = s.execute(sa.select(sa.func.count(sa.distinct(t.c.asset_id)))).scalar() or 0
         last_date = s.execute(sa.select(sa.func.max(t.c.date))).scalar()
         last_s    = str(last_date) if last_date else "—"
-        return f"Snapshots fundamentales: {count} activos   Último: {last_s}"
+        return f"Ratios fundamentales: {count} activos   Último: {last_s}"
     except Exception:
-        return "Snapshots fundamentales: —"
+        return "Ratios fundamentales: —"
 
 
 def _status_indicators():
@@ -115,7 +115,7 @@ def _status_synth():
 _STATUS_FN = {
     "prices":       _status_prices,
     "fund":         _status_fund,
-    "snap":         _status_snap,
+    "snap":         _status_ratios,
     "indicators":   _status_indicators,
     "synth":        _status_synth,
 }
@@ -236,9 +236,9 @@ def _register(op_id):
                 update_all_fundamentals, update_new_fundamentals)
             fn = update_new_fundamentals if new_only else update_all_fundamentals
         elif op_id == "snap":
-            from app.services.fundamental_service import delta_update_ratios as fn
+            from app.services.fundamental_service import update_ratio_history as fn
         elif op_id == "indicators":
-            from app.services.technical_service import delta_update_indicators as fn
+            from app.services.technical_service import update_indicator_history as fn
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 
@@ -278,9 +278,9 @@ def _register(op_id):
             elif op_id == "fund":
                 from app.services.fundamental_service import redownload_all_fundamentals as fn
             elif op_id == "snap":
-                from app.services.fundamental_service import full_recompute_ratios as fn
+                from app.services.fundamental_service import rebuild_ratio_history as fn
             elif op_id == "indicators":
-                from app.services.technical_service import full_recompute_indicators as fn
+                from app.services.technical_service import rebuild_indicator_history as fn
             else:
                 import functools
                 from app.services.synthetic_service import compute_all_synthetic

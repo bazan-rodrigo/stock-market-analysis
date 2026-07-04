@@ -6,7 +6,7 @@ _HELP = (
     "Identifica grandes caídas históricas: desde un máximo histórico (ATH) hasta la recuperación. "
     "En el gráfico se muestran como triángulos rojos en el mínimo de cada caída. "
     "En el screener aparece la profundidad del drawdown actual y los 3 peores históricos. "
-    "Recalculá los snapshots para aplicar cambios."
+    "Recalculá los indicadores para aplicar cambios."
 )
 
 

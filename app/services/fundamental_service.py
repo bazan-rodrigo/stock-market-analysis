@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 _STALE_DAYS      = 90
 _UPDATE_WORKERS  = 4
-_BACKFILL_WORKERS = 4
 # Activos por query al leer fechas existentes durante un backfill delta
 _EXISTING_CHUNK  = 100
 
@@ -103,33 +102,33 @@ def _upsert_quarterly(asset_id: int, quarters: list[dict], s) -> None:
             setattr(existing, k, v)
 
 
-def _upsert_fund_value(code: str, asset_id: int, snap_date, val: float, s) -> None:
+def _upsert_fund_value(code: str, asset_id: int, target_date, val: float, s) -> None:
     if val is None:
         return
     t    = get_ind_table(code)
     v    = float(val)
-    stmt = _mysql_insert(t).values(asset_id=asset_id, date=snap_date, value=v)
+    stmt = _mysql_insert(t).values(asset_id=asset_id, date=target_date, value=v)
     stmt = stmt.on_duplicate_key_update(value=v)
     s.execute(stmt)
 
 
-def _write_fundamental_values(asset_id: int, snap_date: _date_type, values: dict, s) -> None:
+def _write_fundamental_values(asset_id: int, target_date: _date_type, values: dict, s) -> None:
     for code, val in values.items():
         if val is not None:
-            _upsert_fund_value(code, asset_id, snap_date, val, s)
+            _upsert_fund_value(code, asset_id, target_date, val, s)
 
 
 _UNSET = object()
 
 
-def _compute_snapshot(asset_id: int, s, *, quarters=None,
+def _compute_current_ratios(asset_id: int, s, *, quarters=None,
                       latest_price=_UNSET, price_1y=_UNSET) -> None:
     """Escribe los ratios vigentes del activo en ind_* con fecha de hoy.
 
     Reutiliza las fórmulas del backfill (_compute_quarterly_ratios /
-    _compute_daily_ratios) para que el snapshot y la historia nunca diverjan.
+    _compute_daily_ratios) para que el valor vigente y la historia nunca diverjan.
     quarters / latest_price / price_1y permiten inyectar datos precargados en
-    corridas masivas (recompute_all_snapshots)."""
+    corridas masivas (recompute_all_ratios)."""
     if quarters is None:
         quarters = (s.query(FundamentalQuarterly)
                       .filter_by(asset_id=asset_id)
@@ -201,7 +200,7 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False,
     # Recálculo de ratios (P/E, P/B, etc.): error independiente de la descarga.
     # Si falla, no invalida el éxito de la descarga de trimestrales de arriba.
     try:
-        _compute_snapshot(asset_id, s)
+        _compute_current_ratios(asset_id, s)
         _save_indicator_log(asset_id, success=True, error=None, session=s)
     except Exception as exc:
         s.rollback()
@@ -210,16 +209,16 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False,
         _save_indicator_log(asset_id, success=False, error=error_msg, session=s)
 
 
-def recompute_snapshot_for_asset(asset_id: int) -> None:
+def recompute_ratios_for_asset(asset_id: int) -> None:
     s = get_session()
     has_quarters = s.query(FundamentalQuarterly).filter_by(asset_id=asset_id).first()
     if has_quarters is None:
         return
-    _compute_snapshot(asset_id, s)
+    _compute_current_ratios(asset_id, s)
     s.commit()
 
 
-def recompute_all_snapshots(progress_cb=None) -> dict:
+def recompute_all_ratios(progress_cb=None) -> dict:
     """Recomputa los ratios vigentes de todos los activos con fundamentales.
 
     Los quarters y los precios (último y de hace 1 año) se cargan en 3 queries
@@ -255,7 +254,7 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
         progress_cb(0, total)
     for i, asset_id in enumerate(asset_ids, 1):
         try:
-            _compute_snapshot(
+            _compute_current_ratios(
                 asset_id, s,
                 quarters=quarters_cache[asset_id],
                 latest_price=latest_prices.get(asset_id),
@@ -402,7 +401,7 @@ def get_asset_fundamentals(asset_id: int) -> dict:
                   .order_by(FundamentalQuarterly.period_date)
                   .all())
 
-    # Leer snapshot desde tablas ind_* (última fecha disponible por indicador)
+    # Leer ratios vigentes desde tablas ind_* (última fecha disponible por indicador)
     _FUND_CODES = [
         "fundamental_pe_ttm", "fundamental_pb", "fundamental_ps_ttm",
         "fundamental_net_margin", "fundamental_gross_margin", "fundamental_operating_margin",
@@ -431,7 +430,7 @@ def get_asset_fundamentals(asset_id: int) -> dict:
                 updated_at = row[1]
 
     if quarters and not snap_vals:
-        _compute_snapshot(asset_id, s)
+        _compute_current_ratios(asset_id, s)
         s.commit()
         return get_asset_fundamentals(asset_id)
 
@@ -451,7 +450,7 @@ def get_asset_fundamentals(asset_id: int) -> dict:
             }
             for q in quarters
         ],
-        "snapshot": {
+        "ratios": {
             "pe_ttm":             snap_vals.get("pe_ttm"),
             "pb":                 snap_vals.get("pb"),
             "ps_ttm":             snap_vals.get("ps_ttm"),
@@ -685,6 +684,8 @@ def _backfill_fund_indicator(
                     target = set(r[0] for r in price_rows)
                 else:
                     target = {r[0] for r in price_rows} - existing
+                    # El último precio es preliminar: su ratio se recalcula siempre
+                    target.add(price_rows[-1][0])
 
                 batch = []
                 for price_date, price_close in price_rows:
@@ -712,6 +713,8 @@ def _backfill_fund_indicator(
                     target = {q.period_date for q in quarters}
                 else:
                     target = {q.period_date for q in quarters} - existing
+                    # El último trimestre puede haber sido revisado por la fuente
+                    target.add(quarters[-1].period_date)
 
                 batch = []
                 for idx, q in enumerate(quarters):
@@ -805,6 +808,10 @@ def _backfill_fund_daily_all(
                           - existing_by_code[code].get(asset_id, set())
                     for code in daily_codes
                 }
+                # El último precio es preliminar: su ratio se recalcula siempre
+                last_d = price_rows[-1][0]
+                for code in daily_codes:
+                    targets[code].add(last_d)
 
             combined_target = set().union(*targets.values())
             batches = {code: [] for code in daily_codes}
@@ -945,19 +952,19 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) ->
 
 # ── Acciones combinadas (Centro de Datos) ───────────────────────────────────────
 
-def delta_update_ratios(progress_cb=None) -> dict:
+def update_ratio_history(progress_cb=None) -> dict:
     """Recomputa los ratios vigentes y completa huecos históricos (backfill delta)."""
-    r1 = recompute_all_snapshots(progress_cb=progress_cb)
+    r1 = recompute_all_ratios(progress_cb=progress_cb)
     r2 = backfill_all_fundamental_values(progress_cb=progress_cb, force=False)
     errors = r1["errors"] + r2["errors"]
     total  = r1["total"]
     return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
 
 
-def full_recompute_ratios(progress_cb=None) -> dict:
+def rebuild_ratio_history(progress_cb=None) -> dict:
     """Borra y recalcula todo el historial de ratios fundamentales desde cero."""
     r1 = backfill_all_fundamental_values(progress_cb=progress_cb, force=True)
-    r2 = recompute_all_snapshots(progress_cb=progress_cb)
+    r2 = recompute_all_ratios(progress_cb=progress_cb)
     errors = r1["errors"] + r2["errors"]
     total  = r2["total"]
     return {"total": total, "success": max(total - len(errors), 0), "errors": errors}

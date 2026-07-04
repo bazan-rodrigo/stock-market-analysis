@@ -44,7 +44,7 @@ def _ratio_card(key, label, display, color=None, tip=None):
     return col, tooltip
 
 
-def _ratio_section(definitions, snap):
+def _ratio_section(definitions, ratios):
     """Construye las tarjetas de ratios y sus tooltips."""
     cols, tips = [], []
     for key, label, display, color, tip in definitions:
@@ -161,7 +161,7 @@ def load_fundamentals(asset_id, active_tab):
         return html.Div(), f"Error al cargar datos: {exc}", True, "danger"
 
     quarters = data["quarters"]
-    snap     = data["snapshot"]
+    ratios     = data["ratios"]
 
     if not quarters:
         return html.Div(
@@ -171,34 +171,34 @@ def load_fundamentals(asset_id, active_tab):
                       color="warning"),
         ), "", False, "info"
 
-    upd = snap.get("updated_at") or "—"
+    upd = ratios.get("updated_at") or "—"
 
     _cv = _color_val
 
     ratio_defs = [
         # (key, label, display, color, tooltip)
-        ("pe_ttm",    "P/E TTM",          _val(snap.get("pe_ttm"),  ".1f", "x"), None,
+        ("pe_ttm",    "P/E TTM",          _val(ratios.get("pe_ttm"),  ".1f", "x"), None,
          "Precio actual / (Net Income últimos 4 trimestres / Acciones en circulación)"),
-        ("pb",        "P/B",              _val(snap.get("pb"),      ".2f", "x"), None,
+        ("pb",        "P/B",              _val(ratios.get("pb"),      ".2f", "x"), None,
          "Precio actual / (Equity / Acciones en circulación) — último trimestre"),
-        ("ps_ttm",    "P/S TTM",          _val(snap.get("ps_ttm"),  ".2f", "x"), None,
+        ("ps_ttm",    "P/S TTM",          _val(ratios.get("ps_ttm"),  ".2f", "x"), None,
          "Precio actual / (Revenue últimos 4 trimestres / Acciones en circulación)"),
-        ("roic",      "ROIC",             _pct(snap.get("roic")),   _cv(snap.get("roic")),
+        ("roic",      "ROIC",             _pct(ratios.get("roic")),   _cv(ratios.get("roic")),
          "Si la fuente provee NOPAT e Invested Capital promedio: NOPAT TTM / IC promedio. "
          "Sino (ej. Yahoo Finance): Net Income TTM / (Equity + Total Debt)."),
-        ("net_mg",    "Margen Neto",      _pct(snap.get("net_margin")),      _cv(snap.get("net_margin")),
+        ("net_mg",    "Margen Neto",      _pct(ratios.get("net_margin")),      _cv(ratios.get("net_margin")),
          "Net Income / Revenue — último trimestre disponible"),
-        ("gross_mg",  "Margen Bruto",     _pct(snap.get("gross_margin")),    _cv(snap.get("gross_margin")),
+        ("gross_mg",  "Margen Bruto",     _pct(ratios.get("gross_margin")),    _cv(ratios.get("gross_margin")),
          "Gross Profit / Revenue — último trimestre disponible"),
-        ("op_mg",     "Margen Operativo", _pct(snap.get("operating_margin")),_cv(snap.get("operating_margin")),
+        ("op_mg",     "Margen Operativo", _pct(ratios.get("operating_margin")),_cv(ratios.get("operating_margin")),
          "Operating Income / Revenue — último trimestre disponible"),
-        ("de",        "Deuda/Equity",     _val(snap.get("debt_to_equity"), ".2f", "x"), None,
+        ("de",        "Deuda/Equity",     _val(ratios.get("debt_to_equity"), ".2f", "x"), None,
          "Total Debt / Equity — último trimestre disponible"),
-        ("rev_yoy",   "Revenue YoY",      _pct(snap.get("revenue_growth_yoy")), _cv(snap.get("revenue_growth_yoy")),
+        ("rev_yoy",   "Revenue YoY",      _pct(ratios.get("revenue_growth_yoy")), _cv(ratios.get("revenue_growth_yoy")),
          "Variación del Revenue del último trimestre vs el mismo trimestre del año anterior: (Q0 − Q4) / |Q4|"),
-        ("eps_yoy",   "EPS YoY",          _pct(snap.get("eps_growth_yoy")),  _cv(snap.get("eps_growth_yoy")),
+        ("eps_yoy",   "EPS YoY",          _pct(ratios.get("eps_growth_yoy")),  _cv(ratios.get("eps_growth_yoy")),
          "Variación del Net Income del último trimestre vs el mismo trimestre del año anterior: (Q0 − Q4) / |Q4|"),
-        ("pe_yoy",    "P/E YoY",          _pct(snap.get("pe_growth_yoy")),   _cv(snap.get("pe_growth_yoy")),
+        ("pe_yoy",    "P/E YoY",          _pct(ratios.get("pe_growth_yoy")),   _cv(ratios.get("pe_growth_yoy")),
          "Variación del P/E TTM actual vs el P/E TTM de hace 365 días. "
          "Requiere al menos 8 trimestres almacenados (2 años). "
          "Muestra — hasta que se acumule suficiente historial."),
@@ -213,7 +213,7 @@ def load_fundamentals(asset_id, active_tab):
             html.Span(f" — datos al {upd}", className="text-muted ms-2",
                       style={"fontSize": "0.75rem"}),
         ], className="mb-2"),
-        _ratio_section(ratio_defs, snap),
+        _ratio_section(ratio_defs, ratios),
         html.Hr(style={"borderColor": "#374151"}),
         dbc.Tabs([
             dbc.Tab(_charts_row(quarters), label="Trimestral", tab_id="q"),

@@ -16,7 +16,7 @@ from sqlalchemy import func
 
 from app.database import get_session
 from app.models import Asset, Price, SyntheticComponent, SyntheticFormula
-from app.services.technical_service import compute_and_save_snapshot, _save_indicator_log
+from app.services.technical_service import compute_current_indicators, _save_indicator_log
 
 logger = logging.getLogger(__name__)
 
@@ -176,10 +176,10 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
                 formula.formula_type, full)
 
     try:
-        compute_and_save_snapshot(asset_id, quick=not full)
+        compute_current_indicators(asset_id, quick=not full)
         _save_indicator_log(asset_id, success=True, error=None, session=s)
     except Exception as exc:
-        logger.warning("Error snapshot sintético id=%d: %s", asset_id, exc)
+        logger.warning("Error indicadores sintético id=%d: %s", asset_id, exc)
         _save_indicator_log(asset_id, success=False, error=str(exc), session=s)
 
     return count

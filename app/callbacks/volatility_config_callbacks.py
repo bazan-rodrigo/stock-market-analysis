@@ -84,7 +84,7 @@ def save_vol_config(_, atr_period, confirm, pct_low, pct_high, pct_extreme, dur_
     s.commit()
 
     return (
-        "Configuración guardada. Recalculá los snapshots para aplicar los nuevos parámetros.",
+        "Configuración guardada. Recalculá los indicadores para aplicar los nuevos parámetros.",
         True,
         "success",
     )
