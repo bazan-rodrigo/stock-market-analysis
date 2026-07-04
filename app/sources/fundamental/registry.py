@@ -16,8 +16,4 @@ def get_fundamental_source(name: str) -> FundamentalSourceBase:
     return _REGISTRY[name]()
 
 
-def available_fundamental_source_names() -> list[str]:
-    return list(_REGISTRY.keys())
-
-
 register(YahooFundamentalSource)

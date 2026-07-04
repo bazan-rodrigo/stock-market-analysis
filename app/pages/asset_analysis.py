@@ -8,13 +8,6 @@ _SMA_DEF     = [20, 50, 200]
 _EMA_DEF     = [9,  21,  50]
 
 
-def _sep():
-    return html.Div(style={
-        "width": "1px", "backgroundColor": "#555",
-        "alignSelf": "stretch", "margin": "0 4px",
-    })
-
-
 def _chk(id_, label, default_on=False, color=None):
     return dbc.Checklist(
         id=id_,

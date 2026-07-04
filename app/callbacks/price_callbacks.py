@@ -7,19 +7,6 @@ import app.services.price_service as svc
 _prices_state = {"running": False, "current": 0, "total": 0, "summary": None, "error": None, "msg": "", "phase": ""}
 
 
-def _error_msg(ticker: str, exc: Exception):
-    """Mensaje de error con detalle técnico en dos líneas."""
-    friendly = str(exc)
-    tech = f"{type(exc).__name__}: {exc}"
-    if friendly == tech:
-        return f"{ticker}: {friendly}"
-    return html.Span([
-        f"{ticker}: {friendly}",
-        html.Br(),
-        html.Small(tech, style={"opacity": "0.7", "fontFamily": "monospace"}),
-    ])
-
-
 def _logs_to_rows(logs) -> list[dict]:
     return [
         {

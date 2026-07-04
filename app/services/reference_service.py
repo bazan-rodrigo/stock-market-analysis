@@ -348,16 +348,6 @@ def delete_user(user_id: int) -> None:
 # Helpers get-or-create (usados por autocompletado)
 # ---------------------------------------------------------------------------
 
-def _get_or_create(Model, s, **filter_kwargs):
-    """Busca un registro por los kwargs dados; lo crea si no existe."""
-    obj = s.query(Model).filter_by(**filter_kwargs).first()
-    if obj is None:
-        obj = Model(**filter_kwargs)
-        s.add(obj)
-        s.commit()
-        s.refresh(obj)
-    return obj, obj not in s.identity_map.values()
-
 
 def _upsert_alias(s, entity_type: str, source_value: str, entity_id: int) -> None:
     obj = s.query(CatalogAlias).filter_by(
@@ -523,18 +513,6 @@ def get_catalog_entities_with_aliases(entity_type: str) -> tuple:
     entities = s.query(Model).order_by(Model.name).all()
     aliases = s.query(CatalogAlias).filter_by(entity_type=entity_type).all()
     return entities, aliases
-
-
-def get_aliases(entity_type: str) -> list:
-    return get_session().query(CatalogAlias).filter_by(entity_type=entity_type).all()
-
-
-def delete_alias(alias_id: int) -> None:
-    s = get_session()
-    obj = s.get(CatalogAlias, alias_id)
-    if obj:
-        s.delete(obj)
-        s.commit()
 
 
 def merge_entities(entity_type: str, source_id: int, target_id: int) -> str:

@@ -30,21 +30,6 @@ def get_ind_table(code: str) -> Table:
         return Table(name, _meta, autoload_with=engine, extend_existing=True)
 
 
-def create_ind_table(code: str, is_numeric: bool) -> Table:
-    """Crea la tabla ind_{code} si no existe. Usada al agregar un indicador nuevo."""
-    name = f"ind_{code}"
-    vcol = Column("value", Float) if is_numeric else Column("value", String(50))
-    t = Table(
-        name, _meta,
-        Column("asset_id", Integer, ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True),
-        Column("date", Date, primary_key=True),
-        vcol,
-        extend_existing=True,
-    )
-    t.create(bind=engine, checkfirst=True)
-    return t
-
-
 class CurrentIndicatorValue(Base):
     """Indicadores sin historia (keep_history=False): un valor vigente por activo."""
 

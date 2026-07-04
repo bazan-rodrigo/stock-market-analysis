@@ -48,15 +48,3 @@ def get_signals_for_strategy(strategy_id: int) -> list[SignalDefinition]:
 def get_all_signals_flat() -> list[SignalDefinition]:
     s = get_session()
     return s.query(SignalDefinition).order_by(SignalDefinition.name).all()
-
-
-def get_available_dates_for_asset(asset_id: int) -> list[date_type]:
-    from sqlalchemy import distinct
-    s = get_session()
-    rows = (
-        s.query(distinct(SignalValue.date))
-        .filter(SignalValue.asset_id == asset_id)
-        .order_by(SignalValue.date.desc())
-        .all()
-    )
-    return [r[0] for r in rows]

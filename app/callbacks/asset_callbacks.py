@@ -80,17 +80,6 @@ def _get_form_options():
     )
 
 
-def _match_option(opts: list, name: str | None):
-    """Busca un valor por nombre (case-insensitive) en una lista de opciones."""
-    if not name:
-        return no_update, None
-    name_lower = name.lower()
-    for opt in opts:
-        if opt.get("label", "").lower() == name_lower:
-            return opt["value"], None
-    return no_update, name  # no encontrado → devuelve el nombre para el mensaje
-
-
 @callback(
     Output("assets-table", "data"),
     Input("assets-table", "id"),
