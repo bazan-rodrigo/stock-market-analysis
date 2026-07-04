@@ -81,6 +81,7 @@ def update_asset(
     sector_id: Optional[int] = None,
     industry_id: Optional[int] = None,
     benchmark_id: Optional[int] = None,
+    fundamental_source_id: Optional[int] = None,
 ) -> Asset:
     s = get_session()
     obj = s.get(Asset, asset_id)
@@ -96,6 +97,7 @@ def update_asset(
     obj.sector_id = sector_id
     obj.industry_id = industry_id
     obj.benchmark_id = benchmark_id
+    obj.fundamental_source_id = fundamental_source_id
     try:
         s.commit()
     except IntegrityError as exc:

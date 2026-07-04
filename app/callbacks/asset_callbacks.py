@@ -1,3 +1,4 @@
+import logging
 import threading
 
 from dash import Input, Output, State, callback, no_update
@@ -6,6 +7,8 @@ import app.services.currency_conversion_service as conversion_svc
 import app.services.asset_service as asset_svc
 import app.services.price_service as price_svc
 import app.services.reference_service as ref_svc
+
+logger = logging.getLogger(__name__)
 
 
 def _post_save_sync(asset_id: int, new_currency_id: int | None, old_currency_id: int | None) -> None:
@@ -382,6 +385,7 @@ def assets_save(
         )
     except Exception as exc:
         # Error de negocio: modal se queda abierto
+        logger.exception("Error guardando activo (editing_id=%s)", editing_id)
         return _nu, _nu, False, _nu, _nu, str(exc), True
 
 
