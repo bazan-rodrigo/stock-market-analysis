@@ -50,38 +50,44 @@ def _save_config(enabled: bool | None = None, hour: int | None = None, minute: i
 def _daily_update_job() -> None:
     logger.info("Iniciando actualización diaria de precios (scheduled)")
     try:
-        from app.services.price_service import update_all_active_assets
-        summary = update_all_active_assets()
-        logger.info(
-            "Actualización diaria finalizada: %d/%d exitosos, %d errores",
-            summary["success"],
-            summary["total"],
-            len(summary["errors"]),
-        )
-    except Exception as exc:
-        logger.exception("Error crítico en la actualización diaria: %s", exc)
-        return
+        try:
+            from app.services.price_service import update_all_active_assets
+            summary = update_all_active_assets()
+            logger.info(
+                "Actualización diaria finalizada: %d/%d exitosos, %d errores",
+                summary["success"],
+                summary["total"],
+                len(summary["errors"]),
+            )
+        except Exception as exc:
+            logger.exception("Error crítico en la actualización diaria: %s", exc)
+            return
 
-    # ── Pipeline de señales/estrategias ─────────────────────────────────────
-    try:
-        from app.services import indicator_service
-        indicator_service.run_daily()
-    except Exception as exc:
-        logger.exception("Error en indicator_service.run_daily: %s", exc)
+        # ── Pipeline de señales/estrategias ─────────────────────────────────
+        try:
+            from app.services import indicator_service
+            indicator_service.run_daily()
+        except Exception as exc:
+            logger.exception("Error en indicator_service.run_daily: %s", exc)
 
-    try:
-        from app.services import signal_service
-        result = signal_service.run_daily()
-        logger.info("signal_service: %s", result)
-    except Exception as exc:
-        logger.exception("Error en signal_service.run_daily: %s", exc)
+        try:
+            from app.services import signal_service
+            result = signal_service.run_daily()
+            logger.info("signal_service: %s", result)
+        except Exception as exc:
+            logger.exception("Error en signal_service.run_daily: %s", exc)
 
-    try:
-        from app.services import strategy_service
-        result = strategy_service.run_daily()
-        logger.info("strategy_service: %s", result)
-    except Exception as exc:
-        logger.exception("Error en strategy_service.run_daily: %s", exc)
+        try:
+            from app.services import strategy_service
+            result = strategy_service.run_daily()
+            logger.info("strategy_service: %s", result)
+        except Exception as exc:
+            logger.exception("Error en strategy_service.run_daily: %s", exc)
+    finally:
+        # El thread del scheduler se reutiliza entre corridas: liberar la
+        # sesión scoped para no retener conexión ni objetos entre días.
+        from app.database import Session
+        Session.remove()
 
 
 # ── Control del scheduler ─────────────────────────────────────────────────────

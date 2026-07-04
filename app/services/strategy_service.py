@@ -118,19 +118,38 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
 
     # Solo cargar grupos de activos que aparecen en los datos de señales del día
     asset_ids_with_data = list({asset_id for _, asset_id in signal_scores})
-    asset_groups: dict[int, dict] = {
-        a.id: {
-            "sector":          a.sector_id,
-            "market":          a.market_id,
-            "industry":        a.industry_id,
-            "country":         a.country_id,
-            "instrument_type": a.instrument_type_id,
-        }
-        for a in s.query(
+    if asset_ids_with_data:
+        q = s.query(
             Asset.id, Asset.sector_id, Asset.market_id,
             Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
-        ).filter(Asset.id.in_(asset_ids_with_data)).all()
-    } if asset_ids_with_data else {}
+        ).filter(Asset.id.in_(asset_ids_with_data))
+        # Aplicar asset_filter de la estrategia (JSON: {"sector_id": 3, ...})
+        if strategy.asset_filter:
+            import json
+            try:
+                flt = json.loads(strategy.asset_filter) or {}
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    "strategy_service: asset_filter inválido en strategy_id=%d: %r",
+                    strategy_id, strategy.asset_filter,
+                )
+                flt = {}
+            for col in ("sector_id", "market_id", "industry_id",
+                        "country_id", "instrument_type_id"):
+                if flt.get(col) is not None:
+                    q = q.filter(getattr(Asset, col) == flt[col])
+        asset_groups: dict[int, dict] = {
+            a.id: {
+                "sector":          a.sector_id,
+                "market":          a.market_id,
+                "industry":        a.industry_id,
+                "country":         a.country_id,
+                "instrument_type": a.instrument_type_id,
+            }
+            for a in q.all()
+        }
+    else:
+        asset_groups = {}
 
     # Calcular scores por activo
     asset_ids = list(asset_groups.keys())
@@ -154,6 +173,14 @@ def compute_strategy_results(strategy_id: int, snap_date: date_type) -> int:
             StrategyResult.date == snap_date,
         ).all()
     }
+
+    # Eliminar resultados de un recálculo previo del mismo día cuyos activos
+    # ya no obtienen score (evita ranks duplicados u obsoletos)
+    scored_ids = {asset_id for asset_id, _ in scored}
+    for asset_id, sr in list(existing_srs.items()):
+        if asset_id not in scored_ids:
+            s.delete(sr)
+            del existing_srs[asset_id]
 
     written = 0
     for rank, (asset_id, score) in enumerate(scored, start=1):
@@ -190,10 +217,9 @@ def compute_all_strategies(snap_date: date_type) -> dict:
 
 def run_daily(snap_date: date_type | None = None) -> dict:
     """Pipeline diario de estrategias."""
-    from datetime import date as dt_date
-
     if snap_date is None:
-        snap_date = dt_date.today()
+        from app.services.indicator_service import get_default_snap_date
+        snap_date = get_default_snap_date()
 
     return compute_all_strategies(snap_date)
 
@@ -609,7 +635,9 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
         for row in rows_c[1:]:
             data = dict(zip(headers_c, row))
             sname = str(data.get("strategy_name") or "").strip()
-            if sname in strategies:
+            if sname not in strategies:
+                continue
+            try:
                 strategies[sname]["components"].append({
                     "signal_key": str(data.get("signal_key") or "").strip(),
                     "weight": float(data.get("weight") or 1.0),
@@ -617,16 +645,48 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
                     "group_type": str(data.get("group_type") or "") or None,
                     "group_id": int(data.get("group_id")) if data.get("group_id") else None,
                 })
+            except (TypeError, ValueError) as exc:
+                strategies[sname].setdefault("errors", []).append(
+                    f"componente inválido: {exc}")
 
     db = get_session()
-    results = []
-    error_occurred = False
 
+    # ── Pasada 1: validación completa sin escribir ────────────────────────────
+    all_keys = {
+        c["signal_key"]
+        for sdata in strategies.values()
+        for c in sdata["components"] if c["signal_key"]
+    }
+    sig_ids_by_key = {
+        r.key: r.id
+        for r in db.query(SignalDefinition.key, SignalDefinition.id)
+                   .filter(SignalDefinition.key.in_(all_keys)).all()
+    } if all_keys else {}
+
+    invalid = False
     for name, sdata in strategies.items():
-        if error_occurred:
-            results.append({"name": name, "status": "skipped", "detail": "cancelado por error previo"})
-            continue
-        try:
+        errors = sdata.setdefault("errors", [])
+        for comp in sdata["components"]:
+            if not comp["signal_key"]:
+                errors.append("componente sin signal_key")
+            elif comp["signal_key"] not in sig_ids_by_key:
+                errors.append(f"señal '{comp['signal_key']}' no encontrada")
+        if errors:
+            invalid = True
+
+    if invalid:
+        return [
+            {"name": name,
+             "status": "error" if sdata["errors"] else "omitido",
+             "detail": "; ".join(sdata["errors"])
+                       or "el archivo contiene errores; no se importó nada"}
+            for name, sdata in strategies.items()
+        ]
+
+    # ── Pasada 2: escribir todo en una sola transacción ───────────────────────
+    results: list[dict] = []
+    try:
+        for name, sdata in strategies.items():
             existing = db.query(Strategy).filter(Strategy.name == name).first()
             if existing:
                 strat = existing
@@ -645,30 +705,28 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
             db.flush()
 
             for comp_data in sdata["components"]:
-                sig_key = str(comp_data.get("signal_key") or "").strip()
-                if not sig_key:
-                    raise ValueError("Componente sin signal_key.")
-                sig = db.query(SignalDefinition).filter(SignalDefinition.key == sig_key).first()
-                if sig is None:
-                    raise ValueError(f"Señal '{sig_key}' no encontrada.")
-                comp = StrategyComponent(
+                db.add(StrategyComponent(
                     strategy_id=strat.id,
-                    signal_id=sig.id,
-                    weight=float(comp_data.get("weight") or 1.0),
-                    scope=comp_data.get("scope") or None,
-                    group_type=comp_data.get("group_type") or None,
-                    group_id=comp_data.get("group_id") or None,
-                )
-                db.add(comp)
+                    signal_id=sig_ids_by_key[comp_data["signal_key"]],
+                    weight=comp_data["weight"],
+                    scope=comp_data["scope"],
+                    group_type=comp_data["group_type"],
+                    group_id=comp_data["group_id"],
+                ))
 
             db.flush()
             results.append({"name": name, "status": "ok", "detail": f"id={strat.id}"})
-        except Exception as exc:
-            db.rollback()
-            error_occurred = True
-            results.append({"name": name, "status": "error", "detail": str(exc)})
-
-    if not error_occurred:
         db.commit()
+    except Exception as exc:
+        db.rollback()
+        names  = list(strategies)
+        failed = names[len(results)] if len(results) < len(names) else "?"
+        return [
+            {"name": n,
+             "status": "error" if n == failed else "revertido",
+             "detail": str(exc) if n == failed
+                       else "revertido por error en otra estrategia"}
+            for n in names
+        ]
 
     return results

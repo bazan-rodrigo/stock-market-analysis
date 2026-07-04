@@ -122,8 +122,9 @@ def execute_sql(_, sql, session_id):
             rowcount = result.rowcount
             _set_pending(session_id, True)
             status = f"{rowcount} fila(s) afectada(s) — pendiente de commit/rollback"
+            # Export deshabilitado: re-ejecutaría el DML del textarea
             return _info("DML ejecutado. Revisá y hacé Commit o Rollback."),\
-                   status, _style("warning"), False, False, False
+                   status, _style("warning"), False, False, True
 
     except Exception as exc:
         _set_pending(session_id, False)
@@ -193,9 +194,13 @@ def export_csv(_, sql, session_id):
     if not sql or not sql.strip():
         return no_update
 
+    stmt = sql.strip().rstrip(";")
+    if not stmt.upper().lstrip().startswith("SELECT"):
+        return no_update
+
     try:
         conn   = _get_conn(session_id)
-        result = conn.execute(text(sql.strip().rstrip(";")))
+        result = conn.execute(text(stmt))
         rows   = result.fetchall()
         cols   = list(result.keys())
         buf    = io.StringIO()
