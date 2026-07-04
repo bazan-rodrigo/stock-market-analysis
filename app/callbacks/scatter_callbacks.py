@@ -8,9 +8,7 @@ import dash_bootstrap_components as dbc
 import app.services.scatter_service as svc
 from app.utils import safe_callback
 
-_BG          = "#111827"
-_RED         = "#ef4444"
-_TREND_COLOR = "#facc15"
+_BG = "#111827"
 
 
 def _scatter_error(exc):

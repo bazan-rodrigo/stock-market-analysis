@@ -1191,12 +1191,6 @@ def update_regime_label(chart_data, freq):
     return f"({label})", {"fontSize": "0.68rem", "color": color, "fontWeight": "bold"}
 
 
-_VOL_COLORS_CHART = {
-    "extrema": "#ef5350",
-    "alta":    "#ff9800",
-    "normal":  "#90a4ae",
-    "baja":    "#42a5f5",
-}
 _VOL_LABELS_ES = {
     f"{vr}_{dr}": (f"{vl} | {dl}", clr)
     for (vr, vl, clr) in [
