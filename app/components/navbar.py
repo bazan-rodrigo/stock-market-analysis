@@ -58,6 +58,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Volatilidad ATR",       href="/admin/volatility-config"),
                     dbc.DropdownMenuItem("Drawdowns",             href="/admin/drawdown-config"),
                     dbc.DropdownMenuItem("Soporte / Resistencia", href="/admin/sr-config"),
+                    dbc.DropdownMenuItem("Punto y Figura",        href="/admin/pnf-config"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Señales",              href="/admin/signals"),
                     dbc.DropdownMenuItem("Estrategias",          href="/admin/strategies"),

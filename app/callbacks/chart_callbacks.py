@@ -212,11 +212,21 @@ def load_chart_data(asset_id, current_data):
 
     sr_data = sr_svc.compute_sr_for_asset(int(asset_id)) or {}
 
+    # Config P&F: la caja se resuelve server-side (puede depender del ATR del activo)
+    from app.services import pnf_service
+    try:
+        _pnf_cfg = pnf_service.get_pnf_config()
+        pnf = {"box": pnf_service.compute_box_size(df, _pnf_cfg),
+               "reversal": int(_pnf_cfg.reversal), "source": _pnf_cfg.source}
+    except Exception:
+        pnf = None
+
     return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events,
             "best_ma": best_ma,
             "regime_current": regime_current,
             "regime_ema_periods": regime_ema_periods,
             "vol_current": vol_current,
+            "pnf": pnf,
             "sr_pivots": sr_data.get("sr_pivots")}, ""
 
 
@@ -598,6 +608,48 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     return keys.sort().map(function(k) {{ return groups[k]; }});
   }};
 
+  /* Columnas Punto y Figura sobre OHLC: cada columna se dibuja como una vela
+     (X = verde sube, O = roja baja), fechada al fin de la columna. */
+  window._lwc.pnfColumns = function(ohlcv, box, reversal, source) {{
+    if (!box || box <= 0 || !ohlcv.length) return [];
+    var useHl = source === 'hl';
+    var cols = [], cur = null, refHi = null, refLo = null;
+    function fl(p) {{ return Math.floor(p / box); }}
+    ohlcv.forEach(function(b) {{
+      if (b.close == null) return;
+      var hi = useHl && b.high != null ? b.high : b.close;
+      var lo = useHl && b.low  != null ? b.low  : b.close;
+      var hb = fl(hi), lb = fl(lo);
+      if (cur === null) {{
+        if (refHi === null) {{ refHi = hb; refLo = lb; return; }}
+        if (hb > refHi)      cur = {{type:'X', top: hb, bot: refLo, end: b.time}};
+        else if (lb < refLo) cur = {{type:'O', top: refHi, bot: lb, end: b.time}};
+        else {{ refHi = Math.max(refHi, hb); refLo = Math.min(refLo, lb); }}
+        return;
+      }}
+      if (cur.type === 'X') {{
+        if (hb > cur.top) {{ cur.top = hb; cur.end = b.time; }}
+        else if (cur.top - lb >= reversal) {{
+          cols.push(cur);
+          cur = {{type:'O', top: cur.top - 1, bot: lb, end: b.time}};
+        }}
+      }} else {{
+        if (lb < cur.bot) {{ cur.bot = lb; cur.end = b.time; }}
+        else if (hb - cur.bot >= reversal) {{
+          cols.push(cur);
+          cur = {{type:'X', top: hb, bot: cur.bot + 1, end: b.time}};
+        }}
+      }}
+    }});
+    if (cur !== null) cols.push(cur);
+    return cols.map(function(c) {{
+      var loP = c.bot * box, hiP = (c.top + 1) * box;
+      return {{time: c.end, high: hiP, low: loP,
+               open: c.type === 'X' ? loP : hiP,
+               close: c.type === 'X' ? hiP : loP, volume: 0}};
+    }});
+  }};
+
   window._lwc.addSeries = function(chart, spec) {{
     var s;
     if (spec.type === 'candlestick') {{
@@ -671,6 +723,10 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     container.innerHTML = '';
 
     var ohlcv  = window._lwc.resample(st.rawDaily, st.freq);
+    /* Modo P&F: reemplaza las barras por columnas X/O (1 vela por columna) */
+    if (st.chartType === 'pnf' && st.pnf) {{
+      ohlcv = window._lwc.pnfColumns(ohlcv, st.pnf.box, st.pnf.reversal, st.pnf.source);
+    }}
     var rect   = container.getBoundingClientRect();
     var totalH = Math.max(window.innerHeight - rect.top - 6, 200);
     container.style.height = totalH + 'px';
@@ -778,7 +834,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     /* Serie de precio */
     var pc = window._lwcPanelCharts.price;
     window._lwcRegimeEmaSeries = [];
-    if (st.chartType === 'candlestick') {{
+    if (st.chartType === 'candlestick' || st.chartType === 'pnf') {{
       window._lwcPriceSeries = window._lwc.addSeries(pc, {{type: 'candlestick', data: ohlcv}});
     }} else {{
       window._lwcPriceSeries = window._lwc.addSeries(pc, {{type: 'line', color: '#2196f3', lineWidth: 1.5,
@@ -1009,6 +1065,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     ddEvents:          [],
     bestMa:            chartData.best_ma            || {{}},
     srPivots:          chartData.sr_pivots          || null,
+    pnf:               chartData.pnf                || null,
     eventsEnabled:     !!(eventsEnabled  && eventsEnabled.length),
     regimeEnabled:     !!(regimeEnabled  && regimeEnabled.length),
     ddEnabled:         !!(ddEnabled      && ddEnabled.length),
@@ -1327,3 +1384,35 @@ def _colored_dist(label: str):
         return ""
     color = "#4ade80" if label.startswith("+") else "#f87171"
     return html.Span(label, style={"color": color, "fontSize": "0.68rem"})
+
+
+# ─── P&F clásico (Plotly): alterna visibilidad con el gráfico lightweight ────
+
+_LWC_STYLE = {"backgroundColor": "#1e1e1e", "padding": "8px", "borderRadius": "4px"}
+
+
+@callback(
+    Output("pnf-graph", "figure"),
+    Output("pnf-graph", "style"),
+    Output("lwc-container", "style"),
+    Input("chart-type", "value"),
+    Input("analysis-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def toggle_pnf_classic(chart_type, asset_id):
+    if chart_type != "pnf_classic":
+        return no_update, {"display": "none"}, _LWC_STYLE
+    if not asset_id:
+        return no_update, {"display": "none"}, _LWC_STYLE
+
+    from app.services import pnf_service
+    df = get_prices_df(int(asset_id))
+    if df.empty:
+        return no_update, {"display": "none"}, _LWC_STYLE
+
+    fig = pnf_service.build_pnf_figure(df)
+    return (
+        fig,
+        {"display": "block", "height": "calc(100vh - 230px)"},
+        {**_LWC_STYLE, "display": "none"},
+    )

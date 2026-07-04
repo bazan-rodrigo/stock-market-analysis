@@ -84,8 +84,10 @@ def layout(**kwargs):
             dbc.Col(
                 html.Div(dbc.RadioItems(
                     id="chart-type",
-                    options=[{"label": "Velas", "value": "candlestick"},
-                             {"label": "Línea", "value": "line"}],
+                    options=[{"label": "Velas",   "value": "candlestick"},
+                             {"label": "Línea",   "value": "line"},
+                             {"label": "P&F",     "value": "pnf"},
+                             {"label": "P&F X/O", "value": "pnf_classic"}],
                     value="candlestick",
                     input_class_name="btn-check",
                     label_class_name="btn btn-outline-secondary btn-sm",
@@ -177,6 +179,12 @@ def layout(**kwargs):
                 html.Div(
                     id="lwc-container",
                     style={"backgroundColor": "#1e1e1e", "padding": "8px", "borderRadius": "4px"},
+                ),
+                # P&F clásico (Plotly): visible solo con chart-type = pnf_classic
+                dcc.Graph(
+                    id="pnf-graph",
+                    config={"displayModeBar": False},
+                    style={"display": "none"},
                 ),
             ],
             type="circle",
