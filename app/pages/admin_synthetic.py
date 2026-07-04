@@ -275,6 +275,8 @@ def layout(**kwargs):
                  "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
             ],
             page_size=50,
+            sort_action="native",
+            filter_action="native",
         ),
 
         modal,
