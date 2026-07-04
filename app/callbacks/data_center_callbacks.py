@@ -128,8 +128,11 @@ _STATUS_FN = {
     Output("dc-status-indicators",    "children"),
     Output("dc-status-synth",         "children"),
     Input("dc-status-interval",       "n_intervals"),
+    # Refrescar también cuando una operación arranca (baseline) o termina
+    # (números finales). _poll solo escribe 'disabled' en la transición.
+    *[Input(f"dc-interval-{_op_id}", "disabled") for _op_id in _OPS],
 )
-def refresh_status(_):
+def refresh_status(*_):
     try:
         _ScopedSession.remove()
     except Exception:
@@ -365,8 +368,10 @@ def _register(op_id):
             bar_style,
             msg_children,
             msg_style,
-            done,
-            not done,
+            # Escribir 'disabled' solo al terminar: cada escritura dispara
+            # refresh_status, y durante la corrida no queremos recontar.
+            True if done else no_update,
+            False if done else no_update,
         )
 
 

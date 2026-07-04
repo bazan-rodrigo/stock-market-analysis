@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 _STALE_DAYS      = 90
 _UPDATE_WORKERS  = 4
 _BACKFILL_WORKERS = 4
+# Activos por query al leer fechas existentes durante un backfill delta
+_EXISTING_CHUNK  = 100
 
 _FUND_DAILY_CODES = frozenset({
     "fundamental_pe_ttm",
@@ -81,6 +83,14 @@ def _price_1y_ago(asset_id: int, s) -> float | None:
     return row[0] if row else None
 
 
+def _ref_1y_ord(d: _date_type) -> int:
+    """Ordinal de la fecha equivalente un año atrás (29/2 sin equivalente → día 28)."""
+    try:
+        return _date_type(d.year - 1, d.month, d.day).toordinal()
+    except ValueError:
+        return _date_type(d.year - 1, d.month, 28).toordinal()
+
+
 def _upsert_quarterly(asset_id: int, quarters: list[dict], s) -> None:
     for q in quarters:
         existing = (s.query(FundamentalQuarterly)
@@ -109,90 +119,51 @@ def _write_fundamental_values(asset_id: int, snap_date: _date_type, values: dict
             _upsert_fund_value(code, asset_id, snap_date, val, s)
 
 
-def _compute_snapshot(asset_id: int, s) -> None:
-    rows = (s.query(FundamentalQuarterly)
-              .filter_by(asset_id=asset_id)
-              .order_by(FundamentalQuarterly.period_date.desc())
-              .limit(8)
-              .all())
-    if not rows:
+_UNSET = object()
+
+
+def _compute_snapshot(asset_id: int, s, *, quarters=None,
+                      latest_price=_UNSET, price_1y=_UNSET) -> None:
+    """Escribe los ratios vigentes del activo en ind_* con fecha de hoy.
+
+    Reutiliza las fórmulas del backfill (_compute_quarterly_ratios /
+    _compute_daily_ratios) para que el snapshot y la historia nunca diverjan.
+    quarters / latest_price / price_1y permiten inyectar datos precargados en
+    corridas masivas (recompute_all_snapshots)."""
+    if quarters is None:
+        quarters = (s.query(FundamentalQuarterly)
+                      .filter_by(asset_id=asset_id)
+                      .order_by(FundamentalQuarterly.period_date.asc())
+                      .all())
+    if not quarters:
         return
 
-    latest = rows[0]
-    price  = _latest_price(asset_id, s)
+    idx    = len(quarters) - 1
+    values = dict(_compute_quarterly_ratios(quarters, idx))
 
-    def _safe_div(a, b):
-        return round(a / b, 4) if a and b and b != 0 else None
+    price = latest_price if latest_price is not _UNSET else _latest_price(asset_id, s)
+    if price:
+        ref_ord = _ref_1y_ord(_date_type.today())
+        px_1y   = price_1y if price_1y is not _UNSET else _price_1y_ago(asset_id, s)
+        if px_1y:
+            p_ords, p_closes = np.array([ref_ord]), np.array([float(px_1y)])
+        else:
+            p_ords, p_closes = np.array([], dtype=np.int64), np.array([])
+        q_ords = np.array([q.period_date.toordinal() for q in quarters])
+        values.update(_compute_daily_ratios(
+            float(price), quarters, q_ords, idx, p_ords, p_closes, ref_ord,
+        ))
 
-    rev = latest.revenue
-    net_margin   = _safe_div(latest.net_income,       rev)
-    gross_margin = _safe_div(latest.gross_profit,     rev)
-    op_margin    = _safe_div(latest.operating_income, rev)
-    d_e          = _safe_div(latest.total_debt,       latest.equity)
-
-    ttm4 = rows[:4]
-    ttm_eps = sum(r.net_income for r in ttm4 if r.net_income is not None)
-    ttm_rev = sum(r.revenue    for r in ttm4 if r.revenue    is not None)
-    shares  = next((r.shares for r in ttm4 if r.shares), None)
-
-    ttm_eps_ps = _safe_div(ttm_eps, shares) if shares else None
-    ttm_rev_ps = _safe_div(ttm_rev, shares) if shares else None
-    book_ps    = _safe_div(latest.equity, shares) if shares else None
-
-    pe_ttm = _safe_div(price, ttm_eps_ps) if price and ttm_eps_ps and ttm_eps_ps > 0 else None
-    pb     = _safe_div(price, book_ps)    if price and book_ps    and book_ps    > 0 else None
-    ps_ttm = _safe_div(price, ttm_rev_ps) if price and ttm_rev_ps and ttm_rev_ps > 0 else None
-
-    rev_growth = eps_growth = pe_growth = None
-    if len(rows) >= 5:
-        q0, q4 = rows[0], rows[4]
-        if q0.revenue and q4.revenue and q4.revenue != 0:
-            rev_growth = round((q0.revenue - q4.revenue) / abs(q4.revenue), 4)
-        ni0 = q0.net_income
-        ni4 = q4.net_income
-        if ni0 is not None and ni4 and ni4 != 0:
-            eps_growth = round((ni0 - ni4) / abs(ni4), 4)
-
-    ttm_net_income = sum(r.net_income for r in ttm4 if r.net_income is not None)
-    ttm_nopat      = sum(r.nopat for r in ttm4 if r.nopat is not None) or None
-    ic_avg         = next((r.invested_capital_avg for r in ttm4 if r.invested_capital_avg), None)
-    if ttm_nopat and ic_avg and ic_avg != 0:
-        roic = round(ttm_nopat / ic_avg, 4)
-    else:
-        invested_capital = (latest.equity or 0) + (latest.total_debt or 0)
-        roic = round(ttm_net_income / invested_capital, 4) if invested_capital and invested_capital != 0 else None
-
-    if len(rows) >= 8 and pe_ttm is not None:
-        ttm4_prev       = rows[4:8]
-        shares_prev     = next((r.shares for r in ttm4_prev if r.shares), None)
-        ttm_eps_prev    = sum(r.net_income for r in ttm4_prev if r.net_income is not None)
-        ttm_eps_ps_prev = _safe_div(ttm_eps_prev, shares_prev) if shares_prev else None
-        price_prev      = _price_1y_ago(asset_id, s)
-        pe_prev = _safe_div(price_prev, ttm_eps_ps_prev) if (
-            price_prev and ttm_eps_ps_prev and ttm_eps_ps_prev > 0
-        ) else None
-        if pe_prev and pe_prev != 0:
-            pe_growth = round((pe_ttm - pe_prev) / abs(pe_prev), 4)
-
-    snap_date = _date_type.today()
-    _write_fundamental_values(asset_id, snap_date, {
-        "fundamental_pe_ttm":             pe_ttm,
-        "fundamental_pb":                 pb,
-        "fundamental_ps_ttm":             ps_ttm,
-        "fundamental_net_margin":         net_margin,
-        "fundamental_gross_margin":       gross_margin,
-        "fundamental_operating_margin":   op_margin,
-        "fundamental_debt_to_equity":     d_e,
-        "fundamental_revenue_growth_yoy": rev_growth,
-        "fundamental_eps_growth_yoy":     eps_growth,
-        "fundamental_pe_growth_yoy":      pe_growth,
-        "fundamental_roic":               roic,
-    }, s)
+    _write_fundamental_values(asset_id, _date_type.today(), values, s)
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
 
-def update_asset_fundamentals(asset_id: int, *, force: bool = False) -> None:
+def update_asset_fundamentals(asset_id: int, *, force: bool = False,
+                              replace: bool = False) -> None:
+    """replace=True borra el historial trimestral existente y lo reemplaza por la
+    descarga nueva, dentro de la misma transacción: si la descarga falla, el
+    historial previo se conserva."""
     from app.sources.fundamental.registry import get_fundamental_source
     from app.services.technical_service import _save_indicator_log
 
@@ -210,6 +181,10 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False) -> None:
         quarters = source.fetch_quarterly(asset.ticker)
         if not quarters:
             raise ValueError(f"No se obtuvieron datos trimestrales para {asset.ticker}")
+        if replace:
+            s.query(FundamentalQuarterly).filter(
+                FundamentalQuarterly.asset_id == asset_id
+            ).delete(synchronize_session=False)
         _upsert_quarterly(asset_id, quarters, s)
         s.flush()
         _save_log(asset_id, success=True, error=None, s=s)
@@ -245,24 +220,51 @@ def recompute_snapshot_for_asset(asset_id: int) -> None:
 
 
 def recompute_all_snapshots(progress_cb=None) -> dict:
+    """Recomputa los ratios vigentes de todos los activos con fundamentales.
+
+    Los quarters y los precios (último y de hace 1 año) se cargan en 3 queries
+    para todos los activos, en lugar de 3-4 queries por activo."""
+    from datetime import timedelta as _td
+    from sqlalchemy import and_ as _and, func as _func
+
     s = get_session()
-    asset_ids = [
-        r[0] for r in
-        s.query(FundamentalQuarterly.asset_id)
-         .join(Asset, FundamentalQuarterly.asset_id == Asset.id)
-         .distinct()
-         .all()
-    ]
+    quarters_cache = _load_all_quarters(s)
+    asset_ids = sorted(quarters_cache.keys())
     total   = len(asset_ids)
     summary = {"total": total, "success": 0, "errors": []}
+    if not asset_ids:
+        return summary
+
+    def _prices_asof(max_date=None) -> dict:
+        """{asset_id: último close} opcionalmente acotado a fechas <= max_date."""
+        q = (s.query(Price.asset_id, _func.max(Price.date).label("md"))
+              .filter(Price.close.isnot(None)))
+        if max_date is not None:
+            q = q.filter(Price.date <= max_date)
+        subq = q.group_by(Price.asset_id).subquery()
+        rows = (s.query(Price.asset_id, Price.close)
+                 .join(subq, _and(Price.asset_id == subq.c.asset_id,
+                                  Price.date == subq.c.md))
+                 .all())
+        return dict(rows)
+
+    latest_prices = _prices_asof()
+    prices_1y     = _prices_asof(_date_type.today() - _td(days=365))
+
     if progress_cb:
         progress_cb(0, total)
     for i, asset_id in enumerate(asset_ids, 1):
         try:
-            recompute_snapshot_for_asset(asset_id)
+            _compute_snapshot(
+                asset_id, s,
+                quarters=quarters_cache[asset_id],
+                latest_price=latest_prices.get(asset_id),
+                price_1y=prices_1y.get(asset_id),
+            )
+            s.commit()
             summary["success"] += 1
         except Exception as exc:
-            get_session().rollback()
+            s.rollback()
             logger.error("Error recompute fundamental asset_id=%d: %s", asset_id, exc, exc_info=True)
             summary["errors"].append({"asset_id": asset_id, "error": str(exc)})
         if progress_cb:
@@ -270,24 +272,43 @@ def recompute_all_snapshots(progress_cb=None) -> dict:
     return summary
 
 
-def clear_fundamentals(asset_id: int) -> None:
-    """Borra todo el historial trimestral de un activo."""
-    s = get_session()
-    s.query(FundamentalQuarterly).filter(FundamentalQuarterly.asset_id == asset_id).delete()
-    s.commit()
-    logger.info("Historia fundamental borrada para activo id=%d", asset_id)
-
-
 def _fund_worker(asset_id: int, ticker: str, *, clear: bool = False) -> tuple[bool, dict | None]:
     try:
-        if clear:
-            clear_fundamentals(asset_id)
-        update_asset_fundamentals(asset_id, force=clear)
+        update_asset_fundamentals(asset_id, force=clear, replace=clear)
         return True, None
     except Exception as exc:
         return False, {"ticker": ticker, "error": str(exc)}
     finally:
         _ScopedSession.remove()
+
+
+def _run_fund_batch(pairs: list[tuple[int, str]], *, clear: bool = False,
+                    progress_cb=None, presuccess: int = 0,
+                    total: int | None = None) -> dict:
+    """Ejecuta _fund_worker en paralelo para una lista de (asset_id, ticker).
+
+    presuccess/total permiten contar como éxito activos que no necesitaron
+    procesarse (p. ej. fundamentales aún vigentes)."""
+    total_n = total if total is not None else len(pairs)
+    summary = {"total": total_n, "success": presuccess, "errors": []}
+    if not pairs:
+        return summary
+    done_count = 0
+    lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
+        futures = {pool.submit(_fund_worker, aid, ticker, clear=clear): ticker
+                   for aid, ticker in pairs}
+        for future in as_completed(futures):
+            ok, err = future.result()
+            with lock:
+                done_count += 1
+                if progress_cb:
+                    progress_cb(done_count, len(pairs))
+            if ok:
+                summary["success"] += 1
+            elif err:
+                summary["errors"].append(err)
+    return summary
 
 
 def update_new_fundamentals(progress_cb=None) -> dict:
@@ -297,47 +318,30 @@ def update_new_fundamentals(progress_cb=None) -> dict:
         Asset.fundamental_source_id.isnot(None),
         ~Asset.id.in_(logged_ids) if logged_ids else True,
     ).all()
-    pairs  = [(a.id, a.ticker) for a in assets]
-    total  = len(pairs)
-    summary = {"total": total, "success": 0, "errors": []}
-    done_count = 0
-    lock = threading.Lock()
-    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
-        futures = {pool.submit(_fund_worker, aid, ticker): ticker for aid, ticker in pairs}
-        for future in as_completed(futures):
-            ok, err = future.result()
-            with lock:
-                done_count += 1
-                if progress_cb:
-                    progress_cb(done_count, total)
-            if ok:
-                summary["success"] += 1
-            elif err:
-                summary["errors"].append(err)
-    return summary
+    pairs = [(a.id, a.ticker) for a in assets]
+    return _run_fund_batch(pairs, progress_cb=progress_cb)
 
 
 def update_all_fundamentals(progress_cb=None) -> dict:
+    """Actualiza los fundamentales vencidos (> _STALE_DAYS o con error previo).
+
+    La staleness se resuelve con un solo prefetch de logs; los activos aún
+    vigentes cuentan como éxito sin encolarse."""
     s = get_session()
     assets = s.query(Asset).filter(Asset.fundamental_source_id.isnot(None)).all()
-    pairs  = [(a.id, a.ticker) for a in assets]
-    total  = len(pairs)
-    summary = {"total": total, "success": 0, "errors": []}
-    done_count = 0
-    lock = threading.Lock()
-    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
-        futures = {pool.submit(_fund_worker, aid, ticker): ticker for aid, ticker in pairs}
-        for future in as_completed(futures):
-            ok, err = future.result()
-            with lock:
-                done_count += 1
-                if progress_cb:
-                    progress_cb(done_count, total)
-            if ok:
-                summary["success"] += 1
-            elif err:
-                summary["errors"].append(err)
-    return summary
+    logs   = {l.asset_id: l for l in s.query(FundamentalUpdateLog).all()}
+
+    def _stale(asset_id: int) -> bool:
+        log = logs.get(asset_id)
+        if log is None or not log.success:
+            return True
+        return datetime.utcnow() - log.last_attempt_at > timedelta(days=_STALE_DAYS)
+
+    pairs       = [(a.id, a.ticker) for a in assets]
+    stale_pairs = [(aid, ticker) for aid, ticker in pairs if _stale(aid)]
+    fresh_count = len(pairs) - len(stale_pairs)
+    return _run_fund_batch(stale_pairs, progress_cb=progress_cb,
+                           presuccess=fresh_count, total=len(pairs))
 
 
 def redownload_all_fundamentals(progress_cb=None) -> dict:
@@ -346,23 +350,7 @@ def redownload_all_fundamentals(progress_cb=None) -> dict:
     s = get_session()
     assets = s.query(Asset).filter(Asset.fundamental_source_id.isnot(None)).all()
     pairs  = [(a.id, a.ticker) for a in assets]
-    total  = len(pairs)
-    summary = {"total": total, "success": 0, "errors": []}
-    done_count = 0
-    lock = threading.Lock()
-    with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
-        futures = {pool.submit(_fund_worker, aid, ticker, clear=True): ticker for aid, ticker in pairs}
-        for future in as_completed(futures):
-            ok, err = future.result()
-            with lock:
-                done_count += 1
-                if progress_cb:
-                    progress_cb(done_count, total)
-            if ok:
-                summary["success"] += 1
-            elif err:
-                summary["errors"].append(err)
-    return summary
+    return _run_fund_batch(pairs, clear=True, progress_cb=progress_cb)
 
 
 def get_fundamentals_log() -> list[dict]:
@@ -480,14 +468,6 @@ def get_asset_fundamentals(asset_id: int) -> dict:
     }
 
 
-def get_assets_with_fundamentals() -> list[Asset]:
-    s = get_session()
-    return (s.query(Asset)
-              .filter(Asset.fundamental_source_id.isnot(None))
-              .order_by(Asset.ticker)
-              .all())
-
-
 # ── Backfill histórico de indicadores fundamentales ───────────────────────────
 
 def _safe_div_r(a, b, decimals=4) -> float | None:
@@ -499,7 +479,8 @@ def _safe_div_r(a, b, decimals=4) -> float | None:
 def _compute_quarterly_ratios(quarters: list, idx: int) -> dict:
     q      = quarters[idx]
     ttm4   = quarters[max(0, idx - 3): idx + 1]
-    shares = next((r.shares for r in ttm4 if r.shares), None)
+    # reversed: usar el dato más reciente disponible dentro de la ventana TTM
+    shares = next((r.shares for r in reversed(ttm4) if r.shares), None)
 
     rev      = q.revenue
     net_m    = _safe_div_r(q.net_income,       rev)
@@ -520,7 +501,8 @@ def _compute_quarterly_ratios(quarters: list, idx: int) -> dict:
         )
 
     ttm_nopat = sum(r.nopat for r in ttm4 if r.nopat is not None) or None
-    ic_avg    = next((r.invested_capital_avg for r in ttm4 if r.invested_capital_avg), None)
+    ic_avg    = next((r.invested_capital_avg for r in reversed(ttm4)
+                      if r.invested_capital_avg), None)
     ttm_ni    = sum(r.net_income for r in ttm4 if r.net_income is not None)
     if ttm_nopat and ic_avg and ic_avg != 0:
         roic = round(ttm_nopat / ic_avg, 4)
@@ -546,12 +528,11 @@ def _compute_daily_ratios(
     last_q_idx: int,
     price_dates_ord: np.ndarray,
     price_closes: np.ndarray,
-    price_day_ord: int,
     ref_1y_ord: int,
 ) -> dict:
     ttm4   = quarters[max(0, last_q_idx - 3): last_q_idx + 1]
     latest = quarters[last_q_idx]
-    shares = next((q.shares for q in ttm4 if q.shares), None)
+    shares = next((q.shares for q in reversed(ttm4) if q.shares), None)
 
     ttm_eps = sum(q.net_income for q in ttm4 if q.net_income is not None)
     ttm_rev = sum(q.revenue    for q in ttm4 if q.revenue    is not None)
@@ -568,7 +549,7 @@ def _compute_daily_ratios(
     last_q_1y = int(np.searchsorted(q_ords, ref_1y_ord, side="right")) - 1
     if last_q_1y >= 0:
         ttm4_prev = quarters[max(0, last_q_1y - 3): last_q_1y + 1]
-        sh_prev   = next((q.shares for q in ttm4_prev if q.shares), None)
+        sh_prev   = next((q.shares for q in reversed(ttm4_prev) if q.shares), None)
         eps_prev  = sum(q.net_income for q in ttm4_prev if q.net_income is not None)
         eps_ps_pv = _safe_div_r(eps_prev, sh_prev)
         p_1y_idx  = int(np.searchsorted(price_dates_ord, ref_1y_ord, side="right")) - 1
@@ -583,103 +564,6 @@ def _compute_daily_ratios(
         "fundamental_ps_ttm":        ps,
         "fundamental_pe_growth_yoy": pe_growth,
     }
-
-
-def backfill_fundamental_values(asset_id: int, session=None, *, force: bool = False) -> dict:
-    """
-    Backfill de ind_* para indicadores fundamentales.
-    force=False: solo procesa fechas/quarters sin dato existente.
-    force=True : borra todos los indicadores fundamentales del activo y recalcula todo.
-    """
-    import sqlalchemy as sa
-    s = session or get_session()
-
-    quarters = (s.query(FundamentalQuarterly)
-                  .filter_by(asset_id=asset_id)
-                  .order_by(FundamentalQuarterly.period_date.asc())
-                  .all())
-    if not quarters:
-        return {"inserted": 0, "dates_processed": 0}
-
-    price_rows = (s.query(Price.date, Price.close)
-                   .filter(Price.asset_id == asset_id, Price.close.isnot(None))
-                   .order_by(Price.date.asc())
-                   .all())
-
-    if force:
-        for code in _ALL_FUND_CODES:
-            try:
-                t = get_ind_table(code)
-                s.execute(t.delete().where(t.c.asset_id == asset_id))
-            except Exception:
-                pass
-        missing_q_dates = {q.period_date for q in quarters}
-        missing_d_dates = {r[0] for r in price_rows}
-    else:
-        # Descubrir fechas ya existentes por código (basta con uno representativo)
-        def _existing_dates_for(code: str) -> set:
-            try:
-                t = get_ind_table(code)
-                return {r[0] for r in s.execute(
-                    sa.select(t.c.date).where(t.c.asset_id == asset_id)
-                ).fetchall()}
-            except Exception:
-                return set()
-
-        ref_q_code = next(iter(_FUND_QUARTERLY_CODES))
-        ref_d_code = next(iter(_FUND_DAILY_CODES))
-        existing_q = _existing_dates_for(ref_q_code)
-        existing_d = _existing_dates_for(ref_d_code)
-        missing_q_dates = {q.period_date for q in quarters} - existing_q
-        missing_d_dates = {r[0] for r in price_rows}        - existing_d
-
-    if not missing_q_dates and not missing_d_dates:
-        return {"inserted": 0, "dates_processed": 0}
-
-    q_ords          = np.array([q.period_date.toordinal() for q in quarters])
-    price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
-    price_closes    = np.array([float(r[1]) for r in price_rows])
-
-    inserted  = 0
-    processed = 0
-
-    # ── 1. Indicadores trimestrales ──────────────────────────────────────────
-    for idx, q in enumerate(quarters):
-        if q.period_date not in missing_q_dates:
-            continue
-        ratios = _compute_quarterly_ratios(quarters, idx)
-        for code, val in ratios.items():
-            if val is not None:
-                _upsert_fund_value(code, asset_id, q.period_date, val, s)
-                inserted += 1
-        processed += 1
-
-    # ── 2. Indicadores diarios ───────────────────────────────────────────────
-    for price_date, price_close in price_rows:
-        if price_date not in missing_d_dates:
-            continue
-        d_ord       = price_date.toordinal()
-        last_q_idx  = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
-        if last_q_idx < 0:
-            continue
-
-        try:
-            ref_1y_ord = _date_type(price_date.year - 1, price_date.month, price_date.day).toordinal()
-        except ValueError:
-            ref_1y_ord = _date_type(price_date.year - 1, price_date.month, 28).toordinal()
-
-        ratios = _compute_daily_ratios(
-            float(price_close), quarters, q_ords, last_q_idx,
-            price_dates_ord, price_closes, d_ord, ref_1y_ord,
-        )
-        for code, val in ratios.items():
-            if val is not None:
-                _upsert_fund_value(code, asset_id, price_date, val, s)
-                inserted += 1
-        processed += 1
-
-    s.commit()
-    return {"inserted": inserted, "dates_processed": processed}
 
 
 # ── Backfill por indicador (1 thread por código) ──────────────────────────────
@@ -753,101 +637,99 @@ def _backfill_fund_indicator(
     is_daily = code in _FUND_DAILY_CODES
     inserted = 0
 
-    for asset_id in asset_ids:
-        quarters = quarters_cache.get(asset_id) if quarters_cache else [
-            _Quarter(**{f: getattr(q, f) for f in _Quarter._fields})
-            for q in s.query(FundamentalQuarterly)
-                      .filter_by(asset_id=asset_id)
-                      .order_by(FundamentalQuarterly.period_date.asc())
-                      .all()
-        ]
-        if not quarters:
-            if asset_tick:
-                asset_tick()
-            continue
+    for c0 in range(0, len(asset_ids), _EXISTING_CHUNK):
+        chunk = asset_ids[c0:c0 + _EXISTING_CHUNK]
 
-        q_ords = np.array([q.period_date.toordinal() for q in quarters])
+        # Fechas existentes del chunk en una sola query (evita 1 por activo)
+        existing_by_asset: dict[int, set] = {}
+        if not force:
+            for aid, d in s.execute(
+                sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
+            ).fetchall():
+                existing_by_asset.setdefault(aid, set()).add(d)
 
-        if is_daily:
-            price_rows = price_cache.get(asset_id) if price_cache else [
-                (r[0], r[1]) for r in
-                s.query(Price.date, Price.close)
-                 .filter(Price.asset_id == asset_id, Price.close.isnot(None))
-                 .order_by(Price.date.asc())
-                 .all()
+        for asset_id in chunk:
+            quarters = quarters_cache.get(asset_id) if quarters_cache else [
+                _Quarter(**{f: getattr(q, f) for f in _Quarter._fields})
+                for q in s.query(FundamentalQuarterly)
+                          .filter_by(asset_id=asset_id)
+                          .order_by(FundamentalQuarterly.period_date.asc())
+                          .all()
             ]
-            if not price_rows:
+            if not quarters:
                 if asset_tick:
                     asset_tick()
                 continue
 
-            price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
-            price_closes    = np.array([float(r[1]) for r in price_rows])
+            q_ords   = np.array([q.period_date.toordinal() for q in quarters])
+            existing = existing_by_asset.get(asset_id, set())
 
-            if force:
-                s.execute(t.delete().where(t.c.asset_id == asset_id))
-                target = set(r[0] for r in price_rows)
+            if is_daily:
+                price_rows = price_cache.get(asset_id) if price_cache else [
+                    (r[0], r[1]) for r in
+                    s.query(Price.date, Price.close)
+                     .filter(Price.asset_id == asset_id, Price.close.isnot(None))
+                     .order_by(Price.date.asc())
+                     .all()
+                ]
+                if not price_rows:
+                    if asset_tick:
+                        asset_tick()
+                    continue
+
+                price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
+                price_closes    = np.array([float(r[1]) for r in price_rows])
+
+                if force:
+                    s.execute(t.delete().where(t.c.asset_id == asset_id))
+                    target = set(r[0] for r in price_rows)
+                else:
+                    target = {r[0] for r in price_rows} - existing
+
+                batch = []
+                for price_date, price_close in price_rows:
+                    if price_date not in target:
+                        continue
+                    d_ord      = price_date.toordinal()
+                    last_q_idx = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
+                    if last_q_idx < 0:
+                        continue
+                    ratios = _compute_daily_ratios(
+                        float(price_close), quarters, q_ords, last_q_idx,
+                        price_dates_ord, price_closes, _ref_1y_ord(price_date),
+                    )
+                    val = ratios.get(code)
+                    if val is not None:
+                        batch.append({"asset_id": asset_id, "date": price_date,
+                                      "value": float(val)})
+                if batch:
+                    stmt = _mysql_insert(t).values(batch)
+                    s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                    inserted += len(batch)
             else:
-                existing = {r[0] for r in s.execute(
-                    sa.select(t.c.date).where(t.c.asset_id == asset_id)
-                ).fetchall()}
-                target = {r[0] for r in price_rows} - existing
+                if force:
+                    s.execute(t.delete().where(t.c.asset_id == asset_id))
+                    target = {q.period_date for q in quarters}
+                else:
+                    target = {q.period_date for q in quarters} - existing
 
-            batch = []
-            for price_date, price_close in price_rows:
-                if price_date not in target:
-                    continue
-                d_ord      = price_date.toordinal()
-                last_q_idx = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
-                if last_q_idx < 0:
-                    continue
-                try:
-                    ref_1y_ord = _date_type(
-                        price_date.year - 1, price_date.month, price_date.day
-                    ).toordinal()
-                except ValueError:
-                    ref_1y_ord = _date_type(
-                        price_date.year - 1, price_date.month, 28
-                    ).toordinal()
-                ratios = _compute_daily_ratios(
-                    float(price_close), quarters, q_ords, last_q_idx,
-                    price_dates_ord, price_closes, d_ord, ref_1y_ord,
-                )
-                val = ratios.get(code)
-                if val is not None:
-                    batch.append({"asset_id": asset_id, "date": price_date,
-                                  "value": float(val)})
-            if batch:
-                stmt = _mysql_insert(t).values(batch)
-                s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
-                inserted += len(batch)
-        else:
-            if force:
-                s.execute(t.delete().where(t.c.asset_id == asset_id))
-                target = {q.period_date for q in quarters}
-            else:
-                existing = {r[0] for r in s.execute(
-                    sa.select(t.c.date).where(t.c.asset_id == asset_id)
-                ).fetchall()}
-                target = {q.period_date for q in quarters} - existing
+                batch = []
+                for idx, q in enumerate(quarters):
+                    if q.period_date not in target:
+                        continue
+                    ratios = _compute_quarterly_ratios(quarters, idx)
+                    val = ratios.get(code)
+                    if val is not None:
+                        batch.append({"asset_id": asset_id, "date": q.period_date,
+                                      "value": float(val)})
+                if batch:
+                    stmt = _mysql_insert(t).values(batch)
+                    s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                    inserted += len(batch)
 
-            batch = []
-            for idx, q in enumerate(quarters):
-                if q.period_date not in target:
-                    continue
-                ratios = _compute_quarterly_ratios(quarters, idx)
-                val = ratios.get(code)
-                if val is not None:
-                    batch.append({"asset_id": asset_id, "date": q.period_date,
-                                  "value": float(val)})
-            if batch:
-                stmt = _mysql_insert(t).values(batch)
-                s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
-                inserted += len(batch)
-
-        s.commit()
-        if asset_tick:
-            asset_tick()
+            s.commit()
+            if asset_tick:
+                asset_tick()
 
     return {"inserted": inserted, "code": code}
 
@@ -883,76 +765,79 @@ def _backfill_fund_daily_all(
     tables = {code: get_ind_table(code) for code in daily_codes}
     inserted = 0
 
-    for asset_id in asset_ids:
-        quarters = quarters_cache.get(asset_id, [])
-        if not quarters:
+    for c0 in range(0, len(asset_ids), _EXISTING_CHUNK):
+        chunk = asset_ids[c0:c0 + _EXISTING_CHUNK]
+
+        # Fechas existentes por código para todo el chunk (evita 4 queries por activo)
+        existing_by_code: dict[str, dict[int, set]] = {c: {} for c in daily_codes}
+        if not force:
+            for code, t in tables.items():
+                for aid, d in s.execute(
+                    sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
+                ).fetchall():
+                    existing_by_code[code].setdefault(aid, set()).add(d)
+
+        for asset_id in chunk:
+            quarters = quarters_cache.get(asset_id, [])
+            if not quarters:
+                for code in daily_codes:
+                    tick_fns[code]()
+                continue
+
+            q_ords     = np.array([q.period_date.toordinal() for q in quarters])
+            price_rows = price_cache.get(asset_id, [])
+            if not price_rows:
+                for code in daily_codes:
+                    tick_fns[code]()
+                continue
+
+            price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
+            price_closes    = np.array([float(r[1]) for r in price_rows])
+
+            if force:
+                for code, t in tables.items():
+                    s.execute(t.delete().where(t.c.asset_id == asset_id))
+                all_dates = {r[0] for r in price_rows}
+                targets   = {code: all_dates for code in daily_codes}
+            else:
+                targets = {
+                    code: {r[0] for r in price_rows}
+                          - existing_by_code[code].get(asset_id, set())
+                    for code in daily_codes
+                }
+
+            combined_target = set().union(*targets.values())
+            batches = {code: [] for code in daily_codes}
+
+            for price_date, price_close in price_rows:
+                if price_date not in combined_target:
+                    continue
+                d_ord      = price_date.toordinal()
+                last_q_idx = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
+                if last_q_idx < 0:
+                    continue
+                ratios = _compute_daily_ratios(
+                    float(price_close), quarters, q_ords, last_q_idx,
+                    price_dates_ord, price_closes, _ref_1y_ord(price_date),
+                )
+                for code in daily_codes:
+                    if price_date in targets[code]:
+                        val = ratios.get(code)
+                        if val is not None:
+                            batches[code].append({"asset_id": asset_id,
+                                                  "date": price_date,
+                                                  "value": float(val)})
+
+            for code, batch in batches.items():
+                if batch:
+                    t    = tables[code]
+                    stmt = _mysql_insert(t).values(batch)
+                    s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                    inserted += len(batch)
+
+            s.commit()
             for code in daily_codes:
                 tick_fns[code]()
-            continue
-
-        q_ords     = np.array([q.period_date.toordinal() for q in quarters])
-        price_rows = price_cache.get(asset_id, [])
-        if not price_rows:
-            for code in daily_codes:
-                tick_fns[code]()
-            continue
-
-        price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
-        price_closes    = np.array([float(r[1]) for r in price_rows])
-
-        if force:
-            for code, t in tables.items():
-                s.execute(t.delete().where(t.c.asset_id == asset_id))
-            all_dates = {r[0] for r in price_rows}
-            targets   = {code: all_dates for code in daily_codes}
-        else:
-            targets = {}
-            for code, t in tables.items():
-                existing = {r[0] for r in s.execute(
-                    sa.select(t.c.date).where(t.c.asset_id == asset_id)
-                ).fetchall()}
-                targets[code] = {r[0] for r in price_rows} - existing
-
-        combined_target = set().union(*targets.values())
-        batches = {code: [] for code in daily_codes}
-
-        for price_date, price_close in price_rows:
-            if price_date not in combined_target:
-                continue
-            d_ord      = price_date.toordinal()
-            last_q_idx = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
-            if last_q_idx < 0:
-                continue
-            try:
-                ref_1y_ord = _date_type(
-                    price_date.year - 1, price_date.month, price_date.day
-                ).toordinal()
-            except ValueError:
-                ref_1y_ord = _date_type(
-                    price_date.year - 1, price_date.month, 28
-                ).toordinal()
-            ratios = _compute_daily_ratios(
-                float(price_close), quarters, q_ords, last_q_idx,
-                price_dates_ord, price_closes, d_ord, ref_1y_ord,
-            )
-            for code in daily_codes:
-                if price_date in targets[code]:
-                    val = ratios.get(code)
-                    if val is not None:
-                        batches[code].append({"asset_id": asset_id,
-                                              "date": price_date,
-                                              "value": float(val)})
-
-        for code, batch in batches.items():
-            if batch:
-                t    = tables[code]
-                stmt = _mysql_insert(t).values(batch)
-                s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
-                inserted += len(batch)
-
-        s.commit()
-        for code in daily_codes:
-            tick_fns[code]()
 
     return {"inserted": inserted, "codes": daily_codes}
 

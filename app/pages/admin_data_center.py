@@ -162,7 +162,10 @@ def layout(**kwargs):
             ),
         ]),
 
-        dcc.Interval(id="dc-status-interval", interval=30_000, n_intervals=0),
+        # max_intervals=0: el status se consulta una vez al abrir la pantalla
+        # (y al iniciar/terminar operaciones, vía dc-interval-*), no por reloj.
+        dcc.Interval(id="dc-status-interval", interval=30_000, n_intervals=0,
+                     max_intervals=0),
     ], style={"padding": "0 8px"})
 
 

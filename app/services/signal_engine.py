@@ -98,6 +98,7 @@ def evaluate(
     params_json: str,
     value,
     scores_by_key: dict[str, float | None] | None = None,
+    params: dict | None = None,
 ) -> float | None:
     """
     Punto de entrada unificado.
@@ -108,14 +109,17 @@ def evaluate(
         value:          valor del indicador (str para discrete_map, float para el resto,
                         ignorado en composite)
         scores_by_key:  dict {signal_key: score} requerido para composite
+        params:         parámetros ya parseados; evita re-parsear params_json en
+                        llamadas repetidas con la misma señal
     Returns:
         score float en [-100, 100] o None si no computable
     """
-    try:
-        params = json.loads(params_json)
-    except (json.JSONDecodeError, TypeError):
-        logger.error("signal_engine: params_json inválido: %r", params_json)
-        return None
+    if params is None:
+        try:
+            params = json.loads(params_json)
+        except (json.JSONDecodeError, TypeError):
+            logger.error("signal_engine: params_json inválido: %r", params_json)
+            return None
 
     if formula_type == "discrete_map":
         return evaluate_discrete_map(params, value)

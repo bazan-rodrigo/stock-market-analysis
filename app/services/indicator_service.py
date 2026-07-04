@@ -45,6 +45,21 @@ def _avg(lst: list) -> float | None:
     return round(sum(lst) / len(lst), 2)
 
 
+def get_default_snap_date() -> date_type:
+    """Última fecha con precios cargados (fallback: hoy).
+
+    Los indicadores ind_* se escriben con la última fecha de precio de cada
+    activo; usar date.today() dejaría el pipeline sin datos los días sin
+    rueda (fines de semana, feriados)."""
+    from datetime import date as dt_date
+    from sqlalchemy import func
+    from app.models.price import Price
+
+    s = get_session()
+    last = s.query(func.max(Price.date)).scalar()
+    return last or dt_date.today()
+
+
 def compute_group_snapshots(snap_date: date_type) -> None:
     """
     Agrega valores de tendencia por grupos para snap_date.
@@ -126,10 +141,8 @@ def compute_group_snapshots(snap_date: date_type) -> None:
 
 
 def run_daily(snap_date: date_type | None = None) -> int:
-    from datetime import date as dt_date
-
     if snap_date is None:
-        snap_date = dt_date.today()
+        snap_date = get_default_snap_date()
 
     try:
         compute_group_snapshots(snap_date)

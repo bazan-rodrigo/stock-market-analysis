@@ -106,6 +106,7 @@ def _save_update_log(asset_id: int, success: bool, error: str | None, session) -
 def update_asset_prices(
     asset_id: int,
     *,
+    full: bool = False,
     _dd_cfg=None,
     _regime_cfg=None,
     _vol_cfg=None,
@@ -115,6 +116,9 @@ def update_asset_prices(
     Actualiza los precios de un activo.
     Si el activo es sintético (fuente Calculado), delega al synthetic_service.
     Si falla, registra el error en price_update_log y relanza la excepción.
+    full=True fuerza redescarga de la historia completa; el borrado del historial
+    ocurre dentro de la misma transacción, por lo que un fallo de descarga no
+    pierde los datos existentes.
     Los parámetros _*_cfg permiten reutilizar configs pre-cargadas en llamadas masivas.
     """
     from app.services.synthetic_service import compute_synthetic_prices
@@ -126,10 +130,11 @@ def update_asset_prices(
 
     if asset.price_source.name == "Calculado":
         try:
-            compute_synthetic_prices(asset_id, full=False)
+            compute_synthetic_prices(asset_id, full=full)
             _save_update_log(asset_id, success=True, error=None, session=s)
             s.commit()
         except Exception as exc:
+            s.rollback()
             error_msg = str(exc)
             logger.error("Error calculando precios sintéticos de %s: %s", asset.ticker, error_msg)
             _save_update_log(asset_id, success=False, error=error_msg, session=s)
@@ -137,11 +142,12 @@ def update_asset_prices(
         return
 
     source = get_source(asset.price_source.name)
-    last_date = _get_last_price_date(asset_id, s)
+    last_date = None if full else _get_last_price_date(asset_id, s)
 
     try:
         if last_date is None:
-            # Limpiar datos huérfanos antes de insertar historia completa
+            # Limpiar historia previa dentro de la transacción: si la descarga
+            # falla, el rollback la restaura
             s.query(Price).filter(Price.asset_id == asset_id).delete(synchronize_session=False)
             df = source.download_history(asset.ticker)
         else:
@@ -466,19 +472,16 @@ def update_all_active_assets(progress_cb=None) -> dict:
     except Exception as exc:
         logger.warning("Error actualizando fundamentales: %s", exc)
 
+    # Refrescar agregados de tendencia por grupo (mapa de mercado)
+    from app.services.technical_service import _refresh_group_snapshots
+    _refresh_group_snapshots()
+
     return summary
 
 
-def clear_prices(asset_id: int) -> None:
-    """Borra toda la historia de precios de un activo."""
-    s = get_session()
-    s.query(Price).filter(Price.asset_id == asset_id).delete()
-    s.commit()
-    logger.info("Historia de precios borrada para activo id=%d", asset_id)
-
-
 def redownload_prices(asset_ids: list[int] | None = None, progress_cb=None) -> dict:
-    """Borra el historial de precios y lo redescarga completo desde la fuente.
+    """Redescarga el historial de precios completo desde la fuente.
+    El historial existente solo se borra si la descarga nueva tiene datos.
     Si asset_ids es None, aplica a todos los activos activos."""
     from app.services.asset_service import get_assets
 
@@ -494,8 +497,7 @@ def redownload_prices(asset_ids: list[int] | None = None, progress_cb=None) -> d
         if progress_cb:
             progress_cb(i, total, asset.ticker)
         try:
-            clear_prices(asset.id)
-            update_asset_prices(asset.id)
+            update_asset_prices(asset.id, full=True)
             summary["success"] += 1
         except Exception as exc:
             summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
@@ -514,16 +516,6 @@ def get_prices_df(asset_id: int):
     if not rows:
         return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
     return pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume"])
-
-
-def get_update_logs() -> list[PriceUpdateLog]:
-    s = get_session()
-    return (
-        s.query(PriceUpdateLog)
-        .join(Asset)
-        .order_by(Asset.ticker)
-        .all()
-    )
 
 
 def get_all_assets_with_log() -> list[dict]:
