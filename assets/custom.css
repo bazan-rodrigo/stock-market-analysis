@@ -578,3 +578,22 @@ td.dash-datepicker-calendar-date-inside[aria-disabled="true"] {
     color: #d1d5db !important;
     margin: 0 !important;
 }
+
+/* ── Toolbar del gráfico técnico — versión compacta ──────────────────────── */
+.chart-toolbar {
+    gap: 4px !important;
+    row-gap: 4px !important;
+}
+.chart-toolbar .ind-group {
+    padding: 1px 4px;
+}
+.chart-toolbar .btn {
+    padding: 1px 7px !important;
+    font-size: 0.72rem !important;
+    line-height: 1.45 !important;
+}
+.chart-toolbar .form-control {
+    height: 22px !important;
+    font-size: 0.7rem !important;
+    padding: 0 4px !important;
+}

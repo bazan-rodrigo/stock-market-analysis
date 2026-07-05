@@ -22,21 +22,27 @@ def _chk(id_, label, default_on=False, color=None):
 
 
 def _simple_slot(name, slot, color, default_period, dist_label_id=None):
-    children = [
-        _chk(f"chart-ind-{name}-{slot}-enabled", name.upper()),
+    # El input de período (y la etiqueta de distancia) solo se muestran con el
+    # slot activo — mismo patrón colapsable que Bollinger/RSI/MACD
+    inner = [
         dbc.Input(
             id=f"chart-ind-{name}-{slot}-period",
             type="number", value=default_period, min=2, max=500, step=1,
-            style={"width": "56px", "fontSize": "0.7rem", "padding": "1px 4px", "height": "24px"},
+            style={"width": "52px", "fontSize": "0.7rem", "padding": "1px 4px", "height": "22px"},
         ),
     ]
     if dist_label_id:
-        children.append(html.Span(
+        inner.append(html.Span(
             id=dist_label_id,
             style={"fontSize": "0.68rem", "color": "#aaa"},
         ))
-    return html.Div(children, className="d-flex align-items-center gap-1 ind-group",
-                    style={"--ind-color": color})
+    return html.Div([
+        _chk(f"chart-ind-{name}-{slot}-enabled", name.upper()),
+        html.Div(inner, id=f"chart-ind-{name}-{slot}-params",
+                 className="d-flex align-items-center gap-1",
+                 style={"display": "none"}),
+    ], className="d-flex align-items-center gap-1 ind-group",
+       style={"--ind-color": color})
 
 
 def _ind_toggle(label, name, params):
@@ -67,52 +73,39 @@ def layout(**kwargs):
         return html.Div()
 
     chart_tab = dbc.Tab(label="Gráfico Técnico", tab_id="tab-chart", children=[
-        # ── Controles de frecuencia / tipo / escala ──────────────────────
-        dbc.Row([
-            dbc.Col(
-                html.Div(dbc.RadioItems(
-                    id="chart-freq",
-                    options=[{"label": x, "value": x} for x in ["D", "W", "M"]],
-                    value="D",
-                    input_class_name="btn-check",
-                    label_class_name="btn btn-outline-secondary btn-sm",
-                    label_checked_class_name="active",
-                    class_name="btn-group btn-group-sm",
-                ), className="ind-group", style={"padding": "1px 2px"}),
-                width="auto",
-            ),
-            dbc.Col(
-                html.Div(dbc.RadioItems(
-                    id="chart-type",
-                    options=[{"label": "Velas",   "value": "candlestick"},
-                             {"label": "Línea",   "value": "line"},
-                             {"label": "P&F",     "value": "pnf"},
-                             {"label": "P&F X/O", "value": "pnf_classic"}],
-                    value="candlestick",
-                    input_class_name="btn-check",
-                    label_class_name="btn btn-outline-secondary btn-sm",
-                    label_checked_class_name="active",
-                    class_name="btn-group btn-group-sm",
-                ), className="ind-group", style={"padding": "1px 2px"}),
-                width="auto",
-            ),
-            dbc.Col(
-                html.Div(dbc.RadioItems(
-                    id="chart-yscale",
-                    options=[{"label": "Arit", "value": "linear"},
-                             {"label": "Log",  "value": "log"}],
-                    value="linear",
-                    input_class_name="btn-check",
-                    label_class_name="btn btn-outline-secondary btn-sm",
-                    label_checked_class_name="active",
-                    class_name="btn-group btn-group-sm",
-                ), className="ind-group", style={"padding": "1px 2px"}),
-                width="auto",
-            ),
-        ], className="mb-1 mt-2 g-2 align-items-center flex-wrap"),
-
-        # ── Controles de indicadores ─────────────────────────────────────
+        # ── Barra única de controles: freq/tipo/escala + indicadores ─────
         html.Div([
+            html.Div(dbc.RadioItems(
+                id="chart-freq",
+                options=[{"label": x, "value": x} for x in ["D", "W", "M"]],
+                value="D",
+                input_class_name="btn-check",
+                label_class_name="btn btn-outline-secondary btn-sm",
+                label_checked_class_name="active",
+                class_name="btn-group btn-group-sm",
+            ), className="ind-group"),
+            html.Div(dbc.RadioItems(
+                id="chart-type",
+                options=[{"label": "Velas",   "value": "candlestick"},
+                         {"label": "Línea",   "value": "line"},
+                         {"label": "P&F",     "value": "pnf"},
+                         {"label": "P&F X/O", "value": "pnf_classic"}],
+                value="candlestick",
+                input_class_name="btn-check",
+                label_class_name="btn btn-outline-secondary btn-sm",
+                label_checked_class_name="active",
+                class_name="btn-group btn-group-sm",
+            ), className="ind-group"),
+            html.Div(dbc.RadioItems(
+                id="chart-yscale",
+                options=[{"label": "Arit", "value": "linear"},
+                         {"label": "Log",  "value": "log"}],
+                value="linear",
+                input_class_name="btn-check",
+                label_class_name="btn btn-outline-secondary btn-sm",
+                label_checked_class_name="active",
+                class_name="btn-group btn-group-sm",
+            ), className="ind-group"),
             html.Div([_chk("chart-volume-enabled", "Vol", default_on=True)], className="ind-group"),
             _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
             _simple_slot("sma", 2, _SMA_COLORS[1], _SMA_DEF[1], dist_label_id="chart-sma-2-label"),
@@ -150,7 +143,7 @@ def layout(**kwargs):
                 _chk("chart-sr-pivot-enabled", "Soportes / Resistencias"),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem"}),
             ], className="d-flex align-items-center gap-1 ind-group"),
-        ], className="d-flex flex-wrap align-items-center mb-1", style={"gap": "6px"}),
+        ], className="d-flex flex-wrap align-items-center mb-1 mt-2 chart-toolbar"),
 
         # ── Stores ───────────────────────────────────────────────────────
         dcc.Store(id="chart-data"),

@@ -32,7 +32,7 @@ _SLOTS = {
     "atr":        (1, [("period",   [14])]),
     "drawdown":   (1, []),
 }
-_COLLAPSIBLE = {"bollinger", "rsi", "macd", "stochastic", "atr"}  # tienen params div
+_COLLAPSIBLE = {"sma", "ema", "bollinger", "rsi", "macd", "stochastic", "atr"}  # tienen params div
 
 # Genera listas de IDs y args JS en orden canónico
 # Orden: para cada ind, para cada slot: enabled, luego params

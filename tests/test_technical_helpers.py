@@ -170,3 +170,34 @@ def test_zones_to_series_mapea_por_rango():
 def test_zones_to_series_sin_zonas():
     df = _price_df([1, 2])
     assert _zones_to_series([], df, "v") == [None, None]
+
+
+# ── _pairs_to_write: modos de escritura del backfill ─────────────────────────
+
+def test_pairs_reemplazo_total():
+    from app.services.technical_service import _pairs_to_write
+    pairs = _pairs_to_write(["d1", "d2", "d3"], [1.0, float("nan"), 3.0], None)
+    assert pairs == [("d1", 1.0), ("d3", 3.0)]        # NaN nunca se escribe
+
+def test_pairs_solo_faltantes_mas_ultima():
+    from app.services.technical_service import _pairs_to_write
+    pairs = _pairs_to_write(["d1", "d2", "d3"], [1.0, 2.0, 3.0], {"d1", "d3"})
+    # d1 existe → no; d2 falta → sí; d3 existe pero es la última → sí
+    assert pairs == [("d2", 2.0), ("d3", 3.0)]
+
+def test_pairs_solo_cambios_full_sample():
+    from app.services.technical_service import _pairs_to_write
+    existing = {"d1": 10.0, "d2": 20.0, "d3": "alta_corta", "d4": 40.0}
+    pairs = _pairs_to_write(
+        ["d1", "d2", "d3", "d4", "d5"],
+        [10.0, 21.5, "alta_larga", 40.0, 50.0],
+        existing,
+    )
+    # d1 sin cambio → no; d2 cambió → sí; d3 (string) cambió → sí;
+    # d4 sin cambio pero NO es la última → no; d5 es la última → siempre
+    assert pairs == [("d2", 21.5), ("d3", "alta_larga"), ("d5", 50.0)]
+
+def test_pairs_ultima_fecha_siempre_aunque_no_cambie():
+    from app.services.technical_service import _pairs_to_write
+    pairs = _pairs_to_write(["d1", "d2"], [1.0, 2.0], {"d1": 1.0, "d2": 2.0})
+    assert pairs == [("d2", 2.0)]

@@ -565,6 +565,75 @@ def _compute_daily_ratios(
     }
 
 
+def _daily_ratio_series(quarters, q_ords: np.ndarray, price_dates: list,
+                        price_dates_ord: np.ndarray,
+                        price_closes: np.ndarray) -> dict:
+    """Series completas de los 4 ratios diarios de un activo, vectorizadas.
+
+    Aprovecha que entre dos cierres de trimestre los valores per-share son
+    constantes: cada ratio es una división de arrays por segmento en lugar de
+    un cálculo Python por fecha. Paridad exacta con _compute_daily_ratios
+    (verificada por test)."""
+    n = len(price_closes)
+    codes = ("fundamental_pe_ttm", "fundamental_pb", "fundamental_ps_ttm",
+             "fundamental_pe_growth_yoy")
+    out = {c: np.full(n, np.nan) for c in codes}
+    nq = len(quarters)
+    if n == 0 or nq == 0:
+        return out
+
+    # Per-share por trimestre (constantes dentro de cada segmento)
+    eps_ps  = np.full(nq, np.nan)
+    rev_ps  = np.full(nq, np.nan)
+    book_ps = np.full(nq, np.nan)
+    for i, q in enumerate(quarters):
+        ttm4   = quarters[max(0, i - 3): i + 1]
+        shares = next((x.shares for x in reversed(ttm4) if x.shares), None)
+        if not shares:
+            continue
+        e = _safe_div_r(sum(x.net_income for x in ttm4 if x.net_income is not None), shares)
+        r = _safe_div_r(sum(x.revenue    for x in ttm4 if x.revenue    is not None), shares)
+        b = _safe_div_r(q.equity, shares)
+        if e is not None:
+            eps_ps[i] = e
+        if r is not None:
+            rev_ps[i] = r
+        if b is not None:
+            book_ps[i] = b
+
+    seg   = np.searchsorted(q_ords, price_dates_ord, side="right") - 1
+    has_q = seg >= 0
+    seg_c = np.where(has_q, seg, 0)
+
+    def _ratio(per_share):
+        ps = per_share[seg_c]
+        ok = has_q & (ps > 0)                    # NaN > 0 → False
+        return np.where(ok, np.round(price_closes / np.where(ok, ps, 1.0), 4), np.nan)
+
+    out["fundamental_pe_ttm"] = _ratio(eps_ps)
+    out["fundamental_pb"]     = _ratio(book_ps)
+    out["fundamental_ps_ttm"] = _ratio(rev_ps)
+
+    # P/E growth vs hace 1 año (TTM anclado al trimestre vigente en esa fecha)
+    ref_ords = np.array([_ref_1y_ord(d) for d in price_dates], dtype=np.int64)
+    q1y = np.searchsorted(q_ords, ref_ords, side="right") - 1
+    p1y = np.searchsorted(price_dates_ord, ref_ords, side="right") - 1
+    q1y_c, p1y_c = np.where(q1y >= 0, q1y, 0), np.where(p1y >= 0, p1y, 0)
+    eps_prev = eps_ps[q1y_c]
+    ok_prev  = (q1y >= 0) & (p1y >= 0) & (eps_prev > 0)
+    pe_prev  = np.where(
+        ok_prev,
+        np.round(price_closes[p1y_c] / np.where(ok_prev, eps_prev, 1.0), 4),
+        np.nan)
+    pe   = out["fundamental_pe_ttm"]
+    ok_g = ~np.isnan(pe) & (pe != 0) & ~np.isnan(pe_prev) & (pe_prev != 0)
+    out["fundamental_pe_growth_yoy"] = np.where(
+        ok_g,
+        np.round((pe - pe_prev) / np.abs(np.where(ok_g, pe_prev, 1.0)), 4),
+        np.nan)
+    return out
+
+
 # ── Backfill por indicador (1 thread por código) ──────────────────────────────
 
 from collections import namedtuple as _nt
@@ -687,22 +756,14 @@ def _backfill_fund_indicator(
                     # El último precio es preliminar: su ratio se recalcula siempre
                     target.add(price_rows[-1][0])
 
-                batch = []
-                for price_date, price_close in price_rows:
-                    if price_date not in target:
-                        continue
-                    d_ord      = price_date.toordinal()
-                    last_q_idx = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
-                    if last_q_idx < 0:
-                        continue
-                    ratios = _compute_daily_ratios(
-                        float(price_close), quarters, q_ords, last_q_idx,
-                        price_dates_ord, price_closes, _ref_1y_ord(price_date),
-                    )
-                    val = ratios.get(code)
-                    if val is not None:
-                        batch.append({"asset_id": asset_id, "date": price_date,
-                                      "value": float(val)})
+                dates_seq = [r[0] for r in price_rows]
+                series = _daily_ratio_series(quarters, q_ords, dates_seq,
+                                             price_dates_ord, price_closes)
+                batch = [
+                    {"asset_id": asset_id, "date": d, "value": float(v)}
+                    for d, v in zip(dates_seq, series[code])
+                    if d in target and not np.isnan(v)
+                ]
                 if batch:
                     stmt = _mysql_insert(t).values(batch)
                     s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
@@ -816,27 +877,17 @@ def _backfill_fund_daily_all(
                 for code in daily_codes:
                     targets[code].add(last_d)
 
-            combined_target = set().union(*targets.values())
-            batches = {code: [] for code in daily_codes}
-
-            for price_date, price_close in price_rows:
-                if price_date not in combined_target:
-                    continue
-                d_ord      = price_date.toordinal()
-                last_q_idx = int(np.searchsorted(q_ords, d_ord, side="right")) - 1
-                if last_q_idx < 0:
-                    continue
-                ratios = _compute_daily_ratios(
-                    float(price_close), quarters, q_ords, last_q_idx,
-                    price_dates_ord, price_closes, _ref_1y_ord(price_date),
-                )
-                for code in daily_codes:
-                    if price_date in targets[code]:
-                        val = ratios.get(code)
-                        if val is not None:
-                            batches[code].append({"asset_id": asset_id,
-                                                  "date": price_date,
-                                                  "value": float(val)})
+            dates_seq = [r[0] for r in price_rows]
+            series = _daily_ratio_series(quarters, q_ords, dates_seq,
+                                         price_dates_ord, price_closes)
+            batches = {
+                code: [
+                    {"asset_id": asset_id, "date": d, "value": float(v)}
+                    for d, v in zip(dates_seq, series[code])
+                    if d in targets[code] and not np.isnan(v)
+                ]
+                for code in daily_codes
+            }
 
             for code, batch in batches.items():
                 if batch:

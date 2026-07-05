@@ -122,3 +122,48 @@ def test_pe_growth_contra_hace_un_anio():
 def test_pe_growth_sin_historia_es_none():
     r = _daily(20.0, _ttm_quarters(), ref_1y_ord=date(2020, 1, 1).toordinal())
     assert r["fundamental_pe_growth_yoy"] is None
+
+
+# ── _daily_ratio_series: paridad con _compute_daily_ratios ────────────────────
+
+def test_serie_diaria_vectorizada_paridad_con_por_fecha():
+    """La versión por segmentos de trimestre debe dar EXACTAMENTE lo mismo que
+    la versión fecha-por-fecha para cada día de la serie."""
+    from datetime import timedelta
+
+    from app.services.fundamental_service import _daily_ratio_series
+
+    rng = np.random.RandomState(11)
+    quarters = []
+    base = date(2023, 3, 31)
+    for i in range(8):
+        quarters.append(q(
+            date(base.year + (base.month + 3 * i - 1) // 12,
+                 (base.month + 3 * i - 1) % 12 + 1, 28),
+            revenue=float(rng.randint(800, 1200)),
+            net_income=float(rng.randint(-50, 200)),      # incluye EPS negativo
+            equity=float(rng.randint(500, 2000)),
+            shares=None if i == 2 else float(rng.randint(90, 110)),
+        ))
+    q_ords = np.array([x.period_date.toordinal() for x in quarters])
+
+    start = date(2023, 1, 1)                              # antes del 1er trimestre
+    dates = [start + timedelta(days=i * 3) for i in range(300)]
+    closes = np.round(100 + rng.randn(300).cumsum(), 2)
+    d_ords = np.array([d.toordinal() for d in dates])
+
+    serie = _daily_ratio_series(quarters, q_ords, dates, d_ords, closes)
+
+    for i, d in enumerate(dates):
+        last_q = int(np.searchsorted(q_ords, d_ords[i], side="right")) - 1
+        if last_q < 0:
+            esperado = {k: None for k in serie}
+        else:
+            esperado = _compute_daily_ratios(
+                float(closes[i]), quarters, q_ords, last_q,
+                d_ords, closes, _ref_1y_ord(d),
+            )
+        for code, arr in serie.items():
+            exp = esperado.get(code)
+            got = None if np.isnan(arr[i]) else float(arr[i])
+            assert got == exp, f"{code} difiere en {d}: {got} != {exp}"

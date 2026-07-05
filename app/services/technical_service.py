@@ -573,24 +573,48 @@ def _series_dates_values(values, df) -> tuple[list, list]:
 _COMMIT_ROWS = 25_000
 
 
+def _pairs_to_write(dates_list: list, vals_list: list, existing) -> list:
+    """Filtra qué (fecha, valor) escribir según el modo:
+
+    None → todo (reemplazo total).
+    set  → solo fechas faltantes + la última (el último precio es preliminar).
+    dict {fecha: valor_guardado} → faltantes + cambiados + la última.
+      Es el modo de los indicadores full_sample en delta: la serie se
+      recalcula entera pero los valores viejos casi no cambian, así que
+      solo se escriben las diferencias reales.
+    """
+    if existing is None:
+        return [(d, v) for d, v in zip(dates_list, vals_list) if pd.notna(v)]
+
+    last_d = dates_list[-1] if dates_list else None
+    if isinstance(existing, dict):
+        def _keep(d, v):
+            if d == last_d or d not in existing:
+                return True
+            old = existing[d]
+            try:
+                return float(old) != float(v)
+            except (TypeError, ValueError):
+                return str(old) != str(v)
+        return [(d, v) for d, v in zip(dates_list, vals_list)
+                if pd.notna(v) and _keep(d, v)]
+
+    return [(d, v) for d, v in zip(dates_list, vals_list)
+            if pd.notna(v) and (d not in existing or d == last_d)]
+
+
 def _write_ind_series(s, code: str, asset_id: int,
                       dates_list: list, vals_list: list,
-                      existing: set | None) -> int:
+                      existing) -> int:
     """Escribe la serie de un indicador para un activo. Devuelve filas escritas.
 
-    existing=None → reemplazo total: borra las filas del activo y reinserta.
-    existing=set  → inserta solo fechas faltantes; la última fecha se
-    recalcula siempre (el último precio es preliminar y pudo cambiar).
-    NO commitea: el caller decide el tamaño de la transacción.
+    existing: ver _pairs_to_write. Con None, además borra las filas previas
+    del activo. NO commitea: el caller decide el tamaño de la transacción.
     """
     if existing is None:
         t = get_ind_table(code)
         s.execute(t.delete().where(t.c.asset_id == asset_id))
-        pairs = [(d, v) for d, v in zip(dates_list, vals_list) if pd.notna(v)]
-    else:
-        last_d = dates_list[-1] if dates_list else None
-        pairs = [(d, v) for d, v in zip(dates_list, vals_list)
-                 if pd.notna(v) and (d not in existing or d == last_d)]
+    pairs = _pairs_to_write(dates_list, vals_list, existing)
 
     written = 0
     batch = []
@@ -854,9 +878,9 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     Backfill histórico de un indicador específico para todos los activos.
     Escribe en la tabla ind_{code}.
 
-    Si el indicador tiene full_sample=True en indicator_definitions (usa
-    estadísticos sobre toda la serie, como percentiles de ATR), se fuerza
-    mode force independientemente del argumento recibido.
+    Si el indicador tiene full_sample=True (estadísticos sobre toda la serie,
+    como percentiles de ATR), en delta la serie se recalcula completa pero
+    solo se escriben los valores que cambiaron respecto de lo guardado.
 
     df_w_cache / df_m_cache permiten reutilizar resamples precalculados entre
     los workers (sin ellos, cada indicador resamplearía los mismos precios).
@@ -867,11 +891,11 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
 
     s = get_session()
 
-    # Si el indicador usa estadísticos full-sample, forzar recálculo completo
-    # independientemente de lo que pida el caller (lógica en indicator_definitions)
+    # full_sample (percentiles/zonas sobre toda la muestra): en delta la serie
+    # se recalcula ENTERA igual, pero en vez de borrar y reescribir todo se
+    # comparan los valores guardados y se escriben solo las diferencias.
     defn = s.query(IndicatorDefinition).filter(IndicatorDefinition.code == code).first()
-    if defn and defn.full_sample:
-        force = True
+    full_sample = bool(defn and defn.full_sample)
 
     t          = get_ind_table(code)
     regime_cfg = _get_regime_config()
@@ -884,13 +908,21 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     for chunk_start in range(0, len(asset_ids), _EXISTING_CHUNK):
         chunk = asset_ids[chunk_start:chunk_start + _EXISTING_CHUNK]
 
-        # Fechas existentes de todo el chunk en una sola query (evita 1 por activo)
-        existing_by_asset: dict[int, set] = {}
+        # Fechas existentes de todo el chunk en una sola query (evita 1 por activo);
+        # para full_sample se trae también el valor, para escribir solo cambios
+        existing_by_asset: dict = {}
         if not force:
-            for aid, d in s.execute(
-                sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
-            ).fetchall():
-                existing_by_asset.setdefault(aid, set()).add(d)
+            if full_sample:
+                for aid, d, v in s.execute(
+                    sa.select(t.c.asset_id, t.c.date, t.c.value)
+                    .where(t.c.asset_id.in_(chunk))
+                ).fetchall():
+                    existing_by_asset.setdefault(aid, {})[d] = v
+            else:
+                for aid, d in s.execute(
+                    sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
+                ).fetchall():
+                    existing_by_asset.setdefault(aid, set()).add(d)
 
         for asset_id in chunk:
             if price_cache is not None:
@@ -923,7 +955,8 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 price_cache=price_cache, best_sma_cache=best_sma_cache,
             )
             dates_list, vals_list = _series_dates_values(values, df)
-            existing  = None if force else existing_by_asset.get(asset_id, set())
+            existing  = (None if force
+                         else existing_by_asset.get(asset_id, {} if full_sample else set()))
             written   = _write_ind_series(s, code, asset_id,
                                           dates_list, vals_list, existing)
             inserted          += written

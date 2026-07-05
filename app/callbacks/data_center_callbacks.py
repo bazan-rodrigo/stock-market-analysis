@@ -100,29 +100,28 @@ def _status_ratios():
 
 def _status_indicators():
     import sqlalchemy as sa
+    from app.models import IndicatorUpdateLog
     from app.models.indicator_definition import IndicatorDefinition
-    from app.models.indicator_store import get_ind_table
     try:
         s = get_session()
-        tech_codes = [
-            r[0] for r in s.query(IndicatorDefinition.code).filter(
+        tech_tables = {
+            f"ind_{r[0]}" for r in s.query(IndicatorDefinition.code).filter(
                 IndicatorDefinition.keep_history.is_(True),
                 IndicatorDefinition.category != "Fundamental",
             ).all()
-        ]
+        }
+        # Estimación de information_schema (instantánea): un COUNT(*) exacto
+        # escanea millones de filas por tabla y bajo carga tarda minutos
+        rows = s.execute(sa.text(
+            "SELECT table_name, table_rows FROM information_schema.tables"
+            " WHERE table_schema = DATABASE() AND table_name LIKE 'ind_%'"
+        )).fetchall()
+        total_rows = sum(int(r[1] or 0) for r in rows if r[0] in tech_tables)
+        assets_ok = s.query(IndicatorUpdateLog).filter(
+            IndicatorUpdateLog.success.is_(True)).count()
+        return f"Indicator values: ~{total_rows:,} filas  |  {assets_ok} activos con indicadores OK"
     except Exception:
         return "—"
-    total_rows:  int = 0
-    assets_seen: set = set()
-    for code in tech_codes:
-        try:
-            t = get_ind_table(code)
-            total_rows += s.execute(sa.select(sa.func.count()).select_from(t)).scalar() or 0
-            for row in s.execute(sa.select(t.c.asset_id).distinct()).fetchall():
-                assets_seen.add(row[0])
-        except Exception:
-            continue
-    return f"Indicator values: {total_rows:,} filas  |  {len(assets_seen)} activos con datos"
 
 
 def _status_synth():
