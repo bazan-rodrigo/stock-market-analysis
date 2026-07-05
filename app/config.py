@@ -35,9 +35,11 @@ class Config:
     DB_USER: str = _get("db_user", "root")
     DB_PASSWORD: str = _get("db_password", "")
 
-    DATABASE_URL: str = (
+    # Overrideable completa via env DATABASE_URL (tests usan un stub sqlite)
+    DATABASE_URL: str = _get(
+        "database_url",
         f"mysql+mysqldb://{DB_USER}:{DB_PASSWORD}"
-        f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
+        f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4",
     )
 
     LOG_LEVEL: str = _get("log_level", "INFO")

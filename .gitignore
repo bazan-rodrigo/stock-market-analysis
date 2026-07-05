@@ -20,3 +20,4 @@ alembic/versions/__pycache__/
 
 # Claude Code local settings
 .claude/
+.pytest-stub.db
