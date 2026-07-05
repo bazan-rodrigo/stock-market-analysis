@@ -71,9 +71,18 @@ _BUILTIN_INDICATORS = [
 ]
 
 
+# Activos integrados: para fuentes sin diccionario público de tickers, donde
+# el ticker es una convención interna de la app que el usuario no podría
+# adivinar (ej. Ámbito solo acepta RIESGO_PAIS_AR).
+_BUILTIN_ASSETS = [
+    {"ticker": "RIESGO_PAIS_AR", "name": "Riesgo País Argentina (EMBI)",
+     "source": "Ambito"},
+]
+
+
 def ensure_builtin_data() -> None:
     from app.database import get_session
-    from app.models import PriceSource
+    from app.models import Asset, PriceSource
     from app.models.indicator_definition import IndicatorDefinition
 
     s = get_session()
@@ -83,6 +92,16 @@ def ensure_builtin_data() -> None:
         if not exists:
             s.add(PriceSource(name=src["name"], description=src["description"]))
             logger.info("Creada fuente de precio integrada: %s", src["name"])
+    s.flush()  # asegura ids de fuentes recién creadas para los activos de abajo
+
+    for a in _BUILTIN_ASSETS:
+        exists = s.query(Asset).filter(Asset.ticker == a["ticker"]).first()
+        if not exists:
+            source = s.query(PriceSource).filter(PriceSource.name == a["source"]).first()
+            if source is not None:
+                s.add(Asset(ticker=a["ticker"], name=a["name"],
+                            price_source_id=source.id))
+                logger.info("Creado activo integrado: %s", a["ticker"])
 
     for ind in _BUILTIN_INDICATORS:
         exists = s.query(IndicatorDefinition).filter(
