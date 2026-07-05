@@ -27,6 +27,18 @@ def _blank():
 def _fmt_time(dt) -> str:
     return dt.strftime("%H:%M:%S") if dt else "—"
 
+
+def _fmt_dur(t0, t1) -> str:
+    """Duración legible entre dos datetimes: '42s', '10m49s', '1h05m'."""
+    if not t0 or not t1:
+        return ""
+    secs = max(0, int((t1 - t0).total_seconds()))
+    m, s = divmod(secs, 60)
+    if m >= 60:
+        h, m = divmod(m, 60)
+        return f"{h}h{m:02d}m"
+    return f"{m}m{s:02d}s" if m else f"{s}s"
+
 _state = {op: _blank() for op in _OPS}
 
 
@@ -370,7 +382,8 @@ def _register(op_id):
                 prog = f"{dn:>4}/{tn}"
                 if dn >= tn:
                     color = "#4ade80"
-                    text  = f"✓ {code:<{name_w}}{prog}   {ws} → {we}"
+                    text  = (f"✓ {code:<{name_w}}{prog}   {ws} → {we}"
+                             f"  ({_fmt_dur(w['start'], w['end'])})")
                 elif dn > 0:
                     color = "#d1d5db"
                     text  = f"  {code:<{name_w}}{prog}   desde {ws}"
@@ -383,7 +396,9 @@ def _register(op_id):
                                                    "fontFamily": "monospace",
                                                    "whiteSpace": "pre"}))
             if done:
-                overall = f"Completado: {done_cnt}/{len(workers)} OK  •  {t_start} → {t_end}"
+                total_dur = _fmt_dur(st.get("start_time"), st.get("end_time"))
+                overall = (f"Completado: {done_cnt}/{len(workers)} OK  •  "
+                           f"{t_start} → {t_end}  ({total_dur})")
             else:
                 overall = (f"{st['current']} / {st['total']}  •  "
                            f"{done_cnt} / {len(workers)} indicadores listos  •  "
@@ -396,7 +411,8 @@ def _register(op_id):
             ]
             msg_style = {"minHeight": "16px", "marginBottom": "10px"}
         else:
-            overall_times = (f"  •  {t_start} → {t_end}"
+            _dur = _fmt_dur(st.get("start_time"), st.get("end_time"))
+            overall_times = (f"  •  {t_start} → {t_end}" + (f"  ({_dur})" if _dur else "")
                              if st.get("start_time") else "")
             msg_children = str(st["msg"]) + overall_times if st.get("start_time") else st["msg"]
             msg_style    = {"fontSize": "0.74rem", "minHeight": "16px",
