@@ -547,6 +547,51 @@ def _batch_upsert_ind(session, code: str, rows: list[dict]) -> None:
     session.execute(stmt, rows)
 
 
+_IND_BATCH = 500  # filas por INSERT al escribir series de indicadores
+
+
+def _series_dates_values(values, df) -> tuple[list, list]:
+    """Las compute_fn de backfill retornan list (diario, indexada como df)
+    o pd.Series (semanal/mensual, con su propio índice de fechas)."""
+    if isinstance(values, pd.Series):
+        return values.index.tolist(), values.tolist()
+    return df["date"].tolist(), list(values)
+
+
+def _write_ind_series(s, code: str, asset_id: int,
+                      dates_list: list, vals_list: list,
+                      existing: set | None) -> int:
+    """Escribe la serie de un indicador para un activo. Devuelve filas escritas.
+
+    existing=None → reemplazo total: borra las filas del activo y reinserta.
+    existing=set  → inserta solo fechas faltantes; la última fecha se
+    recalcula siempre (el último precio es preliminar y pudo cambiar).
+    """
+    if existing is None:
+        t = get_ind_table(code)
+        s.execute(t.delete().where(t.c.asset_id == asset_id))
+        pairs = [(d, v) for d, v in zip(dates_list, vals_list) if pd.notna(v)]
+    else:
+        last_d = dates_list[-1] if dates_list else None
+        pairs = [(d, v) for d, v in zip(dates_list, vals_list)
+                 if pd.notna(v) and (d not in existing or d == last_d)]
+
+    written = 0
+    batch = []
+    for d, v in pairs:
+        batch.append({"asset_id": asset_id, "date": d, "value": v})
+        if len(batch) >= _IND_BATCH:
+            _batch_upsert_ind(s, code, batch)
+            s.commit()
+            written += len(batch)
+            batch = []
+    if batch:
+        _batch_upsert_ind(s, code, batch)
+        s.commit()
+        written += len(batch)
+    return written
+
+
 # ── Compute functions para backfill por indicador ────────────────────────────
 
 def _bf_return_daily(df, df_w, df_m, **kw):
@@ -820,7 +865,6 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     asset_ids  = [r[0] for r in s.query(Asset.id).all()]
 
     inserted = 0
-    _BATCH = 500
 
     for chunk_start in range(0, len(asset_ids), _EXISTING_CHUNK):
         chunk = asset_ids[chunk_start:chunk_start + _EXISTING_CHUNK]
@@ -863,39 +907,10 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 session=s, asset_id=asset_id,
                 price_cache=price_cache, best_sma_cache=best_sma_cache,
             )
-
-            # Opt 1: compute_fn puede retornar list (diario) o pd.Series (semanal/mensual)
-            if isinstance(values, pd.Series):
-                dates_list = values.index.tolist()
-                vals_list  = values.tolist()
-            else:
-                dates_list = df["date"].tolist()
-                vals_list  = list(values)
-
-            if force:
-                s.execute(t.delete().where(t.c.asset_id == asset_id))
-                pairs = [(d, v) for d, v in zip(dates_list, vals_list) if pd.notna(v)]
-            else:
-                existing = existing_by_asset.get(asset_id, set())
-                # La última fecha se recalcula siempre: el último precio es
-                # preliminar y puede haber cambiado desde la corrida anterior
-                last_d = dates_list[-1] if dates_list else None
-                pairs = [(d, v) for d, v in zip(dates_list, vals_list)
-                         if pd.notna(v) and (d not in existing or d == last_d)]
-
-            batch = []
-            for d, v in pairs:
-                batch.append({"asset_id": asset_id, "date": d, "value": v})
-                if len(batch) >= _BATCH:
-                    _batch_upsert_ind(s, code, batch)
-                    s.commit()
-                    inserted += len(batch)
-                    batch = []
-
-            if batch:
-                _batch_upsert_ind(s, code, batch)
-                s.commit()
-                inserted += len(batch)
+            dates_list, vals_list = _series_dates_values(values, df)
+            existing  = None if force else existing_by_asset.get(asset_id, set())
+            inserted += _write_ind_series(s, code, asset_id,
+                                          dates_list, vals_list, existing)
 
             if asset_tick:
                 asset_tick()
@@ -1006,6 +1021,54 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
 
     return {"total": n_indicators, "success": n_indicators - len(errors),
             "inserted": inserted, "errors": errors}
+
+
+def backfill_asset_history(asset_id: int) -> dict:
+    """Reconstruye la historia completa de indicadores (keep_history) de UN activo.
+
+    Pensado para cuando la historia de precios de un activo nace o se
+    reconstruye (activo nuevo, sintético recién creado, redescarga completa):
+    borra las filas ind_* del activo y las recalcula desde cero, sin pasar por
+    el backfill masivo del Centro de Datos.
+
+    Requiere que los valores vigentes (best_sma_*) ya estén calculados —
+    llamar después de compute_current_indicators().
+    """
+    s = get_session()
+    rows = s.query(Price.date, Price.close, Price.high, Price.low).filter(
+        Price.asset_id == asset_id
+    ).order_by(Price.date.asc()).all()
+    if len(rows) < _MIN_ROWS:
+        return {"inserted": 0}
+
+    df   = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
+    df_w = _resample_ohlc(df, "W")
+    df_m = _resample_ohlc(df, "M")
+
+    regime_cfg = _get_regime_config()
+    vol_cfg    = _get_volatility_config()
+    hist = [
+        d.code for d in s.query(IndicatorDefinition).filter(
+            IndicatorDefinition.keep_history.is_(True)
+        ).order_by(IndicatorDefinition.id).all()
+        if d.code in _BACKFILL_FNS
+    ]
+
+    inserted = 0
+    for code in hist:
+        values = _BACKFILL_FNS[code](
+            df=df, df_w=df_w, df_m=df_m,
+            regime_cfg=regime_cfg, vol_cfg=vol_cfg,
+            session=s, asset_id=asset_id,
+            price_cache=None, best_sma_cache=None,
+        )
+        dates_list, vals_list = _series_dates_values(values, df)
+        inserted += _write_ind_series(s, code, asset_id,
+                                      dates_list, vals_list, existing=None)
+
+    logger.info("Backfill por activo id=%d: %d valores en %d indicadores",
+                asset_id, inserted, len(hist))
+    return {"inserted": inserted}
 
 
 # ── Log de actualización de indicadores ────────────────────────────────────────

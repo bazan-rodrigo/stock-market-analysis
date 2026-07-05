@@ -15,6 +15,7 @@ from sqlalchemy import func
 from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, PriceUpdateLog
 from app.services.technical_service import (
+    backfill_asset_history,
     compute_current_indicators,
     _get_drawdown_config,
     _get_regime_config,
@@ -184,6 +185,14 @@ def update_asset_prices(
         except Exception as fund_exc:
             logger.warning("Error recomputo ratios fundamentales %s: %s", asset.ticker, fund_exc)
             ind_errors.append(f"fundamental: {fund_exc}")
+        if last_date is None:
+            # Historia de precios nueva o reconstruida → completar también la
+            # historia de indicadores (el quick solo escribe el último día)
+            try:
+                backfill_asset_history(asset_id)
+            except Exception as bf_exc:
+                logger.warning("Error backfill indicadores %s: %s", asset.ticker, bf_exc)
+                ind_errors.append(f"backfill: {bf_exc}")
         _save_indicator_log(asset_id, success=not ind_errors,
                             error="; ".join(ind_errors) or None, session=s)
 
@@ -319,6 +328,13 @@ def _process_yf_asset_worker(
         except Exception as fund_exc:
             logger.warning("Error recomputo ratios fundamentales %s: %s", ticker, fund_exc)
             ind_errors.append(f"fundamental: {fund_exc}")
+        if last_date is None:
+            # Primera descarga del activo → completar la historia de indicadores
+            try:
+                backfill_asset_history(asset_id)
+            except Exception as bf_exc:
+                logger.warning("Error backfill indicadores %s: %s", ticker, bf_exc)
+                ind_errors.append(f"backfill: {bf_exc}")
         _save_indicator_log(asset_id, success=not ind_errors,
                             error="; ".join(ind_errors) or None, session=s)
         return True, None

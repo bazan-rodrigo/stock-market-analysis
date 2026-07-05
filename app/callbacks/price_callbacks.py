@@ -296,27 +296,61 @@ def clear_log(_):
     Output("prices-btn-all",       "disabled",  allow_duplicate=True),
     Output("prices-btn-indicators",  "disabled"),
     Input("prices-btn-indicators", "n_clicks"),
+    State("prices-log-table", "selected_rows"),
+    State("prices-log-table", "data"),
     prevent_initial_call=True,
 )
-def recompute_indicators(_):
-    from app.services.technical_service import recompute_current_indicators
+def recompute_indicators(_, sel_rows, data):
+    """Sin selección: valores vigentes de todos los activos.
+    Con filas seleccionadas: vigentes + historia completa, solo de esos activos."""
+    from app.services.technical_service import (
+        backfill_asset_history, compute_current_indicators,
+        recompute_current_indicators, _save_indicator_log,
+    )
     _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
 
+    sel_ids = []
+    if sel_rows:
+        from app.services.asset_service import get_asset_by_ticker
+        tickers = [data[i]["ticker"] for i in sel_rows]
+        sel_ids = [a.id for a in (get_asset_by_ticker(t) for t in tickers) if a is not None]
+
     def _run():
+        from app.database import Session as _DbSession
+
         def _progress(current, total, *_):
             _prices_state["current"] = current
             _prices_state["total"]   = total
+
         try:
-            result = recompute_current_indicators(progress_cb=_progress)
-            n_err = len(result["errors"])
-            _prices_state["has_errors"] = bool(n_err)
-            _prices_state["msg"] = (
-                f"Indicadores recalculados: {result['total'] - n_err}/{result['total']} exitosos, {n_err} errores."
-            )
+            if sel_ids:
+                errs = 0
+                for i, aid in enumerate(sel_ids, 1):
+                    _progress(i, len(sel_ids))
+                    try:
+                        compute_current_indicators(aid)
+                        backfill_asset_history(aid)
+                        _save_indicator_log(aid, success=True, error=None)
+                    except Exception as exc:
+                        errs += 1
+                        _save_indicator_log(aid, success=False, error=str(exc))
+                _prices_state["has_errors"] = bool(errs)
+                _prices_state["msg"] = (
+                    f"Indicadores recalculados (vigentes + historia): "
+                    f"{len(sel_ids) - errs}/{len(sel_ids)} exitosos, {errs} errores."
+                )
+            else:
+                result = recompute_current_indicators(progress_cb=_progress)
+                n_err = len(result["errors"])
+                _prices_state["has_errors"] = bool(n_err)
+                _prices_state["msg"] = (
+                    f"Indicadores recalculados: {result['total'] - n_err}/{result['total']} exitosos, {n_err} errores."
+                )
         except Exception as exc:
             _prices_state["error"] = str(exc)
         finally:
             _prices_state["running"] = False
+            _DbSession.remove()
 
     threading.Thread(target=_run, daemon=True).start()
     return False, {"display": "block"}, True, True

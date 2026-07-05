@@ -177,6 +177,10 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
 
     try:
         compute_current_indicators(asset_id, quick=not full)
+        if full or start_date is None:
+            # Historia de precios nueva o reconstruida → rehacer también la
+            # historia de indicadores (el quick solo escribe el último día)
+            backfill_asset_history(asset_id)
         _save_indicator_log(asset_id, success=True, error=None, session=s)
     except Exception as exc:
         logger.warning("Error indicadores sintético id=%d: %s", asset_id, exc)
