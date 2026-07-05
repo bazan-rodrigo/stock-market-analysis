@@ -359,25 +359,29 @@ def _register(op_id):
         workers = st.get("workers", {})
         if workers and (st["running"] or st["done"]):
             done_cnt = sum(1 for w in workers.values() if w["dn"] >= w["tn"])
+            # Ancho de la columna de indicador (el más largo del lote)
+            name_w = max((len(c) for c in workers), default=20) + 2
             rows = []
             for code, w in sorted(workers.items(),
                                    key=lambda x: x[1]["dn"], reverse=True):
                 dn, tn = w["dn"], w["tn"]
                 ws = _fmt_time(w["start"])
                 we = _fmt_time(w["end"]) if w["end"] else ""
+                prog = f"{dn:>4}/{tn}"
                 if dn >= tn:
                     color = "#4ade80"
-                    text  = f"✓ {code}   {ws} → {we}"
+                    text  = f"✓ {code:<{name_w}}{prog}   {ws} → {we}"
                 elif dn > 0:
                     color = "#d1d5db"
-                    text  = f"{code}: {dn}/{tn}   desde {ws}"
+                    text  = f"  {code:<{name_w}}{prog}   desde {ws}"
                 else:
                     color = "#4b5563"
-                    text  = code
+                    text  = f"  {code:<{name_w}}{'—':>4}"
                 rows.append(html.Div(text, style={"fontSize": "0.72rem",
                                                    "color": color,
                                                    "lineHeight": "1.6",
-                                                   "fontVariantNumeric": "tabular-nums"}))
+                                                   "fontFamily": "monospace",
+                                                   "whiteSpace": "pre"}))
             if done:
                 overall = f"Completado: {done_cnt}/{len(workers)} OK  •  {t_start} → {t_end}"
             else:
