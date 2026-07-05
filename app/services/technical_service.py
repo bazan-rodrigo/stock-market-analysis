@@ -568,16 +568,20 @@ def _series_dates_values(values, df) -> tuple[list, list]:
     return df["date"].tolist(), list(values)
 
 
+# Filas acumuladas por transacción en backfills masivos: equilibrio entre
+# pocos fsyncs (commits caros) y transacciones acotadas (undo log de InnoDB)
+_COMMIT_ROWS = 25_000
+
+
 def _write_ind_series(s, code: str, asset_id: int,
                       dates_list: list, vals_list: list,
-                      existing: set | None, commit: bool = True) -> int:
+                      existing: set | None) -> int:
     """Escribe la serie de un indicador para un activo. Devuelve filas escritas.
 
     existing=None → reemplazo total: borra las filas del activo y reinserta.
     existing=set  → inserta solo fechas faltantes; la última fecha se
     recalcula siempre (el último precio es preliminar y pudo cambiar).
-    commit=False deja el commit a cargo del caller (para agrupar por lote:
-    un commit por activo×indicador son miles de fsyncs en un delta masivo).
+    NO commitea: el caller decide el tamaño de la transacción.
     """
     if existing is None:
         t = get_ind_table(code)
@@ -594,14 +598,10 @@ def _write_ind_series(s, code: str, asset_id: int,
         batch.append({"asset_id": asset_id, "date": d, "value": v})
         if len(batch) >= _IND_BATCH:
             _batch_upsert_ind(s, code, batch)
-            if commit:
-                s.commit()
             written += len(batch)
             batch = []
     if batch:
         _batch_upsert_ind(s, code, batch)
-        if commit:
-            s.commit()
         written += len(batch)
     return written
 
@@ -879,6 +879,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     asset_ids  = [r[0] for r in s.query(Asset.id).all()]
 
     inserted = 0
+    rows_since_commit = 0
 
     for chunk_start in range(0, len(asset_ids), _EXISTING_CHUNK):
         chunk = asset_ids[chunk_start:chunk_start + _EXISTING_CHUNK]
@@ -923,16 +924,20 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
             )
             dates_list, vals_list = _series_dates_values(values, df)
             existing  = None if force else existing_by_asset.get(asset_id, set())
-            # commit por chunk en delta (evita un fsync por activo×indicador);
-            # en force los batches son grandes y conviene commitear por activo
-            inserted += _write_ind_series(s, code, asset_id,
-                                          dates_list, vals_list, existing,
-                                          commit=force)
+            written   = _write_ind_series(s, code, asset_id,
+                                          dates_list, vals_list, existing)
+            inserted          += written
+            rows_since_commit += written
+            # Commit por volumen: junta ~_COMMIT_ROWS filas por transacción
+            if rows_since_commit >= _COMMIT_ROWS:
+                s.commit()
+                rows_since_commit = 0
 
             if asset_tick:
                 asset_tick()
 
-        s.commit()   # cierra el lote del chunk (no-op si force ya commiteó)
+        s.commit()   # cierra el lote al fin de cada chunk de activos
+        rows_since_commit = 0
 
     return {"inserted": inserted, "code": code}
 
@@ -1084,6 +1089,7 @@ def backfill_asset_history(asset_id: int) -> dict:
         dates_list, vals_list = _series_dates_values(values, df)
         inserted += _write_ind_series(s, code, asset_id,
                                       dates_list, vals_list, existing=None)
+        s.commit()   # un activo: transacción por indicador
 
     logger.info("Backfill por activo id=%d: %d valores en %d indicadores",
                 asset_id, inserted, len(hist))

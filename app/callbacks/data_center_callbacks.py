@@ -144,6 +144,12 @@ def refresh_status(*_):
         _ScopedSession.remove()
     except Exception:
         pass
+    if _any_running():
+        # Con una operación en curso, los COUNT sobre las tablas ind_* son
+        # inútiles (el número cambia por miles) y compiten por I/O con las
+        # escrituras masivas. El conteo real llega al terminar la operación.
+        light = "actualizando…"
+        return (_status_prices(), _status_fund(), light, light, _status_synth())
     return tuple(fn() for fn in _STATUS_FN.values())
 
 

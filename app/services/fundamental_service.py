@@ -730,9 +730,12 @@ def _backfill_fund_indicator(
                     s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
                     inserted += len(batch)
 
-            s.commit()
             if asset_tick:
                 asset_tick()
+
+        # Commit por chunk de activos: un fsync por activo es puro overhead
+        # (los ratios trimestrales son ~decenas de filas por activo)
+        s.commit()
 
     return {"inserted": inserted, "code": code}
 
