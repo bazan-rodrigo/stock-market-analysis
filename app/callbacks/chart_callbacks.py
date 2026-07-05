@@ -383,7 +383,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
   }};
 
   window._lwc.atr = function(high, low, close, n) {{
-    var tr = [0];
+    var tr = [high[0] - low[0]];   /* primer TR = rango del día (estándar Wilder) */
     for (var i = 1; i < close.length; i++) {{
       var a = high[i] - low[i], b = Math.abs(high[i] - close[i-1]), c = Math.abs(low[i] - close[i-1]);
       tr.push(Math.max(a, b, c));

@@ -305,7 +305,8 @@ from app.models import User
 
 
 def get_users() -> list[User]:
-    return _get_all(User, get_session())
+    # No usa _get_all: User no tiene columna `name`; se ordena por username
+    return get_session().query(User).order_by(User.username).all()
 
 
 def create_user(username: str, password: str, role: str) -> User:

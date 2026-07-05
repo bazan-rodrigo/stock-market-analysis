@@ -175,6 +175,20 @@ def _regime_detail(regime: str, bars: int, slope_last: float,
     return "lateral_nascent" if is_nascent else "lateral"
 
 
+def _wilder_smooth(s: pd.Series, period: int) -> pd.Series:
+    """Suavizado de Wilder: semilla = SMA de los primeros `period` valores,
+    luego alpha = 1/period. Idéntico al emaW del gráfico (chart_callbacks.js)
+    y al estándar de la industria (TradingView, StockCharts)."""
+    out = pd.Series(np.nan, index=s.index, dtype=float)
+    if len(s) < period:
+        return out
+    seed   = float(s.iloc[:period].mean())
+    seeded = pd.concat([pd.Series([seed]), s.iloc[period:]], ignore_index=True)
+    vals   = seeded.ewm(alpha=1 / period, adjust=False).mean().to_numpy()
+    out.iloc[period - 1:] = vals
+    return out
+
+
 def _atr_series(df: pd.DataFrame, period: int) -> pd.Series:
     prev_close = df["close"].shift(1)
     tr = pd.concat([
@@ -182,7 +196,7 @@ def _atr_series(df: pd.DataFrame, period: int) -> pd.Series:
         (df["high"] - prev_close).abs(),
         (df["low"]  - prev_close).abs(),
     ], axis=1).max(axis=1)
-    return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    return _wilder_smooth(tr, period)
 
 
 def _classify_duration(bars: int, hist: list[int], dur_short_pct: float, dur_long_pct: float) -> str:
@@ -350,14 +364,7 @@ def _compute_regime_zones(
 def _rsi(close: pd.Series, period: int = 14) -> float | None:
     if len(close) < period + 1:
         return None
-    delta    = close.diff()
-    gain     = delta.clip(lower=0)
-    loss     = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    rs       = avg_gain / avg_loss.replace(0, float("nan"))
-    rsi_series = (100 - (100 / (1 + rs))).fillna(100)
-    val = rsi_series.iloc[-1]
+    val = _rsi_series(close, period).iloc[-1]
     return float(val) if not pd.isna(val) else None
 
 
@@ -387,13 +394,16 @@ def _closest_price_on_or_before(df: pd.DataFrame, target: date) -> float | None:
 
 
 def _rsi_series(close: pd.Series, period: int = 14) -> pd.Series:
+    """RSI con suavizado de Wilder, idéntico al del gráfico (JS)."""
     delta    = close.diff()
-    gain     = delta.clip(lower=0)
-    loss     = (-delta).clip(lower=0)
-    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    rs       = avg_gain / avg_loss.replace(0, float("nan"))
-    return (100 - (100 / (1 + rs))).round(2)
+    gain     = delta.clip(lower=0).fillna(0.0)
+    loss     = (-delta).clip(lower=0).fillna(0.0)
+    avg_gain = _wilder_smooth(gain, period)
+    avg_loss = _wilder_smooth(loss, period)
+    rsi = 100 - 100 / (1 + avg_gain / avg_loss.replace(0, np.nan))
+    # avg_loss == 0 con avg_gain calculado → RSI 100 (subida pura), no NaN
+    rsi = rsi.where(~((avg_loss == 0) & avg_gain.notna()), 100.0)
+    return rsi.round(2)
 
 
 def _atr_pct_series_v(df: pd.DataFrame, period: int) -> pd.Series:

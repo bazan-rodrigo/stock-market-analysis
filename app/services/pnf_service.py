@@ -41,15 +41,9 @@ def compute_box_size(df, cfg) -> float:
     elif cfg.box_method == "percent":
         box = last_close * float(cfg.box_pct) / 100.0
     else:  # atr
-        import pandas as pd
-        period = int(cfg.box_atr_period)
-        prev_close = df["close"].shift(1)
-        tr = pd.concat([
-            df["high"] - df["low"],
-            (df["high"] - prev_close).abs(),
-            (df["low"]  - prev_close).abs(),
-        ], axis=1).max(axis=1)
-        atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+        # Mismo ATR (suavizado Wilder) que el resto de la app
+        from app.services.technical_service import _atr_series
+        atr = _atr_series(df, int(cfg.box_atr_period))
         atr_valid = atr.dropna()
         if atr_valid.empty:
             box = last_close * 0.01   # fallback: 1 %
