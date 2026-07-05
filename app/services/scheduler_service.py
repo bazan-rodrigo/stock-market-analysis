@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
 _scheduler_lock = threading.Lock()
 
+# True mientras corre la actualización diaria programada (lo consulta el
+# Centro de Datos para no lanzar operaciones ni COUNTs pesados en paralelo)
+_daily_running = False
+
+
+def is_daily_update_running() -> bool:
+    return _daily_running
+
 
 # ── Acceso a configuración en DB ──────────────────────────────────────────────
 
@@ -48,6 +56,8 @@ def _save_config(enabled: bool | None = None, hour: int | None = None, minute: i
 # ── Job ───────────────────────────────────────────────────────────────────────
 
 def _daily_update_job() -> None:
+    global _daily_running
+    _daily_running = True
     logger.info("Iniciando actualización diaria de precios (scheduled)")
     try:
         try:
@@ -84,6 +94,7 @@ def _daily_update_job() -> None:
         except Exception as exc:
             logger.exception("Error en strategy_service.run_daily: %s", exc)
     finally:
+        _daily_running = False
         # El thread del scheduler se reutiliza entre corridas: liberar la
         # sesión scoped para no retener conexión ni objetos entre días.
         from app.database import Session

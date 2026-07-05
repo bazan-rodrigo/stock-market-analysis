@@ -31,7 +31,22 @@ _state = {op: _blank() for op in _OPS}
 
 
 def _any_running() -> bool:
-    return any(st["running"] for st in _state.values())
+    """Sistema ocupado: considera las 3 fuentes de escritura masiva —
+    operaciones del Centro de Datos, botones de la pantalla de precios,
+    y la corrida nocturna del scheduler."""
+    if any(st["running"] for st in _state.values()):
+        return True
+    try:
+        from app.callbacks.price_callbacks import _prices_state
+        if _prices_state.get("running"):
+            return True
+    except Exception:
+        pass
+    try:
+        from app.services.scheduler_service import is_daily_update_running
+        return is_daily_update_running()
+    except Exception:
+        return False
 
 
 _BUSY_MSG = "Hay otra operación en curso. Esperá a que termine antes de lanzar esta."
