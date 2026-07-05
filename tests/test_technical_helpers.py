@@ -201,3 +201,31 @@ def test_pairs_ultima_fecha_siempre_aunque_no_cambie():
     from app.services.technical_service import _pairs_to_write
     pairs = _pairs_to_write(["d1", "d2"], [1.0, 2.0], {"d1": 1.0, "d2": 2.0})
     assert pairs == [("d2", 2.0)]
+
+
+# ── _cost_rank: orden LPT de la cola de workers ──────────────────────────────
+
+def test_cost_rank_pesados_primero():
+    from app.services.technical_service import _cost_rank
+    # volatility_daily es el trabajo más grande del sistema
+    assert _cost_rank("volatility_daily") > _cost_rank("atr_percentile_daily")
+    assert _cost_rank("volatility_daily") > _cost_rank("volatility_weekly")
+    # dentro de un mismo algoritmo: daily > weekly > monthly
+    assert (_cost_rank("rsi_daily") > _cost_rank("rsi_weekly")
+            > _cost_rank("rsi_monthly"))
+    # los códigos sin sufijo de timeframe son series diarias
+    assert _cost_rank("return_52w") == _cost_rank("return_daily")
+
+def test_lpt_order_usa_mediciones_y_prioriza_desconocidos():
+    from app.services.technical_service import _lpt_order
+    codes = ["liviano", "pesado", "nuevo_sin_medir", "medio"]
+    measured = {"liviano": 5.0, "pesado": 300.0, "medio": 60.0}
+    orden = _lpt_order(codes, measured)
+    # el desconocido primero (seguridad), luego por duración medida desc
+    assert orden == ["nuevo_sin_medir", "pesado", "medio", "liviano"]
+
+def test_lpt_order_sin_mediciones_cae_a_la_heuristica():
+    from app.services.technical_service import _lpt_order
+    orden = _lpt_order(["rsi_monthly", "volatility_daily", "rsi_daily"], {})
+    assert orden[0] == "volatility_daily"
+    assert orden[-1] == "rsi_monthly"

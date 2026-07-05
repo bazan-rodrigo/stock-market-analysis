@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, Text
+from sqlalchemy import Boolean, Column, Float, Integer, String, Text
 
 from app.database import Base
 
@@ -17,3 +17,6 @@ class IndicatorDefinition(Base):
     description  = Column(Text)
     keep_history = Column(Boolean, nullable=False, default=True)
     full_sample  = Column(Boolean, nullable=False, default=False)  # requiere force en backfill histórico
+    # Duración medida de la última corrida de backfill: ordena la cola LPT
+    # de la próxima (los indicadores nuevos, sin medición, van primero)
+    last_backfill_seconds = Column(Float)

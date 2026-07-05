@@ -868,6 +868,50 @@ def _load_recent_prices(s) -> tuple[dict, dict, dict]:
 # Activos por query al leer fechas existentes durante un backfill delta
 _EXISTING_CHUNK = 100
 
+# Workers de los pools masivos: derivado del hardware (~cores + margen de
+# I/O). Con un thread por indicador todos se reparten el GIL y el más pesado
+# termina solo al final usando un único core; con pocos workers y encolando
+# los pesados primero (LPT), todos los cores quedan ocupados casi toda la corrida.
+import os as _os
+_POOL_WORKERS = max(3, (_os.cpu_count() or 2) + 2)
+
+
+def _cost_rank(code: str) -> float:
+    """Peso estimado de un indicador para ordenar la cola (pesados primero).
+
+    Aproximación: largo de la serie del timeframe × costo del algoritmo.
+    No necesita ser exacta — LPT es robusto a errores de estimación."""
+    if code.endswith(("_monthly", "_m")):
+        tf = 1.0
+    elif code.endswith(("_weekly", "_w")):
+        tf = 4.0
+    else:
+        tf = 21.0            # daily y códigos sin sufijo (returns, dist_sma, RS)
+
+    if code.startswith("volatility"):
+        algo = 4.0           # ATR + percentiles + loop de confirmación + duración
+    elif code.startswith("atr_percentile"):
+        algo = 2.5
+    elif code.startswith("best_"):
+        algo = 2.0           # 16 períodos de MA probados
+    elif code.startswith("trend"):
+        algo = 1.5
+    else:
+        algo = 1.0
+    return tf * algo
+
+
+def _lpt_order(codes: list, measured: dict) -> list:
+    """Ordena la cola de workers: pesados primero (LPT).
+
+    measured: {code: segundos de la última corrida}. Los códigos SIN medición
+    (indicadores nuevos) van primero por seguridad: si resultan pesados quedan
+    bien priorizados, y si son livianos no cuesta nada. Sin ninguna medición
+    (primera corrida de una instalación) cae a la heurística _cost_rank."""
+    if not measured:
+        return sorted(codes, key=_cost_rank, reverse=True)
+    return sorted(codes, key=lambda c: measured.get(c, float("inf")), reverse=True)
+
 
 def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                        price_cache: dict | None = None,
@@ -991,11 +1035,15 @@ def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
                                best_sma_cache: dict | None = None,
                                df_w_cache: dict | None = None,
                                df_m_cache: dict | None = None) -> dict:
+    import time as _time
     from app.database import Session as _DbSession
+    t0 = _time.monotonic()
     try:
-        return backfill_indicator(code, force=force, asset_tick=asset_tick,
-                                  price_cache=price_cache, best_sma_cache=best_sma_cache,
-                                  df_w_cache=df_w_cache, df_m_cache=df_m_cache)
+        res = backfill_indicator(code, force=force, asset_tick=asset_tick,
+                                 price_cache=price_cache, best_sma_cache=best_sma_cache,
+                                 df_w_cache=df_w_cache, df_m_cache=df_m_cache)
+        res["seconds"] = round(_time.monotonic() - t0, 1)
+        return res
     except Exception as exc:
         logger.warning("Backfill error code=%s: %s", code, exc)
         return {"inserted": 0, "code": code, "error": str(exc)}
@@ -1014,12 +1062,12 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
     """
     import threading as _th
     s    = get_session()
-    hist = [
-        d.code for d in s.query(IndicatorDefinition).filter(
-            IndicatorDefinition.keep_history.is_(True)
-        ).order_by(IndicatorDefinition.id).all()
-        if d.code in _BACKFILL_FNS
-    ]
+    defs = s.query(IndicatorDefinition).filter(
+        IndicatorDefinition.keep_history.is_(True)
+    ).order_by(IndicatorDefinition.id).all()
+    hist     = [d.code for d in defs if d.code in _BACKFILL_FNS]
+    measured = {d.code: d.last_backfill_seconds for d in defs
+                if d.code in _BACKFILL_FNS and d.last_backfill_seconds}
 
     n_indicators = len(hist)
     if not n_indicators:
@@ -1066,7 +1114,12 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
         return _tick
 
-    with _TPE(max_workers=n_indicators) as pool:
+    # LPT por duración MEDIDA en la corrida anterior (nuevos primero;
+    # heurística solo en la primera corrida de una instalación)
+    hist = _lpt_order(hist, measured)
+    durations: dict = {}
+
+    with _TPE(max_workers=min(n_indicators, _POOL_WORKERS)) as pool:
         futures = {
             pool.submit(_backfill_indicator_worker, code, force, _make_tick(code),
                         price_cache, best_sma_cache, df_w_cache, df_m_cache): code
@@ -1081,11 +1134,25 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
             try:
                 res = future.result()
                 inserted += res.get("inserted", 0)
+                if res.get("seconds") is not None:
+                    durations[code] = res["seconds"]
                 if "error" in res:
                     errors.append({"code": code, "error": res["error"]})
             except Exception as exc:
                 logger.warning("Backfill future error code=%s: %s", code, exc)
                 errors.append({"code": code, "error": str(exc)})
+
+    # Persistir las duraciones medidas: ordenan la cola LPT de la próxima corrida
+    if durations:
+        try:
+            s2 = get_session()
+            for d in s2.query(IndicatorDefinition).filter(
+                    IndicatorDefinition.code.in_(list(durations))).all():
+                d.last_backfill_seconds = durations[d.code]
+            s2.commit()
+        except Exception:
+            logger.warning("No se pudieron guardar las duraciones de backfill",
+                           exc_info=True)
 
     return {"total": n_indicators, "success": n_indicators - len(errors),
             "inserted": inserted, "errors": errors}
@@ -1690,6 +1757,8 @@ def recompute_current_indicators(progress_cb=None, *, codes=None,
     import threading as _th
 
     current_codes = sorted(codes) if codes is not None else sorted(_CURRENT_FNS.keys())
+    # LPT: pesados primero (ver _cost_rank)
+    current_codes = sorted(current_codes, key=_cost_rank, reverse=True)
     n_ind      = len(current_codes)
 
     if progress_cb:
@@ -1734,7 +1803,7 @@ def recompute_current_indicators(progress_cb=None, *, codes=None,
                 progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
         return _tick
 
-    with _TPE(max_workers=n_ind) as pool:
+    with _TPE(max_workers=min(n_ind, _POOL_WORKERS)) as pool:
         futures = {
             pool.submit(
                 _compute_current_indicator_worker,
