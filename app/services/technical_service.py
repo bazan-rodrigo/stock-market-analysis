@@ -199,6 +199,52 @@ def _atr_series(df: pd.DataFrame, period: int) -> pd.Series:
     return _wilder_smooth(tr, period)
 
 
+def _confirm_codes(raw_codes: np.ndarray, confirm_bars: int) -> np.ndarray:
+    """Máquina de confirmación de regímenes, iterando por RACHAS (RLE) en vez
+    de barra por barra: decenas de iteraciones en lugar de miles por activo.
+    Semántica idéntica al loop original (test de paridad en la suite):
+    - los ceros (NaN) no cortan ni suman a la racha pendiente
+    - una racha del código vigente resetea el candidato pendiente
+    - un candidato nuevo arma pending en su 1ª ocurrencia SIN chequear el
+      umbral; confirma recién en la ocurrencia max(2, confirm_bars)
+    - la barra que confirma ya pertenece al régimen nuevo
+    """
+    n = len(raw_codes)
+    confirmed = np.zeros(n, dtype=np.int8)
+    nz = np.flatnonzero(raw_codes != 0)
+    if len(nz) == 0:
+        return confirmed
+    seq     = raw_codes[nz].astype(np.int64)
+    starts  = np.flatnonzero(np.r_[True, seq[1:] != seq[:-1]])
+    lengths = np.diff(np.r_[starts, len(seq)])
+
+    current, pending, pending_n = 0, 0, 0
+    changes: list[tuple[int, int]] = []      # (índice original, nuevo vigente)
+    for k, run_len in zip(starts, lengths):
+        v = int(seq[k])
+        if v == current:
+            pending, pending_n = 0, 0
+            continue
+        if v == pending:
+            need = max(1, confirm_bars - pending_n)
+            if run_len >= need:
+                changes.append((int(nz[k + need - 1]), v))
+                current, pending, pending_n = v, 0, 0
+            else:
+                pending_n += int(run_len)
+        else:
+            j = max(2, confirm_bars)
+            if run_len >= j:
+                changes.append((int(nz[k + j - 1]), v))
+                current, pending, pending_n = v, 0, 0
+            else:
+                pending, pending_n = v, int(run_len)
+
+    for idx, val in changes:
+        confirmed[idx:] = val
+    return confirmed
+
+
 def _classify_duration(bars: int, hist: list[int], dur_short_pct: float, dur_long_pct: float) -> str:
     if len(hist) < 3:
         return "media"
@@ -230,23 +276,8 @@ def _compute_vol_zones(
                 np.where(atr_vals >= th_high,    3,
                 np.where(atr_vals <= th_low,     1, 2)))).astype(np.int8)
     n = len(raw_codes)
-    confirmed = np.zeros(n, dtype=np.int8)
-    current = pending = pending_n = 0
-    for i in range(n):
-        r = int(raw_codes[i])
-        if r == 0:
-            confirmed[i] = current
-        elif r == current:
-            pending = pending_n = 0
-            confirmed[i] = current
-        elif r == pending:
-            pending_n += 1
-            if pending_n >= confirm_bars:
-                current = r; pending = pending_n = 0
-            confirmed[i] = current
-        else:
-            pending = r; pending_n = 1
-            confirmed[i] = current
+    confirmed = _confirm_codes(raw_codes, confirm_bars)
+
     _CODE = [None, "baja", "normal", "alta", "extrema"]
     dates_arr = df["date"].values
     valid_sorted = np.sort(valid.values)
@@ -257,27 +288,28 @@ def _compute_vol_zones(
         atr_pct_ranks[valid_mask] = (
             np.searchsorted(valid_sorted, atr_vals[valid_mask]) / n_valid * 100
         )
+    # Último rank válido acumulado hasta cada barra (para el atr_pct de la zona)
+    _valid_pos = np.where(~np.isnan(atr_pct_ranks), np.arange(n), -1)
+    _last_valid = np.maximum.accumulate(_valid_pos)
+
+    # Zonas por segmentos de `confirmed` (fechas solo en los bordes)
+    seg_starts = np.flatnonzero(np.r_[True, confirmed[1:] != confirmed[:-1]])
+    seg_ends   = np.r_[seg_starts[1:] - 1, n - 1]
     zones = []
-    for i in range(n):
-        c = int(confirmed[i])
+    for i0, i1 in zip(seg_starts, seg_ends):
+        c = int(confirmed[i0])
         if c == 0:
             continue
-        vr  = _CODE[c]
-        dt  = _date_str(dates_arr[i])
-        apr = atr_pct_ranks[i]
-        atr_pct_rank = float(apr) if not np.isnan(apr) else None
-        if not zones or zones[-1]["vol_regime"] != vr:
-            if zones:
-                zones[-1]["end"] = _date_str(dates_arr[i - 1])
-            zones.append({"start": dt, "end": dt, "vol_regime": vr,
-                          "_bars": 1, "atr_pct": round(atr_pct_rank, 1) if atr_pct_rank is not None else None})
-        else:
-            zones[-1]["_bars"] += 1
-            if atr_pct_rank is not None:
-                zones[-1]["atr_pct"] = round(atr_pct_rank, 1)
+        j = int(_last_valid[i1])
+        atr_pct = round(float(atr_pct_ranks[j]), 1) if j >= i0 else None
+        zones.append({"start": _date_str(dates_arr[i0]),
+                      "end":   _date_str(dates_arr[i1]),
+                      "vol_regime": _CODE[c],
+                      "_bars": int(i1 - i0 + 1),
+                      "atr_pct": atr_pct,
+                      "_i0": int(i0), "_i1": int(i1)})
     if not zones:
         return []
-    zones[-1]["end"] = _date_str(dates_arr[-1])
     dur_hist: dict[str, list[int]] = {"baja": [], "normal": [], "alta": [], "extrema": []}
     for z in zones[:-1]:
         dur_hist[z["vol_regime"]].append(z["_bars"])
@@ -308,56 +340,31 @@ def _compute_regime_zones(
                 np.where((s_vals >  slope_threshold_pct) & (c_vals > e_vals), 2,
                 np.where((s_vals < -slope_threshold_pct) & (c_vals < e_vals), 3, 1))).astype(np.int8)
     n = len(raw_codes)
-    confirmed = np.zeros(n, dtype=np.int8)
-    current = pending = pending_n = 0
-    for i in range(n):
-        r = int(raw_codes[i])
-        if r == 0:
-            confirmed[i] = current
-        elif r == current:
-            pending = pending_n = 0
-            confirmed[i] = current
-        elif r == pending:
-            pending_n += 1
-            if pending_n >= confirm_bars:
-                current = r; pending = pending_n = 0
-            confirmed[i] = current
-        else:
-            pending = r; pending_n = 1
-            confirmed[i] = current
+    confirmed = _confirm_codes(raw_codes, confirm_bars)
+
     _CODE = [None, "lateral", "bullish", "bearish"]
     dates_arr = df["date"].values
+    slope_filled = np.where(np.isnan(s_vals), 0.0, s_vals)
+
+    # Zonas por segmentos de `confirmed` (fechas solo en los bordes)
+    seg_starts = np.flatnonzero(np.r_[True, confirmed[1:] != confirmed[:-1]])
+    seg_ends   = np.r_[seg_starts[1:] - 1, n - 1]
     zones = []
-    for i in range(n):
-        c = int(confirmed[i])
+    for i0, i1 in zip(seg_starts, seg_ends):
+        c = int(confirmed[i0])
         if c == 0:
             continue
         regime = _CODE[c]
-        dt     = _date_str(dates_arr[i])
-        sl_val = float(s_vals[i]) if not np.isnan(s_vals[i]) else 0.0
-        if not zones or zones[-1]["regime"] != regime:
-            if zones:
-                prev = zones[-1]
-                prev["end"] = _date_str(dates_arr[i - 1])
-                prev["regime_detail"] = _regime_detail(
-                    prev["regime"], prev["_bars"], prev["_slope_last"],
-                    slope_threshold_pct, nascent_bars, strong_slope_multiplier,
-                )
-            zones.append({"start": dt, "end": dt, "regime": regime,
-                          "_bars": 1, "_slope_last": sl_val})
-        else:
-            zones[-1]["_bars"] += 1
-            zones[-1]["_slope_last"] = sl_val
-    if zones:
-        last = zones[-1]
-        last["end"] = _date_str(df.iloc[-1]["date"])
-        last["regime_detail"] = _regime_detail(
-            last["regime"], last["_bars"], last["_slope_last"],
-            slope_threshold_pct, nascent_bars, strong_slope_multiplier,
-        )
-    for z in zones:
-        z.pop("_bars", None)
-        z.pop("_slope_last", None)
+        zones.append({
+            "start": _date_str(dates_arr[i0]),
+            "end":   _date_str(dates_arr[i1]),
+            "regime": regime,
+            "regime_detail": _regime_detail(
+                regime, int(i1 - i0 + 1), float(slope_filled[i1]),
+                slope_threshold_pct, nascent_bars, strong_slope_multiplier,
+            ),
+            "_i0": int(i0), "_i1": int(i1),
+        })
     return zones
 
 
@@ -454,15 +461,25 @@ def _zones_to_series(zones: list[dict], df: pd.DataFrame, value_key: str,
         if df_period is not None:
             return pd.Series(dtype=object)
         return [None] * len(df)
-    zone_starts = [z["start"] for z in zones]
-    out = []
-    for d in target["date"]:
-        d_str = _date_str(d)
-        idx   = bisect.bisect_right(zone_starts, d_str) - 1
-        if idx >= 0 and zones[idx]["end"] >= d_str:
-            out.append(zones[idx].get(value_key))
-        else:
-            out.append(None)
+
+    if "_i0" in zones[0]:
+        # Camino rápido: las zonas traen índices del frame de origen (que es
+        # el mismo target) — llenado por slices, sin convertir fechas por barra
+        out = [None] * len(target)
+        for z in zones:
+            val = z.get(value_key)
+            out[z["_i0"]:z["_i1"] + 1] = [val] * (z["_i1"] - z["_i0"] + 1)
+    else:
+        # Camino legacy: mapeo por rango de fechas (zonas externas sin índices)
+        zone_starts = [z["start"] for z in zones]
+        out = []
+        for d in target["date"]:
+            d_str = _date_str(d)
+            idx   = bisect.bisect_right(zone_starts, d_str) - 1
+            if idx >= 0 and zones[idx]["end"] >= d_str:
+                out.append(zones[idx].get(value_key))
+            else:
+                out.append(None)
     if df_period is not None:
         return pd.Series(out, index=_period_index(df_period))
     return out
@@ -557,7 +574,7 @@ def _batch_upsert_ind(session, code: str, rows: list[dict]) -> None:
     session.execute(stmt, rows)
 
 
-_IND_BATCH = 500  # filas por INSERT al escribir series de indicadores
+_IND_BATCH = 2000  # filas por INSERT al escribir series de indicadores
 
 
 def _series_dates_values(values, df) -> tuple[list, list]:
@@ -1921,6 +1938,11 @@ def rebuild_indicator_history(progress_cb=None) -> dict:
 
 # ── Funciones públicas para gráficos ─────────────────────────────────────────
 
+def _strip_zone_internals(zones: list) -> list:
+    """Quita las claves internas (_i0/_i1) antes de mandar zonas al browser."""
+    return [{k: v for k, v in z.items() if not k.startswith("_")} for z in zones]
+
+
 def get_regime_zones_for_chart(df: "pd.DataFrame", cfg=None) -> dict:
     if cfg is None:
         cfg = _get_regime_config()
@@ -1929,9 +1951,9 @@ def get_regime_zones_for_chart(df: "pd.DataFrame", cfg=None) -> dict:
     df_w = _resample_ohlc(df, "W")
     df_m = _resample_ohlc(df, "M")
     return {
-        "D": _compute_regime_zones(df,   cfg.ema_period_d, sl, st_pct, cb, nb, sm),
-        "W": _compute_regime_zones(df_w, cfg.ema_period_w, sl, st_pct, cb, nb, sm),
-        "M": _compute_regime_zones(df_m, cfg.ema_period_m, sl, st_pct, cb, nb, sm),
+        "D": _strip_zone_internals(_compute_regime_zones(df,   cfg.ema_period_d, sl, st_pct, cb, nb, sm)),
+        "W": _strip_zone_internals(_compute_regime_zones(df_w, cfg.ema_period_w, sl, st_pct, cb, nb, sm)),
+        "M": _strip_zone_internals(_compute_regime_zones(df_m, cfg.ema_period_m, sl, st_pct, cb, nb, sm)),
     }
 
 
@@ -1946,9 +1968,9 @@ def get_vol_zones_for_chart(df: "pd.DataFrame", cfg=None) -> dict:
     df_w = _resample_ohlc(df, "W")
     df_m = _resample_ohlc(df, "M")
     return {
-        "D": _compute_vol_zones(df,   **vol_args),
-        "W": _compute_vol_zones(df_w, **vol_args),
-        "M": _compute_vol_zones(df_m, **vol_args),
+        "D": _strip_zone_internals(_compute_vol_zones(df,   **vol_args)),
+        "W": _strip_zone_internals(_compute_vol_zones(df_w, **vol_args)),
+        "M": _strip_zone_internals(_compute_vol_zones(df_m, **vol_args)),
     }
 
 
