@@ -30,6 +30,13 @@ def _fmt_time(dt) -> str:
 _state = {op: _blank() for op in _OPS}
 
 
+def _any_running() -> bool:
+    return any(st["running"] for st in _state.values())
+
+
+_BUSY_MSG = "Hay otra operación en curso. Esperá a que termine antes de lanzar esta."
+
+
 # ── Status por operación ──────────────────────────────────────────────────────
 
 def _fmt_counts(ok, total, last):
@@ -224,6 +231,10 @@ def _register(op_id):
         if not n:
             return no_update, no_update, no_update, no_update, no_update
 
+        # Exclusión mutua: una sola operación del Centro de Datos a la vez
+        if _any_running():
+            return no_update, no_update, _BUSY_MSG, no_update, no_update
+
         extra_val = bool(args[0]) if args else False
         new_only  = extra_val if has_new_only else False
 
@@ -242,7 +253,9 @@ def _register(op_id):
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 
-        _state[op_id].update(_blank())
+        # running=True sincrónico: el guard y los botones lo ven antes de que
+        # el thread arranque (evita la ventana de carrera)
+        _state[op_id].update(_blank(), running=True, msg="Iniciando...")
         threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
         return False, True, "Iniciando...", 0, _BAR_RUNNING
 
@@ -273,6 +286,9 @@ def _register(op_id):
             if not n:
                 return no_update, no_update, no_update, no_update, no_update, no_update
 
+            if _any_running():
+                return False, no_update, no_update, _BUSY_MSG, no_update, no_update
+
             if op_id == "prices":
                 from app.services.price_service import redownload_prices as fn
             elif op_id == "fund":
@@ -286,7 +302,7 @@ def _register(op_id):
                 from app.services.synthetic_service import compute_all_synthetic
                 fn = functools.partial(compute_all_synthetic, full=True)
 
-            _state[op_id].update(_blank())
+            _state[op_id].update(_blank(), running=True, msg="Iniciando...")
             threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
             return False, False, True, "Iniciando...", 0, _BAR_RUNNING
 
@@ -377,4 +393,17 @@ def _register(op_id):
 
 for _op in _OPS:
     _register(_op)
+
+
+# ── Exclusión mutua visual: con una operación corriendo, TODOS los botones se
+#    deshabilitan (el guard de _start/_start_redownload es la protección real) ──
+@callback(
+    *[Output(f"dc-btn-{_op}", "disabled", allow_duplicate=True) for _op in _OPS],
+    *[Output(f"dc-btn-redownload-{_op}", "disabled") for _op in _OPS],
+    *[Input(f"dc-interval-{_op}", "disabled") for _op in _OPS],
+    prevent_initial_call="initial_duplicate",
+)
+def sync_buttons_mutex(*_):
+    busy = _any_running()
+    return tuple([busy] * (2 * len(_OPS)))
 
