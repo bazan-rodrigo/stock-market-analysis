@@ -570,12 +570,14 @@ def _series_dates_values(values, df) -> tuple[list, list]:
 
 def _write_ind_series(s, code: str, asset_id: int,
                       dates_list: list, vals_list: list,
-                      existing: set | None) -> int:
+                      existing: set | None, commit: bool = True) -> int:
     """Escribe la serie de un indicador para un activo. Devuelve filas escritas.
 
     existing=None → reemplazo total: borra las filas del activo y reinserta.
     existing=set  → inserta solo fechas faltantes; la última fecha se
     recalcula siempre (el último precio es preliminar y pudo cambiar).
+    commit=False deja el commit a cargo del caller (para agrupar por lote:
+    un commit por activo×indicador son miles de fsyncs en un delta masivo).
     """
     if existing is None:
         t = get_ind_table(code)
@@ -592,12 +594,14 @@ def _write_ind_series(s, code: str, asset_id: int,
         batch.append({"asset_id": asset_id, "date": d, "value": v})
         if len(batch) >= _IND_BATCH:
             _batch_upsert_ind(s, code, batch)
-            s.commit()
+            if commit:
+                s.commit()
             written += len(batch)
             batch = []
     if batch:
         _batch_upsert_ind(s, code, batch)
-        s.commit()
+        if commit:
+            s.commit()
         written += len(batch)
     return written
 
@@ -919,11 +923,16 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
             )
             dates_list, vals_list = _series_dates_values(values, df)
             existing  = None if force else existing_by_asset.get(asset_id, set())
+            # commit por chunk en delta (evita un fsync por activo×indicador);
+            # en force los batches son grandes y conviene commitear por activo
             inserted += _write_ind_series(s, code, asset_id,
-                                          dates_list, vals_list, existing)
+                                          dates_list, vals_list, existing,
+                                          commit=force)
 
             if asset_tick:
                 asset_tick()
+
+        s.commit()   # cierra el lote del chunk (no-op si force ya commiteó)
 
     return {"inserted": inserted, "code": code}
 
@@ -1541,6 +1550,7 @@ def _compute_current_indicator(code: str, asset_ids: list,
     compute_fn   = _CURRENT_FNS[code]
     current_only = code in _CURRENT_ONLY_CODES
 
+    pending = 0
     for asset_id in asset_ids:
         df = price_cache.get(asset_id)
         if df is None or len(df) < _MIN_ROWS:
@@ -1562,23 +1572,34 @@ def _compute_current_indicator(code: str, asset_ids: list,
                 close_cache=close_cache,
                 sr_cfg=sr_cfg,
             )
-            if val is not None and pd.notna(val):
-                if current_only:
-                    v_num = float(val) if isinstance(val, (int, float, np.floating)) else None
-                    v_str = str(val) if v_num is None else None
-                    _upsert_current_ind(s, asset_id, code, value_num=v_num, value_str=v_str)
-                else:
-                    _upsert_ind(s, code, asset_id, asset_date, val)
-            s.commit()
+            # Savepoint por activo: un error rollbackea SOLO este activo sin
+            # perder los anteriores; el commit real (fsync) sale por lote
+            with s.begin_nested():
+                if val is not None and pd.notna(val):
+                    if current_only:
+                        v_num = float(val) if isinstance(val, (int, float, np.floating)) else None
+                        v_str = str(val) if v_num is None else None
+                        _upsert_current_ind(s, asset_id, code, value_num=v_num, value_str=v_str)
+                    else:
+                        _upsert_ind(s, code, asset_id, asset_date, val)
+            pending += 1
+            if pending >= _EXISTING_CHUNK:
+                s.commit()
+                pending = 0
         except Exception as exc:
             logger.warning("Error valor vigente code=%s asset_id=%d: %s", code, asset_id, exc)
-            s.rollback()
+            if not s.is_active:
+                # sesión invalidada (no fue solo el savepoint): descartar lote
+                s.rollback()
+                pending = 0
             if error_collector is not None:
                 with collector_lock:
                     error_collector.setdefault(asset_id, []).append(f"{code}: {exc}")
         finally:
             if asset_tick:
                 asset_tick()
+
+    s.commit()   # cierra el último lote pendiente
 
 
 def _compute_current_indicator_worker(code, asset_ids,
