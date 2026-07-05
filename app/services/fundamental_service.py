@@ -705,6 +705,11 @@ def _backfill_fund_indicator(
     is_daily = code in _FUND_DAILY_CODES
     inserted = 0
 
+    if force:
+        # TRUNCATE: instantáneo y sin undo log (vs DELETE por activo)
+        s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
+        s.commit()
+
     for c0 in range(0, len(asset_ids), _EXISTING_CHUNK):
         chunk = asset_ids[c0:c0 + _EXISTING_CHUNK]
 
@@ -749,7 +754,6 @@ def _backfill_fund_indicator(
                 price_closes    = np.array([float(r[1]) for r in price_rows])
 
                 if force:
-                    s.execute(t.delete().where(t.c.asset_id == asset_id))
                     target = set(r[0] for r in price_rows)
                 else:
                     target = {r[0] for r in price_rows} - existing
@@ -770,7 +774,6 @@ def _backfill_fund_indicator(
                     inserted += len(batch)
             else:
                 if force:
-                    s.execute(t.delete().where(t.c.asset_id == asset_id))
                     target = {q.period_date for q in quarters}
                 else:
                     target = {q.period_date for q in quarters} - existing
@@ -832,6 +835,12 @@ def _backfill_fund_daily_all(
     tables = {code: get_ind_table(code) for code in daily_codes}
     inserted = 0
 
+    if force:
+        # TRUNCATE: instantáneo y sin undo log (vs DELETE por activo)
+        for t in tables.values():
+            s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
+        s.commit()
+
     for c0 in range(0, len(asset_ids), _EXISTING_CHUNK):
         chunk = asset_ids[c0:c0 + _EXISTING_CHUNK]
 
@@ -862,8 +871,6 @@ def _backfill_fund_daily_all(
             price_closes    = np.array([float(r[1]) for r in price_rows])
 
             if force:
-                for code, t in tables.items():
-                    s.execute(t.delete().where(t.c.asset_id == asset_id))
                 all_dates = {r[0] for r in price_rows}
                 targets   = {code: all_dates for code in daily_codes}
             else:

@@ -878,6 +878,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     Backfill histórico de un indicador específico para todos los activos.
     Escribe en la tabla ind_{code}.
 
+    force=True trunca la tabla del indicador y la reconstruye completa.
     Si el indicador tiene full_sample=True (estadísticos sobre toda la serie,
     como percentiles de ATR), en delta la serie se recalcula completa pero
     solo se escriben los valores que cambiaron respecto de lo guardado.
@@ -901,6 +902,14 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     regime_cfg = _get_regime_config()
     vol_cfg    = _get_volatility_config()
     asset_ids  = [r[0] for r in s.query(Asset.id).all()]
+
+    if force:
+        # TRUNCATE en lugar de DELETE por activo: instantáneo y sin undo log
+        # (millones de filas). Trade-offs asumidos: la tabla queda vacía
+        # mientras se rellena, y si la corrida falla hay que re-correr el
+        # rebuild (TRUNCATE es DDL, no se rollbackea).
+        s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
+        s.commit()
 
     inserted = 0
     rows_since_commit = 0
@@ -955,7 +964,9 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 price_cache=price_cache, best_sma_cache=best_sma_cache,
             )
             dates_list, vals_list = _series_dates_values(values, df)
-            existing  = (None if force
+            # force: la tabla ya fue truncada → set() vacío escribe todo
+            # sin el DELETE por activo del modo existing=None
+            existing  = (set() if force
                          else existing_by_asset.get(asset_id, {} if full_sample else set()))
             written   = _write_ind_series(s, code, asset_id,
                                           dates_list, vals_list, existing)
