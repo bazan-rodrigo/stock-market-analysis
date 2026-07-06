@@ -1158,6 +1158,10 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     inserted = 0
     rows_since_commit = 0
 
+    # Diagnóstico del camino rápido del delta: cuántos activos lo usaron y
+    # por qué cayeron al lento los demás (hueco, checksum, benchmark).
+    path_counts = {"fast": 0, "gap": 0, "checksum": 0, "bench": 0}
+
     for chunk_start in range(0, len(asset_ids), _EXISTING_CHUNK):
         chunk = asset_ids[chunk_start:chunk_start + _EXISTING_CHUNK]
 
@@ -1218,15 +1222,21 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
             if force:
                 existing = set()
             elif tail_mode:
-                stale = needs_bench and asset_id in bench_stale
+                reason = None
                 k = None
-                if not stale:
+                if needs_bench and asset_id in bench_stale:
+                    reason = "bench"
+                else:
                     k = _delta_tail_start(dates_list, tail_stats.get(asset_id), tail_mode)
-                    if k is not None and needs_checksum:
-                        if _series_checksum(vals_list[:k]) != checksum_stored.get(asset_id):
-                            stale = True
-                            k = None
+                    if k is None:
+                        reason = "gap"
+                    elif needs_checksum and (
+                        _series_checksum(vals_list[:k]) != checksum_stored.get(asset_id)
+                    ):
+                        k = None
+                        reason = "checksum"
                 if k is None:
+                    path_counts[reason] += 1
                     # activo nuevo, con huecos, benchmark o checksum cambiado:
                     # camino lento solo para él (dict-compare si necesita
                     # comparar valores, set si solo hay que rellenar huecos)
@@ -1237,6 +1247,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                         existing = {d for (d,) in s.execute(
                             sa.select(t.c.date).where(t.c.asset_id == asset_id))}
                 else:
+                    path_counts["fast"] += 1
                     dates_list, vals_list = dates_list[k:], vals_list[k:]
                     existing = set()
             else:
@@ -1261,7 +1272,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     if needs_checksum:
         _upsert_ind_asset_meta(s, code, checksum_by_asset=checksum_by_asset)
 
-    return {"inserted": inserted, "code": code}
+    return {"inserted": inserted, "code": code, "path_counts": path_counts}
 
 
 def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
@@ -1376,6 +1387,13 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 inserted += res.get("inserted", 0)
                 if res.get("seconds") is not None:
                     durations[code] = res["seconds"]
+                pc = res.get("path_counts")
+                if pc and sum(pc.values()):
+                    logger.info(
+                        "Backfill %s (%.1fs): rápido=%d gap=%d checksum=%d bench=%d",
+                        code, res.get("seconds", 0),
+                        pc["fast"], pc["gap"], pc["checksum"], pc["bench"],
+                    )
                 if "error" in res:
                     errors.append({"code": code, "error": res["error"]})
             except Exception as exc:
