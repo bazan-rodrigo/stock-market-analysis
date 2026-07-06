@@ -9,7 +9,6 @@ import pandas as pd
 
 from app.database import get_session
 from app.models import Asset, FundamentalSource, ImportLog, PriceSource
-from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +112,9 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
                 detail = "Ticker ya existe en la base de datos"
                 raise _Skipped(detail)
 
-            # Validar y autocompletar desde la fuente
+            # Validar y autocompletar desde la fuente (import diferido: evita
+            # cargar yfinance solo para usar los helpers puros del módulo)
+            from app.sources.registry import get_source
             source = get_source(source_name)
             val_result = source.validate_ticker(ticker)
             if not val_result.valid:
