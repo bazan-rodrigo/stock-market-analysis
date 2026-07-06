@@ -831,6 +831,66 @@ _BACKFILL_FNS: dict[str, callable] = {
 }
 
 
+# Códigos aptos para el camino rápido del delta: el valor de una fecha, una
+# vez escrito, no cambia con barras nuevas — así que si el historial guardado
+# está completo alcanza con escribir la cola (>= última fecha guardada).
+# Los full_sample (volatility_*, atr_percentile_*) quedan afuera: un dato
+# nuevo reclasifica la historia y necesitan comparar la serie entera.
+#   "series": la serie no tiene huecos legítimos entre la primera y la última
+#             fecha guardada; se valida contra la grilla y ante un hueco
+#             histórico el activo cae al camino lento (que lo rellena).
+#   "zones":  la serie tiene Nones legítimos (barras sin zona confirmada);
+#             no se puede validar contra la grilla, se asume cola-solamente
+#             (los huecos viejos solo cambiarían si cambian los precios ya
+#             descargados, y ese caso lo cubre el rebuild force).
+_DELTA_TAIL_MODE: dict[str, str] = {
+    "return_daily":             "series",
+    "return_monthly":           "series",
+    "return_quarterly":         "series",
+    "return_yearly":            "series",
+    "return_52w":               "series",
+    "dist_sma20":               "series",
+    "dist_sma50":               "series",
+    "dist_sma200":              "series",
+    "rsi_daily":                "series",
+    "rsi_weekly":               "series",
+    "rsi_monthly":              "series",
+    "dist_optimal_sma_daily":   "series",
+    "dist_optimal_sma_weekly":  "series",
+    "dist_optimal_sma_monthly": "series",
+    "relative_strength_52w":    "series",
+    "trend_daily":              "zones",
+    "trend_weekly":             "zones",
+    "trend_monthly":            "zones",
+}
+
+
+def _delta_tail_start(dates_list: list, stat, mode: str):
+    """Decide el camino del delta para un activo.
+
+    stat = (min_fecha, max_fecha, cantidad) de las filas ya guardadas.
+    Devuelve el índice de dates_list desde el cual escribir (la cola, que
+    incluye la última fecha guardada: pudo haberse calculado con un precio
+    preliminar), o None si corresponde el camino lento: activo sin filas,
+    hueco histórico detectado, o precios por detrás de lo guardado.
+    """
+    if not stat or not stat[2] or not dates_list:
+        return None
+    mn, mx, cnt = stat
+    if mode != "zones":
+        # Sin huecos ⇔ cada fecha de la grilla entre mn y mx está guardada.
+        # Un NaN legítimo a mitad de serie (p.ej. benchmark sin datos en
+        # relative_strength) también dispara el camino lento: correcto pero
+        # más lento, solo para ese activo.
+        lo = bisect.bisect_left(dates_list, mn)
+        hi = bisect.bisect_right(dates_list, mx)
+        if hi - lo != cnt:
+            return None
+    if dates_list[-1] < mx:
+        return None
+    return bisect.bisect_left(dates_list, mx)
+
+
 # ── Backfill por indicador ────────────────────────────────────────────────────
 
 def _load_all_prices(_s) -> dict:
@@ -953,6 +1013,9 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     Si el indicador tiene full_sample=True (estadísticos sobre toda la serie,
     como percentiles de ATR), en delta la serie se recalcula completa pero
     solo se escriben los valores que cambiaron respecto de lo guardado.
+    Para los códigos de _DELTA_TAIL_MODE el delta usa el camino rápido:
+    si el historial guardado del activo no tiene huecos, escribe solo la
+    cola (>= última fecha guardada) sin prefetchear las fechas existentes.
 
     df_w_cache / df_m_cache permiten reutilizar resamples precalculados entre
     los workers (sin ellos, cada indicador resamplearía los mismos precios).
@@ -974,6 +1037,18 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     vol_cfg    = _get_volatility_config()
     asset_ids  = [r[0] for r in s.query(Asset.id).all()]
 
+    # Camino rápido del delta (ver _DELTA_TAIL_MODE): el prefetch pasa de
+    # traer millones de (fecha[, valor]) a 3 agregados por activo, y por
+    # activo se escribe solo la cola en lugar de filtrar la serie entera.
+    tail_mode  = None if (force or full_sample) else _DELTA_TAIL_MODE.get(code)
+    tail_stats: dict = {}
+    if tail_mode:
+        tail_stats = {aid: (mn, mx, cnt) for aid, mn, mx, cnt in s.execute(
+            sa.select(t.c.asset_id, sa.func.min(t.c.date),
+                      sa.func.max(t.c.date), sa.func.count())
+            .group_by(t.c.asset_id)
+        ).fetchall()}
+
     if force:
         # TRUNCATE en lugar de DELETE por activo: instantáneo y sin undo log
         # (millones de filas). Trade-offs asumidos: la tabla queda vacía
@@ -989,9 +1064,10 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
         chunk = asset_ids[chunk_start:chunk_start + _EXISTING_CHUNK]
 
         # Fechas existentes de todo el chunk en una sola query (evita 1 por activo);
-        # para full_sample se trae también el valor, para escribir solo cambios
+        # para full_sample se trae también el valor, para escribir solo cambios.
+        # Con tail_mode no se prefetchea nada: alcanza con tail_stats.
         existing_by_asset: dict = {}
-        if not force:
+        if not force and not tail_mode:
             if full_sample:
                 for aid, d, v in s.execute(
                     sa.select(t.c.asset_id, t.c.date, t.c.value)
@@ -1037,8 +1113,19 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
             dates_list, vals_list = _series_dates_values(values, df)
             # force: la tabla ya fue truncada → set() vacío escribe todo
             # sin el DELETE por activo del modo existing=None
-            existing  = (set() if force
-                         else existing_by_asset.get(asset_id, {} if full_sample else set()))
+            if force:
+                existing = set()
+            elif tail_mode:
+                k = _delta_tail_start(dates_list, tail_stats.get(asset_id), tail_mode)
+                if k is None:
+                    # activo nuevo o con huecos: camino lento solo para él
+                    existing = {d for (d,) in s.execute(
+                        sa.select(t.c.date).where(t.c.asset_id == asset_id))}
+                else:
+                    dates_list, vals_list = dates_list[k:], vals_list[k:]
+                    existing = set()
+            else:
+                existing = existing_by_asset.get(asset_id, {} if full_sample else set())
             written   = _write_ind_series(s, code, asset_id,
                                           dates_list, vals_list, existing)
             inserted          += written
