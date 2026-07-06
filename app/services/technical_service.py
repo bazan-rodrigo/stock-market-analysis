@@ -4,6 +4,7 @@ Calcula métricas técnicas por activo y las persiste en las tablas ind_{code}
 (serie temporal por indicador) y current_indicator_values (valores vigentes).
 """
 import bisect
+import hashlib
 import logging
 import math
 from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed
@@ -834,8 +835,6 @@ _BACKFILL_FNS: dict[str, callable] = {
 # Códigos aptos para el camino rápido del delta: el valor de una fecha, una
 # vez escrito, no cambia con barras nuevas — así que si el historial guardado
 # está completo alcanza con escribir la cola (>= última fecha guardada).
-# Los full_sample (volatility_*, atr_percentile_*) quedan afuera: un dato
-# nuevo reclasifica la historia y necesitan comparar la serie entera.
 #   "series": la serie no tiene huecos legítimos entre la primera y la última
 #             fecha guardada; se valida contra la grilla y ante un hueco
 #             histórico el activo cae al camino lento (que lo rellena).
@@ -843,6 +842,10 @@ _BACKFILL_FNS: dict[str, callable] = {
 #             no se puede validar contra la grilla, se asume cola-solamente
 #             (los huecos viejos solo cambiarían si cambian los precios ya
 #             descargados, y ese caso lo cubre el rebuild force).
+# volatility_*/atr_percentile_* (full_sample: un dato nuevo puede reclasificar
+# historia vieja) también entran acá, pero con una compuerta extra — ver
+# _CHECKSUM_DEP_CODES — que verifica que el prefijo histórico no haya cambiado
+# antes de confiar en la cola.
 _DELTA_TAIL_MODE: dict[str, str] = {
     "return_daily":             "series",
     "return_monthly":           "series",
@@ -862,6 +865,12 @@ _DELTA_TAIL_MODE: dict[str, str] = {
     "trend_daily":              "zones",
     "trend_weekly":             "zones",
     "trend_monthly":            "zones",
+    "atr_percentile_daily":     "series",
+    "atr_percentile_weekly":    "series",
+    "atr_percentile_monthly":   "series",
+    "volatility_daily":         "zones",
+    "volatility_weekly":        "zones",
+    "volatility_monthly":       "zones",
 }
 
 
@@ -907,19 +916,50 @@ def _stale_bench_assets(bench_current: dict, bench_stored: dict) -> set:
             if bid != bench_stored.get(aid, object())}
 
 
-def _upsert_ind_asset_meta(s, code: str, bench_by_asset: dict) -> None:
-    """Persiste el benchmark_id usado en este cálculo, por activo.
-
-    Referencia para la próxima corrida: si Asset.benchmark_id cambió respecto
-    a lo guardado acá, ese activo cae al camino lento (dict-compare) aunque
-    su historial no tenga huecos."""
-    if not bench_by_asset:
+def _upsert_ind_asset_meta(s, code: str, *, bench_by_asset: dict | None = None,
+                           checksum_by_asset: dict | None = None) -> None:
+    """Persiste, por activo, el metadato de invalidación de este código:
+    el benchmark usado (relative_strength_52w, ver _BENCHMARK_DEP_CODES) o
+    el checksum del prefijo histórico calculado (volatility_*/atr_percentile_*,
+    ver _CHECKSUM_DEP_CODES). Referencia para la próxima corrida: si difiere
+    de lo vigente, ese activo cae al camino lento (dict-compare) aunque su
+    historial no tenga huecos."""
+    data = bench_by_asset or checksum_by_asset
+    if not data:
         return
-    sql = ("INSERT INTO ind_asset_meta (asset_id, code, benchmark_id) VALUES (%s, %s, %s)"
-           " ON DUPLICATE KEY UPDATE benchmark_id = VALUES(benchmark_id)")
-    rows = [(aid, code, bid) for aid, bid in bench_by_asset.items()]
+    col = "benchmark_id" if bench_by_asset else "checksum"
+    sql = (f"INSERT INTO ind_asset_meta (asset_id, code, {col}) VALUES (%s, %s, %s)"
+           f" ON DUPLICATE KEY UPDATE {col} = VALUES({col})")
+    rows = [(aid, code, val) for aid, val in data.items()]
     s.connection().exec_driver_sql(sql, rows)
     s.commit()
+
+
+# Códigos full_sample: un dato nuevo puede reclasificar historia vieja
+# (percentiles/zonas sobre toda la muestra), pero eso solo pasa de verdad
+# cuando el prefijo histórico calculado realmente cambió. _series_checksum
+# permite comprobarlo sin leer lo guardado: si el hash del prefijo coincide
+# con el de la corrida anterior, el camino rápido de cola es seguro; si no
+# coincide (o no hay checksum guardado todavía), cae al dict-compare de
+# siempre — pero solo para ese activo.
+_CHECKSUM_DEP_CODES = frozenset({
+    "volatility_daily", "volatility_weekly", "volatility_monthly",
+    "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
+})
+
+
+def _series_checksum(vals: list) -> str:
+    """Hash estable de una serie de valores (numéricos o string; None/NaN se
+    normalizan al mismo marcador para que el hash no dependa del tipo)."""
+    if not vals:
+        return ""
+    parts = []
+    for v in vals:
+        if v is None or (isinstance(v, float) and math.isnan(v)):
+            parts.append("")
+        else:
+            parts.append(str(v))
+    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
 
 
 # ── Backfill por indicador ────────────────────────────────────────────────────
@@ -1071,7 +1111,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     # Camino rápido del delta (ver _DELTA_TAIL_MODE): el prefetch pasa de
     # traer millones de (fecha[, valor]) a 3 agregados por activo, y por
     # activo se escribe solo la cola en lugar de filtrar la serie entera.
-    tail_mode  = None if (force or full_sample) else _DELTA_TAIL_MODE.get(code)
+    tail_mode  = None if force else _DELTA_TAIL_MODE.get(code)
     tail_stats: dict = {}
     if tail_mode:
         tail_stats = {aid: (mn, mx, cnt) for aid, mn, mx, cnt in s.execute(
@@ -1093,6 +1133,19 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 .where(IndAssetMeta.code == code)
             ).fetchall())
             bench_stale = _stale_bench_assets(bench_current, bench_stored)
+
+    # Invalidación por checksum (ver _CHECKSUM_DEP_CODES): full_sample sin
+    # prefetch completo — se compara el hash del prefijo recién calculado
+    # contra el de la corrida anterior antes de confiar en la cola.
+    needs_checksum      = code in _CHECKSUM_DEP_CODES
+    needs_dict_fallback = needs_bench or needs_checksum
+    checksum_stored:  dict = {}
+    checksum_by_asset: dict = {}
+    if needs_checksum and tail_mode:
+        checksum_stored = dict(s.execute(
+            sa.select(IndAssetMeta.asset_id, IndAssetMeta.checksum)
+            .where(IndAssetMeta.code == code)
+        ).fetchall())
 
     if force:
         # TRUNCATE en lugar de DELETE por activo: instantáneo y sin undo log
@@ -1156,25 +1209,36 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 price_cache=price_cache, best_sma_cache=best_sma_cache,
             )
             dates_list, vals_list = _series_dates_values(values, df)
+            if needs_checksum:
+                # se guarda siempre (force, cola o dict-compare) para que el
+                # próximo delta arranque con el checksum al día
+                checksum_by_asset[asset_id] = _series_checksum(vals_list[:-1])
             # force: la tabla ya fue truncada → set() vacío escribe todo
             # sin el DELETE por activo del modo existing=None
             if force:
                 existing = set()
             elif tail_mode:
-                if asset_id in bench_stale:
-                    # benchmark cambiado: toda la historia guardada puede
-                    # diferir, no solo la cola (dict-compare, como full_sample)
-                    existing = {d: v for d, v in s.execute(
-                        sa.select(t.c.date, t.c.value).where(t.c.asset_id == asset_id))}
-                else:
+                stale = needs_bench and asset_id in bench_stale
+                k = None
+                if not stale:
                     k = _delta_tail_start(dates_list, tail_stats.get(asset_id), tail_mode)
-                    if k is None:
-                        # activo nuevo o con huecos: camino lento solo para él
+                    if k is not None and needs_checksum:
+                        if _series_checksum(vals_list[:k]) != checksum_stored.get(asset_id):
+                            stale = True
+                            k = None
+                if k is None:
+                    # activo nuevo, con huecos, benchmark o checksum cambiado:
+                    # camino lento solo para él (dict-compare si necesita
+                    # comparar valores, set si solo hay que rellenar huecos)
+                    if needs_dict_fallback:
+                        existing = {d: v for d, v in s.execute(
+                            sa.select(t.c.date, t.c.value).where(t.c.asset_id == asset_id))}
+                    else:
                         existing = {d for (d,) in s.execute(
                             sa.select(t.c.date).where(t.c.asset_id == asset_id))}
-                    else:
-                        dates_list, vals_list = dates_list[k:], vals_list[k:]
-                        existing = set()
+                else:
+                    dates_list, vals_list = dates_list[k:], vals_list[k:]
+                    existing = set()
             else:
                 existing = existing_by_asset.get(asset_id, {} if full_sample else set())
             written   = _write_ind_series(s, code, asset_id,
@@ -1193,7 +1257,9 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
         rows_since_commit = 0
 
     if needs_bench:
-        _upsert_ind_asset_meta(s, code, bench_current)
+        _upsert_ind_asset_meta(s, code, bench_by_asset=bench_current)
+    if needs_checksum:
+        _upsert_ind_asset_meta(s, code, checksum_by_asset=checksum_by_asset)
 
     return {"inserted": inserted, "code": code}
 

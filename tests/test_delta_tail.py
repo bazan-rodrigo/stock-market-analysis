@@ -11,8 +11,8 @@ from datetime import date, timedelta
 import pytest
 
 from app.services.technical_service import (
-    _BACKFILL_FNS, _BENCHMARK_DEP_CODES, _DELTA_TAIL_MODE, _delta_tail_start,
-    _pairs_to_write, _stale_bench_assets,
+    _BACKFILL_FNS, _BENCHMARK_DEP_CODES, _CHECKSUM_DEP_CODES, _DELTA_TAIL_MODE,
+    _delta_tail_start, _pairs_to_write, _series_checksum, _stale_bench_assets,
 )
 
 
@@ -104,17 +104,52 @@ def test_todo_codigo_tail_tiene_funcion_de_backfill():
         assert code in _BACKFILL_FNS, code
 
 
-def test_full_sample_no_esta_en_tail_mode():
-    # volatility_* y atr_percentile_* reclasifican historia: nunca cola-solamente
-    for code in _DELTA_TAIL_MODE:
-        assert not code.startswith("volatility")
-        assert not code.startswith("atr_percentile")
-
-
-def test_benchmark_dep_codes_estan_en_tail_mode():
+def test_benchmark_y_checksum_dep_codes_estan_en_tail_mode():
     # el chequeo de staleness solo tiene sentido para códigos con camino rápido
-    for code in _BENCHMARK_DEP_CODES:
+    for code in _BENCHMARK_DEP_CODES | _CHECKSUM_DEP_CODES:
         assert code in _DELTA_TAIL_MODE
+
+
+def test_checksum_dep_codes_son_los_full_sample():
+    # volatility_* y atr_percentile_* reclasifican historia (full_sample):
+    # el camino rápido necesita la compuerta de checksum, no alcanza con
+    # "sin huecos" como en el resto
+    assert _CHECKSUM_DEP_CODES == {
+        "volatility_daily", "volatility_weekly", "volatility_monthly",
+        "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
+    }
+    # volatility_* tiene Nones legítimos (zonas sin confirmar); atr_percentile
+    # es una serie contigua una vez pasado el warm-up
+    for code in _CHECKSUM_DEP_CODES:
+        expected = "zones" if code.startswith("volatility") else "series"
+        assert _DELTA_TAIL_MODE[code] == expected
+
+
+# ── _series_checksum: hash del prefijo histórico ─────────────────────────────
+
+def test_checksum_mismos_valores_mismo_hash():
+    a = [1.0, 2.0, "alta_larga", None]
+    b = [1.0, 2.0, "alta_larga", None]
+    assert _series_checksum(a) == _series_checksum(b)
+
+
+def test_checksum_cambia_si_cambia_un_valor():
+    a = [1.0, 2.0, 3.0]
+    b = [1.0, 2.5, 3.0]
+    assert _series_checksum(a) != _series_checksum(b)
+
+
+def test_checksum_none_y_nan_son_equivalentes():
+    assert _series_checksum([1.0, None, 3.0]) == _series_checksum([1.0, float("nan"), 3.0])
+
+
+def test_checksum_distingue_bordes_entre_valores():
+    # sin separador, ("1","23") y ("12","3") colisionarían al concatenar
+    assert _series_checksum(["1", "23"]) != _series_checksum(["12", "3"])
+
+
+def test_checksum_vacio_es_string_vacio():
+    assert _series_checksum([]) == ""
 
 
 # ── _stale_bench_assets: invalidación por cambio de benchmark ────────────────
