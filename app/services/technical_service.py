@@ -1997,6 +1997,21 @@ def _refresh_group_scores() -> None:
         logger.warning("Error refrescando scores de grupo: %s", exc)
 
 
+def _announce_worker_union(progress_cb, s, n_assets: int,
+                           current_first: bool) -> None:
+    """Anuncia la unión de workers de ambas fases (vigentes + backfill) al
+    inicio del proceso, para que la lista del panel no crezca al cambiar de
+    fase. Los __init__ de cada fase después no duplican (setdefault)."""
+    defs = s.query(IndicatorDefinition).filter(
+        IndicatorDefinition.keep_history.is_(True)
+    ).order_by(IndicatorDefinition.id).all()
+    hist = [d.code for d in defs if d.code in _BACKFILL_FNS]
+    cur  = sorted(_CURRENT_ONLY_CODES, key=_cost_rank, reverse=True)
+    codes = (cur + hist) if current_first else (hist + cur)
+    progress_cb(0, len(codes) * n_assets,
+                f"__init__:{n_assets}:{','.join(codes)}")
+
+
 def update_indicator_history(progress_cb=None) -> dict:
     """Recomputa los indicadores vigentes sin historia (best_*, drawdowns, S/R)
     y completa huecos históricos de los demás (backfill delta).
@@ -2008,6 +2023,9 @@ def update_indicator_history(progress_cb=None) -> dict:
         progress_cb(0, 1, "Cargando precios en memoria...")
     price_cache_full = _load_all_prices(s)
     snap_caches      = _derive_recent_caches(price_cache_full)
+    if progress_cb:
+        _announce_worker_union(progress_cb, s, len(price_cache_full),
+                               current_first=True)
 
     r1 = recompute_current_indicators(progress_cb=progress_cb,
                                  codes=_CURRENT_ONLY_CODES,
@@ -2027,6 +2045,9 @@ def rebuild_indicator_history(progress_cb=None) -> dict:
         progress_cb(0, 1, "Cargando precios en memoria...")
     price_cache_full = _load_all_prices(s)
     snap_caches      = _derive_recent_caches(price_cache_full)
+    if progress_cb:
+        _announce_worker_union(progress_cb, s, len(price_cache_full),
+                               current_first=False)
 
     r1 = backfill_all_indicator_values(progress_cb=progress_cb, force=True,
                                        price_cache=price_cache_full)
