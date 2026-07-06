@@ -17,7 +17,7 @@ from sqlalchemy.dialects.mysql import insert as _mysql_insert
 from app.database import engine, get_session
 from app.models import Asset, DrawdownConfig, Price, RegimeConfig, VolatilityConfig
 from app.models.indicator_definition import IndicatorDefinition
-from app.models.indicator_store import CurrentIndicatorValue, get_ind_table
+from app.models.indicator_store import CurrentIndicatorValue, IndAssetMeta, get_ind_table
 
 from app.services import sr_service
 
@@ -891,6 +891,37 @@ def _delta_tail_start(dates_list: list, stat, mode: str):
     return bisect.bisect_left(dates_list, mx)
 
 
+# Códigos cuyo valor histórico depende de una referencia externa por activo
+# (no de precios) que puede cambiar sin dejar huecos: relative_strength_52w
+# se calcula contra Asset.benchmark_id, editable desde el ABM. Si cambia,
+# TODA la historia guardada quedó calculada contra el benchmark viejo — el
+# camino rápido de _delta_tail_start no lo detecta porque no hay huecos.
+_BENCHMARK_DEP_CODES = frozenset({"relative_strength_52w"})
+
+
+def _stale_bench_assets(bench_current: dict, bench_stored: dict) -> set:
+    """Activos cuyo benchmark vigente difiere del usado en el último cálculo
+    guardado (incluye activos sin fila en ind_asset_meta: primera corrida
+    tras habilitar el chequeo, o activo nuevo)."""
+    return {aid for aid, bid in bench_current.items()
+            if bid != bench_stored.get(aid, object())}
+
+
+def _upsert_ind_asset_meta(s, code: str, bench_by_asset: dict) -> None:
+    """Persiste el benchmark_id usado en este cálculo, por activo.
+
+    Referencia para la próxima corrida: si Asset.benchmark_id cambió respecto
+    a lo guardado acá, ese activo cae al camino lento (dict-compare) aunque
+    su historial no tenga huecos."""
+    if not bench_by_asset:
+        return
+    sql = ("INSERT INTO ind_asset_meta (asset_id, code, benchmark_id) VALUES (%s, %s, %s)"
+           " ON DUPLICATE KEY UPDATE benchmark_id = VALUES(benchmark_id)")
+    rows = [(aid, code, bid) for aid, bid in bench_by_asset.items()]
+    s.connection().exec_driver_sql(sql, rows)
+    s.commit()
+
+
 # ── Backfill por indicador ────────────────────────────────────────────────────
 
 def _load_all_prices(_s) -> dict:
@@ -1049,6 +1080,20 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
             .group_by(t.c.asset_id)
         ).fetchall()}
 
+    # Invalidación por referencia externa (ver _BENCHMARK_DEP_CODES): un
+    # activo con benchmark cambiado cae al dict-compare aunque no haya huecos.
+    needs_bench   = code in _BENCHMARK_DEP_CODES
+    bench_current: dict = {}
+    bench_stale:   set  = set()
+    if needs_bench:
+        bench_current = dict(s.query(Asset.id, Asset.benchmark_id).all())
+        if tail_mode:
+            bench_stored = dict(s.execute(
+                sa.select(IndAssetMeta.asset_id, IndAssetMeta.benchmark_id)
+                .where(IndAssetMeta.code == code)
+            ).fetchall())
+            bench_stale = _stale_bench_assets(bench_current, bench_stored)
+
     if force:
         # TRUNCATE en lugar de DELETE por activo: instantáneo y sin undo log
         # (millones de filas). Trade-offs asumidos: la tabla queda vacía
@@ -1116,14 +1161,20 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
             if force:
                 existing = set()
             elif tail_mode:
-                k = _delta_tail_start(dates_list, tail_stats.get(asset_id), tail_mode)
-                if k is None:
-                    # activo nuevo o con huecos: camino lento solo para él
-                    existing = {d for (d,) in s.execute(
-                        sa.select(t.c.date).where(t.c.asset_id == asset_id))}
+                if asset_id in bench_stale:
+                    # benchmark cambiado: toda la historia guardada puede
+                    # diferir, no solo la cola (dict-compare, como full_sample)
+                    existing = {d: v for d, v in s.execute(
+                        sa.select(t.c.date, t.c.value).where(t.c.asset_id == asset_id))}
                 else:
-                    dates_list, vals_list = dates_list[k:], vals_list[k:]
-                    existing = set()
+                    k = _delta_tail_start(dates_list, tail_stats.get(asset_id), tail_mode)
+                    if k is None:
+                        # activo nuevo o con huecos: camino lento solo para él
+                        existing = {d for (d,) in s.execute(
+                            sa.select(t.c.date).where(t.c.asset_id == asset_id))}
+                    else:
+                        dates_list, vals_list = dates_list[k:], vals_list[k:]
+                        existing = set()
             else:
                 existing = existing_by_asset.get(asset_id, {} if full_sample else set())
             written   = _write_ind_series(s, code, asset_id,
@@ -1140,6 +1191,9 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
 
         s.commit()   # cierra el lote al fin de cada chunk de activos
         rows_since_commit = 0
+
+    if needs_bench:
+        _upsert_ind_asset_meta(s, code, bench_current)
 
     return {"inserted": inserted, "code": code}
 

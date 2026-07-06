@@ -11,7 +11,8 @@ from datetime import date, timedelta
 import pytest
 
 from app.services.technical_service import (
-    _BACKFILL_FNS, _DELTA_TAIL_MODE, _delta_tail_start, _pairs_to_write,
+    _BACKFILL_FNS, _BENCHMARK_DEP_CODES, _DELTA_TAIL_MODE, _delta_tail_start,
+    _pairs_to_write, _stale_bench_assets,
 )
 
 
@@ -108,3 +109,36 @@ def test_full_sample_no_esta_en_tail_mode():
     for code in _DELTA_TAIL_MODE:
         assert not code.startswith("volatility")
         assert not code.startswith("atr_percentile")
+
+
+def test_benchmark_dep_codes_estan_en_tail_mode():
+    # el chequeo de staleness solo tiene sentido para códigos con camino rápido
+    for code in _BENCHMARK_DEP_CODES:
+        assert code in _DELTA_TAIL_MODE
+
+
+# ── _stale_bench_assets: invalidación por cambio de benchmark ────────────────
+
+def test_benchmark_sin_cambios_no_hay_stale():
+    current = {1: 10, 2: 20, 3: None}
+    stored  = {1: 10, 2: 20, 3: None}
+    assert _stale_bench_assets(current, stored) == set()
+
+
+def test_benchmark_cambiado_marca_stale():
+    current = {1: 10, 2: 99}     # activo 2 cambió de benchmark
+    stored  = {1: 10, 2: 20}
+    assert _stale_bench_assets(current, stored) == {2}
+
+
+def test_benchmark_asignado_de_none_a_valor_es_stale():
+    current = {1: 10}
+    stored  = {1: None}
+    assert _stale_bench_assets(current, stored) == {1}
+
+
+def test_activo_sin_meta_guardada_es_stale():
+    # primera corrida tras habilitar el chequeo, o activo nuevo
+    current = {1: 10, 2: None}
+    stored  = {}
+    assert _stale_bench_assets(current, stored) == {1, 2}

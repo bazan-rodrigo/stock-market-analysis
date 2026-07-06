@@ -39,3 +39,16 @@ class CurrentIndicatorValue(Base):
     code      = Column(String(50), primary_key=True)
     value_num = Column(Float,      nullable=True)
     value_str = Column(String(50), nullable=True)
+
+
+class IndAssetMeta(Base):
+    """Metadato de invalidación por activo e indicador (ver _BENCHMARK_DEP_CODES
+    en technical_service): referencia externa usada en el último cálculo
+    completo de la serie, para detectar cuándo el camino rápido del delta
+    debe invalidarse aunque no haya huecos en el historial guardado."""
+
+    __tablename__ = "ind_asset_meta"
+
+    asset_id     = Column(Integer, ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True)
+    code         = Column(String(50), primary_key=True)
+    benchmark_id = Column(Integer, nullable=True)
