@@ -808,7 +808,10 @@ def _backfill_fund_indicator_worker(
     code: str, asset_ids: list, force: bool,
     asset_tick, quarters_cache: dict, price_cache: dict,
 ) -> dict:
+    from app.services.technical_service import _set_bulk_load_checks
     try:
+        if force:
+            _set_bulk_load_checks(get_session(), False)
         return _backfill_fund_indicator(
             code, asset_ids, force=force, asset_tick=asset_tick,
             quarters_cache=quarters_cache, price_cache=price_cache,
@@ -817,6 +820,8 @@ def _backfill_fund_indicator_worker(
         logger.warning("Fund backfill indicator error code=%s: %s", code, exc)
         return {"inserted": 0, "code": code, "error": str(exc)}
     finally:
+        if force:
+            _set_bulk_load_checks(get_session(), True)
         _ScopedSession.remove()
 
 
@@ -914,7 +919,10 @@ def _backfill_fund_daily_all_worker(
     daily_codes: list, asset_ids: list, force: bool,
     tick_fns: dict, quarters_cache: dict, price_cache: dict,
 ) -> dict:
+    from app.services.technical_service import _set_bulk_load_checks
     try:
+        if force:
+            _set_bulk_load_checks(get_session(), False)
         return _backfill_fund_daily_all(
             daily_codes, asset_ids, force=force, tick_fns=tick_fns,
             quarters_cache=quarters_cache, price_cache=price_cache,
@@ -923,6 +931,8 @@ def _backfill_fund_daily_all_worker(
         logger.warning("Fund backfill daily error codes=%s: %s", daily_codes, exc)
         return {"inserted": 0, "codes": daily_codes, "error": str(exc)}
     finally:
+        if force:
+            _set_bulk_load_checks(get_session(), True)
         _ScopedSession.remove()
 
 

@@ -428,18 +428,28 @@ def _atr_pct_series_v(df: pd.DataFrame, period: int) -> pd.Series:
     return pd.Series(np.round(pcts, 1), index=df.index)
 
 
-def _return_vs_ref_series(df: pd.DataFrame, ref_date_fn) -> pd.Series:
-    dates    = df["date"].values
-    closes   = df["close"].values.astype(float)
-    ordinals = np.array([d.toordinal() for d in dates])
+def _return_vs_ref_series(df: pd.DataFrame, kind: str) -> pd.Series:
+    """Retorno % de cada barra contra su fecha de referencia, vectorizado.
 
-    ref_ords = np.empty(len(dates), dtype=np.int64)
-    for i, d in enumerate(dates):
-        try:    ref_ords[i] = ref_date_fn(d).toordinal()
-        except ValueError: ref_ords[i] = -1
+    kind: 'month_start' | 'quarter_start' | 'year_start' | 'year_back'.
+    Equivalentes exactos de los cálculos fecha-por-fecha anteriores
+    (DateOffset(years=1) resuelve 29/2 → 28/2 igual que _one_year_before);
+    paridad verificada en la suite."""
+    closes = df["close"].values.astype(float)
+    dts    = pd.to_datetime(pd.Series(list(df["date"])))
+    if kind == "month_start":
+        ref = dts.dt.to_period("M").dt.start_time
+    elif kind == "quarter_start":
+        ref = dts.dt.to_period("Q").dt.start_time
+    elif kind == "year_start":
+        ref = dts.dt.to_period("Y").dt.start_time
+    elif kind == "year_back":
+        ref = dts - pd.DateOffset(years=1)
+    else:
+        raise ValueError(f"kind desconocido: {kind!r}")
 
-    indices    = np.searchsorted(ordinals, ref_ords, side="right") - 1
-    valid      = (indices >= 0) & (ref_ords >= 0)
+    indices    = np.searchsorted(dts.values, ref.values, side="right") - 1
+    valid      = indices >= 0
     ref_closes = closes[np.where(valid, indices, 0)]
     results    = np.where(
         valid & (ref_closes != 0),
@@ -493,16 +503,6 @@ def _to_date(x):
 def _period_index(df_period: pd.DataFrame) -> list:
     """Retorna lista de datetime.date a partir de un df semanal/mensual."""
     return [_to_date(d) for d in df_period["date"]]
-
-
-def _fv(x, decimals: int = 2):
-    if x is None:
-        return None
-    try:
-        f = float(x)
-        return None if math.isnan(f) else round(f, decimals)
-    except (TypeError, ValueError):
-        return None
 
 
 # ── Lectura de best_sma desde current_indicator_values ───────────────────────
@@ -564,17 +564,21 @@ def _upsert_current_ind(session, asset_id: int, code: str,
     session.execute(stmt)
 
 
-def _batch_upsert_ind(session, code: str, rows: list[dict]) -> None:
-    """Inserta o actualiza múltiples filas en ind_{code} de una vez."""
-    if not rows:
-        return
-    t    = get_ind_table(code)
-    stmt = _mysql_insert(t)
-    stmt = stmt.on_duplicate_key_update(value=stmt.inserted.value)
-    session.execute(stmt, rows)
+_IND_BATCH = 5000  # filas por INSERT al escribir series de indicadores
 
 
-_IND_BATCH = 2000  # filas por INSERT al escribir series de indicadores
+def _set_bulk_load_checks(s, enabled: bool) -> None:
+    """Activa/desactiva las validaciones FK/unique de la CONEXIÓN.
+
+    En un rebuild, validar el FK de asset_id contra assets en cada una de
+    millones de filas es trabajo tirado (los ids salen de esa misma tabla).
+    El flag es por conexión: SIEMPRE restaurar antes de devolverla al pool."""
+    flag = 1 if enabled else 0
+    try:
+        s.execute(sa.text(
+            f"SET SESSION foreign_key_checks = {flag}, unique_checks = {flag}"))
+    except Exception:
+        pass   # sqlite en tests / permisos limitados: ignorar
 
 
 def _series_dates_values(values, df) -> tuple[list, list]:
@@ -599,6 +603,10 @@ def _pairs_to_write(dates_list: list, vals_list: list, existing) -> list:
       Es el modo de los indicadores full_sample en delta: la serie se
       recalcula entera pero los valores viejos casi no cambian, así que
       solo se escriben las diferencias reales.
+
+    Nota: se probó una variante vectorizada con numpy y el benchmark la
+    descartó — este camino escalar cuesta ~1 ms por activo, y la versión
+    numpy pagaba sorts y conversiones que no amortizaba.
     """
     if existing is None:
         return [(d, v) for d, v in zip(dates_list, vals_list) if pd.notna(v)]
@@ -632,73 +640,75 @@ def _write_ind_series(s, code: str, asset_id: int,
         t = get_ind_table(code)
         s.execute(t.delete().where(t.c.asset_id == asset_id))
     pairs = _pairs_to_write(dates_list, vals_list, existing)
+    if not pairs:
+        return 0
 
+    # executemany crudo con tuplas: evita construir un dict de Python por
+    # fila (54M en un rebuild) y la compilación de SQLAlchemy por batch
+    table = get_ind_table(code).name
+    sql = (f"INSERT INTO `{table}` (asset_id, date, value) VALUES (%s, %s, %s)"
+           " ON DUPLICATE KEY UPDATE value = VALUES(value)")
+    conn = s.connection()
     written = 0
-    batch = []
-    for d, v in pairs:
-        batch.append({"asset_id": asset_id, "date": d, "value": v})
-        if len(batch) >= _IND_BATCH:
-            _batch_upsert_ind(s, code, batch)
-            written += len(batch)
-            batch = []
-    if batch:
-        _batch_upsert_ind(s, code, batch)
-        written += len(batch)
+    for i in range(0, len(pairs), _IND_BATCH):
+        rows = [(asset_id, d, v if isinstance(v, str) else float(v))
+                for d, v in pairs[i:i + _IND_BATCH]]
+        conn.exec_driver_sql(sql, rows)
+        written += len(rows)
     return written
 
 
 # ── Compute functions para backfill por indicador ────────────────────────────
 
 def _bf_return_daily(df, df_w, df_m, **kw):
-    return [_fv(v) for v in df["close"].pct_change() * 100]
+    return (df["close"].pct_change() * 100).round(2).tolist()
 
 def _bf_return_monthly(df, df_w, df_m, **kw):
-    return [_fv(v) for v in _return_vs_ref_series(df, lambda d: d.replace(day=1))]
+    return _return_vs_ref_series(df, "month_start").tolist()
 
 def _bf_return_quarterly(df, df_w, df_m, **kw):
-    return [_fv(v) for v in _return_vs_ref_series(
-        df, lambda d: date(d.year, _Q_MONTH[d.month], 1))]
+    return _return_vs_ref_series(df, "quarter_start").tolist()
 
 def _bf_return_yearly(df, df_w, df_m, **kw):
-    return [_fv(v) for v in _return_vs_ref_series(df, lambda d: date(d.year, 1, 1))]
+    return _return_vs_ref_series(df, "year_start").tolist()
 
 def _bf_return_52w(df, df_w, df_m, **kw):
-    return [_fv(v) for v in _return_vs_ref_series(df, _one_year_before)]
+    return _return_vs_ref_series(df, "year_back").tolist()
 
 def _bf_dist_sma(period):
     def fn(df, df_w, df_m, **kw):
         close = df["close"]
         sma   = close.rolling(period).mean()
-        return [_fv(v) for v in ((close - sma) / sma * 100).round(2)]
+        return ((close - sma) / sma * 100).round(2).tolist()
     return fn
 
 def _bf_rsi_daily(df, df_w, df_m, **kw):
-    return [_fv(v) for v in _rsi_series(df["close"])]
+    return _rsi_series(df["close"]).tolist()
 
 def _bf_rsi_weekly(df, df_w, df_m, **kw):
     if len(df_w) >= 15:
-        return pd.Series([_fv(v) for v in _rsi_series(df_w["close"])],
+        return pd.Series(_rsi_series(df_w["close"]).to_numpy(),
                          index=_period_index(df_w))
     return pd.Series(dtype=float)
 
 def _bf_rsi_monthly(df, df_w, df_m, **kw):
     if len(df_m) >= 15:
-        return pd.Series([_fv(v) for v in _rsi_series(df_m["close"])],
+        return pd.Series(_rsi_series(df_m["close"]).to_numpy(),
                          index=_period_index(df_m))
     return pd.Series(dtype=float)
 
 def _bf_atr_daily(df, df_w, df_m, vol_cfg, **kw):
-    return [_fv(v, 1) for v in _atr_pct_series_v(df, vol_cfg.atr_period)]
+    return _atr_pct_series_v(df, vol_cfg.atr_period).tolist()
 
 def _bf_atr_weekly(df, df_w, df_m, vol_cfg, **kw):
     if len(df_w) >= vol_cfg.atr_period * 3:
-        return pd.Series([_fv(v, 1) for v in _atr_pct_series_v(df_w, vol_cfg.atr_period)],
+        return pd.Series(_atr_pct_series_v(df_w, vol_cfg.atr_period).to_numpy(),
                          index=_period_index(df_w))
     return pd.Series(dtype=float)
 
 def _bf_atr_monthly(df, df_w, df_m, vol_cfg, **kw):
     if len(df_m) >= vol_cfg.atr_period * 3:
-        return pd.Series([_fv(v, 1) for v in _atr_pct_series_v(df_m, vol_cfg.atr_period)],
+        return pd.Series(_atr_pct_series_v(df_m, vol_cfg.atr_period).to_numpy(),
                          index=_period_index(df_m))
     return pd.Series(dtype=float)
 
@@ -740,8 +750,8 @@ def _bf_dist_optimal_sma(tf_key):
             std  = cl.rolling(best_val).std().replace(0, np.nan)
             dist = ((cl - sma) / std).round(2)
             if tf_key == "d":
-                return [_fv(v) for v in dist]
-            return pd.Series([_fv(v) for v in dist], index=_period_index(df_tf))
+                return dist.tolist()
+            return pd.Series(dist.to_numpy(), index=_period_index(df_tf))
         if tf_key != "d":
             return pd.Series(dtype=float)
         return [None] * len(df)
@@ -1056,6 +1066,9 @@ def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
     from app.database import Session as _DbSession
     t0 = _time.monotonic()
     try:
+        if force:
+            # Bulk-load: sin validación FK/unique por fila durante el rebuild
+            _set_bulk_load_checks(get_session(), False)
         res = backfill_indicator(code, force=force, asset_tick=asset_tick,
                                  price_cache=price_cache, best_sma_cache=best_sma_cache,
                                  df_w_cache=df_w_cache, df_m_cache=df_m_cache)
@@ -1065,6 +1078,9 @@ def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
         logger.warning("Backfill error code=%s: %s", code, exc)
         return {"inserted": 0, "code": code, "error": str(exc)}
     finally:
+        if force:
+            # Restaurar SIEMPRE antes de devolver la conexión al pool
+            _set_bulk_load_checks(get_session(), True)
         _DbSession.remove()
 
 

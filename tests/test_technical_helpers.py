@@ -7,7 +7,7 @@ import pytest
 
 from app.services.technical_service import (
     _Q_MONTH, _classify_duration, _compute_dd_events, _compute_regime_zones,
-    _compute_vol_zones, _fv, _one_year_before, _pct_change, _rsi,
+    _compute_vol_zones, _one_year_before, _pct_change, _rsi,
     _series_dates_values, _sma_zscore, _zones_to_series,
 )
 
@@ -35,14 +35,6 @@ def test_pct_change():
     assert _pct_change(100, 0) is None
     assert _pct_change(None, 100) is None
     assert _pct_change(100, None) is None
-
-def test_fv_none_nan_y_redondeo():
-    assert _fv(None) is None
-    assert _fv(float("nan")) is None
-    assert _fv(3.14159) == 3.14
-    assert _fv(3.14159, 1) == 3.1
-    assert _fv("no numérico") is None
-
 
 # ── z-score contra SMA ────────────────────────────────────────────────────────
 
