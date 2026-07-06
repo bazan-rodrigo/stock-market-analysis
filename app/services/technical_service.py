@@ -2093,7 +2093,12 @@ def update_indicator_history(progress_cb=None) -> dict:
 
 
 def rebuild_indicator_history(progress_cb=None) -> dict:
-    """Borra y recalcula toda la historia de indicadores técnicos desde cero."""
+    """Borra y recalcula toda la historia de indicadores técnicos desde cero.
+
+    Orden igual que el delta: primero los vigentes (incluye best_sma_d/w/m),
+    después el backfill. dist_optimal_sma_* depende de best_sma_* (lee
+    best_sma_cache desde current_indicator_values) — calcularlo antes de
+    recomputar best_sma_* usaría el valor de la corrida anterior."""
     s = get_session()
     if progress_cb:
         progress_cb(0, 1, "Cargando precios en memoria...")
@@ -2101,16 +2106,16 @@ def rebuild_indicator_history(progress_cb=None) -> dict:
     snap_caches      = _derive_recent_caches(price_cache_full)
     if progress_cb:
         _announce_worker_union(progress_cb, s, len(price_cache_full),
-                               current_first=False)
+                               current_first=True)
 
-    r1 = backfill_all_indicator_values(progress_cb=progress_cb, force=True,
-                                       price_cache=price_cache_full)
-    r2 = recompute_current_indicators(progress_cb=progress_cb,
+    r1 = recompute_current_indicators(progress_cb=progress_cb,
                                  codes=_CURRENT_ONLY_CODES,
                                  preloaded_caches=snap_caches)
+    r2 = backfill_all_indicator_values(progress_cb=progress_cb, force=True,
+                                       price_cache=price_cache_full)
     _refresh_group_scores()
     errors = r1["errors"] + r2["errors"]
-    total  = r2["total"]
+    total  = r1["total"]   # activos procesados (backfill_all_... devuelve n_indicadores)
     return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
 
 
