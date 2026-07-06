@@ -314,10 +314,30 @@ def _compute_vol_zones(
     dur_hist: dict[str, list[int]] = {"baja": [], "normal": [], "alta": [], "extrema": []}
     for z in zones[:-1]:
         dur_hist[z["vol_regime"]].append(z["_bars"])
+    # Umbrales de percentil una vez por régimen (4), no una vez por zona:
+    # todas las zonas de un mismo régimen comparten el mismo dur_hist, así
+    # que _classify_duration recalculaba los mismos percentiles cientos de
+    # veces por activo (uno por zona) en vez de reusarlos.
+    dur_thresholds: dict[str, tuple[float, float] | None] = {}
+    for regime, hist in dur_hist.items():
+        if len(hist) < 3:
+            dur_thresholds[regime] = None
+        else:
+            dur_thresholds[regime] = (
+                float(np.percentile(hist, dur_short_pct)),
+                float(np.percentile(hist, dur_long_pct)),
+            )
     for z in zones:
-        z["dur_regime"] = _classify_duration(
-            z["_bars"], dur_hist[z["vol_regime"]], dur_short_pct, dur_long_pct
-        )
+        thresholds = dur_thresholds[z["vol_regime"]]
+        bars = z["_bars"]
+        if thresholds is None:
+            z["dur_regime"] = "media"
+        elif bars <= thresholds[0]:
+            z["dur_regime"] = "corta"
+        elif bars >= thresholds[1]:
+            z["dur_regime"] = "larga"
+        else:
+            z["dur_regime"] = "media"
         z.pop("_bars", None)
     return zones
 
