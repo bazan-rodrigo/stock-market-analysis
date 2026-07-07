@@ -2372,6 +2372,71 @@ def rebuild_indicator_history(progress_cb=None) -> dict:
     return _run_current_and_backfill(progress_cb, force=True)
 
 
+def reconcile_ind_asset_meta(progress_cb=None, *, codes: list[str] | None = None) -> dict:
+    """Reconstruye desde cero, código por código, TODO lo cacheado en
+    ind_asset_meta para el camino rápido del delta: benchmark_id, checksum
+    y min_date/max_date/row_count.
+
+    Red de seguridad para el único caso que backfill_indicator no
+    autocorrige: alguien edita una tabla ind_{code} a mano (p.ej. consola
+    SQL admin, ver nota en IndAssetMeta) sin pasar por los servicios,
+    dejando el caché desincronizado de la tabla real.
+
+    Cada columna se trata distinto según se pueda o no verificar contra una
+    fuente de verdad independiente:
+    - min_date/max_date/row_count SÍ se pueden recalcular sin ambigüedad:
+      se leen del full-scan real (GROUP BY asset_id + MIN/MAX/COUNT) sobre
+      ind_{code}, el mismo cálculo que hacía la vieja _query_tail_stats.
+    - benchmark_id/checksum NO: no hay forma de derivarlos sin volver a
+      correr el cómputo completo del indicador (equivalente a un rebuild
+      force). En vez de adivinar un valor, se BORRAN — mismo principio de
+      seguridad que el resto del sistema, ausente fuerza el camino lento
+      y nunca hace creer que un activo está al día cuando no lo está. El
+      próximo delta normal recalcula esos ~7 activos-código por el camino
+      lento (dict-compare) y los vuelve a guardar bien, una única vez.
+
+    No requiere recalcular ningún valor de indicador (a diferencia de un
+    rebuild force): solo lee y corrige el metadato, así que es mucho más
+    barata que un rebuild completo aunque pague el mismo costo del full-scan
+    que el delta ya no paga.
+
+    Firma compatible con progress_cb=None y limpieza de sesión propia para
+    poder colgarla más adelante de una tarea programada en background (mismo
+    patrón que backfill_all_indicator_values/_daily_update_job)."""
+    from app.database import Session as _DbSession
+    s = get_session()
+    codes = list(codes) if codes else list(_DELTA_TAIL_MODE)
+    errors: list[dict] = []
+    try:
+        for i, code in enumerate(codes):
+            try:
+                t = get_ind_table(code)
+                real = {aid: (mn, mx, cnt) for aid, mn, mx, cnt in s.execute(
+                    sa.select(t.c.asset_id, sa.func.min(t.c.date),
+                              sa.func.max(t.c.date), sa.func.count())
+                    .group_by(t.c.asset_id)
+                ).fetchall()}
+                # Reset total del código: benchmark_id/checksum no se pueden
+                # recalcular sin recomputar el indicador entero (ver
+                # docstring), así que se borran en vez de arrastrar un valor
+                # viejo potencialmente corrupto. min_date/max_date/row_count
+                # sí se recalculan al toque, abajo.
+                s.execute(sa.text("DELETE FROM ind_asset_meta WHERE code = :code"),
+                          {"code": code})
+                s.commit()
+                _upsert_ind_stats_meta(s, code, real)
+            except Exception as exc:
+                s.rollback()
+                logger.warning("Reconciliación ind_asset_meta code=%s: %s", code, exc)
+                errors.append({"code": code, "error": str(exc)})
+            if progress_cb:
+                progress_cb(i + 1, len(codes), code)
+        total = len(codes)
+        return {"total": total, "success": total - len(errors), "errors": errors}
+    finally:
+        _DbSession.remove()
+
+
 # ── Funciones públicas para gráficos ─────────────────────────────────────────
 
 def _strip_zone_internals(zones: list) -> list:

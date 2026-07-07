@@ -20,11 +20,17 @@ def _op_section(op_id, description, *, has_new_only=False,
                     "y la redescargará completa desde la fuente. El proceso puede demorar varios minutos. "
                     "¿Confirmás?"
                 ),
+                has_reconcile=False, reconcile_label="Recalcular caché",
                 log_href=None):
     buttons = [
         dbc.Button("Ejecutar", id=f"dc-btn-{op_id}",
                    size="sm", color="primary", outline=True, className="me-2"),
     ]
+    if has_reconcile:
+        buttons.append(
+            dbc.Button(reconcile_label, id=f"dc-btn-reconcile-{op_id}",
+                       size="sm", color="secondary", outline=True, className="me-2"),
+        )
     if has_redownload:
         buttons.append(
             dbc.Button(redownload_label, id=f"dc-btn-redownload-{op_id}",
@@ -71,7 +77,8 @@ def _op_section(op_id, description, *, has_new_only=False,
 
 def _solo_card(op_id, title, description, *, has_new_only=False,
                has_redownload=False, redownload_label="Redescargar completo",
-               redownload_body=None, log_href=None):
+               redownload_body=None, has_reconcile=False,
+               reconcile_label="Recalcular caché", log_href=None):
     kwargs = dict(redownload_label=redownload_label)
     if redownload_body is not None:
         kwargs["redownload_body"] = redownload_body
@@ -81,7 +88,9 @@ def _solo_card(op_id, title, description, *, has_new_only=False,
             dbc.CardBody(
                 _op_section(op_id, description,
                             has_new_only=has_new_only,
-                            has_redownload=has_redownload, log_href=log_href, **kwargs),
+                            has_redownload=has_redownload,
+                            has_reconcile=has_reconcile, reconcile_label=reconcile_label,
+                            log_href=log_href, **kwargs),
                 style=_BODY,
             ),
         ], style=_CARD),
@@ -124,6 +133,10 @@ def layout(**kwargs):
                 "indicators", "Indicadores Técnicos",
                 "'Ejecutar' recalcula los indicadores para la última fecha de cada activo "
                 "y de paso completa fechas históricas que tengan precio pero no indicador (backfill delta). "
+                "'Recalcular caché' reconstruye desde cero todo el caché interno que acelera ese backfill "
+                "(min/max/cantidad de filas por activo, más el benchmark/checksum usado en el último cálculo), "
+                "sin recalcular ningún indicador — útil si el caché quedó mal por una edición manual desde "
+                "la consola SQL. "
                 "'Recalcular completo' borra y rehace toda la historia desde el primer precio.",
                 has_redownload=True, redownload_label="Recalcular completo",
                 redownload_body=(
@@ -131,6 +144,7 @@ def layout(**kwargs):
                     "y lo recalculará completo desde el primer precio disponible. "
                     "El proceso puede demorar varios minutos. ¿Confirmás?"
                 ),
+                has_reconcile=True,
             ),
             _solo_card(
                 "snap", "Fundamentales",

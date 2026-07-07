@@ -13,6 +13,7 @@ from app.models import (
 _OPS          = ("prices", "fund", "snap", "indicators", "synth")
 _HAS_NEW_ONLY = {"prices", "fund"}
 _HAS_REDOWNLOAD = {"prices", "fund", "synth", "snap", "indicators"}
+_HAS_RECONCILE  = {"indicators"}
 
 
 def _blank():
@@ -349,6 +350,30 @@ def _register(op_id):
             threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
             return False, False, True, "Iniciando...", 0, _BAR_RUNNING
 
+    has_reconcile = op_id in _HAS_RECONCILE
+    if has_reconcile:
+        @callback(
+            Output(f"dc-interval-{op_id}", "disabled",  allow_duplicate=True),
+            Output(f"dc-btn-{op_id}",      "disabled",  allow_duplicate=True),
+            Output(f"dc-msg-{op_id}",      "children",  allow_duplicate=True),
+            Output(f"dc-progress-{op_id}", "value",     allow_duplicate=True),
+            Output(f"dc-progress-{op_id}", "style",     allow_duplicate=True),
+            Input(f"dc-btn-reconcile-{op_id}", "n_clicks"),
+            prevent_initial_call=True,
+        )
+        def _start_reconcile(n):
+            if not n:
+                return no_update, no_update, no_update, no_update, no_update
+
+            if _any_running():
+                return no_update, no_update, _BUSY_MSG, no_update, no_update
+
+            from app.services.technical_service import reconcile_ind_asset_meta as fn
+
+            _state[op_id].update(_blank(), running=True, msg="Iniciando...")
+            threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
+            return False, True, "Iniciando...", 0, _BAR_RUNNING
+
     @callback(
         Output(f"dc-progress-{op_id}", "value",     allow_duplicate=True),
         Output(f"dc-progress-{op_id}", "style",     allow_duplicate=True),
@@ -452,13 +477,17 @@ for _op in _OPS:
 
 # ── Exclusión mutua visual: con una operación corriendo, TODOS los botones se
 #    deshabilitan (el guard de _start/_start_redownload es la protección real) ──
+_RECONCILE_OPS = sorted(_HAS_RECONCILE)
+
+
 @callback(
     *[Output(f"dc-btn-{_op}", "disabled", allow_duplicate=True) for _op in _OPS],
     *[Output(f"dc-btn-redownload-{_op}", "disabled") for _op in _OPS],
+    *[Output(f"dc-btn-reconcile-{_op}", "disabled") for _op in _RECONCILE_OPS],
     *[Input(f"dc-interval-{_op}", "disabled") for _op in _OPS],
     prevent_initial_call="initial_duplicate",
 )
 def sync_buttons_mutex(*_):
     busy = _any_running()
-    return tuple([busy] * (2 * len(_OPS)))
+    return tuple([busy] * (2 * len(_OPS) + len(_RECONCILE_OPS)))
 
