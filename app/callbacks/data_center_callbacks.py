@@ -443,7 +443,10 @@ def _register(op_id):
                 if pc:
                     slow_n = pc["gap"] + pc["checksum"] + pc["bench"]
                     if slow_n:
-                        slow_tag = f"  ·  lento={slow_n}"
+                        detail = ", ".join(
+                            f"{k}={pc[k]}" for k in ("gap", "checksum", "bench") if pc[k]
+                        )
+                        slow_tag = f"  ·  lento={slow_n} ({detail})"
                 if dn >= tn:
                     color = "#4ade80"
                     text  = (f"✓ {code:<{name_w}}{prog}   {ws} → {we}"
