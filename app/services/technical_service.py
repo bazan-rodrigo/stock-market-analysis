@@ -1555,6 +1555,14 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                         code, res.get("seconds", 0),
                         pc["fast"], pc["gap"], pc["checksum"], pc["bench"],
                     )
+                    # Mensaje especial (mismo mecanismo que __init__:) para que
+                    # el panel del Centro de Datos muestre cuántos activos
+                    # cayeron al camino lento (gap/checksum/bench) por código,
+                    # no solo la duración — visibilidad sin tener que ir al log.
+                    if progress_cb:
+                        progress_cb(_assets_done, total_work,
+                                    f"__pc__:{code}:{pc['fast']}:{pc['gap']}:"
+                                    f"{pc['checksum']}:{pc['bench']}")
                 if "error" in res:
                     errors.append({"code": code, "error": res["error"]})
             except Exception as exc:

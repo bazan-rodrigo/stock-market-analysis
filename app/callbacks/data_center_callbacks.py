@@ -202,6 +202,21 @@ def _run(op_id, service_fn):
                 pass
             st["msg"] = "calculando..."
             return
+        if label and label.startswith("__pc__:"):
+            # Cuántos activos de este código cayeron al camino lento del
+            # delta (gap/checksum/bench) en vez del rápido — ver
+            # _DELTA_TAIL_MODE/path_counts en technical_service.py.
+            try:
+                _, code, fast, gap, checksum, bench = label.split(":")
+                w = st["workers"].setdefault(
+                    code, {"dn": 0, "tn": 0, "start": None, "end": None, "worker": None})
+                w["path_counts"] = {
+                    "fast": int(fast), "gap": int(gap),
+                    "checksum": int(checksum), "bench": int(bench),
+                }
+            except Exception:
+                pass
+            return
         if label and ": " in label:
             try:
                 sep    = label.index(": ")
@@ -420,10 +435,19 @@ def _register(op_id):
                 # scheduling/concurrencia, ver _worker_slot en technical_service.py)
                 wk = w.get("worker")
                 wk_tag = f" [w{wk}]" if wk is not None else ""
+                # Cuántos activos de este código cayeron al camino lento del
+                # delta (gap/checksum/bench) en vez del rápido — ver
+                # _DELTA_TAIL_MODE/path_counts en technical_service.py.
+                pc = w.get("path_counts")
+                slow_tag = ""
+                if pc:
+                    slow_n = pc["gap"] + pc["checksum"] + pc["bench"]
+                    if slow_n:
+                        slow_tag = f"  ·  lento={slow_n}"
                 if dn >= tn:
                     color = "#4ade80"
                     text  = (f"✓ {code:<{name_w}}{prog}   {ws} → {we}"
-                             f"  ({_fmt_dur(w['start'], w['end'])}){wk_tag}")
+                             f"  ({_fmt_dur(w['start'], w['end'])}){wk_tag}{slow_tag}")
                 elif dn > 0:
                     color = "#d1d5db"
                     text  = f"  {code:<{name_w}}{prog}   desde {ws}{wk_tag}"
