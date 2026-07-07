@@ -585,6 +585,22 @@ def _upsert_current_ind(session, asset_id: int, code: str,
     session.execute(stmt)
 
 
+def _upsert_current_ind_batch(session, asset_id: int, values: list[tuple[str, float]]) -> None:
+    """UPSERT en batch de varios códigos vigentes en current_indicator_values:
+    a diferencia de _upsert_ind (una tabla ind_* por código, no fusionable),
+    todos estos códigos comparten la misma tabla, así que un solo INSERT
+    multi-fila reemplaza N round-trips por uno (medido con cProfile: la mitad
+    de las queries de compute_current_indicators(quick=True) eran esto)."""
+    rows = [{"asset_id": asset_id, "code": code, "value_num": float(val), "value_str": None}
+            for code, val in values if val is not None]
+    if not rows:
+        return
+    stmt = _mysql_insert(CurrentIndicatorValue.__table__).values(rows)
+    stmt = stmt.on_duplicate_key_update(
+        value_num=stmt.inserted.value_num, value_str=stmt.inserted.value_str)
+    session.execute(stmt)
+
+
 _IND_BATCH = 5000  # filas por INSERT al escribir series de indicadores
 
 
@@ -1731,8 +1747,9 @@ def compute_current_indicators(
     for code, value in _current_inds.items():
         _upsert_ind(s, code, asset_id, today, value)
 
-    # Escritura en current_indicator_values (keep_history=False)
-    for code, val in [
+    # Escritura en current_indicator_values (keep_history=False): batch en 1
+    # round-trip en vez de uno por código (todos comparten la misma tabla).
+    _upsert_current_ind_batch(s, asset_id, [
         ("best_sma_d", best_sma_d), ("best_ema_d", best_ema_d),
         ("best_sma_w", best_sma_w), ("best_ema_w", best_ema_w),
         ("best_sma_m", best_sma_m), ("best_ema_m", best_ema_m),
@@ -1742,9 +1759,7 @@ def compute_current_indicators(
         ("drawdown_max3",    round(dd_max3, 2) if dd_max3 is not None else None),
         ("resistance_pct",   ind_resist_pct),
         ("support_pct",      ind_support_pct),
-    ]:
-        if val is not None:
-            _upsert_current_ind(s, asset_id, code, value_num=float(val))
+    ])
 
     s.commit()
 

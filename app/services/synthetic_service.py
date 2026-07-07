@@ -171,12 +171,17 @@ def _anchor_price(asset_id: int, base_date, session) -> float | None:
 
 def _ohlc_dict(common: pd.Index, open_: np.ndarray, close: np.ndarray,
                mask: np.ndarray | None = None) -> dict:
-    high = np.maximum(open_, close)
-    low  = np.minimum(open_, close)
-    idx  = range(len(common)) if mask is None else np.flatnonzero(mask)
+    """dates como lista Python (no pd.Index): indexar common[i] elemento por
+    elemento dentro del dict comprehension pasa por pandas.Index.__getitem__
+    en cada acceso, mucho mas lento que indexar una lista nativa (medido con
+    cProfile: 79% del costo total de _compute_by_type estaba aca)."""
+    high  = np.maximum(open_, close)
+    low   = np.minimum(open_, close)
+    dates = common.tolist()
+    idx   = range(len(dates)) if mask is None else np.flatnonzero(mask)
     return {
-        common[i]: {"open": float(open_[i]), "close": float(close[i]),
-                    "high": float(high[i]), "low": float(low[i])}
+        dates[i]: {"open": float(open_[i]), "close": float(close[i]),
+                   "high": float(high[i]), "low": float(low[i])}
         for i in idx
     }
 
