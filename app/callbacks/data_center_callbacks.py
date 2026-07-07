@@ -196,23 +196,34 @@ def _run(op_id, service_fn):
                 for c in codes_str.split(","):
                     if c:
                         st["workers"].setdefault(
-                            c, {"dn": 0, "tn": n, "start": None, "end": None})
+                            c, {"dn": 0, "tn": n, "start": None, "end": None, "worker": None})
             except Exception:
                 pass
             st["msg"] = "calculando..."
             return
         if label and ": " in label:
             try:
-                sep  = label.index(": ")
-                code = label[:sep].strip()
-                prog = label[sep + 2:].strip().split()[0]
+                sep    = label.index(": ")
+                code   = label[:sep].strip()
+                tokens = label[sep + 2:].strip().split()
+                prog   = tokens[0]
                 dn, tn = int(prog.split("/")[0]), int(prog.split("/")[1])
+                # Token opcional "w{n}": worker real que proceso este tick
+                # (diagnostico de scheduling, ver _worker_slot en technical_service.py)
+                worker = None
+                if len(tokens) > 1 and tokens[1].startswith("w"):
+                    try:
+                        worker = int(tokens[1][1:])
+                    except ValueError:
+                        worker = None
                 w = st["workers"].setdefault(
-                    code, {"dn": 0, "tn": tn, "start": None, "end": None})
+                    code, {"dn": 0, "tn": tn, "start": None, "end": None, "worker": None})
                 if dn == 1 and w["start"] is None:
                     w["start"] = _dt.now()
                 w["dn"] = dn
                 w["tn"] = tn
+                if worker is not None:
+                    w["worker"] = worker
                 if dn >= tn and w["end"] is None:
                     w["end"] = _dt.now()
             except Exception:
@@ -380,13 +391,17 @@ def _register(op_id):
                 ws = _fmt_time(w["start"])
                 we = _fmt_time(w["end"]) if w["end"] else ""
                 prog = f"{dn:>4}/{tn}"
+                # Worker real que proceso este indicador (diagnostico de
+                # scheduling/concurrencia, ver _worker_slot en technical_service.py)
+                wk = w.get("worker")
+                wk_tag = f" [w{wk}]" if wk is not None else ""
                 if dn >= tn:
                     color = "#4ade80"
                     text  = (f"✓ {code:<{name_w}}{prog}   {ws} → {we}"
-                             f"  ({_fmt_dur(w['start'], w['end'])})")
+                             f"  ({_fmt_dur(w['start'], w['end'])}){wk_tag}")
                 elif dn > 0:
                     color = "#d1d5db"
-                    text  = f"  {code:<{name_w}}{prog}   desde {ws}"
+                    text  = f"  {code:<{name_w}}{prog}   desde {ws}{wk_tag}"
                 else:
                     color = "#4b5563"
                     text  = f"  {code:<{name_w}}{'—':>4}"

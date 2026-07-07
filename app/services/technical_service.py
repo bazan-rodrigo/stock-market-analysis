@@ -1066,8 +1066,14 @@ _EXISTING_CHUNK = 100
 # I/O). Con un thread por indicador todos se reparten el GIL y el más pesado
 # termina solo al final usando un único core; con pocos workers y encolando
 # los pesados primero (LPT), todos los cores quedan ocupados casi toda la corrida.
+# Subido de cores+2 a cores+6 (diag jul-2026): con 36 indicadores y measured
+# times viejos (de antes de optimizar volatility_*/atr_percentile_*), un pool
+# chico deja el resto de la cola esperando aunque la mayoría termine rápido
+# ahora. La mayoría del tiempo por indicador es espera de I/O de BD, no CPU,
+# así que más threads que cores tiene sentido (se libera el GIL en el
+# round-trip).
 import os as _os
-_POOL_WORKERS = max(3, (_os.cpu_count() or 2) + 2)
+_POOL_WORKERS = max(3, (_os.cpu_count() or 2) + 6)
 
 
 def _cost_rank(code: str) -> float:
@@ -1389,6 +1395,19 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
     _assets_done = 0
     _lock        = _th.Lock()
 
+    # Diagnóstico (jul-2026): número de worker (0..N-1) estable por hilo,
+    # asignado la primera vez que ese hilo llama a _tick. Se ve en el panel
+    # para confirmar cuántos workers reales están activos en paralelo
+    # (ver _POOL_WORKERS) y detectar huecos de scheduling.
+    _worker_slots: dict[int, int] = {}
+
+    def _worker_slot() -> int:
+        ident = _th.get_ident()
+        with _lock:
+            if ident not in _worker_slots:
+                _worker_slots[ident] = len(_worker_slots)
+            return _worker_slots[ident]
+
     def _make_tick(code):
         per_ind = [0]
         def _tick():
@@ -1398,7 +1417,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 _assets_done += 1
                 n = _assets_done
             if progress_cb:
-                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
+                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets} w{_worker_slot()}")
         return _tick
 
     # LPT por duración MEDIDA en la corrida anterior (nuevos primero;
