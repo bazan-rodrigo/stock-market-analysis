@@ -146,6 +146,34 @@ def test_index_sin_base_date_usa_ultima_fecha_disponible():
     assert out[D2]["close"] == pytest.approx(100.0)
 
 
+def test_index_usa_base_prices_provisto_aunque_no_este_en_price_frames():
+    """Regresion del bug de modo incremental (tail-mode): price_frames solo trae
+    la ventana reciente (sin D1, que es anterior a base_date), pero el llamador
+    ya resolvio el precio base con una query aparte (_anchor_price) y lo pasa
+    explicitamente -> no debe excluirse el componente."""
+    price_frames = {
+        1: _frame({D3: (120, 120), D4: (130, 130)}),  # sin D1 (fuera de la ventana tail)
+    }
+    comps = [_comp(1, "component", 1.0)]
+    formula = _formula("index", base_value=100.0, base_date=D1)
+    out = _compute_by_type(formula, comps, price_frames, base_prices={1: 100.0})
+    assert out[D3]["close"] == pytest.approx(100.0 * 120 / 100)
+    assert out[D4]["close"] == pytest.approx(100.0 * 130 / 100)
+
+
+def test_index_sin_base_prices_provisto_y_fuera_de_price_frames_excluye_componente():
+    """Contraste con el test anterior: si no se provee base_prices y la ventana
+    cargada no alcanza base_date, el componente se excluye (comportamiento
+    fallback documentado, ya no el camino real desde compute_synthetic_prices)."""
+    price_frames = {
+        1: _frame({D3: (120, 120)}),  # sin D1
+    }
+    comps = [_comp(1, "component", 1.0)]
+    formula = _formula("index", base_value=100.0, base_date=D1)
+    out = _compute_by_type(formula, comps, price_frames)
+    assert out[D3]["close"] == pytest.approx(0.0)
+
+
 # ── helpers de fechas comunes ─────────────────────────────────────────────────
 
 def test_common_index_interseca_fechas():

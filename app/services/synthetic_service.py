@@ -155,6 +155,20 @@ def _weighted_sums(items: list[tuple[float, int]], price_frames: dict,
     return close_sum, open_sum
 
 
+def _anchor_price(asset_id: int, base_date, session) -> float | None:
+    """Precio de cierre de un componente en base_date (o la fecha válida anterior
+    más cercana; la última disponible si base_date es None). Query liviana e
+    independiente de la ventana tail-mode del delta: un sintético 'index'
+    calculado incrementalmente solo carga precios desde last_date en adelante,
+    y su base_date suele ser muy anterior a esa ventana — sin esto, el precio
+    base no se encontraba y el componente se excluía en silencio."""
+    q = session.query(Price.close).filter(Price.asset_id == asset_id, Price.close.isnot(None))
+    if base_date:
+        q = q.filter(Price.date <= base_date)
+    row = q.order_by(Price.date.desc()).first()
+    return float(row[0]) if row and row[0] is not None else None
+
+
 def _ohlc_dict(common: pd.Index, open_: np.ndarray, close: np.ndarray,
                mask: np.ndarray | None = None) -> dict:
     high = np.maximum(open_, close)
@@ -192,7 +206,18 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
     all_asset_ids = list({c.asset_id for c in comps})
     price_frames = {aid: _load_price_frame(aid, start_date) for aid in all_asset_ids}
 
-    results = _compute_by_type(formula, comps, price_frames)
+    base_prices = None
+    if formula.formula_type == "index":
+        # Resuelto aparte de price_frames: en modo incremental (tail-mode)
+        # price_frames no cubre fechas anteriores a start_date, pero base_date sí
+        # puede serlo. Ver _anchor_price.
+        base_prices = {}
+        for aid in all_asset_ids:
+            bp = _anchor_price(aid, formula.base_date, s)
+            if bp is not None:
+                base_prices[aid] = bp
+
+    results = _compute_by_type(formula, comps, price_frames, base_prices=base_prices)
 
     count = 0
     for d, vals in sorted(results.items()):
@@ -225,10 +250,16 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
     return count
 
 
-def _compute_by_type(formula, comps, price_frames: dict) -> dict:
+def _compute_by_type(formula, comps, price_frames: dict,
+                      base_prices: dict | None = None) -> dict:
     """Vectorizado con pandas/numpy: sin loops por fecha en Python puro.
     Semántica idéntica a la versión escalar anterior (paridad cubierta por
-    tests/test_synthetic_service.py)."""
+    tests/test_synthetic_service.py).
+
+    base_prices (solo para formula_type='index'): precios base ya resueltos
+    por el llamador vía _anchor_price, que no dependen de la ventana tail-mode
+    de price_frames. Si no se provee, se resuelve a partir de price_frames
+    (comportamiento anterior, usado en los tests unitarios sin DB)."""
     ft = formula.formula_type
 
     if ft == "ratio":
@@ -266,17 +297,20 @@ def _compute_by_type(formula, comps, price_frames: dict) -> dict:
         base_val = formula.base_value or 100.0
         base_dt  = formula.base_date
 
-        # Precio base de cada componente en base_date
-        base_prices: dict[int, float] = {}
-        for _, aid in comps_c:
-            f = price_frames[aid]
-            if base_dt and base_dt in f.index:
-                base_prices[aid] = float(f.loc[base_dt, "close"])
-            elif not f.empty:
-                # Fecha más cercana anterior a base_date
-                candidates = f.index[f.index <= base_dt] if base_dt else f.index
-                if len(candidates):
-                    base_prices[aid] = float(f.loc[candidates.max(), "close"])
+        if base_prices is None:
+            # Fallback: resolver el precio base a partir de price_frames (solo
+            # correcto si price_frames cubre hasta base_date, p. ej. en tests
+            # o en un cálculo full sin ventana tail).
+            base_prices = {}
+            for _, aid in comps_c:
+                f = price_frames[aid]
+                if base_dt and base_dt in f.index:
+                    base_prices[aid] = float(f.loc[base_dt, "close"])
+                elif not f.empty:
+                    # Fecha más cercana anterior a base_date
+                    candidates = f.index[f.index <= base_dt] if base_dt else f.index
+                    if len(candidates):
+                        base_prices[aid] = float(f.loc[candidates.max(), "close"])
 
         common = _common_index(all_ids, price_frames)
         if common.empty:
