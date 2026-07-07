@@ -1066,14 +1066,13 @@ _EXISTING_CHUNK = 100
 # I/O). Con un thread por indicador todos se reparten el GIL y el más pesado
 # termina solo al final usando un único core; con pocos workers y encolando
 # los pesados primero (LPT), todos los cores quedan ocupados casi toda la corrida.
-# Subido de cores+2 a cores+6 (diag jul-2026): con 36 indicadores y measured
-# times viejos (de antes de optimizar volatility_*/atr_percentile_*), un pool
-# chico deja el resto de la cola esperando aunque la mayoría termine rápido
-# ahora. La mayoría del tiempo por indicador es espera de I/O de BD, no CPU,
-# así que más threads que cores tiene sentido (se libera el GIL en el
-# round-trip).
+# Probado cores+6 (diag jul-2026) para el hueco de scheduling del delta real:
+# empeoró (3m08s -> 3m42s). La causa no era falta de workers sino contención
+# de disco en el GROUP BY...COUNT(*) de tail_stats (ver backfill_indicator):
+# más threads = más de esos full-scans compitiendo por el mismo I/O a la vez.
+# Vuelto a cores+2; el fix real es sacar ese prefetch de adentro del worker.
 import os as _os
-_POOL_WORKERS = max(3, (_os.cpu_count() or 2) + 6)
+_POOL_WORKERS = max(3, (_os.cpu_count() or 2) + 2)
 
 
 def _cost_rank(code: str) -> float:
@@ -1113,11 +1112,41 @@ def _lpt_order(codes: list, measured: dict) -> list:
     return sorted(codes, key=lambda c: measured.get(c, float("inf")), reverse=True)
 
 
+def _query_tail_stats(session, table) -> dict:
+    """{asset_id: (min_date, max_date, count)} de una tabla ind_{code}.
+    GROUP BY asset_id + COUNT(*): el COUNT impide el loose index scan que
+    MIN/MAX solos permitirían, así que esto es en la práctica un full-scan
+    de la tabla. Ver backfill_indicator/_precompute_all_tail_stats."""
+    return {aid: (mn, mx, cnt) for aid, mn, mx, cnt in session.execute(
+        sa.select(table.c.asset_id, sa.func.min(table.c.date),
+                  sa.func.max(table.c.date), sa.func.count())
+        .group_by(table.c.asset_id)
+    ).fetchall()}
+
+
+def _precompute_all_tail_stats(session, codes: list, force: bool) -> dict:
+    """tail_stats de todos los códigos tail-mode, SECUENCIAL, antes de lanzar
+    el pool de workers. Cada tail_stats es ~un full-scan de su tabla (ver
+    _query_tail_stats); calcularlos dentro de cada worker en paralelo hace
+    que N indicadores compitan por el mismo disco a la vez — medido: subir
+    el pool de 4 a 8 workers empeoró el delta real (3m08s -> 3m42s) porque
+    duplicó esa contención. Secuencial evita el pico de I/O concurrente."""
+    if force:
+        return {}
+    out: dict = {}
+    for code in codes:
+        if not _DELTA_TAIL_MODE.get(code):
+            continue
+        out[code] = _query_tail_stats(session, get_ind_table(code))
+    return out
+
+
 def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                        price_cache: dict | None = None,
                        best_sma_cache: dict | None = None,
                        df_w_cache: dict | None = None,
-                       df_m_cache: dict | None = None) -> dict:
+                       df_m_cache: dict | None = None,
+                       precomputed_tail_stats: dict | None = None) -> dict:
     """
     Backfill histórico de un indicador específico para todos los activos.
     Escribe en la tabla ind_{code}.
@@ -1132,6 +1161,14 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
 
     df_w_cache / df_m_cache permiten reutilizar resamples precalculados entre
     los workers (sin ellos, cada indicador resamplearía los mismos precios).
+
+    precomputed_tail_stats: {asset_id: (min_date, max_date, count)} ya
+    calculado por el caller (ver _precompute_all_tail_stats). El GROUP BY
+    asset_id + COUNT(*) sobre ind_{code} es, en la práctica, un full-scan de
+    la tabla (COUNT impide el loose index scan que MIN/MAX solos permiten):
+    corrido dentro de cada worker, N indicadores en paralelo generan N
+    full-scans compitiendo por el mismo disco a la vez. Precalculado
+    secuencialmente antes de lanzar el pool, se evita esa contención.
     """
     compute_fn = _BACKFILL_FNS.get(code)
     if compute_fn is None:
@@ -1156,11 +1193,10 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     tail_mode  = None if force else _DELTA_TAIL_MODE.get(code)
     tail_stats: dict = {}
     if tail_mode:
-        tail_stats = {aid: (mn, mx, cnt) for aid, mn, mx, cnt in s.execute(
-            sa.select(t.c.asset_id, sa.func.min(t.c.date),
-                      sa.func.max(t.c.date), sa.func.count())
-            .group_by(t.c.asset_id)
-        ).fetchall()}
+        if precomputed_tail_stats is not None:
+            tail_stats = precomputed_tail_stats
+        else:
+            tail_stats = _query_tail_stats(s, t)
 
     # Invalidación por referencia externa (ver _BENCHMARK_DEP_CODES): un
     # activo con benchmark cambiado cae al dict-compare aunque no haya huecos.
@@ -1321,7 +1357,8 @@ def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
                                price_cache: dict | None = None,
                                best_sma_cache: dict | None = None,
                                df_w_cache: dict | None = None,
-                               df_m_cache: dict | None = None) -> dict:
+                               df_m_cache: dict | None = None,
+                               precomputed_tail_stats: dict | None = None) -> dict:
     import time as _time
     from app.database import Session as _DbSession
     t0 = _time.monotonic()
@@ -1331,7 +1368,8 @@ def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
             _set_bulk_load_checks(get_session(), False)
         res = backfill_indicator(code, force=force, asset_tick=asset_tick,
                                  price_cache=price_cache, best_sma_cache=best_sma_cache,
-                                 df_w_cache=df_w_cache, df_m_cache=df_m_cache)
+                                 df_w_cache=df_w_cache, df_m_cache=df_m_cache,
+                                 precomputed_tail_stats=precomputed_tail_stats)
         res["seconds"] = round(_time.monotonic() - t0, 1)
         return res
     except Exception as exc:
@@ -1384,6 +1422,13 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
     df_w_cache = {aid: _resample_ohlc(df, "W") for aid, df in price_cache.items()}
     df_m_cache = {aid: _resample_ohlc(df, "M") for aid, df in price_cache.items()}
 
+    # tail_stats de todos los códigos tail-mode, SECUENCIAL y antes del pool
+    # (ver _precompute_all_tail_stats): evita que varios indicadores
+    # full-scaneen su tabla al mismo tiempo cuando arranquen los workers.
+    if progress_cb:
+        progress_cb(0, 1, "Calculando estadísticas de historial (tail-mode)...")
+    tail_stats_by_code = _precompute_all_tail_stats(s, hist, force)
+
     from app.database import Session as _DbSession
     _DbSession.remove()   # libera la conexión principal antes de lanzar workers
 
@@ -1428,7 +1473,8 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
     with _TPE(max_workers=min(n_indicators, _POOL_WORKERS)) as pool:
         futures = {
             pool.submit(_backfill_indicator_worker, code, force, _make_tick(code),
-                        price_cache, best_sma_cache, df_w_cache, df_m_cache): code
+                        price_cache, best_sma_cache, df_w_cache, df_m_cache,
+                        tail_stats_by_code.get(code)): code
             for code in hist
         }
         if progress_cb:
