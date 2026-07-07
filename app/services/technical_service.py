@@ -191,13 +191,12 @@ def _wilder_smooth(s: pd.Series, period: int) -> pd.Series:
 
 
 def _atr_series(df: pd.DataFrame, period: int) -> pd.Series:
-    prev_close = df["close"].shift(1)
-    tr = pd.concat([
-        df["high"] - df["low"],
-        (df["high"] - prev_close).abs(),
-        (df["low"]  - prev_close).abs(),
-    ], axis=1).max(axis=1)
-    return _wilder_smooth(tr, period)
+    prev_close = df["close"].shift(1).to_numpy()
+    high = df["high"].to_numpy()
+    low  = df["low"].to_numpy()
+    tr = np.fmax(high - low,
+         np.fmax(np.abs(high - prev_close), np.abs(low - prev_close)))
+    return _wilder_smooth(pd.Series(tr, index=df.index), period)
 
 
 def _confirm_codes(raw_codes: np.ndarray, confirm_bars: int) -> np.ndarray:
@@ -268,9 +267,10 @@ def _compute_vol_zones(
     valid = atr.dropna()
     if valid.empty:
         return []
-    th_low     = float(np.nanpercentile(valid, pct_low))
-    th_high    = float(np.nanpercentile(valid, pct_high))
-    th_extreme = float(np.nanpercentile(valid, pct_extreme))
+    valid_arr  = valid.to_numpy()
+    th_low     = float(np.nanpercentile(valid_arr, pct_low))
+    th_high    = float(np.nanpercentile(valid_arr, pct_high))
+    th_extreme = float(np.nanpercentile(valid_arr, pct_extreme))
     atr_vals = atr.values
     raw_codes = np.where(np.isnan(atr_vals), 0,
                 np.where(atr_vals >= th_extreme, 4,
@@ -281,7 +281,7 @@ def _compute_vol_zones(
 
     _CODE = [None, "baja", "normal", "alta", "extrema"]
     dates_arr = df["date"].values
-    valid_sorted = np.sort(valid.values)
+    valid_sorted = np.sort(valid_arr)
     n_valid = len(valid_sorted)
     atr_pct_ranks = np.full(n, np.nan)
     if n_valid > 0:
