@@ -24,6 +24,15 @@ _sessions: dict[str, dict] = {}   # {uuid: {conn, has_pending, last_used}}
 _MAX_ROWS        = 5_000
 _SESSION_TTL_MIN = 30
 
+# Sentencias que devuelven filas (mostrar grilla) en vez de ser DML pendiente
+# de commit/rollback. EXPLAIN/SHOW/DESC no son SELECT pero también devuelven
+# result set — sin esto la consola las trataba como DML y no mostraba nada.
+_READ_ONLY_PREFIXES = ("SELECT", "EXPLAIN", "SHOW", "DESC", "DESCRIBE", "WITH")
+
+
+def _is_read_only(stmt: str) -> bool:
+    return stmt.upper().lstrip().startswith(_READ_ONLY_PREFIXES)
+
 
 def _get_conn(session_id: str):
     from app.database import engine
@@ -102,7 +111,7 @@ def execute_sql(_, sql, session_id):
         return no_update, "Escribí una consulta SQL.", _style("warning"), no_update, no_update, no_update
 
     stmt = sql.strip().rstrip(";")
-    is_select = stmt.upper().lstrip().startswith("SELECT")
+    is_select = _is_read_only(stmt)
 
     try:
         conn = _get_conn(session_id)
@@ -195,7 +204,7 @@ def export_csv(_, sql, session_id):
         return no_update
 
     stmt = sql.strip().rstrip(";")
-    if not stmt.upper().lstrip().startswith("SELECT"):
+    if not _is_read_only(stmt):
         return no_update
 
     try:
