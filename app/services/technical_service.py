@@ -2236,10 +2236,12 @@ def _refresh_group_scores() -> None:
 
 
 def _announce_worker_union(progress_cb, s, n_assets: int,
-                           current_first: bool) -> None:
+                           current_first: bool) -> tuple[list, list]:
     """Anuncia la unión de workers de ambas fases (vigentes + backfill) al
     inicio del proceso, para que la lista del panel no crezca al cambiar de
-    fase. Los __init__ de cada fase después no duplican (setdefault)."""
+    fase. Los __init__ de cada fase después no duplican (setdefault).
+    Devuelve (cur_codes, hist_codes) para que el caller arme una barra de
+    progreso combinada entre las dos fases (ver _run_current_and_backfill)."""
     defs = s.query(IndicatorDefinition).filter(
         IndicatorDefinition.keep_history.is_(True)
     ).order_by(IndicatorDefinition.id).all()
@@ -2248,6 +2250,47 @@ def _announce_worker_union(progress_cb, s, n_assets: int,
     codes = (cur + hist) if current_first else (hist + cur)
     progress_cb(0, len(codes) * n_assets,
                 f"__init__:{n_assets}:{','.join(codes)}")
+    return cur, hist
+
+
+def _run_current_and_backfill(progress_cb, *, force: bool) -> dict:
+    """recompute_current_indicators + backfill_all_indicator_values en
+    secuencia, con una barra de progreso COMBINADA entre las dos fases.
+
+    Cada fase reporta su propio (cur, total) interno; sin combinarlos, la
+    barra de progreso salta hacia atrás al pasar de una fase a la otra
+    (fase 2 arranca en 0 con un total más chico) — el usuario lo notó como
+    "se resetea". cb1/cb2 remapean cada fase al mismo total combinado,
+    con la fase 2 offseteada por el tamaño de la fase 1."""
+    s = get_session()
+    if progress_cb:
+        progress_cb(0, 1, "Cargando precios en memoria...")
+    price_cache_full = _load_all_prices(s)
+    snap_caches      = _derive_recent_caches(price_cache_full)
+    n_assets         = len(price_cache_full)
+
+    cb1 = cb2 = progress_cb
+    if progress_cb:
+        cur_codes, hist_codes = _announce_worker_union(progress_cb, s, n_assets,
+                                                        current_first=True)
+        combined_total = (len(cur_codes) + len(hist_codes)) * n_assets
+        phase1_total   = len(cur_codes) * n_assets
+
+        def cb1(cur, tot, label=""):
+            progress_cb(cur, combined_total, label)
+
+        def cb2(cur, tot, label=""):
+            progress_cb(phase1_total + cur, combined_total, label)
+
+    r1 = recompute_current_indicators(progress_cb=cb1,
+                                 codes=_CURRENT_ONLY_CODES,
+                                 preloaded_caches=snap_caches)
+    r2 = backfill_all_indicator_values(progress_cb=cb2, force=force,
+                                       price_cache=price_cache_full)
+    _refresh_group_scores()
+    errors = r1["errors"] + r2["errors"]
+    total  = r1["total"]
+    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
 
 
 def update_indicator_history(progress_cb=None) -> dict:
@@ -2256,24 +2299,7 @@ def update_indicator_history(progress_cb=None) -> dict:
 
     Los precios se cargan una sola vez, y el valor de hoy de los indicadores
     con historia lo escribe el backfill (no se computa dos veces)."""
-    s = get_session()
-    if progress_cb:
-        progress_cb(0, 1, "Cargando precios en memoria...")
-    price_cache_full = _load_all_prices(s)
-    snap_caches      = _derive_recent_caches(price_cache_full)
-    if progress_cb:
-        _announce_worker_union(progress_cb, s, len(price_cache_full),
-                               current_first=True)
-
-    r1 = recompute_current_indicators(progress_cb=progress_cb,
-                                 codes=_CURRENT_ONLY_CODES,
-                                 preloaded_caches=snap_caches)
-    r2 = backfill_all_indicator_values(progress_cb=progress_cb, force=False,
-                                       price_cache=price_cache_full)
-    _refresh_group_scores()
-    errors = r1["errors"] + r2["errors"]
-    total  = r1["total"]
-    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
+    return _run_current_and_backfill(progress_cb, force=False)
 
 
 def rebuild_indicator_history(progress_cb=None) -> dict:
@@ -2283,24 +2309,7 @@ def rebuild_indicator_history(progress_cb=None) -> dict:
     después el backfill. dist_optimal_sma_* depende de best_sma_* (lee
     best_sma_cache desde current_indicator_values) — calcularlo antes de
     recomputar best_sma_* usaría el valor de la corrida anterior."""
-    s = get_session()
-    if progress_cb:
-        progress_cb(0, 1, "Cargando precios en memoria...")
-    price_cache_full = _load_all_prices(s)
-    snap_caches      = _derive_recent_caches(price_cache_full)
-    if progress_cb:
-        _announce_worker_union(progress_cb, s, len(price_cache_full),
-                               current_first=True)
-
-    r1 = recompute_current_indicators(progress_cb=progress_cb,
-                                 codes=_CURRENT_ONLY_CODES,
-                                 preloaded_caches=snap_caches)
-    r2 = backfill_all_indicator_values(progress_cb=progress_cb, force=True,
-                                       price_cache=price_cache_full)
-    _refresh_group_scores()
-    errors = r1["errors"] + r2["errors"]
-    total  = r1["total"]   # activos procesados (backfill_all_... devuelve n_indicadores)
-    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
+    return _run_current_and_backfill(progress_cb, force=True)
 
 
 # ── Funciones públicas para gráficos ─────────────────────────────────────────
