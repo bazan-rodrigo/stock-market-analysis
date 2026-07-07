@@ -1138,10 +1138,13 @@ def _cost_rank(code: str) -> float:
 def _lpt_order(codes: list, measured: dict) -> list:
     """Ordena la cola de workers: pesados primero (LPT).
 
-    measured: {code: segundos de la última corrida}. Los códigos SIN medición
-    (indicadores nuevos) van primero por seguridad: si resultan pesados quedan
-    bien priorizados, y si son livianos no cuesta nada. Sin ninguna medición
-    (primera corrida de una instalación) cae a la heurística _cost_rank."""
+    measured: {code: segundos de la última corrida DEL MISMO MODO — el
+    caller decide si es delta o rebuild completo, ver migración 0056, no
+    mezclar duraciones de un modo para ordenar el otro}. Los códigos SIN
+    medición (indicadores nuevos, o primera corrida de ese modo) van
+    primero por seguridad: si resultan pesados quedan bien priorizados, y
+    si son livianos no cuesta nada. Sin ninguna medición cae a la
+    heurística _cost_rank."""
     if not measured:
         return sorted(codes, key=_cost_rank, reverse=True)
     return sorted(codes, key=lambda c: measured.get(c, float("inf")), reverse=True)
@@ -1456,9 +1459,14 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
     defs = s.query(IndicatorDefinition).filter(
         IndicatorDefinition.keep_history.is_(True)
     ).order_by(IndicatorDefinition.id).all()
-    hist     = [d.code for d in defs if d.code in _BACKFILL_FNS]
-    measured = {d.code: d.last_backfill_seconds for d in defs
-                if d.code in _BACKFILL_FNS and d.last_backfill_seconds}
+    hist = [d.code for d in defs if d.code in _BACKFILL_FNS]
+    # Cola LPT del modo que corresponde: delta y rebuild completo tienen
+    # costos muy distintos para el mismo código (ver migración 0056).
+    measured = {
+        d.code: (d.last_rebuild_seconds if force else d.last_backfill_seconds)
+        for d in defs if d.code in _BACKFILL_FNS
+        and (d.last_rebuild_seconds if force else d.last_backfill_seconds)
+    }
 
     n_indicators = len(hist)
     if not n_indicators:
@@ -1569,13 +1577,16 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 logger.warning("Backfill future error code=%s: %s", code, exc)
                 errors.append({"code": code, "error": str(exc)})
 
-    # Persistir las duraciones medidas: ordenan la cola LPT de la próxima corrida
+    # Persistir las duraciones medidas: ordenan la cola LPT de la próxima
+    # corrida del MISMO modo (ver migración 0056 — delta y rebuild completo
+    # tienen costos muy distintos para el mismo código, no comparten campo).
     if durations:
         try:
-            s2 = get_session()
+            s2   = get_session()
+            attr = "last_rebuild_seconds" if force else "last_backfill_seconds"
             for d in s2.query(IndicatorDefinition).filter(
                     IndicatorDefinition.code.in_(list(durations))).all():
-                d.last_backfill_seconds = durations[d.code]
+                setattr(d, attr, durations[d.code])
             s2.commit()
         except Exception:
             logger.warning("No se pudieron guardar las duraciones de backfill",

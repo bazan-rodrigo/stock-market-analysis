@@ -17,6 +17,10 @@ class IndicatorDefinition(Base):
     description  = Column(Text)
     keep_history = Column(Boolean, nullable=False, default=True)
     full_sample  = Column(Boolean, nullable=False, default=False)  # requiere force en backfill histórico
-    # Duración medida de la última corrida de backfill: ordena la cola LPT
-    # de la próxima (los indicadores nuevos, sin medición, van primero)
-    last_backfill_seconds = Column(Float)
+    # Duración medida de la última corrida: ordena la cola LPT de la próxima
+    # (los indicadores nuevos, sin medición, van primero). Dos campos porque
+    # un delta (reescribe 1 fila/activo) y un rebuild completo (reescribe
+    # toda la historia) tienen costos muy distintos para el mismo código —
+    # ver migración 0056.
+    last_backfill_seconds = Column(Float)  # delta (force=False)
+    last_rebuild_seconds  = Column(Float)  # rebuild completo (force=True)
