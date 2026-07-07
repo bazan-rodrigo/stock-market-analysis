@@ -24,7 +24,9 @@ import sqlalchemy as sa
 
 from app.database import get_session
 from app.models import Asset, SyntheticFormula
-from app.services.synthetic_service import _load_price_frame, _compute_by_type, _anchor_price
+from app.services.synthetic_service import (
+    _load_price_frame, _compute_by_type, _anchor_price, compute_synthetic_prices,
+)
 
 
 def _pick_formula(session, ticker: str | None) -> SyntheticFormula:
@@ -89,6 +91,15 @@ def main():
         f"_compute_by_type ({formula.formula_type})",
         lambda: _compute_by_type(formula, comps, price_frames, base_prices=base_prices),
         n_reps=20,
+    )
+
+    # Pipeline completo (incluye el insert en batch y el commit real): a
+    # diferencia de arriba, esto SI escribe en la BD (borra y recalcula la
+    # cola del sintetico, modo delta) - idempotente entre reps, pero real I/O.
+    _profile(
+        f"compute_synthetic_prices (full=False) — pipeline completo",
+        lambda: compute_synthetic_prices(formula.asset_id, full=False),
+        n_reps=5,
     )
 
 

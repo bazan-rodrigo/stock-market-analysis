@@ -17,6 +17,7 @@ from datetime import date as _date
 import numpy as np
 import pandas as pd
 from sqlalchemy import func
+from sqlalchemy.dialects.mysql import insert as _mysql_insert
 
 from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, SyntheticComponent, SyntheticFormula
@@ -26,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 # Sintéticos por nivel de dependencia procesados en paralelo (ver _topological_levels)
 _SYN_WORKERS = 4
+
+# Filas por INSERT al escribir precios sintéticos (mismo criterio que
+# _PRICE_BATCH en price_service.py: evita superar max_allowed_packet)
+_SYN_PRICE_BATCH = 500
 
 
 # ── Consultas ─────────────────────────────────────────────────────────────────
@@ -186,6 +191,34 @@ def _ohlc_dict(common: pd.Index, open_: np.ndarray, close: np.ndarray,
     }
 
 
+def _bulk_insert_synthetic_prices(session, asset_id: int, results: dict) -> int:
+    """Un INSERT multi-fila cada _SYN_PRICE_BATCH fechas, en vez de un objeto
+    ORM Price + session.add() por fecha: para un historial largo (miles de
+    fechas) instanciar un objeto Python por fila es puro overhead cuando no
+    hay tracking de cambios que aprovechar (siempre es un insert nuevo, el
+    rango ya se borró antes en compute_synthetic_prices)."""
+    rows = [
+        {
+            "asset_id": asset_id, "date": d,
+            "open":  round(vals["open"],  8),
+            "high":  round(vals["high"],  8),
+            "low":   round(vals["low"],   8),
+            "close": round(vals["close"], 8),
+            "volume": None,
+        }
+        for d, vals in sorted(results.items())
+    ]
+    for i in range(0, len(rows), _SYN_PRICE_BATCH):
+        chunk = rows[i : i + _SYN_PRICE_BATCH]
+        stmt = _mysql_insert(Price.__table__).values(chunk)
+        stmt = stmt.on_duplicate_key_update(
+            open=stmt.inserted.open, high=stmt.inserted.high,
+            low=stmt.inserted.low, close=stmt.inserted.close,
+        )
+        session.execute(stmt)
+    return len(rows)
+
+
 def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
     s = get_session()
     formula = get_formula_by_asset(asset_id)
@@ -224,18 +257,7 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
 
     results = _compute_by_type(formula, comps, price_frames, base_prices=base_prices)
 
-    count = 0
-    for d, vals in sorted(results.items()):
-        s.add(Price(
-            asset_id=asset_id,
-            date=d,
-            open=round(vals["open"],  8),
-            high=round(vals["high"],  8),
-            low=round(vals["low"],   8),
-            close=round(vals["close"], 8),
-            volume=None,
-        ))
-        count += 1
+    count = _bulk_insert_synthetic_prices(s, asset_id, results)
 
     s.commit()
     logger.info("Sintético id=%d: %d precios (%s, full=%s)", asset_id, count,
