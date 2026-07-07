@@ -42,11 +42,21 @@ class CurrentIndicatorValue(Base):
 
 
 class IndAssetMeta(Base):
-    """Metadato de invalidación por activo e indicador: referencia externa
-    (benchmark_id, ver _BENCHMARK_DEP_CODES) o hash del prefijo histórico
-    (checksum, ver _CHECKSUM_DEP_CODES) usados en el último cálculo completo
-    de la serie, para detectar cuándo el camino rápido del delta debe
-    invalidarse aunque no haya huecos en el historial guardado."""
+    """Metadato de invalidación/caché por activo e indicador: referencia
+    externa (benchmark_id, ver _BENCHMARK_DEP_CODES) o hash del prefijo
+    histórico (checksum, ver _CHECKSUM_DEP_CODES) usados en el último
+    cálculo completo de la serie, para detectar cuándo el camino rápido
+    del delta debe invalidarse aunque no haya huecos en el historial
+    guardado. min_date/max_date/row_count cachean el resultado de
+    _query_tail_stats (evita un full-scan de ind_{code} en cada delta) y
+    se recalculan en cada backfill_indicator exitoso — ver
+    _upsert_ind_stats_meta y el DELETE junto al TRUNCATE en force.
+
+    Nota: la consola SQL de administración permite DML arbitrario sobre
+    ind_* sin pasar por estos servicios. Si se edita una tabla ind_{code}
+    a mano ahí, este caché (y benchmark_id/checksum) puede quedar
+    desincronizado — forzar un rebuild (force=True) de ese indicador
+    después de cualquier edición manual."""
 
     __tablename__ = "ind_asset_meta"
 
@@ -54,3 +64,6 @@ class IndAssetMeta(Base):
     code         = Column(String(50), primary_key=True)
     benchmark_id = Column(Integer, nullable=True)
     checksum     = Column(String(64), nullable=True)
+    min_date     = Column(Date, nullable=True)
+    max_date     = Column(Date, nullable=True)
+    row_count    = Column(Integer, nullable=True)

@@ -12,7 +12,8 @@ import pytest
 
 from app.services.technical_service import (
     _BACKFILL_FNS, _BENCHMARK_DEP_CODES, _CHECKSUM_DEP_CODES, _DELTA_TAIL_MODE,
-    _delta_tail_start, _pairs_to_write, _series_checksum, _stale_bench_assets,
+    _delta_tail_start, _pairs_to_write, _series_checksum, _series_stats,
+    _stale_bench_assets,
 )
 
 
@@ -150,6 +151,32 @@ def test_checksum_distingue_bordes_entre_valores():
 
 def test_checksum_vacio_es_string_vacio():
     assert _series_checksum([]) == ""
+
+
+# ── _series_stats: (min_date, max_date, count) cacheado en ind_asset_meta ────
+
+def test_series_stats_serie_completa_sin_nan():
+    dates = _fechas(5)
+    vals  = [float(i) for i in range(5)]
+    assert _series_stats(dates, vals) == (dates[0], dates[4], 5)
+
+
+def test_series_stats_ignora_warmup_nan_al_principio():
+    dates = _fechas(5)
+    vals  = [float("nan"), float("nan"), 2.0, 3.0, 4.0]
+    assert _series_stats(dates, vals) == (dates[2], dates[4], 3)
+
+
+def test_series_stats_zones_con_none_legitimo_a_mitad_de_serie():
+    dates = _fechas(5)
+    vals  = [0.0, None, 2.0, None, 4.0]
+    assert _series_stats(dates, vals) == (dates[0], dates[4], 3)
+
+
+def test_series_stats_serie_vacia_o_toda_nan_es_none():
+    assert _series_stats([], []) is None
+    dates = _fechas(3)
+    assert _series_stats(dates, [None, None, None]) is None
 
 
 # ── _stale_bench_assets: invalidación por cambio de benchmark ────────────────

@@ -944,6 +944,23 @@ def _delta_tail_start(dates_list: list, stat, mode: str):
 _BENCHMARK_DEP_CODES = frozenset({"relative_strength_52w"})
 
 
+def _series_stats(dates_list: list, vals_list: list) -> tuple | None:
+    """(min_date, max_date, count) de los valores no-nulos de la serie
+    recién calculada: el estado que debería quedar en ind_{code} para este
+    activo tras un backfill exitoso (cachea lo que hoy resuelve un full-scan
+    de _query_tail_stats). None si no hay ningún valor válido.
+
+    Se deriva de la serie COMPLETA recién calculada, no de un delta
+    aritmético sobre lo efectivamente escrito: es seguro y uniforme en los
+    4 caminos (rápido/gap/checksum/bench/force) porque la tabla, tras un
+    _write_ind_series exitoso, siempre termina reflejando exactamente las
+    fechas no-nulas de esta serie — mismo invariante en el que ya confía
+    todo el sistema de tail-mode (_pairs_to_write sólo filtra pd.notna(v)
+    en sus 3 modos)."""
+    valid = [d for d, v in zip(dates_list, vals_list) if pd.notna(v)]
+    return (valid[0], valid[-1], len(valid)) if valid else None
+
+
 def _stale_bench_assets(bench_current: dict, bench_stored: dict) -> set:
     """Activos cuyo benchmark vigente difiere del usado en el último cálculo
     guardado (incluye activos sin fila en ind_asset_meta: primera corrida
@@ -967,6 +984,24 @@ def _upsert_ind_asset_meta(s, code: str, *, bench_by_asset: dict | None = None,
     sql = (f"INSERT INTO ind_asset_meta (asset_id, code, {col}) VALUES (%s, %s, %s)"
            f" ON DUPLICATE KEY UPDATE {col} = VALUES({col})")
     rows = [(aid, code, val) for aid, val in data.items()]
+    s.connection().exec_driver_sql(sql, rows)
+    s.commit()
+
+
+def _upsert_ind_stats_meta(s, code: str, stats_by_asset: dict) -> None:
+    """Persiste (min_date, max_date, row_count) por activo para este código
+    (ver _series_stats). Función separada de _upsert_ind_asset_meta a
+    propósito: bench/checksum y stats pueden tener distinto conjunto de
+    asset_id para el mismo código (p.ej. un activo sin barras suficientes
+    entra en bench_current pero no en stats_by_asset). Si se combinaran en
+    un único INSERT multi-columna, una fila sin dato para una columna
+    escribiría NULL y pisaría un valor cacheado válido de otra corrida."""
+    if not stats_by_asset:
+        return
+    sql = ("INSERT INTO ind_asset_meta (asset_id, code, min_date, max_date, row_count) "
+           "VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE "
+           "min_date = VALUES(min_date), max_date = VALUES(max_date), row_count = VALUES(row_count)")
+    rows = [(aid, code, mn, mx, cnt) for aid, (mn, mx, cnt) in stats_by_asset.items()]
     s.connection().exec_driver_sql(sql, rows)
     s.commit()
 
@@ -1112,32 +1147,35 @@ def _lpt_order(codes: list, measured: dict) -> list:
     return sorted(codes, key=lambda c: measured.get(c, float("inf")), reverse=True)
 
 
-def _query_tail_stats(session, table) -> dict:
-    """{asset_id: (min_date, max_date, count)} de una tabla ind_{code}.
-    GROUP BY asset_id + COUNT(*): el COUNT impide el loose index scan que
-    MIN/MAX solos permitirían, así que esto es en la práctica un full-scan
-    de la tabla. Ver backfill_indicator/_precompute_all_tail_stats."""
+def _query_tail_stats(session, code: str) -> dict:
+    """{asset_id: (min_date, max_date, count)} cacheado en ind_asset_meta
+    para este código (migración 0055), mantenido por backfill_indicator en
+    cada corrida exitosa (ver _series_stats/_upsert_ind_stats_meta y el
+    DELETE junto al TRUNCATE en force). Reemplaza el full-scan que antes
+    hacía un GROUP BY asset_id + COUNT(*) sobre ind_{code} — el COUNT
+    impedía el loose index scan que MIN/MAX solos permitirían."""
     return {aid: (mn, mx, cnt) for aid, mn, mx, cnt in session.execute(
-        sa.select(table.c.asset_id, sa.func.min(table.c.date),
-                  sa.func.max(table.c.date), sa.func.count())
-        .group_by(table.c.asset_id)
+        sa.select(IndAssetMeta.asset_id, IndAssetMeta.min_date,
+                  IndAssetMeta.max_date, IndAssetMeta.row_count)
+        .where(IndAssetMeta.code == code, IndAssetMeta.row_count.isnot(None))
     ).fetchall()}
 
 
 def _precompute_all_tail_stats(session, codes: list, force: bool) -> dict:
-    """tail_stats de todos los códigos tail-mode, SECUENCIAL, antes de lanzar
-    el pool de workers. Cada tail_stats es ~un full-scan de su tabla (ver
-    _query_tail_stats); calcularlos dentro de cada worker en paralelo hace
-    que N indicadores compitan por el mismo disco a la vez — medido: subir
-    el pool de 4 a 8 workers empeoró el delta real (3m08s -> 3m42s) porque
-    duplicó esa contención. Secuencial evita el pico de I/O concurrente."""
+    """tail_stats de todos los códigos tail-mode, antes de lanzar el pool de
+    workers. Históricamente esto era secuencial para evitar que varios
+    full-scans de ind_{code} compitieran por el mismo disco a la vez (medido:
+    3m08s -> 3m42s con más workers); desde que _query_tail_stats lee de un
+    caché indexado por PK en ind_asset_meta en vez de escanear ind_{code},
+    ya no hay full-scan que evitar, pero se deja secuencial por simplicidad
+    (el costo real hoy es solo N lookups baratos por PK)."""
     if force:
         return {}
     out: dict = {}
     for code in codes:
         if not _DELTA_TAIL_MODE.get(code):
             continue
-        out[code] = _query_tail_stats(session, get_ind_table(code))
+        out[code] = _query_tail_stats(session, code)
     return out
 
 
@@ -1163,12 +1201,11 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     los workers (sin ellos, cada indicador resamplearía los mismos precios).
 
     precomputed_tail_stats: {asset_id: (min_date, max_date, count)} ya
-    calculado por el caller (ver _precompute_all_tail_stats). El GROUP BY
-    asset_id + COUNT(*) sobre ind_{code} es, en la práctica, un full-scan de
-    la tabla (COUNT impide el loose index scan que MIN/MAX solos permiten):
-    corrido dentro de cada worker, N indicadores en paralelo generan N
-    full-scans compitiendo por el mismo disco a la vez. Precalculado
-    secuencialmente antes de lanzar el pool, se evita esa contención.
+    calculado por el caller (ver _precompute_all_tail_stats). Se lee de
+    ind_asset_meta (migración 0055), cacheado por este mismo método en la
+    corrida anterior — reemplaza el full-scan que antes hacía un
+    GROUP BY asset_id + COUNT(*) sobre ind_{code} (COUNT impedía el loose
+    index scan que MIN/MAX solos permiten).
     """
     compute_fn = _BACKFILL_FNS.get(code)
     if compute_fn is None:
@@ -1191,12 +1228,18 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     # traer millones de (fecha[, valor]) a 3 agregados por activo, y por
     # activo se escribe solo la cola en lugar de filtrar la serie entera.
     tail_mode  = None if force else _DELTA_TAIL_MODE.get(code)
+    # tail_eligible, a diferencia de tail_mode, NO se anula en force: incluso
+    # en un rebuild completo queremos recalcular el caché de stats para que
+    # el próximo delta ya tenga camino rápido disponible (ver _series_stats
+    # y _upsert_ind_stats_meta, al final de esta función).
+    tail_eligible     = code in _DELTA_TAIL_MODE
+    stats_by_asset: dict = {}
     tail_stats: dict = {}
     if tail_mode:
         if precomputed_tail_stats is not None:
             tail_stats = precomputed_tail_stats
         else:
-            tail_stats = _query_tail_stats(s, t)
+            tail_stats = _query_tail_stats(s, code)
 
     # Invalidación por referencia externa (ver _BENCHMARK_DEP_CODES): un
     # activo con benchmark cambiado cae al dict-compare aunque no haya huecos.
@@ -1231,6 +1274,13 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
         # mientras se rellena, y si la corrida falla hay que re-correr el
         # rebuild (TRUNCATE es DDL, no se rollbackea).
         s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
+        # Limpia el caché de ind_asset_meta (benchmark_id/checksum/stats) en
+        # el MISMO commit que el TRUNCATE, no al final: si el proceso se cae
+        # a mitad del rebuild, la tabla queda truncada+parcial pero el caché
+        # queda AUSENTE (no con un valor viejo) — el próximo delta cae al
+        # camino lento para todo ese código en vez de confiar en un
+        # min/max/count que ya no corresponde a la tabla real.
+        s.execute(sa.text("DELETE FROM ind_asset_meta WHERE code = :code"), {"code": code})
         s.commit()
 
     inserted = 0
@@ -1295,6 +1345,14 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 # se guarda siempre (force, cola o dict-compare) para que el
                 # próximo delta arranque con el checksum al día
                 checksum_by_asset[asset_id] = _series_checksum(vals_list[:-1])
+            if tail_eligible:
+                # se guarda siempre (force, cola o dict-compare) para que el
+                # próximo delta tenga tail_stats al día sin full-scan (ver
+                # _series_stats: se deriva de la serie completa recién
+                # calculada, no de lo efectivamente escrito este run)
+                stats = _series_stats(dates_list, vals_list)
+                if stats is not None:
+                    stats_by_asset[asset_id] = stats
             # force: la tabla ya fue truncada → set() vacío escribe todo
             # sin el DELETE por activo del modo existing=None
             if force:
@@ -1349,6 +1407,8 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
         _upsert_ind_asset_meta(s, code, bench_by_asset=bench_current)
     if needs_checksum:
         _upsert_ind_asset_meta(s, code, checksum_by_asset=checksum_by_asset)
+    if tail_eligible:
+        _upsert_ind_stats_meta(s, code, stats_by_asset)
 
     return {"inserted": inserted, "code": code, "path_counts": path_counts}
 
