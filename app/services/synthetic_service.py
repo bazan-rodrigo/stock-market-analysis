@@ -10,15 +10,22 @@ index        precio = base_value · Σ(w_i·P_i/P_base_i) / Σ(w_i)
              donde P_base_i es el precio del activo i en base_date
 """
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as _date
 
+import numpy as np
+import pandas as pd
 from sqlalchemy import func
 
-from app.database import get_session
+from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, SyntheticComponent, SyntheticFormula
 from app.services.technical_service import compute_current_indicators, _save_indicator_log
 
 logger = logging.getLogger(__name__)
+
+# Sintéticos por nivel de dependencia procesados en paralelo (ver _topological_levels)
+_SYN_WORKERS = 4
 
 
 # ── Consultas ─────────────────────────────────────────────────────────────────
@@ -109,26 +116,55 @@ def delete_formula(formula_id: int) -> None:
 
 # ── Cálculo de precios ────────────────────────────────────────────────────────
 
-def _load_price_map(asset_id: int, start_date=None) -> dict:
-    """Retorna {date: Price} para el activo dado."""
+def _load_price_frame(asset_id: int, start_date=None) -> pd.DataFrame:
+    """DataFrame indexado por fecha con columnas 'close' y 'eff_open' (open si es
+    válido —no nulo ni cero—, si no el close de esa misma fecha). Trae solo las
+    columnas necesarias en vez de objetos ORM completos: para historiales largos
+    x muchos componentes evita instanciar miles de objetos Price por nada."""
     s = get_session()
-    q = s.query(Price).filter(Price.asset_id == asset_id)
+    q = s.query(Price.date, Price.open, Price.close).filter(Price.asset_id == asset_id)
     if start_date:
         q = q.filter(Price.date >= start_date)
-    return {p.date: p for p in q.all()}
+    rows = q.all()
+    if not rows:
+        return pd.DataFrame(columns=["close", "eff_open"])
+    df = pd.DataFrame(rows, columns=["date", "open", "close"]).set_index("date")
+    df["eff_open"] = df["open"].where(df["open"].notna() & (df["open"] != 0), df["close"])
+    return df[["close", "eff_open"]]
 
 
-def _common_dates(maps: list[dict]) -> list:
-    if not maps:
-        return []
-    common = set(maps[0].keys())
-    for m in maps[1:]:
-        common &= set(m.keys())
-    return sorted(common)
+def _common_index(asset_ids: list[int], price_frames: dict) -> pd.Index:
+    ids = list(dict.fromkeys(asset_ids))
+    if not ids:
+        return pd.Index([])
+    common = price_frames[ids[0]].index
+    for aid in ids[1:]:
+        common = common.intersection(price_frames[aid].index)
+    return common.sort_values()
 
 
-def _safe_open(price, fallback_close):
-    return price.open if price.open else fallback_close
+def _weighted_sums(items: list[tuple[float, int]], price_frames: dict,
+                    common: pd.Index) -> tuple[np.ndarray, np.ndarray]:
+    """Σ(w·close) y Σ(w·eff_open) de `items` en las fechas de `common`."""
+    close_sum = np.zeros(len(common))
+    open_sum  = np.zeros(len(common))
+    for w, aid in items:
+        f = price_frames[aid].loc[common]
+        close_sum += w * f["close"].to_numpy()
+        open_sum  += w * f["eff_open"].to_numpy()
+    return close_sum, open_sum
+
+
+def _ohlc_dict(common: pd.Index, open_: np.ndarray, close: np.ndarray,
+               mask: np.ndarray | None = None) -> dict:
+    high = np.maximum(open_, close)
+    low  = np.minimum(open_, close)
+    idx  = range(len(common)) if mask is None else np.flatnonzero(mask)
+    return {
+        common[i]: {"open": float(open_[i]), "close": float(close[i]),
+                    "high": float(high[i]), "low": float(low[i])}
+        for i in idx
+    }
 
 
 def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
@@ -154,9 +190,9 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
 
     comps = formula.components
     all_asset_ids = list({c.asset_id for c in comps})
-    price_maps = {aid: _load_price_map(aid, start_date) for aid in all_asset_ids}
+    price_frames = {aid: _load_price_frame(aid, start_date) for aid in all_asset_ids}
 
-    results = _compute_by_type(formula, comps, price_maps)
+    results = _compute_by_type(formula, comps, price_frames)
 
     count = 0
     for d, vals in sorted(results.items()):
@@ -189,42 +225,40 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
     return count
 
 
-def _compute_by_type(formula, comps, price_maps) -> dict:
+def _compute_by_type(formula, comps, price_frames: dict) -> dict:
+    """Vectorizado con pandas/numpy: sin loops por fecha en Python puro.
+    Semántica idéntica a la versión escalar anterior (paridad cubierta por
+    tests/test_synthetic_service.py)."""
     ft = formula.formula_type
 
     if ft == "ratio":
         nums = [(c.weight, c.asset_id) for c in comps if c.role == "numerator"]
         dens = [(c.weight, c.asset_id) for c in comps if c.role == "denominator"]
         all_ids = [aid for _, aid in nums + dens]
-        dates = _common_dates([price_maps[aid] for aid in all_ids])
-        out = {}
-        for d in dates:
-            num_c = sum(w * price_maps[aid][d].close for w, aid in nums)
-            den_c = sum(w * price_maps[aid][d].close for w, aid in dens)
-            if not den_c:
-                continue
-            close = num_c / den_c
-            num_o = sum(w * _safe_open(price_maps[aid][d], price_maps[aid][d].close) for w, aid in nums)
-            den_o = sum(w * _safe_open(price_maps[aid][d], price_maps[aid][d].close) for w, aid in dens)
-            open_ = num_o / den_o if den_o else close
-            out[d] = {"open": open_, "close": close,
-                      "high": max(open_, close), "low": min(open_, close)}
-        return out
+        common = _common_index(all_ids, price_frames)
+        if common.empty:
+            return {}
+        num_c, num_o = _weighted_sums(nums, price_frames, common)
+        den_c, den_o = _weighted_sums(dens, price_frames, common)
+        mask = den_c != 0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            close = np.divide(num_c, den_c)
+            open_raw = np.divide(num_o, den_o)
+        open_ = np.where(den_o != 0, open_raw, close)
+        return _ohlc_dict(common, open_, close, mask)
 
     if ft in ("weighted_avg", "weighted_sum"):
         comps_c = [(c.weight, c.asset_id) for c in comps if c.role == "component"]
         all_ids = [aid for _, aid in comps_c]
-        dates = _common_dates([price_maps[aid] for aid in all_ids])
+        common = _common_index(all_ids, price_frames)
+        if common.empty:
+            return {}
         total_w = sum(w for w, _ in comps_c)
         divisor = total_w if (ft == "weighted_avg" and total_w) else 1.0
-        out = {}
-        for d in dates:
-            close = sum(w * price_maps[aid][d].close for w, aid in comps_c) / divisor
-            open_ = sum(w * _safe_open(price_maps[aid][d], price_maps[aid][d].close)
-                        for w, aid in comps_c) / divisor
-            out[d] = {"open": open_, "close": close,
-                      "high": max(open_, close), "low": min(open_, close)}
-        return out
+        close_sum, open_sum = _weighted_sums(comps_c, price_frames, common)
+        close = close_sum / divisor
+        open_ = open_sum  / divisor
+        return _ohlc_dict(common, open_, close)
 
     if ft == "index":
         comps_c = [(c.weight, c.asset_id) for c in comps if c.role == "component"]
@@ -233,53 +267,99 @@ def _compute_by_type(formula, comps, price_maps) -> dict:
         base_dt  = formula.base_date
 
         # Precio base de cada componente en base_date
-        base_prices = {}
+        base_prices: dict[int, float] = {}
         for _, aid in comps_c:
-            pm = price_maps[aid]
-            if base_dt and base_dt in pm:
-                base_prices[aid] = pm[base_dt].close
-            elif pm:
+            f = price_frames[aid]
+            if base_dt and base_dt in f.index:
+                base_prices[aid] = float(f.loc[base_dt, "close"])
+            elif not f.empty:
                 # Fecha más cercana anterior a base_date
-                candidates = [d for d in pm if (not base_dt or d <= base_dt)]
-                if candidates:
-                    base_prices[aid] = pm[max(candidates)].close
+                candidates = f.index[f.index <= base_dt] if base_dt else f.index
+                if len(candidates):
+                    base_prices[aid] = float(f.loc[candidates.max(), "close"])
 
-        dates = _common_dates([price_maps[aid] for aid in all_ids])
+        common = _common_index(all_ids, price_frames)
+        if common.empty:
+            return {}
         total_w = sum(w for w, _ in comps_c) or 1.0
-        out = {}
-        for d in dates:
-            close_sum = 0.0
-            open_sum  = 0.0
-            for w, aid in comps_c:
-                bp = base_prices.get(aid)
-                if not bp:
-                    continue
-                close_sum += w * price_maps[aid][d].close / bp
-                open_sum  += w * _safe_open(price_maps[aid][d], price_maps[aid][d].close) / bp
-            close = base_val * close_sum / total_w
-            open_ = base_val * open_sum  / total_w
-            out[d] = {"open": open_, "close": close,
-                      "high": max(open_, close), "low": min(open_, close)}
-        return out
+        close_sum = np.zeros(len(common))
+        open_sum  = np.zeros(len(common))
+        for w, aid in comps_c:
+            bp = base_prices.get(aid)
+            if not bp:
+                continue
+            f = price_frames[aid].loc[common]
+            close_sum += w * f["close"].to_numpy()    / bp
+            open_sum  += w * f["eff_open"].to_numpy() / bp
+        close = base_val * close_sum / total_w
+        open_ = base_val * open_sum  / total_w
+        return _ohlc_dict(common, open_, close)
 
     return {}
+
+
+def _topological_levels(formulas: list[SyntheticFormula]) -> list[list[SyntheticFormula]]:
+    """Agrupa las fórmulas en niveles de dependencia: un sintético que usa a otro
+    sintético como componente queda en un nivel posterior al de su dependencia.
+    Dentro de un nivel el orden no importa (se puede paralelizar); entre niveles
+    sí, porque el nivel siguiente necesita los precios ya recalculados del
+    anterior. Nada en el modelo impide encadenar sintéticos, así que sin esto
+    un sintético-de-sintético podía leer el precio de la corrida anterior."""
+    syn_ids  = {f.asset_id for f in formulas}
+    by_asset = {f.asset_id: f for f in formulas}
+    remaining = {
+        f.asset_id: {c.asset_id for c in f.components if c.asset_id in syn_ids}
+        for f in formulas
+    }
+    levels: list[list[SyntheticFormula]] = []
+    done: set[int] = set()
+    while remaining:
+        ready = [aid for aid, deps in remaining.items() if deps <= done]
+        if not ready:
+            # Dependencia circular: no hay forma de ordenarlos sin colgar el
+            # proceso. Se procesan todos juntos en un último nivel — el
+            # resultado puede quedar un ciclo desactualizado, pero no bloquea.
+            ready = list(remaining.keys())
+            logger.warning("Ciclo de dependencias entre sintéticos: %s",
+                            [by_asset[aid].asset.ticker for aid in ready])
+        levels.append([by_asset[aid] for aid in ready])
+        done.update(ready)
+        for aid in ready:
+            remaining.pop(aid)
+    return levels
 
 
 def compute_all_synthetic(progress_cb=None, *, full: bool = False) -> dict:
     formulas = get_all_formulas()
     total    = len(formulas)
-    errors   = []
+    errors: list[dict] = []
+    done     = 0
+    lock     = threading.Lock()
     if progress_cb:
         progress_cb(0, total)
-    for i, f in enumerate(formulas):
+
+    def _worker(f: SyntheticFormula):
         try:
             compute_synthetic_prices(f.asset_id, full=full)
+            return None
         except Exception as exc:
             ticker = f.asset.ticker if f.asset else str(f.asset_id)
             logger.warning("Error sintético %s: %s", ticker, exc)
-            errors.append({"ticker": ticker, "error": str(exc)})
-        if progress_cb:
-            progress_cb(i + 1, total)
+            return {"ticker": ticker, "error": str(exc)}
+        finally:
+            _ScopedSession.remove()
+
+    for level in _topological_levels(formulas):
+        with ThreadPoolExecutor(max_workers=min(len(level), _SYN_WORKERS)) as pool:
+            futures = [pool.submit(_worker, f) for f in level]
+            for future in as_completed(futures):
+                err = future.result()
+                with lock:
+                    done += 1
+                    if progress_cb:
+                        progress_cb(done, total)
+                    if err:
+                        errors.append(err)
     return {"total": total, "errors": errors}
 
 

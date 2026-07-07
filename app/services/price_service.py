@@ -214,6 +214,10 @@ def update_asset_prices(
 
 _YF_COLS = ["date", "open", "high", "low", "close", "volume"]
 
+# Tickers por yf.download(): con miles de activos, un solo call con todos los
+# tickers es candidato a timeout o rate-limit de Yahoo Finance.
+_YF_CHUNK_SIZE = 200
+
 
 def _yf_batch_download(tickers: list, start=None) -> "pd.DataFrame | None":
     """
@@ -243,6 +247,24 @@ def _extract_ticker_df(raw, ticker: str) -> "pd.DataFrame":
     return df[present].dropna(subset=["close"])
 
 
+def _yf_download_chunked(tickers: list, start=None) -> dict:
+    """Descarga por chunks de _YF_CHUNK_SIZE tickers y devuelve {ticker: df}
+    ya extraído/normalizado. Si un chunk falla (timeout, rate-limit), solo se
+    pierden sus tickers en vez de todo el grupo."""
+    out = {}
+    for i in range(0, len(tickers), _YF_CHUNK_SIZE):
+        chunk = tickers[i : i + _YF_CHUNK_SIZE]
+        raw = _yf_batch_download(chunk, start=start)
+        if raw is None:
+            continue
+        for ticker in chunk:
+            try:
+                out[ticker] = _extract_ticker_df(raw, ticker)
+            except Exception as exc:
+                logger.warning("Error procesando batch para %s: %s", ticker, exc)
+    return out
+
+
 def _bulk_prefetch_yfinance(assets_with_dates: list) -> dict:
     """
     Descarga precios de múltiples tickers en el menor número de llamadas posible.
@@ -253,6 +275,7 @@ def _bulk_prefetch_yfinance(assets_with_dates: list) -> dict:
     - Sin last_date (primera vez): necesitan historia completa → batch con period='max'.
     - Con last_date: incrementales → batch desde min(last_dates) del grupo.
       Cada ticker recibe solo las filas >= su propio last_date (filtro en memoria).
+    Cada grupo se descarga en chunks de _YF_CHUNK_SIZE tickers (ver _yf_download_chunked).
     """
     if not assets_with_dates:
         return {}
@@ -263,29 +286,23 @@ def _bulk_prefetch_yfinance(assets_with_dates: list) -> dict:
 
     # --- Grupo 1: primera descarga (historia completa) ---
     if first_time:
-        tickers = [a.ticker for a, _ in first_time]
-        raw = _yf_batch_download(tickers, start=None)
-        if raw is not None:
-            for asset, _ in first_time:
-                try:
-                    result[asset.id] = _extract_ticker_df(raw, asset.ticker)
-                except Exception as exc:
-                    logger.warning("Error procesando batch (full) para %s: %s", asset.ticker, exc)
+        tickers   = [a.ticker for a, _ in first_time]
+        by_ticker = _yf_download_chunked(tickers, start=None)
+        for asset, _ in first_time:
+            if asset.ticker in by_ticker:
+                result[asset.id] = by_ticker[asset.ticker]
 
     # --- Grupo 2: actualizaciones incrementales ---
     if incremental:
         min_start = min(d for _, d in incremental)
         tickers   = [a.ticker for a, _ in incremental]
-        raw = _yf_batch_download(tickers, start=min_start)
-        if raw is not None:
-            for asset, last_date in incremental:
-                try:
-                    df = _extract_ticker_df(raw, asset.ticker)
-                    # Cada ticker solo recibe filas desde su propio last_date
-                    df = df[df["date"] >= last_date].reset_index(drop=True)
-                    result[asset.id] = df
-                except Exception as exc:
-                    logger.warning("Error procesando batch (incr) para %s: %s", asset.ticker, exc)
+        by_ticker = _yf_download_chunked(tickers, start=min_start)
+        for asset, last_date in incremental:
+            df = by_ticker.get(asset.ticker)
+            if df is None:
+                continue
+            # Cada ticker solo recibe filas desde su propio last_date
+            result[asset.id] = df[df["date"] >= last_date].reset_index(drop=True)
 
     return result
 
