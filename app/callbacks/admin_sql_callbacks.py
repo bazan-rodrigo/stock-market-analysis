@@ -125,6 +125,13 @@ def execute_sql(_, sql, session_id):
             status = f"{len(data)} filas{('  ·  ' + note) if note else ''}"
             table = _build_table(cols, data)
             pending = _has_pending(session_id)
+            if not pending:
+                # Sin DML pendiente: una lectura (SELECT/EXPLAIN/SHOW) igual
+                # abre una transacción en esta conexión persistente. Sin
+                # cerrarla acá queda reteniendo locks de metadata hasta que
+                # el usuario apriete Commit/Rollback (o pasen 30 min) — llegó
+                # a bloquear un TRUNCATE real de otro proceso.
+                conn.commit()
             return table, status, _style("ok"), not pending, not pending, len(data) == 0
 
         else:
