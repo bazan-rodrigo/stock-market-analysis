@@ -1308,6 +1308,11 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     # Diagnóstico del camino rápido del delta: cuántos activos lo usaron y
     # por qué cayeron al lento los demás (hueco, checksum, benchmark).
     path_counts = {"fast": 0, "gap": 0, "checksum": 0, "bench": 0}
+    # Mismo diagnóstico pero con el asset_id puntual, no solo el conteo —
+    # para cazar activos que caen al lento de forma estable corrida tras
+    # corrida (sospecha de hueco real en su propia historia, no solo
+    # caché frío) sin tener que adivinar cuáles son.
+    slow_asset_ids: dict[str, list] = {"gap": [], "checksum": [], "bench": []}
 
     for chunk_start in range(0, len(asset_ids), _EXISTING_CHUNK):
         chunk = asset_ids[chunk_start:chunk_start + _EXISTING_CHUNK]
@@ -1392,6 +1397,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                         reason = "checksum"
                 if k is None:
                     path_counts[reason] += 1
+                    slow_asset_ids[reason].append(asset_id)
                     # activo nuevo, con huecos, benchmark o checksum cambiado:
                     # camino lento solo para él (dict-compare si necesita
                     # comparar valores, set si solo hay que rellenar huecos)
@@ -1429,7 +1435,8 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     if tail_eligible:
         _upsert_ind_stats_meta(s, code, stats_by_asset)
 
-    return {"inserted": inserted, "code": code, "path_counts": path_counts}
+    return {"inserted": inserted, "code": code, "path_counts": path_counts,
+            "slow_asset_ids": slow_asset_ids}
 
 
 def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
@@ -1579,6 +1586,13 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                         code, res.get("seconds", 0),
                         pc["fast"], pc["gap"], pc["checksum"], pc["bench"],
                     )
+                    slow_ids = res.get("slow_asset_ids") or {}
+                    if any(slow_ids.values()):
+                        logger.info(
+                            "Backfill %s activos lentos — gap=%s checksum=%s bench=%s",
+                            code, slow_ids.get("gap"), slow_ids.get("checksum"),
+                            slow_ids.get("bench"),
+                        )
                     # Mensaje especial (mismo mecanismo que __init__:) para que
                     # el panel del Centro de Datos muestre cuántos activos
                     # cayeron al camino lento (gap/checksum/bench) por código,
