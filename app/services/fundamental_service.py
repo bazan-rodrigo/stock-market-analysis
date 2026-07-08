@@ -234,16 +234,21 @@ def recompute_ratios_for_asset(asset_id: int) -> None:
     s.commit()
 
 
-def recompute_all_ratios(progress_cb=None) -> dict:
+def recompute_all_ratios(progress_cb=None, *, quarters_cache: dict | None = None) -> dict:
     """Recomputa los ratios vigentes de todos los activos con fundamentales.
 
     Los quarters y los precios (último y de hace 1 año) se cargan en 3 queries
-    para todos los activos, en lugar de 3-4 queries por activo."""
+    para todos los activos, en lugar de 3-4 queries por activo.
+
+    quarters_cache: si el caller ya lo cargó (ver _run_ratios_and_backfill,
+    que lo comparte con backfill_all_fundamental_values), se reusa en vez
+    de volver a consultarlo."""
     from datetime import timedelta as _td
     from sqlalchemy import and_ as _and, func as _func
 
     s = get_session()
-    quarters_cache = _load_all_quarters(s)
+    if quarters_cache is None:
+        quarters_cache = _load_all_quarters(s)
     asset_ids = sorted(quarters_cache.keys())
     total   = len(asset_ids)
     summary = {"total": total, "success": 0, "errors": []}
@@ -969,12 +974,17 @@ def _backfill_fund_daily_all_worker(
         _ScopedSession.remove()
 
 
-def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) -> dict:
+def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
+                                    quarters_cache: dict | None = None) -> dict:
     """Backfill histórico de indicadores fundamentales.
 
     Indicadores trimestrales: 1 thread por código.
     Indicadores diarios (pe_ttm, pb, ps_ttm, pe_growth_yoy): 1 thread combinado
     que llama _compute_daily_ratios una sola vez por (activo, fecha).
+
+    quarters_cache: si el caller ya lo cargó (ver _run_ratios_and_backfill,
+    que lo comparte con recompute_all_ratios), se reusa en vez de volver a
+    consultarlo.
     """
     import threading as _th
     s               = get_session()
@@ -986,8 +996,9 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) ->
     if progress_cb:
         progress_cb(0, 1, "Cargando datos fundamentales en memoria...")
 
-    logger.info("Pre-cargando datos fundamentales en memoria...")
-    quarters_cache = _load_all_quarters(s)
+    if quarters_cache is None:
+        logger.info("Pre-cargando datos fundamentales en memoria...")
+        quarters_cache = _load_all_quarters(s)
     asset_ids      = sorted(quarters_cache.keys())
     price_cache    = _load_fund_prices(s, asset_ids)
     n_assets       = len(asset_ids)
@@ -1056,19 +1067,60 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False) ->
 
 # ── Acciones combinadas (Centro de Datos) ───────────────────────────────────────
 
+def _run_ratios_and_backfill(progress_cb, *, force: bool) -> dict:
+    """recompute_all_ratios + backfill_all_fundamental_values en secuencia,
+    con una barra de progreso COMBINADA — mismo patrón y mismo motivo que
+    _run_current_and_backfill en technical_service.py: cada fase reporta su
+    propio (cur, total) interno, y sin combinarlos la barra salta hacia
+    atrás al pasar de una fase a la otra (el usuario lo notó como "se
+    resetea", igual que ya había pasado con los indicadores técnicos).
+
+    quarters_cache se carga UNA sola vez acá y se comparte entre las dos
+    fases (antes cada una llamaba a _load_all_quarters por separado) — de
+    paso el total combinado queda exacto, ya que ambas fases cuentan los
+    mismos activos."""
+    s = get_session()
+    if progress_cb:
+        progress_cb(0, 1, "Cargando datos fundamentales en memoria...")
+    quarters_cache = _load_all_quarters(s)
+    n_assets       = len(quarters_cache)
+    n_ind          = len(_ALL_FUND_CODES)
+
+    ratios_total   = n_assets
+    backfill_total = n_ind * n_assets
+    combined_total = ratios_total + backfill_total
+
+    def _offset_cb(offset):
+        def _cb(cur, tot, label=""):
+            if progress_cb:
+                progress_cb(offset + cur, combined_total, label)
+        return _cb
+
+    if force:
+        # Rebuild: historia completa primero (los ratios vigentes dependen
+        # de ella), ratios vigentes después.
+        r1 = backfill_all_fundamental_values(progress_cb=_offset_cb(0), force=True,
+                                             quarters_cache=quarters_cache)
+        r2 = recompute_all_ratios(progress_cb=_offset_cb(backfill_total),
+                                  quarters_cache=quarters_cache)
+        total = r2["total"]
+    else:
+        # Delta: ratios vigentes primero, historia (huecos) después — orden
+        # igual que antes.
+        r1 = recompute_all_ratios(progress_cb=_offset_cb(0), quarters_cache=quarters_cache)
+        r2 = backfill_all_fundamental_values(progress_cb=_offset_cb(ratios_total), force=False,
+                                             quarters_cache=quarters_cache)
+        total = r1["total"]
+
+    errors = r1["errors"] + r2["errors"]
+    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
+
+
 def update_ratio_history(progress_cb=None) -> dict:
     """Recomputa los ratios vigentes y completa huecos históricos (backfill delta)."""
-    r1 = recompute_all_ratios(progress_cb=progress_cb)
-    r2 = backfill_all_fundamental_values(progress_cb=progress_cb, force=False)
-    errors = r1["errors"] + r2["errors"]
-    total  = r1["total"]
-    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
+    return _run_ratios_and_backfill(progress_cb, force=False)
 
 
 def rebuild_ratio_history(progress_cb=None) -> dict:
     """Borra y recalcula todo el historial de ratios fundamentales desde cero."""
-    r1 = backfill_all_fundamental_values(progress_cb=progress_cb, force=True)
-    r2 = recompute_all_ratios(progress_cb=progress_cb)
-    errors = r1["errors"] + r2["errors"]
-    total  = r2["total"]
-    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
+    return _run_ratios_and_backfill(progress_cb, force=True)
