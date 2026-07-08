@@ -418,7 +418,8 @@ def _closest_price_on_or_before(df: pd.DataFrame, target: date) -> float | None:
     subset = df[df["date"] <= target]
     if subset.empty:
         return None
-    return float(subset.iloc[-1]["close"])
+    close = subset.iloc[-1]["close"]
+    return None if pd.isna(close) else float(close)
 
 
 def _rsi_series(close: pd.Series, period: int = 14) -> pd.Series:
@@ -566,8 +567,14 @@ def _load_best_sma_cache(s) -> dict:
 # ── Escritura a tablas ind_* y current_indicator_values ──────────────────────
 
 def _upsert_ind(session, code: str, asset_id: int, target_date, value) -> None:
-    """UPSERT de un valor en ind_{code}."""
-    if value is None:
+    """UPSERT de un valor en ind_{code}.
+
+    pd.isna (no solo None) porque un NaN numérico llega tal cual hasta acá
+    si algún cálculo previo no lo convirtió a None (p.ej. un close NULL en
+    la fila de precio propaga NaN a través de _pct_change sin que
+    "reference != 0" lo filtre) — MySQLdb no sabe serializar NaN y tira
+    ProgrammingError en el INSERT."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
         return
     t    = get_ind_table(code)
     stmt = _mysql_insert(t).values(asset_id=asset_id, date=target_date, value=value)
@@ -1798,9 +1805,13 @@ def compute_current_indicators(
 
     df = df.tail(260).reset_index(drop=True)
 
-    today      = df.iloc[-1]["date"]
-    last_close = float(df.iloc[-1]["close"])
-    prev_close = float(df.iloc[-2]["close"]) if len(df) >= 2 else None
+    today           = df.iloc[-1]["date"]
+    _last_close_raw = df.iloc[-1]["close"]
+    last_close      = None if pd.isna(_last_close_raw) else float(_last_close_raw)
+    if len(df) >= 2 and not pd.isna(df.iloc[-2]["close"]):
+        prev_close = float(df.iloc[-2]["close"])
+    else:
+        prev_close = None
 
     month_start   = date(today.year, today.month, 1)
     quarter_start = date(today.year, _Q_MONTH[today.month], 1)
@@ -1855,7 +1866,7 @@ def compute_current_indicators(
         bm_ref  = (s.query(Price.close)
                    .filter(Price.asset_id == bm_id, Price.date <= w52_start)
                    .order_by(Price.date.desc()).first())
-        if bm_last and bm_ref:
+        if bm_last and bm_ref and bm_last[0] is not None and bm_ref[0] is not None:
             bm_return_52w = _pct_change(float(bm_last[0]), float(bm_ref[0]))
             ret_52w       = _pct_change(last_close, ref_52w)
             if bm_return_52w is not None and ret_52w is not None:

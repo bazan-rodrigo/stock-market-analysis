@@ -6,9 +6,10 @@ import pandas as pd
 import pytest
 
 from app.services.technical_service import (
-    _Q_MONTH, _classify_duration, _compute_dd_events, _compute_regime_zones,
-    _compute_vol_zones, _one_year_before, _pct_change, _rsi,
-    _series_dates_values, _sma_zscore, _zones_to_series,
+    _Q_MONTH, _classify_duration, _closest_price_on_or_before,
+    _compute_dd_events, _compute_regime_zones, _compute_vol_zones,
+    _one_year_before, _pct_change, _rsi, _series_dates_values, _sma_zscore,
+    _zones_to_series,
 )
 
 
@@ -35,6 +36,26 @@ def test_pct_change():
     assert _pct_change(100, 0) is None
     assert _pct_change(None, 100) is None
     assert _pct_change(100, None) is None
+
+
+# ── _closest_price_on_or_before: close NULL/NaN en la fila ───────────────────
+
+def test_closest_price_on_or_before_close_normal():
+    df = pd.DataFrame({"date": [date(2026, 1, 5), date(2026, 1, 6)],
+                        "close": [10.0, 12.0]})
+    assert _closest_price_on_or_before(df, date(2026, 1, 6)) == 12.0
+
+def test_closest_price_on_or_before_sin_filas_es_none():
+    df = pd.DataFrame({"date": [date(2026, 1, 5)], "close": [10.0]})
+    assert _closest_price_on_or_before(df, date(2025, 1, 1)) is None
+
+def test_closest_price_on_or_before_close_nan_es_none_no_nan():
+    # close NULL en la fila más cercana (dato faltante real) — antes del fix
+    # esto devolvía float('nan'), que llegaba sin filtrar hasta el INSERT a
+    # MySQL vía _pct_change/_upsert_ind y explotaba con ProgrammingError.
+    df = pd.DataFrame({"date": [date(2026, 1, 5), date(2026, 1, 6)],
+                        "close": [10.0, float("nan")]})
+    assert _closest_price_on_or_before(df, date(2026, 1, 6)) is None
 
 # ── z-score contra SMA ────────────────────────────────────────────────────────
 
