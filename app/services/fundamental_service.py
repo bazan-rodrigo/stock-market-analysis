@@ -1,5 +1,7 @@
 import logging
+import random
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
@@ -7,6 +9,7 @@ import numpy as np
 from datetime import date as _date_type
 
 from sqlalchemy.dialects.mysql import insert as _mysql_insert
+from sqlalchemy.exc import OperationalError
 
 from app.database import engine, get_session, Session as _ScopedSession
 from app.models import (
@@ -20,6 +23,19 @@ _STALE_DAYS      = 90
 _UPDATE_WORKERS  = 4
 # Activos por query al leer fechas existentes durante un backfill delta
 _EXISTING_CHUNK  = 100
+
+# Códigos de error InnoDB para los que MySQL espera que la aplicación
+# reintente la transacción entera (no son bugs, son el resultado esperado
+# de escrituras concurrentes contra la misma tabla — ver docs de InnoDB).
+_DEADLOCK_ERRNO     = 1213  # "Deadlock found when trying to get lock"
+_LOCK_TIMEOUT_ERRNO = 1205  # "Lock wait timeout exceeded"
+_MAX_LOCK_RETRIES   = 3
+
+
+def _is_retryable_lock_error(exc: BaseException) -> bool:
+    orig  = getattr(exc, "orig", None)
+    errno = orig.args[0] if orig and getattr(orig, "args", None) else None
+    return errno in (_DEADLOCK_ERRNO, _LOCK_TIMEOUT_ERRNO)
 
 _FUND_DAILY_CODES = frozenset({
     "fundamental_pe_ttm",
@@ -272,13 +288,30 @@ def recompute_all_ratios(progress_cb=None) -> dict:
 
 
 def _fund_worker(asset_id: int, ticker: str, *, clear: bool = False) -> tuple[bool, dict | None]:
-    try:
-        update_asset_fundamentals(asset_id, force=clear, replace=clear)
-        return True, None
-    except Exception as exc:
-        return False, {"ticker": ticker, "error": str(exc)}
-    finally:
-        _ScopedSession.remove()
+    """_UPDATE_WORKERS threads concurrentes escriben cada uno a un asset_id
+    distinto en fundamental_quarterly, pero InnoDB puede igual deadlockear
+    entre INSERTs concurrentes a la misma tabla (gap locks/FK checks, no
+    hace falta que se pisen filas). Reintenta la transacción completa (todo
+    update_asset_fundamentals, es idempotente) ante deadlock/lock timeout,
+    tal como recomienda la documentación de InnoDB."""
+    for attempt in range(_MAX_LOCK_RETRIES + 1):
+        try:
+            update_asset_fundamentals(asset_id, force=clear, replace=clear)
+            return True, None
+        except OperationalError as exc:
+            if attempt < _MAX_LOCK_RETRIES and _is_retryable_lock_error(exc):
+                logger.warning(
+                    "Deadlock/lock timeout actualizando fundamentales %s "
+                    "(intento %d/%d), reintentando...",
+                    ticker, attempt + 1, _MAX_LOCK_RETRIES,
+                )
+                time.sleep(0.2 * (attempt + 1) + random.uniform(0, 0.2))
+                continue
+            return False, {"ticker": ticker, "error": str(exc)}
+        except Exception as exc:
+            return False, {"ticker": ticker, "error": str(exc)}
+        finally:
+            _ScopedSession.remove()
 
 
 def _run_fund_batch(pairs: list[tuple[int, str]], *, clear: bool = False,

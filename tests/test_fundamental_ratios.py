@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from app.services.fundamental_service import (
-    _Quarter, _compute_daily_ratios, _compute_quarterly_ratios, _ref_1y_ord,
-    _safe_div_r,
+    _Quarter, _compute_daily_ratios, _compute_quarterly_ratios,
+    _is_retryable_lock_error, _ref_1y_ord, _safe_div_r,
 )
 
 
@@ -24,6 +24,30 @@ def test_safe_div_basico_y_bordes():
     assert _safe_div_r(None, 3) is None
     assert _safe_div_r(1, 0) is None
     assert _safe_div_r(1, None) is None
+
+
+# ── _is_retryable_lock_error: deadlock/lock timeout de InnoDB ────────────────
+
+class _FakeOrig:
+    def __init__(self, errno):
+        self.args = (errno, "mensaje del driver")
+
+class _FakeOperationalError(Exception):
+    def __init__(self, errno):
+        self.orig = _FakeOrig(errno)
+
+def test_deadlock_es_reintentable():
+    assert _is_retryable_lock_error(_FakeOperationalError(1213))
+
+def test_lock_timeout_es_reintentable():
+    assert _is_retryable_lock_error(_FakeOperationalError(1205))
+
+def test_otro_errno_no_es_reintentable():
+    # 1062 = duplicate key: un error de datos real, no de contención
+    assert not _is_retryable_lock_error(_FakeOperationalError(1062))
+
+def test_excepcion_sin_orig_no_es_reintentable():
+    assert not _is_retryable_lock_error(Exception("otro tipo de error"))
 
 
 # ── _ref_1y_ord (29 de febrero) ───────────────────────────────────────────────
