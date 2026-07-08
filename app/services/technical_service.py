@@ -1232,7 +1232,16 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     t          = get_ind_table(code)
     regime_cfg = _get_regime_config()
     vol_cfg    = _get_volatility_config()
-    asset_ids  = [r[0] for r in s.query(Asset.id).all()]
+    # Si hay price_cache (camino normal, paralelo), iterar sus asset_id en
+    # vez de volver a consultar Asset.id: price_cache es la misma fuente
+    # que usó el caller para calcular n_assets/total_work del progreso —
+    # activos sin precio descargado todavía quedan afuera de las dos
+    # cuentas por igual (antes: aparecían en el loop vía asset_ids pero no
+    # en el denominador, mostrando p.ej. "497/495" en el panel).
+    if price_cache is not None:
+        asset_ids = list(price_cache.keys())
+    else:
+        asset_ids = [r[0] for r in s.query(Asset.id).all()]
 
     # Camino rápido del delta (ver _DELTA_TAIL_MODE): el prefetch pasa de
     # traer millones de (fecha[, valor]) a 3 agregados por activo, y por

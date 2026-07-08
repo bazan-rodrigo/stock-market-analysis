@@ -399,20 +399,27 @@ def compute_all_synthetic(progress_cb=None, *, full: bool = False) -> dict:
     if progress_cb:
         progress_cb(0, total)
 
-    def _worker(f: SyntheticFormula):
+    def _worker(asset_id: int, ticker: str):
         try:
-            compute_synthetic_prices(f.asset_id, full=full)
+            compute_synthetic_prices(asset_id, full=full)
             return None
         except Exception as exc:
-            ticker = f.asset.ticker if f.asset else str(f.asset_id)
             logger.warning("Error sintético %s: %s", ticker, exc)
             return {"ticker": ticker, "error": str(exc)}
         finally:
             _ScopedSession.remove()
 
     for level in _topological_levels(formulas):
+        # Resolver asset_id/ticker a valores simples ACÁ, en el hilo
+        # principal, antes de lanzar el pool: f es un objeto ORM cargado en
+        # la sesión de este hilo, y tocar f.asset (lazy-load) desde un
+        # worker distinto comparte la misma conexión DBAPI entre threads —
+        # MySQLdb no es thread-safe para eso y corrompe el cursor
+        # ("Commands out of sync"). Pasando solo int/str no hay lazy-load.
+        items = [(f.asset_id, f.asset.ticker if f.asset else str(f.asset_id))
+                 for f in level]
         with ThreadPoolExecutor(max_workers=min(len(level), _SYN_WORKERS)) as pool:
-            futures = [pool.submit(_worker, f) for f in level]
+            futures = [pool.submit(_worker, aid, ticker) for aid, ticker in items]
             for future in as_completed(futures):
                 err = future.result()
                 with lock:
