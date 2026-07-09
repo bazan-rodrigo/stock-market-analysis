@@ -47,6 +47,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Importar eventos",               href="/admin/events/import"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Centro de Datos",                href="/admin/data-center"),
+                    dbc.DropdownMenuItem("Verificación de Datos",          href="/admin/verify"),
                 ],
                 nav=True, in_navbar=True,
             ),

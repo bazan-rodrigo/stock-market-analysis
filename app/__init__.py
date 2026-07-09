@@ -236,6 +236,7 @@ def create_app():
         "app.pages.admin_app_settings",
         "app.pages.admin_fundamental_update",
         "app.pages.admin_data_center",
+        "app.pages.admin_verify",
     ]
 
     import importlib
@@ -290,6 +291,7 @@ def create_app():
         "app.callbacks.indicators_panel_callbacks",
         "app.callbacks.admin_fundamental_update_callbacks",
         "app.callbacks.data_center_callbacks",
+        "app.callbacks.admin_verify_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))
