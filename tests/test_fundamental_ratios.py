@@ -6,7 +6,7 @@ import pytest
 
 from app.services.fundamental_service import (
     _Quarter, _compute_daily_ratios, _compute_quarterly_ratios,
-    _is_retryable_lock_error, _ref_1y_ord, _safe_div_r,
+    _is_retryable_lock_error, _price_asof_from_cache, _ref_1y_ord, _safe_div_r,
 )
 
 
@@ -48,6 +48,36 @@ def test_otro_errno_no_es_reintentable():
 
 def test_excepcion_sin_orig_no_es_reintentable():
     assert not _is_retryable_lock_error(Exception("otro tipo de error"))
+
+
+# ── _price_asof_from_cache: reemplaza las queries GROUP BY MAX(date) ─────────
+# de recompute_all_ratios contra toda la tabla prices (ver price_cache
+# compartido con backfill_all_fundamental_values en _run_ratios_and_backfill)
+
+def test_sin_max_date_devuelve_el_ultimo():
+    prices = [(date(2025, 1, 1), 10.0), (date(2025, 1, 2), 11.0)]
+    assert _price_asof_from_cache(prices) == 11.0
+
+
+def test_con_max_date_devuelve_el_mas_reciente_hasta_esa_fecha():
+    prices = [(date(2025, 1, 1), 10.0), (date(2025, 1, 5), 12.0),
+              (date(2025, 1, 10), 15.0)]
+    assert _price_asof_from_cache(prices, date(2025, 1, 7)) == 12.0
+
+
+def test_max_date_exacta_incluye_esa_fecha():
+    prices = [(date(2025, 1, 1), 10.0), (date(2025, 1, 5), 12.0)]
+    assert _price_asof_from_cache(prices, date(2025, 1, 5)) == 12.0
+
+
+def test_max_date_anterior_a_toda_la_serie_es_none():
+    prices = [(date(2025, 1, 5), 12.0)]
+    assert _price_asof_from_cache(prices, date(2025, 1, 1)) is None
+
+
+def test_lista_vacia_es_none():
+    assert _price_asof_from_cache([]) is None
+    assert _price_asof_from_cache([], date(2025, 1, 1)) is None
 
 
 # ── _ref_1y_ord (29 de febrero) ───────────────────────────────────────────────

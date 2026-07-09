@@ -1,3 +1,4 @@
+import bisect
 import logging
 import random
 import threading
@@ -23,6 +24,10 @@ _STALE_DAYS      = 90
 _UPDATE_WORKERS  = 4
 # Activos por query al leer fechas existentes durante un backfill delta
 _EXISTING_CHUNK  = 100
+# Commits por lote en recompute_all_ratios: cada asset_id se procesa en su
+# propio SAVEPOINT (ver recompute_all_ratios), así que un error puntual solo
+# descarta ese activo, no el resto del lote ya procesado.
+_RATIO_COMMIT_BATCH = 50
 
 # Códigos de error InnoDB para los que MySQL espera que la aplicación
 # reintente la transacción entera (no son bugs, son el resultado esperado
@@ -234,17 +239,22 @@ def recompute_ratios_for_asset(asset_id: int) -> None:
     s.commit()
 
 
-def recompute_all_ratios(progress_cb=None, *, quarters_cache: dict | None = None) -> dict:
+def recompute_all_ratios(progress_cb=None, *, quarters_cache: dict | None = None,
+                         price_cache: dict | None = None) -> dict:
     """Recomputa los ratios vigentes de todos los activos con fundamentales.
 
-    Los quarters y los precios (último y de hace 1 año) se cargan en 3 queries
-    para todos los activos, en lugar de 3-4 queries por activo.
-
-    quarters_cache: si el caller ya lo cargó (ver _run_ratios_and_backfill,
-    que lo comparte con backfill_all_fundamental_values), se reusa en vez
-    de volver a consultarlo."""
+    quarters_cache/price_cache: si el caller ya los cargó (ver
+    _run_ratios_and_backfill, que los comparte con
+    backfill_all_fundamental_values), se reusan en vez de volver a
+    consultarlos — antes esta función hacía sus propias 2 queries
+    GROUP BY MAX(date) contra toda la tabla prices (_prices_asof, ya
+    eliminada) aunque backfill_all_fundamental_values ya había cargado
+    virtualmente los mismos datos; con price_cache alcanza un bisect en
+    memoria (_price_asof_from_cache), sin depender de qué tan tibio esté
+    el buffer pool de MariaDB (ver _run_ratios_and_backfill: el orden de
+    fases se invierte entre delta y force, así que antes el costo de estas
+    2 queries variaba mucho según el modo)."""
     from datetime import timedelta as _td
-    from sqlalchemy import and_ as _and, func as _func
 
     s = get_session()
     if quarters_cache is None:
@@ -255,40 +265,35 @@ def recompute_all_ratios(progress_cb=None, *, quarters_cache: dict | None = None
     if not asset_ids:
         return summary
 
-    def _prices_asof(max_date=None) -> dict:
-        """{asset_id: último close} opcionalmente acotado a fechas <= max_date."""
-        q = (s.query(Price.asset_id, _func.max(Price.date).label("md"))
-              .filter(Price.close.isnot(None)))
-        if max_date is not None:
-            q = q.filter(Price.date <= max_date)
-        subq = q.group_by(Price.asset_id).subquery()
-        rows = (s.query(Price.asset_id, Price.close)
-                 .join(subq, _and(Price.asset_id == subq.c.asset_id,
-                                  Price.date == subq.c.md))
-                 .all())
-        return dict(rows)
-
-    latest_prices = _prices_asof()
-    prices_1y     = _prices_asof(_date_type.today() - _td(days=365))
+    if price_cache is None:
+        price_cache = _load_fund_prices(s, asset_ids)
+    cutoff = _date_type.today() - _td(days=365)
 
     if progress_cb:
         progress_cb(0, total)
     for i, asset_id in enumerate(asset_ids, 1):
+        prices = price_cache.get(asset_id, [])
         try:
-            _compute_current_ratios(
-                asset_id, s,
-                quarters=quarters_cache[asset_id],
-                latest_price=latest_prices.get(asset_id),
-                price_1y=prices_1y.get(asset_id),
-            )
-            s.commit()
+            with s.begin_nested():
+                _compute_current_ratios(
+                    asset_id, s,
+                    quarters=quarters_cache[asset_id],
+                    latest_price=_price_asof_from_cache(prices),
+                    price_1y=_price_asof_from_cache(prices, cutoff),
+                )
             summary["success"] += 1
         except Exception as exc:
-            s.rollback()
             logger.error("Error recompute fundamental asset_id=%d: %s", asset_id, exc, exc_info=True)
             summary["errors"].append({"asset_id": asset_id, "error": str(exc)})
+        # SAVEPOINT por activo (arriba) ya aísla un error puntual del resto
+        # del lote; el commit real se batchea cada _RATIO_COMMIT_BATCH para
+        # no pagar un round-trip a la base por cada uno de los ~350-10000
+        # activos (ver _RATIO_COMMIT_BATCH).
+        if i % _RATIO_COMMIT_BATCH == 0:
+            s.commit()
         if progress_cb:
             progress_cb(i, total)
+    s.commit()   # cierra el resto del último lote parcial
     return summary
 
 
@@ -727,6 +732,25 @@ def _load_fund_prices(_s, asset_ids: list) -> dict:
     }
 
 
+def _price_asof_from_cache(prices: list, max_date=None) -> float | None:
+    """Último close de una lista [(date, close), ...] ordenada por fecha
+    ascendente (ver _load_fund_prices), opcionalmente acotado a
+    fecha <= max_date. None si no hay ninguna fila que cumpla.
+
+    Reemplaza las 2 queries GROUP BY MAX(date) que hacía _prices_asof()
+    (recompute_all_ratios) contra toda la tabla prices: con price_cache ya
+    cargado (lo carga backfill_all_fundamental_values de todos modos, ver
+    _run_ratios_and_backfill) alcanza con un bisect en memoria, sin ida y
+    vuelta a la base ni depender de que el buffer pool esté tibio."""
+    if not prices:
+        return None
+    if max_date is None:
+        return prices[-1][1]
+    dates = [d for d, _ in prices]
+    idx = bisect.bisect_right(dates, max_date) - 1
+    return prices[idx][1] if idx >= 0 else None
+
+
 def _backfill_fund_indicator(
     code: str,
     asset_ids: list,
@@ -975,16 +999,17 @@ def _backfill_fund_daily_all_worker(
 
 
 def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
-                                    quarters_cache: dict | None = None) -> dict:
+                                    quarters_cache: dict | None = None,
+                                    price_cache: dict | None = None) -> dict:
     """Backfill histórico de indicadores fundamentales.
 
     Indicadores trimestrales: 1 thread por código.
     Indicadores diarios (pe_ttm, pb, ps_ttm, pe_growth_yoy): 1 thread combinado
     que llama _compute_daily_ratios una sola vez por (activo, fecha).
 
-    quarters_cache: si el caller ya lo cargó (ver _run_ratios_and_backfill,
-    que lo comparte con recompute_all_ratios), se reusa en vez de volver a
-    consultarlo.
+    quarters_cache/price_cache: si el caller ya los cargó (ver
+    _run_ratios_and_backfill, que los comparte con recompute_all_ratios),
+    se reusan en vez de volver a consultarlos.
     """
     import threading as _th
     s               = get_session()
@@ -1000,7 +1025,8 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
         logger.info("Pre-cargando datos fundamentales en memoria...")
         quarters_cache = _load_all_quarters(s)
     asset_ids      = sorted(quarters_cache.keys())
-    price_cache    = _load_fund_prices(s, asset_ids)
+    if price_cache is None:
+        price_cache = _load_fund_prices(s, asset_ids)
     n_assets       = len(asset_ids)
     total_work     = n_ind * n_assets
     logger.info("Datos cargados: %d activos, %d indicadores", n_assets, n_ind)
@@ -1009,8 +1035,16 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
     inserted = 0
     errors:  list[dict] = []
 
-    _assets_done = 0
-    _lock        = _th.Lock()
+    _assets_done  = 0
+    _lock         = _th.Lock()
+    _worker_slots: dict[int, int] = {}
+
+    def _worker_slot() -> int:
+        ident = _th.get_ident()
+        with _lock:
+            if ident not in _worker_slots:
+                _worker_slots[ident] = len(_worker_slots)
+            return _worker_slots[ident]
 
     def _make_tick(code):
         per_ind = [0]
@@ -1021,7 +1055,7 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
                 _assets_done += 1
                 n = _assets_done
             if progress_cb:
-                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
+                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets} w{_worker_slot()}")
         return _tick
 
     tick_fns = {code: _make_tick(code) for code in fund_codes}
@@ -1075,14 +1109,22 @@ def _run_ratios_and_backfill(progress_cb, *, force: bool) -> dict:
     atrás al pasar de una fase a la otra (el usuario lo notó como "se
     resetea", igual que ya había pasado con los indicadores técnicos).
 
-    quarters_cache se carga UNA sola vez acá y se comparte entre las dos
-    fases (antes cada una llamaba a _load_all_quarters por separado) — de
-    paso el total combinado queda exacto, ya que ambas fases cuentan los
-    mismos activos."""
+    quarters_cache/price_cache se cargan UNA sola vez acá y se comparten
+    entre las dos fases (antes cada una llamaba a _load_all_quarters /
+    hacía sus propias queries de precio por separado) — de paso el total
+    combinado queda exacto (ambas fases cuentan los mismos activos) y
+    recompute_all_ratios deja de pagar 2 queries GROUP BY MAX(date) contra
+    toda la tabla prices que backfill_all_fundamental_values ya había
+    resuelto con price_cache (ver _price_asof_from_cache): antes, según el
+    orden de fases (que se invierte entre delta y force), esas 2 queries
+    podían salir con el buffer pool frío o tibio — una asimetría de tiempo
+    que no tenía que ver con cuánto trabajo real había, solo con el orden."""
     s = get_session()
     if progress_cb:
         progress_cb(0, 1, "Cargando datos fundamentales en memoria...")
     quarters_cache = _load_all_quarters(s)
+    asset_ids      = sorted(quarters_cache.keys())
+    price_cache    = _load_fund_prices(s, asset_ids)
     n_assets       = len(quarters_cache)
     n_ind          = len(_ALL_FUND_CODES)
 
@@ -1100,16 +1142,19 @@ def _run_ratios_and_backfill(progress_cb, *, force: bool) -> dict:
         # Rebuild: historia completa primero (los ratios vigentes dependen
         # de ella), ratios vigentes después.
         r1 = backfill_all_fundamental_values(progress_cb=_offset_cb(0), force=True,
-                                             quarters_cache=quarters_cache)
+                                             quarters_cache=quarters_cache,
+                                             price_cache=price_cache)
         r2 = recompute_all_ratios(progress_cb=_offset_cb(backfill_total),
-                                  quarters_cache=quarters_cache)
+                                  quarters_cache=quarters_cache, price_cache=price_cache)
         total = r2["total"]
     else:
         # Delta: ratios vigentes primero, historia (huecos) después — orden
         # igual que antes.
-        r1 = recompute_all_ratios(progress_cb=_offset_cb(0), quarters_cache=quarters_cache)
+        r1 = recompute_all_ratios(progress_cb=_offset_cb(0), quarters_cache=quarters_cache,
+                                  price_cache=price_cache)
         r2 = backfill_all_fundamental_values(progress_cb=_offset_cb(ratios_total), force=False,
-                                             quarters_cache=quarters_cache)
+                                             quarters_cache=quarters_cache,
+                                             price_cache=price_cache)
         total = r1["total"]
 
     errors = r1["errors"] + r2["errors"]
