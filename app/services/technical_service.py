@@ -672,6 +672,21 @@ def _pairs_to_write(dates_list: list, vals_list: list, existing) -> list:
             if pd.notna(v) and (d not in existing or d == last_d)]
 
 
+def _stale_dates_to_delete(dates_list: list, vals_list: list, existing) -> list:
+    """Fechas con fila ya guardada en ind_{code} cuyo valor recién calculado
+    salió inválido (None/NaN): el valor viejo quedó obsoleto (p.ej.
+    best_sma_* dejó de ser válido en dist_optimal_sma_*, o se le quitó el
+    benchmark a un activo en relative_strength_52w) y hay que borrar la
+    fila — _pairs_to_write solo agrega/actualiza, nunca borra, así que sin
+    esto la fila vieja quedaría para siempre representando un cálculo que
+    ya no es válido. Solo tiene sentido cuando `existing` trae fechas ya
+    guardadas (set o dict); con existing=None ya se borró todo el activo
+    antes, y con existing vacío no hay nada que pueda estar obsoleto."""
+    if not existing:
+        return []
+    return [d for d, v in zip(dates_list, vals_list) if pd.isna(v) and d in existing]
+
+
 def _write_ind_series(s, code: str, asset_id: int,
                       dates_list: list, vals_list: list,
                       existing) -> int:
@@ -683,6 +698,12 @@ def _write_ind_series(s, code: str, asset_id: int,
     if existing is None:
         t = get_ind_table(code)
         s.execute(t.delete().where(t.c.asset_id == asset_id))
+    else:
+        stale = _stale_dates_to_delete(dates_list, vals_list, existing)
+        if stale:
+            t = get_ind_table(code)
+            s.execute(t.delete().where(
+                t.c.asset_id == asset_id, t.c.date.in_(stale)))
     pairs = _pairs_to_write(dates_list, vals_list, existing)
     if not pairs:
         return 0

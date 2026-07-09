@@ -13,7 +13,7 @@ import pytest
 from app.services.technical_service import (
     _BACKFILL_FNS, _BENCHMARK_DEP_CODES, _CHECKSUM_DEP_CODES, _DELTA_TAIL_MODE,
     _confirmed_empty_fast_path, _delta_tail_start, _pairs_to_write,
-    _series_checksum, _series_stats, _stale_bench_assets,
+    _series_checksum, _series_stats, _stale_bench_assets, _stale_dates_to_delete,
 )
 
 
@@ -94,6 +94,41 @@ def test_ahora_tiene_datos_no_activa_camino_rapido_aunque_antes_no_tuviera():
     # lento para escribir la serie recién habilitada
     stats = (date(2025, 1, 1), date(2025, 1, 5), 5)
     assert _confirmed_empty_fast_path(stats, (None, None, 0)) is False
+
+
+# ── _stale_dates_to_delete: valores que dejaron de ser válidos ───────────────
+# (p.ej. best_sma_* dejó de encontrar un período válido, o se le quitó el
+# benchmark a un activo) — _pairs_to_write nunca borra, así que sin esto la
+# fila vieja quedaría representando un cálculo que ya no es válido.
+
+def test_valor_invalido_con_fila_guardada_es_obsoleto():
+    dates = _fechas(3)
+    vals  = [1.0, None, 3.0]
+    existing = {dates[0], dates[1], dates[2]}
+    assert _stale_dates_to_delete(dates, vals, existing) == [dates[1]]
+
+
+def test_valor_invalido_sin_fila_guardada_no_es_obsoleto():
+    # nunca se escribió nada para esa fecha: no hay nada que borrar
+    dates = _fechas(3)
+    vals  = [1.0, None, 3.0]
+    existing = {dates[0], dates[2]}
+    assert _stale_dates_to_delete(dates, vals, existing) == []
+
+
+def test_sin_existing_no_hay_obsoletos():
+    dates = _fechas(3)
+    vals  = [None, None, None]
+    assert _stale_dates_to_delete(dates, vals, set()) == []
+    assert _stale_dates_to_delete(dates, vals, {}) == []
+
+
+def test_stale_funciona_con_existing_dict():
+    # relative_strength_52w/trend_* usan dict-compare (needs_dict_fallback)
+    dates = _fechas(2)
+    vals  = [None, 2.0]
+    existing = {dates[0]: 1.0, dates[1]: 2.0}
+    assert _stale_dates_to_delete(dates, vals, existing) == [dates[0]]
 
 
 # ── Paridad de escrituras: rápido vs lento ────────────────────────────────────
