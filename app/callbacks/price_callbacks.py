@@ -38,39 +38,6 @@ def price_row_selection(sel_rows):
 
 
 @callback(
-    Output("prices-interval", "disabled"),
-    Output("prices-progress", "style"),
-    Output("prices-btn-all", "disabled"),
-    Input("prices-btn-all", "n_clicks"),
-    prevent_initial_call=True,
-)
-def update_all(_):
-    _prices_state.update({"running": True, "current": 0, "total": 0, "summary": None, "error": None})
-
-    def _run():
-        def _progress(current, total, label=""):
-            _prices_state["current"] = current
-            _prices_state["total"]   = total
-            _prices_state["phase"]   = label
-        try:
-            _prices_state["phase"] = "Descargando precios de Yahoo Finance..."
-            summary = svc.update_all_active_assets(progress_cb=_progress)
-            _prices_state["has_errors"] = bool(summary["errors"])
-            _prices_state["phase"] = ""
-            _prices_state["msg"] = (
-                f"Actualización completa: {summary['success']}/{summary['total']} exitosos, "
-                f"{len(summary['errors'])} errores."
-            )
-        except Exception as exc:
-            _prices_state["error"] = str(exc)
-        finally:
-            _prices_state["running"] = False
-
-    threading.Thread(target=_run, daemon=True).start()
-    return False, {"display": "block"}, True
-
-
-@callback(
     Output("prices-progress",     "value"),
     Output("prices-progress",     "label"),
     Output("prices-progress",     "style",    allow_duplicate=True),
@@ -79,7 +46,6 @@ def update_all(_):
     Output("prices-alert",        "children", allow_duplicate=True),
     Output("prices-alert",        "is_open",  allow_duplicate=True),
     Output("prices-alert",        "color",    allow_duplicate=True),
-    Output("prices-btn-all",      "disabled", allow_duplicate=True),
     Output("prices-btn-indicators", "disabled", allow_duplicate=True),
     Input("prices-interval", "n_intervals"),
     prevent_initial_call=True,
@@ -93,14 +59,14 @@ def poll_prices(_):
             label = f"{current} / {_prices_state['total']}"
         else:
             label = _prices_state.get("phase") or "Iniciando..."
-        return pct, label, {"display": "block"}, False, no_update, no_update, no_update, no_update, True, True
+        return pct, label, {"display": "block"}, False, no_update, no_update, no_update, no_update, True
 
     if _prices_state["error"]:
-        return 0, "", {"display": "none"}, True, no_update, _prices_state["error"], True, "danger", False, False
+        return 0, "", {"display": "none"}, True, no_update, _prices_state["error"], True, "danger", False
 
     msg   = _prices_state["msg"]
     color = "success" if not _prices_state.get("has_errors") else "warning"
-    return 100, "Completo", {"display": "none"}, True, svc.get_all_assets_with_log(), msg, True, color, False, False
+    return 100, "Completo", {"display": "none"}, True, svc.get_all_assets_with_log(), msg, True, color, False
 
 
 @callback(
@@ -186,49 +152,6 @@ def retry_failed(_):
 
 
 @callback(
-    Output("prices-redownload-modal", "is_open"),
-    Input("prices-btn-redownload", "n_clicks"),
-    Input("prices-btn-redownload-confirm", "n_clicks"),
-    Input("prices-btn-redownload-cancel", "n_clicks"),
-    prevent_initial_call=True,
-)
-def toggle_redownload_modal(n_open, n_confirm, n_cancel):
-    from dash import ctx
-    return ctx.triggered_id == "prices-btn-redownload"
-
-
-@callback(
-    Output("prices-redownload-modal", "is_open", allow_duplicate=True),
-    Output("prices-interval", "disabled", allow_duplicate=True),
-    Output("prices-progress", "style",    allow_duplicate=True),
-    Output("prices-btn-all",  "disabled", allow_duplicate=True),
-    Input("prices-btn-redownload-confirm", "n_clicks"),
-    prevent_initial_call=True,
-)
-def redownload_all(_):
-    _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
-
-    def _run():
-        def _progress(current, total, *_):
-            _prices_state["current"] = current
-            _prices_state["total"]   = total
-        try:
-            summary = svc.redownload_prices(progress_cb=_progress)
-            _prices_state["has_errors"] = bool(summary["errors"])
-            _prices_state["msg"] = (
-                f"Redescargar completo: {summary['success']}/{summary['total']} exitosos, "
-                f"{len(summary['errors'])} errores."
-            )
-        except Exception as exc:
-            _prices_state["error"] = str(exc)
-        finally:
-            _prices_state["running"] = False
-
-    threading.Thread(target=_run, daemon=True).start()
-    return False, False, {"display": "block"}, True  # cierra modal, activa interval
-
-
-@callback(
     Output("prices-redownload-selected-modal", "is_open"),
     Input("prices-btn-redownload-selected", "n_clicks"),
     Input("prices-btn-redownload-selected-confirm", "n_clicks"),
@@ -244,7 +167,6 @@ def toggle_redownload_selected_modal(n_open, n_confirm, n_cancel):
     Output("prices-redownload-selected-modal", "is_open", allow_duplicate=True),
     Output("prices-interval", "disabled", allow_duplicate=True),
     Output("prices-progress", "style",    allow_duplicate=True),
-    Output("prices-btn-all",  "disabled", allow_duplicate=True),
     Input("prices-btn-redownload-selected-confirm", "n_clicks"),
     State("prices-log-table", "selected_rows"),
     State("prices-log-table", "data"),
@@ -252,7 +174,7 @@ def toggle_redownload_selected_modal(n_open, n_confirm, n_cancel):
 )
 def redownload_selected(_, sel_rows, data):
     if not sel_rows:
-        return False, True, {"display": "none"}, False
+        return False, True, {"display": "none"}
 
     from app.services.asset_service import get_asset_by_ticker
     tickers   = [data[i]["ticker"] for i in sel_rows]
@@ -277,7 +199,7 @@ def redownload_selected(_, sel_rows, data):
             _prices_state["running"] = False
 
     threading.Thread(target=_run, daemon=True).start()
-    return False, False, {"display": "block"}, True  # cierra modal, activa interval
+    return False, False, {"display": "block"}  # cierra modal, activa interval
 
 
 @callback(
@@ -293,7 +215,6 @@ def clear_log(_):
 @callback(
     Output("prices-interval",      "disabled",  allow_duplicate=True),
     Output("prices-progress",      "style",     allow_duplicate=True),
-    Output("prices-btn-all",       "disabled",  allow_duplicate=True),
     Output("prices-btn-indicators",  "disabled"),
     Input("prices-btn-indicators", "n_clicks"),
     State("prices-log-table", "selected_rows"),
@@ -353,4 +274,4 @@ def recompute_indicators(_, sel_rows, data):
             _DbSession.remove()
 
     threading.Thread(target=_run, daemon=True).start()
-    return False, {"display": "block"}, True, True
+    return False, {"display": "block"}, True

@@ -443,11 +443,15 @@ def update_all_fundamentals(progress_cb=None) -> dict:
     return _chain_to_ratio_delta(progress_cb, download_result)
 
 
-def redownload_all_fundamentals(progress_cb=None) -> dict:
-    """Borra el historial trimestral de todos los activos con fuente configurada
-    y lo redescarga completo desde la fuente."""
+def redownload_all_fundamentals(asset_ids: list[int] | None = None, progress_cb=None) -> dict:
+    """Borra el historial trimestral y lo redescarga completo desde la fuente.
+    Si asset_ids es None, aplica a todos los activos con fuente configurada
+    (mismo patrón que redownload_prices en price_service.py)."""
     s = get_session()
-    assets = s.query(Asset).filter(Asset.fundamental_source_id.isnot(None)).all()
+    q = s.query(Asset).filter(Asset.fundamental_source_id.isnot(None))
+    if asset_ids is not None:
+        q = q.filter(Asset.id.in_(asset_ids))
+    assets = q.all()
     pairs  = [(a.id, a.ticker) for a in assets]
     download_result = _run_fund_batch(pairs, clear=True, progress_cb=progress_cb,
                                       skip_ratios=True)

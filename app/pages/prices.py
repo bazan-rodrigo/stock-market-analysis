@@ -23,7 +23,6 @@ def layout(**kwargs):
     return html.Div([
         html.Div([
             html.H3("Actualización de precios", className="d-inline-block me-3"),
-            dbc.Button("Actualizar todos", id="prices-btn-all", color="primary", size="sm", disabled=False, className="me-2"),
             dbc.Button("Recalcular indicadores", id="prices-btn-indicators", color="secondary", size="sm", disabled=False, className="me-2"),
             dbc.Button("Limpiar log", id="prices-btn-clear-log", color="link", size="sm"),
         ], className="d-flex align-items-center mb-2"),
@@ -32,7 +31,6 @@ def layout(**kwargs):
             dbc.Button("Reintentar fallidos", id="prices-btn-retry", color="warning", size="sm", className="me-2"),
             dbc.Button("Redescargar completo (seleccionados)", id="prices-btn-redownload-selected",
                        color="danger", size="sm", outline=True, disabled=True, className="me-2"),
-            dbc.Button("Borrar históricos y redescargar todos", id="prices-btn-redownload", color="danger", size="sm"),
         ], className="mb-3"),
         dbc.Alert(id="prices-alert", is_open=False, dismissable=True),
         dcc.Interval(id="prices-interval", interval=800, disabled=True, n_intervals=0),
@@ -61,18 +59,6 @@ def layout(**kwargs):
             sort_action="native",
             filter_action="native",
         ),
-        dbc.Modal([
-            dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),
-            dbc.ModalBody(
-                "Esta acción borrará toda la historia de precios de todos los activos activos "
-                "y la redescargará desde Yahoo Finance. El proceso puede demorar varios minutos. "
-                "¿Confirmás?"
-            ),
-            dbc.ModalFooter([
-                dbc.Button("Sí, borrar y redescargar", id="prices-btn-redownload-confirm", color="danger"),
-                dbc.Button("Cancelar", id="prices-btn-redownload-cancel", color="secondary", className="ms-2"),
-            ]),
-        ], id="prices-redownload-modal", is_open=False),
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),
             dbc.ModalBody(
