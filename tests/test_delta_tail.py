@@ -174,20 +174,24 @@ def test_benchmark_y_checksum_dep_codes_estan_en_tail_mode():
         assert code in _DELTA_TAIL_MODE
 
 
-def test_checksum_dep_codes_full_sample_o_config_dependientes():
-    # volatility_*/atr_percentile_* reclasifican historia (full_sample) y
+def test_checksum_dep_codes_full_sample_config_o_referencia_externa():
+    # volatility_*/atr_percentile_* reclasifican historia (full_sample);
     # trend_* recalcula distinto la historia vieja si cambia regime_cfg
-    # (EMA recursiva): en ambos casos el camino rápido necesita la
+    # (EMA recursiva); relative_strength_52w depende del VALOR de los
+    # precios del benchmark, no solo de qué benchmark es (bench_stale solo
+    # cubre el cambio de benchmark_id). Los 3 motivos necesitan la
     # compuerta de checksum, no alcanza con "sin huecos" como en el resto
     assert _CHECKSUM_DEP_CODES == {
         "volatility_daily", "volatility_weekly", "volatility_monthly",
         "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
         "trend_daily", "trend_weekly", "trend_monthly",
+        "relative_strength_52w",
     }
     # volatility_*/trend_* tienen Nones legítimos (zonas sin confirmar);
-    # atr_percentile es una serie contigua una vez pasado el warm-up
+    # atr_percentile y relative_strength_52w son series contiguas una vez
+    # pasado el warm-up / con benchmark asignado
     for code in _CHECKSUM_DEP_CODES:
-        expected = "series" if code.startswith("atr_percentile") else "zones"
+        expected = "zones" if code.startswith(("volatility", "trend")) else "series"
         assert _DELTA_TAIL_MODE[code] == expected
 
 

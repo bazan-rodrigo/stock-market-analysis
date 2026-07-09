@@ -903,15 +903,16 @@ _BACKFILL_FNS: dict[str, callable] = {
 #             fecha guardada; se valida contra la grilla y ante un hueco
 #             histórico el activo cae al camino lento (que lo rellena).
 #   "zones":  la serie tiene Nones legítimos (barras sin zona confirmada);
-#             no se puede validar contra la grilla, se asume cola-solamente
-#             (los huecos viejos solo cambiarían si cambian los precios ya
-#             descargados, y ese caso lo cubre el rebuild force).
+#             no se puede validar contra la grilla, se asume cola-solamente.
 # volatility_*/atr_percentile_* (full_sample: un dato nuevo puede reclasificar
-# historia vieja) y trend_* (EMA recursiva sobre regime_cfg, editable por el
-# admin: cambiar la config recalcula distinto cualquier fecha vieja, no solo
-# la cola) también entran acá, pero con una compuerta extra — ver
-# _CHECKSUM_DEP_CODES — que verifica que el prefijo histórico no haya cambiado
-# antes de confiar en la cola.
+# historia vieja), trend_* (EMA recursiva sobre regime_cfg, editable por el
+# admin) y relative_strength_52w (depende del valor de los precios del
+# benchmark, no solo de qué benchmark es) también entran acá, pero con una
+# compuerta extra — ver _CHECKSUM_DEP_CODES — que verifica que el prefijo
+# histórico recién calculado no haya cambiado antes de confiar en la cola;
+# de paso, esa compuerta también detecta si se corrigieron/redescargaron
+# precios ya guardados del propio activo (o del benchmark), sin depender de
+# que alguien se acuerde de forzar un rebuild manual.
 _DELTA_TAIL_MODE: dict[str, str] = {
     "return_daily":             "series",
     "return_monthly":           "series",
@@ -1051,7 +1052,7 @@ def _upsert_ind_stats_meta(s, code: str, stats_by_asset: dict) -> None:
 
 
 # Códigos cuyo historial calculado puede cambiar sin que aparezca un hueco
-# de calendario, por dos motivos distintos:
+# de calendario, por tres motivos distintos:
 #   - full_sample (volatility_*/atr_percentile_*): un dato nuevo puede
 #     reclasificar historia vieja (percentiles/zonas sobre toda la
 #     muestra).
@@ -1063,15 +1064,23 @@ def _upsert_ind_stats_meta(s, code: str, stats_by_asset: dict) -> None:
 #     editar la config solo actualiza la cola y deja la historia con los
 #     parámetros anteriores, silenciosamente (volatility_*/atr_percentile_*
 #     con vol_cfg tienen el mismo riesgo, ya cubierto acá).
-# En ambos casos _series_checksum permite comprobarlo sin leer lo guardado:
-# si el hash del prefijo recién calculado coincide con el de la corrida
-# anterior, el camino rápido de cola es seguro; si no coincide (o no hay
-# checksum guardado todavía), cae al dict-compare de siempre — pero solo
-# para ese activo.
+#   - referencia externa cuyo VALOR puede cambiar sin avisar
+#     (relative_strength_52w: depende de los precios del benchmark, no
+#     solo de Asset.benchmark_id — _BENCHMARK_DEP_CODES/_stale_bench_assets
+#     ya cubre el cambio de benchmark_id, pero si se redescargan/corrigen
+#     los precios del benchmark vigente sin cambiar el id, esa compuerta no
+#     lo detecta; el checksum sí, porque hashea el valor calculado, no la
+#     referencia).
+# En los tres casos _series_checksum permite comprobarlo sin leer lo
+# guardado: si el hash del prefijo recién calculado coincide con el de la
+# corrida anterior, el camino rápido de cola es seguro; si no coincide (o
+# no hay checksum guardado todavía), cae al dict-compare de siempre — pero
+# solo para ese activo.
 _CHECKSUM_DEP_CODES = frozenset({
     "volatility_daily", "volatility_weekly", "volatility_monthly",
     "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
     "trend_daily", "trend_weekly", "trend_monthly",
+    "relative_strength_52w",
 })
 
 
