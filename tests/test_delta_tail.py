@@ -12,8 +12,9 @@ import pytest
 
 from app.services.technical_service import (
     _BACKFILL_FNS, _BENCHMARK_DEP_CODES, _CHECKSUM_DEP_CODES, _DELTA_TAIL_MODE,
-    _confirmed_empty_fast_path, _delta_tail_start, _pairs_to_write,
-    _series_checksum, _series_stats, _stale_bench_assets, _stale_dates_to_delete,
+    _checksum_prefix, _confirmed_empty_fast_path, _delta_tail_start,
+    _pairs_to_write, _series_checksum, _series_stats, _stale_bench_assets,
+    _stale_dates_to_delete,
 )
 
 
@@ -220,6 +221,49 @@ def test_checksum_distingue_bordes_entre_valores():
 
 def test_checksum_vacio_es_string_vacio():
     assert _series_checksum([]) == ""
+
+
+# ── _checksum_prefix: guarda con la posición de la propia última fecha ───────
+# válida, no con [:-1] a ciegas — bug real encontrado con
+# relative_strength_52w (~46 activos con checksum "lento" estable en cada
+# delta: el benchmark deja huecos al final de la serie, la última fecha
+# válida propia queda antes de la última del calendario del activo).
+
+def test_checksum_prefix_usa_la_ultima_fecha_valida_no_la_ultima_posicion():
+    dates = _fechas(5)
+    vals  = [1.0, 2.0, 3.0, None, None]     # hueco al final (2 días)
+    own_mx = dates[2]                        # última fecha con valor válido
+    # excluye también own_mx (índice 2): la cola siempre lo re-escribe por
+    # si era un valor preliminar, igual que [:-1] excluye "hoy" en el caso sano
+    assert _checksum_prefix(dates, vals, own_mx) == _series_checksum(vals[:2])
+    # con [:-1] a ciegas (el bug) habría dado un hash distinto
+    assert _checksum_prefix(dates, vals, own_mx) != _series_checksum(vals[:-1])
+
+
+def test_checksum_prefix_coincide_con_la_comparacion_de_la_proxima_corrida():
+    # simula 2 corridas seguidas sin cambios reales: lo que se guarda esta
+    # corrida (_checksum_prefix con la propia mx) tiene que coincidir con
+    # lo que _delta_tail_start hará comparar la próxima corrida (k a partir
+    # del mx cacheado) — antes del fix, [:-1] vs [:k] nunca coincidían
+    # cuando había hueco al final, y quedaban "lento" para siempre.
+    dates = _fechas(5)
+    vals  = [1.0, 2.0, 3.0, None, None]
+    own_mx = dates[2]
+    stored = _checksum_prefix(dates, vals, own_mx)
+
+    stat = (dates[0], own_mx, 3)
+    k = _delta_tail_start(dates, stat, "series")
+    assert _series_checksum(vals[:k]) == stored
+
+
+def test_checksum_prefix_sin_hueco_al_final_coincide_con_menos_uno():
+    # caso sano (sin hueco final, como volatility_*/trend_* casi siempre):
+    # la última fecha válida SÍ es la última del calendario, _checksum_prefix
+    # coincide con el [:-1] de siempre
+    dates = _fechas(5)
+    vals  = [1.0, 2.0, 3.0, 4.0, 5.0]
+    own_mx = dates[-1]
+    assert _checksum_prefix(dates, vals, own_mx) == _series_checksum(vals[:-1])
 
 
 # ── _series_stats: (min_date, max_date, count) cacheado en ind_asset_meta ────

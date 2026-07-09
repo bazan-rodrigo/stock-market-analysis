@@ -1098,6 +1098,29 @@ def _series_checksum(vals: list) -> str:
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
 
 
+def _checksum_prefix(dates_list: list, vals_list: list, own_mx) -> str:
+    """Hash del prefijo histórico hasta la propia última fecha válida
+    (own_mx, ver _series_stats) — NO "todo menos la última posición del
+    array" a ciegas.
+
+    Necesario porque para algunos códigos (relative_strength_52w: el
+    benchmark puede no tener dato reciente; en principio también
+    aplicable a trend_*/volatility_* si el último tramo queda sin zona
+    confirmada) la última fecha con valor válido puede quedar antes de la
+    última fecha del calendario propio del activo. La comparación de la
+    próxima corrida usa _delta_tail_start, que calcula
+    k = bisect_left(dates_list, mx) con el mx CACHEADO — si el checksum
+    se guardara con vals_list[:-1] en vez de vals_list[:k], ambos slices
+    tendrían distinto largo cuando mx != última fecha del calendario, y
+    el checksum nunca coincidiría con la corrida anterior aunque nada
+    haya cambiado (bug real, encontrado con relative_strength_52w: ~46
+    activos con checksum='lento' estable en cada delta, siempre los
+    mismos, min/max/count en ind_asset_meta confirmó max_date desfasado
+    varios días respecto de la corrida)."""
+    k = bisect.bisect_left(dates_list, own_mx)
+    return _series_checksum(vals_list[:k])
+
+
 # ── Backfill por indicador ────────────────────────────────────────────────────
 
 def _load_all_prices(_s) -> dict:
@@ -1430,10 +1453,6 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 price_cache=price_cache, best_sma_cache=best_sma_cache,
             )
             dates_list, vals_list = _series_dates_values(values, df)
-            if needs_checksum:
-                # se guarda siempre (force, cola o dict-compare) para que el
-                # próximo delta arranque con el checksum al día
-                checksum_by_asset[asset_id] = _series_checksum(vals_list[:-1])
             if tail_eligible:
                 # se guarda siempre (force, cola o dict-compare) para que el
                 # próximo delta tenga tail_stats al día sin full-scan (ver
@@ -1448,6 +1467,14 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 # evita repetir el camino lento en cada delta si la
                 # próxima corrida confirma que sigue vacío.
                 stats_by_asset[asset_id] = stats if stats is not None else (None, None, 0)
+            if needs_checksum and stats is not None:
+                # se guarda siempre (force, cola o dict-compare) para que el
+                # próximo delta arranque con el checksum al día — con la
+                # posición de la propia última fecha válida (ver
+                # _checksum_prefix), no con [:-1] a ciegas. Si stats es
+                # None no hay última fecha válida propia: ese activo va
+                # por "empty", nunca llega a comparar este checksum.
+                checksum_by_asset[asset_id] = _checksum_prefix(dates_list, vals_list, stats[1])
             # force: la tabla ya fue truncada → set() vacío escribe todo
             # sin el DELETE por activo del modo existing=None
             if force:
