@@ -108,6 +108,7 @@ def update_asset_prices(
     asset_id: int,
     *,
     full: bool = False,
+    skip_indicators: bool = False,
     _dd_cfg=None,
     _regime_cfg=None,
     _vol_cfg=None,
@@ -121,6 +122,14 @@ def update_asset_prices(
     ocurre dentro de la misma transacción, por lo que un fallo de descarga no
     pierde los datos existentes.
     Los parámetros _*_cfg permiten reutilizar configs pre-cargadas en llamadas masivas.
+
+    skip_indicators=True: no calcula indicadores/ratios acá (lo usan las
+    corridas masivas — update_all_active_assets/update_new_assets_prices/
+    redownload_prices — que después encadenan update_indicator_history +
+    la cadena de fundamentales una sola vez para todos los activos, en vez
+    de recalcular activo por activo con este camino rápido). Los
+    llamadores puntuales (botón "Recalcular indicadores" de la página de
+    Precios, alta de activo nuevo) siguen usando el default False.
     """
     from app.services.synthetic_service import compute_synthetic_prices
 
@@ -163,38 +172,39 @@ def update_asset_prices(
         s.commit()
         logger.info("Activo %s: %d filas importadas", asset.ticker, count)
 
-        # Recalcular indicadores vigentes (técnicos + ratios fundamentales)
-        ind_errors = []
-        try:
-            compute_current_indicators(
-                asset_id,
-                _dd_cfg=_dd_cfg,
-                _regime_cfg=_regime_cfg,
-                _vol_cfg=_vol_cfg,
-                _sr_cfg=_sr_cfg,
-                quick=True,
-            )
-        except Exception as ind_exc:
-            logger.warning(
-                "Error calculando indicadores para %s: %s", asset.ticker, ind_exc
-            )
-            ind_errors.append(f"técnico: {ind_exc}")
-        try:
-            from app.services.fundamental_service import recompute_ratios_for_asset
-            recompute_ratios_for_asset(asset_id)
-        except Exception as fund_exc:
-            logger.warning("Error recomputo ratios fundamentales %s: %s", asset.ticker, fund_exc)
-            ind_errors.append(f"fundamental: {fund_exc}")
-        if last_date is None:
-            # Historia de precios nueva o reconstruida → completar también la
-            # historia de indicadores (el quick solo escribe el último día)
+        if not skip_indicators:
+            # Recalcular indicadores vigentes (técnicos + ratios fundamentales)
+            ind_errors = []
             try:
-                backfill_asset_history(asset_id)
-            except Exception as bf_exc:
-                logger.warning("Error backfill indicadores %s: %s", asset.ticker, bf_exc)
-                ind_errors.append(f"backfill: {bf_exc}")
-        _save_indicator_log(asset_id, success=not ind_errors,
-                            error="; ".join(ind_errors) or None, session=s)
+                compute_current_indicators(
+                    asset_id,
+                    _dd_cfg=_dd_cfg,
+                    _regime_cfg=_regime_cfg,
+                    _vol_cfg=_vol_cfg,
+                    _sr_cfg=_sr_cfg,
+                    quick=True,
+                )
+            except Exception as ind_exc:
+                logger.warning(
+                    "Error calculando indicadores para %s: %s", asset.ticker, ind_exc
+                )
+                ind_errors.append(f"técnico: {ind_exc}")
+            try:
+                from app.services.fundamental_service import recompute_ratios_for_asset
+                recompute_ratios_for_asset(asset_id)
+            except Exception as fund_exc:
+                logger.warning("Error recomputo ratios fundamentales %s: %s", asset.ticker, fund_exc)
+                ind_errors.append(f"fundamental: {fund_exc}")
+            if last_date is None:
+                # Historia de precios nueva o reconstruida → completar también la
+                # historia de indicadores (el quick solo escribe el último día)
+                try:
+                    backfill_asset_history(asset_id)
+                except Exception as bf_exc:
+                    logger.warning("Error backfill indicadores %s: %s", asset.ticker, bf_exc)
+                    ind_errors.append(f"backfill: {bf_exc}")
+            _save_indicator_log(asset_id, success=not ind_errors,
+                                error="; ".join(ind_errors) or None, session=s)
 
     except NotImplementedError:
         # Fuente válida pero sin descarga externa — no es un error operativo
@@ -313,8 +323,10 @@ def _process_yf_asset_worker(
     df,
     last_date,
     _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
+    skip_indicators: bool = False,
 ) -> tuple[bool, dict | None]:
-    """Procesa un activo Yahoo Finance en su propio thread: escribe precios y calcula indicadores."""
+    """Procesa un activo Yahoo Finance en su propio thread: escribe precios y
+    calcula indicadores (salvo skip_indicators=True, ver update_asset_prices)."""
     s = get_session()
     try:
         if df.empty:
@@ -328,32 +340,33 @@ def _process_yf_asset_worker(
         _save_update_log(asset_id, success=True, error=None, session=s)
         s.commit()
         logger.info("Activo %s: %d filas importadas (batch)", ticker, count)
-        ind_errors = []
-        try:
-            compute_current_indicators(
-                asset_id,
-                _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
-                _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
-                quick=True,
-            )
-        except Exception as ind_exc:
-            logger.warning("Error indicadores %s: %s", ticker, ind_exc)
-            ind_errors.append(f"técnico: {ind_exc}")
-        try:
-            from app.services.fundamental_service import recompute_ratios_for_asset
-            recompute_ratios_for_asset(asset_id)
-        except Exception as fund_exc:
-            logger.warning("Error recomputo ratios fundamentales %s: %s", ticker, fund_exc)
-            ind_errors.append(f"fundamental: {fund_exc}")
-        if last_date is None:
-            # Primera descarga del activo → completar la historia de indicadores
+        if not skip_indicators:
+            ind_errors = []
             try:
-                backfill_asset_history(asset_id)
-            except Exception as bf_exc:
-                logger.warning("Error backfill indicadores %s: %s", ticker, bf_exc)
-                ind_errors.append(f"backfill: {bf_exc}")
-        _save_indicator_log(asset_id, success=not ind_errors,
-                            error="; ".join(ind_errors) or None, session=s)
+                compute_current_indicators(
+                    asset_id,
+                    _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
+                    _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
+                    quick=True,
+                )
+            except Exception as ind_exc:
+                logger.warning("Error indicadores %s: %s", ticker, ind_exc)
+                ind_errors.append(f"técnico: {ind_exc}")
+            try:
+                from app.services.fundamental_service import recompute_ratios_for_asset
+                recompute_ratios_for_asset(asset_id)
+            except Exception as fund_exc:
+                logger.warning("Error recomputo ratios fundamentales %s: %s", ticker, fund_exc)
+                ind_errors.append(f"fundamental: {fund_exc}")
+            if last_date is None:
+                # Primera descarga del activo → completar la historia de indicadores
+                try:
+                    backfill_asset_history(asset_id)
+                except Exception as bf_exc:
+                    logger.warning("Error backfill indicadores %s: %s", ticker, bf_exc)
+                    ind_errors.append(f"backfill: {bf_exc}")
+            _save_indicator_log(asset_id, success=not ind_errors,
+                                error="; ".join(ind_errors) or None, session=s)
         return True, None
     except Exception as exc:
         s.rollback()
@@ -370,6 +383,7 @@ def _process_other_asset_worker(
     asset_id: int,
     ticker: str,
     _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
+    skip_indicators: bool = False,
 ) -> tuple[bool, dict | None]:
     """Procesa un activo no-YF (otra fuente o sintético) en su propio thread."""
     try:
@@ -377,12 +391,44 @@ def _process_other_asset_worker(
             asset_id,
             _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
             _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
+            skip_indicators=skip_indicators,
         )
         return True, None
     except Exception as exc:
         return False, {"ticker": ticker, "error": str(exc)}
     finally:
         _ScopedSession.remove()
+
+
+def _chain_to_indicator_and_ratio_delta(progress_cb, download_summary: dict) -> dict:
+    """Encadena update_indicator_history() + el delta de ratios fundamentales
+    (force=False) después de una descarga/redescarga masiva de precios (ver
+    skip_indicators en update_asset_prices: las corridas masivas ya no
+    recalculan indicadores/ratios activo por activo, lo hacen acá una sola
+    vez para todos). La barra se reacomoda al pasar de fase — el mensaje
+    aclara cuál está corriendo.
+
+    Si no se tocó ningún activo (ej. "solo nuevos" sin nada nuevo), no vale
+    la pena pagar un delta completo de ~2 minutos por nada — se salta."""
+    if download_summary.get("total", 0) == 0:
+        return download_summary
+
+    from app.services.fundamental_service import _run_ratios_and_backfill
+    from app.services.technical_service import update_indicator_history
+
+    if progress_cb:
+        progress_cb(0, 1, "Precios actualizados. Calculando indicadores...")
+    ind_result = update_indicator_history(progress_cb=progress_cb)
+    if progress_cb:
+        progress_cb(0, 1, "Recalculando ratios...")
+    ratio_result = _run_ratios_and_backfill(progress_cb, force=False)
+    # Acumulado, no solo el de precios: success + len(errors) tiene que
+    # dar total, si no el resumen final ("X/Y OK") no cierra.
+    download_summary["total"]   += ind_result.get("total", 0) + ratio_result.get("total", 0)
+    download_summary["success"] += ind_result.get("success", 0) + ratio_result.get("success", 0)
+    download_summary["errors"].extend(ind_result.get("errors", []))
+    download_summary["errors"].extend(ratio_result.get("errors", []))
+    return download_summary
 
 
 def update_new_assets_prices(progress_cb=None) -> dict:
@@ -396,11 +442,11 @@ def update_new_assets_prices(progress_cb=None) -> dict:
         if progress_cb:
             progress_cb(i, total, asset.ticker)
         try:
-            update_asset_prices(asset.id)
+            update_asset_prices(asset.id, skip_indicators=True)
             summary["success"] += 1
         except Exception as exc:
             summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
-    return summary
+    return _chain_to_indicator_and_ratio_delta(progress_cb, summary)
 
 
 def update_all_active_assets(progress_cb=None) -> dict:
@@ -468,16 +514,18 @@ def update_all_active_assets(progress_cb=None) -> dict:
                 futures[pool.submit(
                     _process_yf_asset_worker,
                     asset_id, asset_ticker, prefetched[asset_id], yf_last_dates[asset_id],
-                    **cfgs,
+                    **cfgs, skip_indicators=True,
                 )] = asset_ticker
             else:
                 futures[pool.submit(
                     _process_other_asset_worker, asset_id, asset_ticker, **cfgs,
+                    skip_indicators=True,
                 )] = asset_ticker
 
         for asset_id, asset_ticker in other_pairs:
             futures[pool.submit(
                 _process_other_asset_worker, asset_id, asset_ticker, **cfgs,
+                skip_indicators=True,
             )] = asset_ticker
 
         done = 0
@@ -498,10 +546,33 @@ def update_all_active_assets(progress_cb=None) -> dict:
         len(summary["errors"]),
     )
 
-    # Actualizar fundamentales para activos con fuente configurada
+    # Los precios ya están, pero los indicadores/ratios de cada activo
+    # todavía no (skip_indicators=True arriba) — se encadena acá el
+    # sistema de delta (mismo que usa el panel "Indicadores Técnicos"/
+    # "Ratios fundamentales" del Centro de Datos) en vez de recalcular
+    # activo por activo: una sola pasada, con las compuertas de checksum/
+    # huecos ya validadas, y visible con su propia barra+tabla por código.
+    from app.services.technical_service import update_indicator_history
+    if progress_cb:
+        progress_cb(0, 1, "Precios actualizados. Calculando indicadores...")
+    ind_result = update_indicator_history(progress_cb=progress_cb)
+    # Acumulado, no solo el de precios: success + len(errors) tiene que
+    # dar total, si no el resumen final ("X/Y OK") no cierra.
+    summary["total"]   += ind_result.get("total", 0)
+    summary["success"] += ind_result.get("success", 0)
+    summary["errors"].extend(ind_result.get("errors", []))
+
+    # Actualizar fundamentales para activos con fuente configurada — ahora
+    # encadena internamente a _run_ratios_and_backfill (ver
+    # update_all_fundamentals/skip_ratios en fundamental_service.py).
     try:
         from app.services.fundamental_service import update_all_fundamentals
-        update_all_fundamentals()
+        if progress_cb:
+            progress_cb(0, 1, "Actualizando fundamentales...")
+        fund_result = update_all_fundamentals(progress_cb=progress_cb)
+        summary["total"]   += fund_result.get("total", 0)
+        summary["success"] += fund_result.get("success", 0)
+        summary["errors"].extend(fund_result.get("errors", []))
     except Exception as exc:
         logger.warning("Error actualizando fundamentales: %s", exc)
 
@@ -530,11 +601,11 @@ def redownload_prices(asset_ids: list[int] | None = None, progress_cb=None) -> d
         if progress_cb:
             progress_cb(i, total, asset.ticker)
         try:
-            update_asset_prices(asset.id, full=True)
+            update_asset_prices(asset.id, full=True, skip_indicators=True)
             summary["success"] += 1
         except Exception as exc:
             summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
-    return summary
+    return _chain_to_indicator_and_ratio_delta(progress_cb, summary)
 
 
 def get_prices_df(asset_id: int):

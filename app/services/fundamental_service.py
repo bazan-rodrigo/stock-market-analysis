@@ -180,10 +180,18 @@ def _compute_current_ratios(asset_id: int, s, *, quarters=None,
 # ── API pública ───────────────────────────────────────────────────────────────
 
 def update_asset_fundamentals(asset_id: int, *, force: bool = False,
-                              replace: bool = False) -> None:
+                              replace: bool = False, skip_ratios: bool = False) -> None:
     """replace=True borra el historial trimestral existente y lo reemplaza por la
     descarga nueva, dentro de la misma transacción: si la descarga falla, el
-    historial previo se conserva."""
+    historial previo se conserva.
+
+    skip_ratios=True: no recalcula ratios acá (lo usan las corridas masivas
+    — update_new_fundamentals/update_all_fundamentals/redownload_all_fundamentals
+    — que descargan reportes para muchos activos y después encadenan
+    _run_ratios_and_backfill una sola vez para todos, en vez de recalcular
+    activo por activo con este camino rápido). Los llamadores puntuales
+    (botón "Recalcular indicadores" de la página de Precios, alta de activo
+    nuevo) siguen usando el default False."""
     from app.sources.fundamental.registry import get_fundamental_source
     from app.services.technical_service import _save_indicator_log
 
@@ -217,6 +225,9 @@ def update_asset_fundamentals(asset_id: int, *, force: bool = False,
         _save_log(asset_id, success=False, error=error_msg, s=s)
         s.commit()
         raise
+
+    if skip_ratios:
+        return
 
     # Recálculo de ratios (P/E, P/B, etc.): error independiente de la descarga.
     # Si falla, no invalida el éxito de la descarga de trimestrales de arriba.
@@ -269,6 +280,7 @@ def recompute_all_ratios(progress_cb=None, *, quarters_cache: dict | None = None
         price_cache = _load_fund_prices(s, asset_ids)
     cutoff = _date_type.today() - _td(days=365)
 
+    asset_errors: dict[int, str] = {}
     if progress_cb:
         progress_cb(0, total)
     for i, asset_id in enumerate(asset_ids, 1):
@@ -285,6 +297,7 @@ def recompute_all_ratios(progress_cb=None, *, quarters_cache: dict | None = None
         except Exception as exc:
             logger.error("Error recompute fundamental asset_id=%d: %s", asset_id, exc, exc_info=True)
             summary["errors"].append({"asset_id": asset_id, "error": str(exc)})
+            asset_errors[asset_id] = str(exc)
         # SAVEPOINT por activo (arriba) ya aísla un error puntual del resto
         # del lote; el commit real se batchea cada _RATIO_COMMIT_BATCH para
         # no pagar un round-trip a la base por cada uno de los ~350-10000
@@ -294,10 +307,24 @@ def recompute_all_ratios(progress_cb=None, *, quarters_cache: dict | None = None
         if progress_cb:
             progress_cb(i, total)
     s.commit()   # cierra el resto del último lote parcial
+
+    # Un registro por activo en indicator_update_log (mismo patrón que
+    # recompute_current_indicators en technical_service.py) — necesario
+    # porque update_all_fundamentals/update_new_fundamentals/
+    # redownload_all_fundamentals ahora encadenan acá con skip_ratios=True
+    # en vez de recalcular ratios activo por activo (que era quien
+    # escribía este log antes).
+    from app.services.technical_service import _save_indicator_log
+    for asset_id in asset_ids:
+        _save_indicator_log(
+            asset_id, success=asset_id not in asset_errors,
+            error=asset_errors.get(asset_id), session=s,
+        )
     return summary
 
 
-def _fund_worker(asset_id: int, ticker: str, *, clear: bool = False) -> tuple[bool, dict | None]:
+def _fund_worker(asset_id: int, ticker: str, *, clear: bool = False,
+                 skip_ratios: bool = False) -> tuple[bool, dict | None]:
     """_UPDATE_WORKERS threads concurrentes escriben cada uno a un asset_id
     distinto en fundamental_quarterly, pero InnoDB puede igual deadlockear
     entre INSERTs concurrentes a la misma tabla (gap locks/FK checks, no
@@ -306,7 +333,8 @@ def _fund_worker(asset_id: int, ticker: str, *, clear: bool = False) -> tuple[bo
     tal como recomienda la documentación de InnoDB."""
     for attempt in range(_MAX_LOCK_RETRIES + 1):
         try:
-            update_asset_fundamentals(asset_id, force=clear, replace=clear)
+            update_asset_fundamentals(asset_id, force=clear, replace=clear,
+                                      skip_ratios=skip_ratios)
             return True, None
         except OperationalError as exc:
             if attempt < _MAX_LOCK_RETRIES and _is_retryable_lock_error(exc):
@@ -326,7 +354,7 @@ def _fund_worker(asset_id: int, ticker: str, *, clear: bool = False) -> tuple[bo
 
 def _run_fund_batch(pairs: list[tuple[int, str]], *, clear: bool = False,
                     progress_cb=None, presuccess: int = 0,
-                    total: int | None = None) -> dict:
+                    total: int | None = None, skip_ratios: bool = False) -> dict:
     """Ejecuta _fund_worker en paralelo para una lista de (asset_id, ticker).
 
     presuccess/total permiten contar como éxito activos que no necesitaron
@@ -338,7 +366,8 @@ def _run_fund_batch(pairs: list[tuple[int, str]], *, clear: bool = False,
     done_count = 0
     lock = threading.Lock()
     with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
-        futures = {pool.submit(_fund_worker, aid, ticker, clear=clear): ticker
+        futures = {pool.submit(_fund_worker, aid, ticker, clear=clear,
+                               skip_ratios=skip_ratios): ticker
                    for aid, ticker in pairs}
         for future in as_completed(futures):
             ok, err = future.result()
@@ -353,6 +382,31 @@ def _run_fund_batch(pairs: list[tuple[int, str]], *, clear: bool = False,
     return summary
 
 
+def _chain_to_ratio_delta(progress_cb, download_result: dict) -> dict:
+    """Encadena _run_ratios_and_backfill(force=False) después de una
+    descarga masiva de fundamentales (ver skip_ratios en
+    update_asset_fundamentals: las corridas masivas ya no recalculan
+    ratios activo por activo, lo hacen acá una sola vez para todos).
+
+    La barra de progreso se reacomoda al pasar de la fase de descarga a
+    la de ratios (cada fase reporta su propio total) — aceptado, el
+    mensaje aclara qué fase está corriendo en cada momento.
+
+    Si no había nada para descargar (ej. "solo nuevos" sin nada nuevo), no
+    vale la pena pagar un delta completo por nada — se salta."""
+    if download_result.get("total", 0) == 0:
+        return download_result
+    if progress_cb:
+        progress_cb(0, 1, "Recalculando ratios...")
+    ratio_result = _run_ratios_and_backfill(progress_cb, force=False)
+    # Acumulado, no solo el de la última fase: success + len(errors) tiene
+    # que dar total, si no el resumen final ("X/Y OK") no cierra.
+    total   = download_result["total"]   + ratio_result["total"]
+    success = download_result["success"] + ratio_result["success"]
+    errors  = download_result["errors"]  + ratio_result["errors"]
+    return {"total": total, "success": success, "errors": errors}
+
+
 def update_new_fundamentals(progress_cb=None) -> dict:
     s = get_session()
     logged_ids = {r[0] for r in s.query(FundamentalUpdateLog.asset_id).all()}
@@ -361,7 +415,8 @@ def update_new_fundamentals(progress_cb=None) -> dict:
         ~Asset.id.in_(logged_ids) if logged_ids else True,
     ).all()
     pairs = [(a.id, a.ticker) for a in assets]
-    return _run_fund_batch(pairs, progress_cb=progress_cb)
+    download_result = _run_fund_batch(pairs, progress_cb=progress_cb, skip_ratios=True)
+    return _chain_to_ratio_delta(progress_cb, download_result)
 
 
 def update_all_fundamentals(progress_cb=None) -> dict:
@@ -382,8 +437,10 @@ def update_all_fundamentals(progress_cb=None) -> dict:
     pairs       = [(a.id, a.ticker) for a in assets]
     stale_pairs = [(aid, ticker) for aid, ticker in pairs if _stale(aid)]
     fresh_count = len(pairs) - len(stale_pairs)
-    return _run_fund_batch(stale_pairs, progress_cb=progress_cb,
-                           presuccess=fresh_count, total=len(pairs))
+    download_result = _run_fund_batch(stale_pairs, progress_cb=progress_cb,
+                                      presuccess=fresh_count, total=len(pairs),
+                                      skip_ratios=True)
+    return _chain_to_ratio_delta(progress_cb, download_result)
 
 
 def redownload_all_fundamentals(progress_cb=None) -> dict:
@@ -392,7 +449,9 @@ def redownload_all_fundamentals(progress_cb=None) -> dict:
     s = get_session()
     assets = s.query(Asset).filter(Asset.fundamental_source_id.isnot(None)).all()
     pairs  = [(a.id, a.ticker) for a in assets]
-    return _run_fund_batch(pairs, clear=True, progress_cb=progress_cb)
+    download_result = _run_fund_batch(pairs, clear=True, progress_cb=progress_cb,
+                                      skip_ratios=True)
+    return _chain_to_ratio_delta(progress_cb, download_result)
 
 
 def get_fundamentals_log() -> list[dict]:

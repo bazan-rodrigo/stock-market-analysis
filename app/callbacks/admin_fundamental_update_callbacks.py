@@ -68,10 +68,10 @@ def handle_buttons(n_all, n_retry, n_clear):
                         "msg": "", "error": None, "has_errors": False, "phase": "Iniciando..."})
 
         def _run():
-            def _cb(cur, tot):
+            def _cb(cur, tot, label=""):
                 _state["current"] = cur
                 _state["total"]   = tot
-                _state["phase"]   = ""
+                _state["phase"]   = label
             try:
                 if only_failed:
                     from app.database import get_session

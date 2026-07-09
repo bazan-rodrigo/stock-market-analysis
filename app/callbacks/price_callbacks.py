@@ -48,10 +48,10 @@ def update_all(_):
     _prices_state.update({"running": True, "current": 0, "total": 0, "summary": None, "error": None})
 
     def _run():
-        def _progress(current, total):
+        def _progress(current, total, label=""):
             _prices_state["current"] = current
             _prices_state["total"]   = total
-            _prices_state["phase"]   = ""
+            _prices_state["phase"]   = label
         try:
             _prices_state["phase"] = "Descargando precios de Yahoo Finance..."
             summary = svc.update_all_active_assets(progress_cb=_progress)
