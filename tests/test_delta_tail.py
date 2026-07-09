@@ -174,18 +174,20 @@ def test_benchmark_y_checksum_dep_codes_estan_en_tail_mode():
         assert code in _DELTA_TAIL_MODE
 
 
-def test_checksum_dep_codes_son_los_full_sample():
-    # volatility_* y atr_percentile_* reclasifican historia (full_sample):
-    # el camino rápido necesita la compuerta de checksum, no alcanza con
-    # "sin huecos" como en el resto
+def test_checksum_dep_codes_full_sample_o_config_dependientes():
+    # volatility_*/atr_percentile_* reclasifican historia (full_sample) y
+    # trend_* recalcula distinto la historia vieja si cambia regime_cfg
+    # (EMA recursiva): en ambos casos el camino rápido necesita la
+    # compuerta de checksum, no alcanza con "sin huecos" como en el resto
     assert _CHECKSUM_DEP_CODES == {
         "volatility_daily", "volatility_weekly", "volatility_monthly",
         "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
+        "trend_daily", "trend_weekly", "trend_monthly",
     }
-    # volatility_* tiene Nones legítimos (zonas sin confirmar); atr_percentile
-    # es una serie contigua una vez pasado el warm-up
+    # volatility_*/trend_* tienen Nones legítimos (zonas sin confirmar);
+    # atr_percentile es una serie contigua una vez pasado el warm-up
     for code in _CHECKSUM_DEP_CODES:
-        expected = "zones" if code.startswith("volatility") else "series"
+        expected = "series" if code.startswith("atr_percentile") else "zones"
         assert _DELTA_TAIL_MODE[code] == expected
 
 

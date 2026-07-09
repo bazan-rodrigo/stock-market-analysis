@@ -907,7 +907,9 @@ _BACKFILL_FNS: dict[str, callable] = {
 #             (los huecos viejos solo cambiarían si cambian los precios ya
 #             descargados, y ese caso lo cubre el rebuild force).
 # volatility_*/atr_percentile_* (full_sample: un dato nuevo puede reclasificar
-# historia vieja) también entran acá, pero con una compuerta extra — ver
+# historia vieja) y trend_* (EMA recursiva sobre regime_cfg, editable por el
+# admin: cambiar la config recalcula distinto cualquier fecha vieja, no solo
+# la cola) también entran acá, pero con una compuerta extra — ver
 # _CHECKSUM_DEP_CODES — que verifica que el prefijo histórico no haya cambiado
 # antes de confiar en la cola.
 _DELTA_TAIL_MODE: dict[str, str] = {
@@ -1048,16 +1050,28 @@ def _upsert_ind_stats_meta(s, code: str, stats_by_asset: dict) -> None:
     s.commit()
 
 
-# Códigos full_sample: un dato nuevo puede reclasificar historia vieja
-# (percentiles/zonas sobre toda la muestra), pero eso solo pasa de verdad
-# cuando el prefijo histórico calculado realmente cambió. _series_checksum
-# permite comprobarlo sin leer lo guardado: si el hash del prefijo coincide
-# con el de la corrida anterior, el camino rápido de cola es seguro; si no
-# coincide (o no hay checksum guardado todavía), cae al dict-compare de
-# siempre — pero solo para ese activo.
+# Códigos cuyo historial calculado puede cambiar sin que aparezca un hueco
+# de calendario, por dos motivos distintos:
+#   - full_sample (volatility_*/atr_percentile_*): un dato nuevo puede
+#     reclasificar historia vieja (percentiles/zonas sobre toda la
+#     muestra).
+#   - config editable por el admin (trend_*: regime_cfg: ema_period_*,
+#     slope_lookback, slope_threshold_pct, confirm_bars, nascent_bars,
+#     strong_slope_multiplier): la EMA es recursiva sobre TODA la historia,
+#     así que cambiar la config recalcula distinto cualquier fecha vieja,
+#     no solo la cola — sin esta compuerta, un delta normal después de
+#     editar la config solo actualiza la cola y deja la historia con los
+#     parámetros anteriores, silenciosamente (volatility_*/atr_percentile_*
+#     con vol_cfg tienen el mismo riesgo, ya cubierto acá).
+# En ambos casos _series_checksum permite comprobarlo sin leer lo guardado:
+# si el hash del prefijo recién calculado coincide con el de la corrida
+# anterior, el camino rápido de cola es seguro; si no coincide (o no hay
+# checksum guardado todavía), cae al dict-compare de siempre — pero solo
+# para ese activo.
 _CHECKSUM_DEP_CODES = frozenset({
     "volatility_daily", "volatility_weekly", "volatility_monthly",
     "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
+    "trend_daily", "trend_weekly", "trend_monthly",
 })
 
 
