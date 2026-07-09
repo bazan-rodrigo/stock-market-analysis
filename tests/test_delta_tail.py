@@ -12,8 +12,8 @@ import pytest
 
 from app.services.technical_service import (
     _BACKFILL_FNS, _BENCHMARK_DEP_CODES, _CHECKSUM_DEP_CODES, _DELTA_TAIL_MODE,
-    _delta_tail_start, _pairs_to_write, _series_checksum, _series_stats,
-    _stale_bench_assets,
+    _confirmed_empty_fast_path, _delta_tail_start, _pairs_to_write,
+    _series_checksum, _series_stats, _stale_bench_assets,
 )
 
 
@@ -66,6 +66,34 @@ def test_zones_ignora_huecos_pero_no_lo_demas():
 def test_serie_vacia_cae_al_camino_lento():
     assert _delta_tail_start([], (date(2025, 1, 1), date(2025, 1, 2), 2),
                              "series") is None
+
+
+# ── _confirmed_empty_fast_path: activos sin datos válidos, confirmados ───────
+# (p.ej. best_sma_* inválido en dist_optimal_sma_*, o activo sin benchmark
+# en relative_strength_52w) — evita repetir el camino lento para siempre.
+
+def test_confirmado_vacio_y_sigue_vacio_activa_camino_rapido():
+    assert _confirmed_empty_fast_path(None, (None, None, 0)) is True
+
+
+def test_primera_vez_sin_cache_no_activa_camino_rapido():
+    # sin cached_stat todavía (primera corrida): debe caer al camino lento
+    # normal para confirmarlo por primera vez
+    assert _confirmed_empty_fast_path(None, None) is False
+
+
+def test_vacio_pero_antes_tenia_datos_no_activa_camino_rapido():
+    # cached_stat con count>0: transición valor→vacío, debe ir al camino
+    # lento para poder borrar/reescribir lo ya guardado
+    stat = (date(2025, 1, 1), date(2025, 1, 5), 3)
+    assert _confirmed_empty_fast_path(None, stat) is False
+
+
+def test_ahora_tiene_datos_no_activa_camino_rapido_aunque_antes_no_tuviera():
+    # stats ya no es None: la serie se volvió válida, debe ir al camino
+    # lento para escribir la serie recién habilitada
+    stats = (date(2025, 1, 1), date(2025, 1, 5), 5)
+    assert _confirmed_empty_fast_path(stats, (None, None, 0)) is False
 
 
 # ── Paridad de escrituras: rápido vs lento ────────────────────────────────────

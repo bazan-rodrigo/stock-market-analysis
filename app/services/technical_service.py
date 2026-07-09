@@ -917,6 +917,20 @@ _DELTA_TAIL_MODE: dict[str, str] = {
 }
 
 
+def _confirmed_empty_fast_path(stats, cached_stat) -> bool:
+    """True si este activo no tiene NINGÚN valor válido para este código en
+    la serie recién calculada (stats=None, ver _series_stats) Y la corrida
+    anterior ya lo había confirmado (cached_stat=(None,None,0), ver
+    _upsert_ind_stats_meta). Evita repetir el camino lento (dict-compare
+    contra la tabla) para siempre en activos estructuralmente sin datos
+    para este código — p.ej. best_sma_* inválido en dist_optimal_sma_* (no
+    se encontró ningún período con >=5 toques, ver _find_best_ma) o activo
+    sin benchmark configurado en relative_strength_52w. Si esta corrida
+    encuentra valores válidos (stats deja de ser None), no dispara: cae al
+    camino lento normal para escribir la serie recién vuelta válida."""
+    return stats is None and cached_stat is not None and cached_stat[2] == 0
+
+
 def _delta_tail_start(dates_list: list, stat, mode: str):
     """Decide el camino del delta para un activo.
 
@@ -1307,12 +1321,19 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
 
     # Diagnóstico del camino rápido del delta: cuántos activos lo usaron y
     # por qué cayeron al lento los demás (hueco, checksum, benchmark).
-    path_counts = {"fast": 0, "gap": 0, "checksum": 0, "bench": 0}
+    # "empty" es distinto de "gap": no es un hueco real en el calendario,
+    # es que el indicador no tiene NINGÚN valor válido para ese activo por
+    # su propia naturaleza (best_sma_* inválido en dist_optimal_sma_*,
+    # activo sin benchmark en relative_strength_52w, historia insuficiente
+    # para el período del indicador, etc.) — no cuenta como "lento" ni en
+    # el log ni en el panel del Centro de Datos (ver __pc__: más abajo),
+    # para no confundirlo con huecos reales que sí ameritan revisión.
+    path_counts = {"fast": 0, "gap": 0, "checksum": 0, "bench": 0, "empty": 0}
     # Mismo diagnóstico pero con el asset_id puntual, no solo el conteo —
     # para cazar activos que caen al lento de forma estable corrida tras
     # corrida (sospecha de hueco real en su propia historia, no solo
     # caché frío) sin tener que adivinar cuáles son.
-    slow_asset_ids: dict[str, list] = {"gap": [], "checksum": [], "bench": []}
+    slow_asset_ids: dict[str, list] = {"gap": [], "checksum": [], "bench": [], "empty": []}
 
     for chunk_start in range(0, len(asset_ids), _EXISTING_CHUNK):
         chunk = asset_ids[chunk_start:chunk_start + _EXISTING_CHUNK]
@@ -1375,8 +1396,14 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                 # _series_stats: se deriva de la serie completa recién
                 # calculada, no de lo efectivamente escrito este run)
                 stats = _series_stats(dates_list, vals_list)
-                if stats is not None:
-                    stats_by_asset[asset_id] = stats
+                # (None, None, 0) es un valor cacheable válido, no "sin
+                # info": confirma que este activo no tiene NINGÚN valor
+                # válido para este código (p.ej. best_sma_* inválido en
+                # dist_optimal_sma_*, o activo sin benchmark en
+                # relative_strength_52w) — ver el chequeo de abajo, que
+                # evita repetir el camino lento en cada delta si la
+                # próxima corrida confirma que sigue vacío.
+                stats_by_asset[asset_id] = stats if stats is not None else (None, None, 0)
             # force: la tabla ya fue truncada → set() vacío escribe todo
             # sin el DELETE por activo del modo existing=None
             if force:
@@ -1384,10 +1411,20 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
             elif tail_mode:
                 reason = None
                 k = None
+                cached_stat = tail_stats.get(asset_id)
                 if needs_bench and asset_id in bench_stale:
                     reason = "bench"
+                elif stats is None:
+                    # esta corrida no tiene NINGÚN valor válido: no es un
+                    # hueco de calendario (_delta_tail_start no aplica,
+                    # está pensada para series con al menos un valor), es
+                    # que el indicador no tiene nada que mostrar para este
+                    # activo — motivo "empty", no "gap".
+                    reason = "empty"
+                    if _confirmed_empty_fast_path(stats, cached_stat):
+                        k = len(dates_list)
                 else:
-                    k = _delta_tail_start(dates_list, tail_stats.get(asset_id), tail_mode)
+                    k = _delta_tail_start(dates_list, cached_stat, tail_mode)
                     if k is None:
                         reason = "gap"
                     elif needs_checksum and (
@@ -1582,20 +1619,22 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 pc = res.get("path_counts")
                 if pc and sum(pc.values()):
                     logger.info(
-                        "Backfill %s (%.1fs): rápido=%d gap=%d checksum=%d bench=%d",
+                        "Backfill %s (%.1fs): rápido=%d gap=%d checksum=%d bench=%d empty=%d",
                         code, res.get("seconds", 0),
-                        pc["fast"], pc["gap"], pc["checksum"], pc["bench"],
+                        pc["fast"], pc["gap"], pc["checksum"], pc["bench"], pc["empty"],
                     )
                     slow_ids = res.get("slow_asset_ids") or {}
                     if any(slow_ids.values()):
                         logger.info(
-                            "Backfill %s activos lentos — gap=%s checksum=%s bench=%s",
+                            "Backfill %s activos no-rápidos — gap=%s checksum=%s bench=%s empty=%s",
                             code, slow_ids.get("gap"), slow_ids.get("checksum"),
-                            slow_ids.get("bench"),
+                            slow_ids.get("bench"), slow_ids.get("empty"),
                         )
                     # Mensaje especial (mismo mecanismo que __init__:) para que
                     # el panel del Centro de Datos muestre cuántos activos
-                    # cayeron al camino lento (gap/checksum/bench) por código,
+                    # cayeron al camino lento (gap/checksum/bench) por código
+                    # — "empty" queda afuera a propósito, no es un hueco real
+                    # que amerite revisión (ver comentario en path_counts),
                     # no solo la duración — visibilidad sin tener que ir al log.
                     if progress_cb:
                         progress_cb(_assets_done, total_work,
