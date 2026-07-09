@@ -180,17 +180,21 @@ def test_checksum_dep_codes_full_sample_config_o_referencia_externa():
     # trend_* recalcula distinto la historia vieja si cambia regime_cfg
     # (EMA recursiva); relative_strength_52w depende del VALOR de los
     # precios del benchmark, no solo de qué benchmark es (bench_stale solo
-    # cubre el cambio de benchmark_id). Los 3 motivos necesitan la
-    # compuerta de checksum, no alcanza con "sin huecos" como en el resto
+    # cubre el cambio de benchmark_id); dist_optimal_sma_* depende de
+    # best_sma_*, recalculado todos los días (_find_best_ma) — si cambia
+    # el período ganador, la fórmula de toda la historia cambia. Los 4
+    # motivos necesitan la compuerta de checksum, no alcanza con "sin
+    # huecos" como en el resto
     assert _CHECKSUM_DEP_CODES == {
         "volatility_daily", "volatility_weekly", "volatility_monthly",
         "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
         "trend_daily", "trend_weekly", "trend_monthly",
         "relative_strength_52w",
+        "dist_optimal_sma_daily", "dist_optimal_sma_weekly", "dist_optimal_sma_monthly",
     }
     # volatility_*/trend_* tienen Nones legítimos (zonas sin confirmar);
-    # atr_percentile y relative_strength_52w son series contiguas una vez
-    # pasado el warm-up / con benchmark asignado
+    # el resto son series contiguas una vez pasado el warm-up / con
+    # benchmark asignado / con best_sma_* válido
     for code in _CHECKSUM_DEP_CODES:
         expected = "zones" if code.startswith(("volatility", "trend")) else "series"
         assert _DELTA_TAIL_MODE[code] == expected

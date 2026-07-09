@@ -906,8 +906,9 @@ _BACKFILL_FNS: dict[str, callable] = {
 #             no se puede validar contra la grilla, se asume cola-solamente.
 # volatility_*/atr_percentile_* (full_sample: un dato nuevo puede reclasificar
 # historia vieja), trend_* (EMA recursiva sobre regime_cfg, editable por el
-# admin) y relative_strength_52w (depende del valor de los precios del
-# benchmark, no solo de qué benchmark es) también entran acá, pero con una
+# admin), relative_strength_52w (depende del valor de los precios del
+# benchmark, no solo de qué benchmark es) y dist_optimal_sma_* (depende de
+# best_sma_*, recalculado todos los días) también entran acá, pero con una
 # compuerta extra — ver _CHECKSUM_DEP_CODES — que verifica que el prefijo
 # histórico recién calculado no haya cambiado antes de confiar en la cola;
 # de paso, esa compuerta también detecta si se corrigieron/redescargaron
@@ -1070,8 +1071,13 @@ def _upsert_ind_stats_meta(s, code: str, stats_by_asset: dict) -> None:
 #     ya cubre el cambio de benchmark_id, pero si se redescargan/corrigen
 #     los precios del benchmark vigente sin cambiar el id, esa compuerta no
 #     lo detecta; el checksum sí, porque hashea el valor calculado, no la
-#     referencia).
-# En los tres casos _series_checksum permite comprobarlo sin leer lo
+#     referencia.
+#     dist_optimal_sma_*: depende de best_sma_* — el período de SMA que
+#     mejor "rebotó" históricamente (_find_best_ma), recalculado TODOS los
+#     días. Si un día nuevo de precio hace que otro período gane, la
+#     fórmula de toda la historia cambia (rolling(best_val) con un
+#     best_val distinto), no solo la cola).
+# En los cuatro casos _series_checksum permite comprobarlo sin leer lo
 # guardado: si el hash del prefijo recién calculado coincide con el de la
 # corrida anterior, el camino rápido de cola es seguro; si no coincide (o
 # no hay checksum guardado todavía), cae al dict-compare de siempre — pero
@@ -1081,6 +1087,7 @@ _CHECKSUM_DEP_CODES = frozenset({
     "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
     "trend_daily", "trend_weekly", "trend_monthly",
     "relative_strength_52w",
+    "dist_optimal_sma_daily", "dist_optimal_sma_weekly", "dist_optimal_sma_monthly",
 })
 
 
