@@ -681,9 +681,21 @@ def _stale_dates_to_delete(dates_list: list, vals_list: list, existing) -> list:
     esto la fila vieja quedaría para siempre representando un cálculo que
     ya no es válido. Solo tiene sentido cuando `existing` trae fechas ya
     guardadas (set o dict); con existing=None ya se borró todo el activo
-    antes, y con existing vacío no hay nada que pueda estar obsoleto."""
+    antes, y con existing vacío no hay nada que pueda estar obsoleto.
+
+    dates_list vacío es un caso aparte: no es "una fecha con valor NaN"
+    sino "cero fechas" (serie vacía de verdad, no una serie del largo del
+    df pero con NaN) — pasa en semanal/mensual cuando la historia no
+    alcanza el mínimo de barras (_zones_to_series, _bf_rsi_weekly/monthly,
+    _bf_atr_weekly/monthly, _bf_dist_optimal_sma_weekly/monthly). Ahí no
+    hay con qué comparar fecha por fecha, pero como `existing` en el único
+    caller (backfill_indicator) es siempre la historia COMPLETA del activo
+    para este código —nunca una cola parcial: el modo tail_mode usa
+    existing=set() en su camino rápido—, todo lo guardado quedó obsoleto."""
     if not existing:
         return []
+    if not dates_list:
+        return list(existing)
     return [d for d, v in zip(dates_list, vals_list) if pd.isna(v) and d in existing]
 
 

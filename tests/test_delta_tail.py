@@ -132,6 +132,21 @@ def test_stale_funciona_con_existing_dict():
     assert _stale_dates_to_delete(dates, vals, existing) == [dates[0]]
 
 
+def test_serie_fresca_vacia_con_existing_borra_todo():
+    # semanal/mensual con historia insuficiente: _zones_to_series,
+    # _bf_rsi_weekly/monthly, _bf_atr_weekly/monthly y
+    # _bf_dist_optimal_sma_weekly/monthly devuelven una serie VACÍA (no una
+    # serie del largo del df con NaN) cuando no llegan al mínimo de barras.
+    # dates_list/vals_list quedan en [] y no hay con qué comparar fecha por
+    # fecha, pero como existing es siempre la historia completa del activo
+    # para ese código (nunca una cola parcial), todo lo guardado es obsoleto.
+    existing_set = {"2026-01-01", "2026-02-01"}
+    assert sorted(_stale_dates_to_delete([], [], existing_set)) == sorted(existing_set)
+
+    existing_dict = {"2026-01-01": 1.0, "2026-02-01": 2.0}
+    assert sorted(_stale_dates_to_delete([], [], existing_dict)) == sorted(existing_dict)
+
+
 # ── Paridad de escrituras: rápido vs lento ────────────────────────────────────
 
 def test_paridad_cola_vs_camino_lento():
