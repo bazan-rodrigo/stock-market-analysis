@@ -116,6 +116,34 @@ def layout(**kwargs):
                                "verify-run-summary-sanity", "verify-run-detail-sanity"),
                 ], active_tab="calc"),
             ]),
+        ], className="mb-4"),
+
+        # ── Marcado de activos (⚠️ en los selectores de la app) ──────────────
+        dbc.Card([
+            dbc.CardHeader("Marcado de activos con hallazgos"),
+            dbc.CardBody([
+                html.P(
+                    "Recalcula indicadores + fundamentales para los activos "
+                    "elegidos y actualiza asset_verification_flag — la tabla "
+                    "que hace aparecer un ⚠️ junto al activo en los selectores "
+                    "de Análisis de Activo, RRG, Evolución, Pares y Retornos. "
+                    "Un activo se reescribe (o se limpia, si ya no tiene "
+                    "hallazgos) solo cuando se lo vuelve a verificar acá — el "
+                    "job programado corre \"Todos los activos\" una vez por "
+                    "semana; estos botones permiten forzarlo antes.",
+                    className="text-muted small mb-3",
+                ),
+                dbc.Button("Todos los activos", id="verify-flags-btn-all",
+                          color="warning", size="sm", className="mb-2 me-2"),
+                dbc.Button("Solo los ya marcados", id="verify-flags-btn-marked",
+                          color="secondary", size="sm", className="mb-2"),
+                dcc.Interval(id="verify-flags-interval", interval=1000,
+                             disabled=True, n_intervals=0),
+                dbc.Progress(id="verify-flags-progress", value=0, striped=True,
+                           animated=True, label="", className="mb-2",
+                           style={"display": "none"}),
+                dbc.Alert(id="verify-flags-alert", is_open=False, dismissable=True),
+            ]),
         ]),
     ])
 

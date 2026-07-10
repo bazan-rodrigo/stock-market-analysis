@@ -33,6 +33,8 @@ Dos consumidores comparten esta lógica: scripts/verify_delta_correctness.py
 (CLI) y app/callbacks/admin_verify_callbacks.py (panel /admin/verify).
 """
 import random
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as _date_type, timedelta
 
 import numpy as np
@@ -50,6 +52,13 @@ from app.services.technical_service import (
     _BACKFILL_FNS, _DELTA_TAIL_MODE, _get_regime_config,
     _get_volatility_config, _resample_ohlc, _series_dates_values,
 )
+
+# Mismo criterio que _UPDATE_WORKERS en fundamental_service.py: cada activo
+# es DB I/O (libera el GIL) + cómputo pandas/numpy (libera el GIL en la
+# parte vectorizada) — gana velocidad real con threads, aunque no al nivel
+# de multiprocessing puro (mismo techo del GIL ya anotado para el pool de
+# cómputo de indicadores real, ver project_pendientes).
+_VERIFY_WORKERS = 4
 
 _TOL = 0.01  # tolerancia numérica: mismo redondeo que usa el sistema (.round(2))
 # Complementa _TOL para magnitudes grandes: ind_fundamental_* guarda en una
@@ -237,14 +246,40 @@ def ids_from_tickers(session, tickers: list) -> tuple[list, list]:
     return list(found.values()), missing
 
 
+def _verify_one_asset(asset_id: int, ticker: str, codes: list,
+                      regime_cfg, vol_cfg) -> list:
+    """Corre en su propio thread/sesión (ver _VERIFY_WORKERS): verifica
+    TODOS los codes para un único activo. regime_cfg/vol_cfg son de solo
+    lectura, se comparten sin problema entre threads."""
+    s = get_session()
+    try:
+        df = _load_price_df(s, asset_id)
+        if df.empty:
+            return []
+        out = []
+        for code in codes:
+            diffs = verify_asset_code(s, code, asset_id, df, regime_cfg, vol_cfg)
+            if diffs:
+                out.append({"code": code, "asset_id": asset_id,
+                           "ticker": ticker, "diffs": diffs})
+        return out
+    finally:
+        from app.database import Session as _ScopedSession
+        _ScopedSession.remove()
+
+
 def run_verification(codes: list | None = None, sample: int | None = 30,
-                     tickers: list | None = None, progress_cb=None) -> dict:
+                     tickers: list | None = None, asset_ids: list | None = None,
+                     progress_cb=None) -> dict:
     """Corre la verificación completa.
 
     codes: lista de códigos a chequear (default: todos los de _DELTA_TAIL_MODE
     que tengan función de backfill).
-    tickers: si se pasa, verifica esos activos puntuales en vez de una
-    muestra al azar (sample se ignora).
+    asset_ids: si se pasa, verifica exactamente esos activos (tal cual,
+    sin resolver tickers ni muestrear) — usado por update_flags_for_assets
+    para re-verificar un subconjunto puntual (p. ej. los ya marcados).
+    tickers: si se pasa (y asset_ids no), verifica esos activos puntuales
+    en vez de una muestra al azar (sample se ignora).
     progress_cb(cur, tot, label): opcional, para barra de progreso en UI.
 
     Devuelve {"codes", "asset_ids", "missing_tickers", "combos", "results"}
@@ -254,7 +289,9 @@ def run_verification(codes: list | None = None, sample: int | None = 30,
     codes = [c for c in (codes or list(_DELTA_TAIL_MODE)) if c in _BACKFILL_FNS]
 
     missing_tickers = []
-    if tickers:
+    if asset_ids is not None:
+        pass
+    elif tickers:
         asset_ids, missing_tickers = ids_from_tickers(s, tickers)
     else:
         asset_ids = pick_sample_ids(s, sample)
@@ -271,25 +308,20 @@ def run_verification(codes: list | None = None, sample: int | None = 30,
     if progress_cb:
         progress_cb(0, max(total_work, 1), "")
 
-    for asset_id in asset_ids:
-        df = _load_price_df(s, asset_id)
-        if df.empty:
-            done += len(codes)
+    lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=_VERIFY_WORKERS) as pool:
+        futures = {
+            pool.submit(_verify_one_asset, aid, ticker_map.get(aid, "?"),
+                       codes, regime_cfg, vol_cfg): aid
+            for aid in asset_ids
+        }
+        for future in as_completed(futures):
+            aid = futures[future]
+            results.extend(future.result())
+            with lock:
+                done += len(codes)
             if progress_cb:
-                progress_cb(done, max(total_work, 1), "")
-            continue
-        for code in codes:
-            diffs = verify_asset_code(s, code, asset_id, df, regime_cfg, vol_cfg)
-            if diffs:
-                results.append({
-                    "code": code, "asset_id": asset_id,
-                    "ticker": ticker_map.get(asset_id, "?"),
-                    "diffs": diffs,
-                })
-            done += 1
-            if progress_cb:
-                progress_cb(done, max(total_work, 1),
-                           f"{code} / {ticker_map.get(asset_id, '?')}")
+                progress_cb(done, max(total_work, 1), ticker_map.get(aid, "?"))
 
     return {
         "codes": codes, "asset_ids": asset_ids,
@@ -432,15 +464,39 @@ def pick_fund_sample_ids(session, sample: int | None) -> list:
     return random.sample(all_ids, min(sample, len(all_ids)))
 
 
+def _verify_one_fund_asset(asset_id: int, ticker: str, codes: list) -> list:
+    """Equivalente a _verify_one_asset, para ratios fundamentales."""
+    s = get_session()
+    try:
+        quarters   = _load_quarters(s, asset_id)
+        price_rows = _load_fund_price_rows(s, asset_id)
+        if not quarters:
+            return []
+        out = []
+        for code in codes:
+            diffs = verify_asset_ratio_code(s, code, asset_id, quarters, price_rows)
+            if diffs:
+                out.append({"code": code, "asset_id": asset_id,
+                           "ticker": ticker, "diffs": diffs})
+        return out
+    finally:
+        from app.database import Session as _ScopedSession
+        _ScopedSession.remove()
+
+
 def run_fund_verification(codes: list | None = None, sample: int | None = 30,
-                          tickers: list | None = None, progress_cb=None) -> dict:
+                          tickers: list | None = None, asset_ids: list | None = None,
+                          progress_cb=None) -> dict:
     """Equivalente a run_verification, para ratios fundamentales
-    (ind_fundamental_*) — ver verify_asset_ratio_code."""
+    (ind_fundamental_*) — ver verify_asset_ratio_code. asset_ids: ver
+    run_verification (activos exactos, sin resolver tickers ni muestrear)."""
     s = get_session()
     codes = [c for c in (codes or sorted(_ALL_FUND_CODES)) if c in _ALL_FUND_CODES]
 
     missing_tickers = []
-    if tickers:
+    if asset_ids is not None:
+        pass
+    elif tickers:
         asset_ids, missing_tickers = ids_from_tickers(s, tickers)
     else:
         asset_ids = pick_fund_sample_ids(s, sample)
@@ -455,26 +511,19 @@ def run_fund_verification(codes: list | None = None, sample: int | None = 30,
     if progress_cb:
         progress_cb(0, max(total_work, 1), "")
 
-    for asset_id in asset_ids:
-        quarters   = _load_quarters(s, asset_id)
-        price_rows = _load_fund_price_rows(s, asset_id)
-        if not quarters:
-            done += len(codes)
+    lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=_VERIFY_WORKERS) as pool:
+        futures = {
+            pool.submit(_verify_one_fund_asset, aid, ticker_map.get(aid, "?"), codes): aid
+            for aid in asset_ids
+        }
+        for future in as_completed(futures):
+            aid = futures[future]
+            results.extend(future.result())
+            with lock:
+                done += len(codes)
             if progress_cb:
-                progress_cb(done, max(total_work, 1), "")
-            continue
-        for code in codes:
-            diffs = verify_asset_ratio_code(s, code, asset_id, quarters, price_rows)
-            if diffs:
-                results.append({
-                    "code": code, "asset_id": asset_id,
-                    "ticker": ticker_map.get(asset_id, "?"),
-                    "diffs": diffs,
-                })
-            done += 1
-            if progress_cb:
-                progress_cb(done, max(total_work, 1),
-                           f"{code} / {ticker_map.get(asset_id, '?')}")
+                progress_cb(done, max(total_work, 1), ticker_map.get(aid, "?"))
 
     return {
         "codes": codes, "asset_ids": asset_ids,
@@ -505,17 +554,40 @@ def _aggregate_flags(*results: dict) -> dict:
     return by_asset
 
 
-def run_full_verification_and_store(progress_cb=None) -> dict:
-    """Corre la verificación completa (TODOS los activos, todos los
-    códigos, indicadores + fundamentales) y reemplaza asset_verification_flag
-    con los hallazgos. Pensado para un job programado (semanal, ver
-    scheduler_service), no para uso interactivo — a la escala actual
-    (~500 activos) tarda similar a un rebuild completo de indicadores; si
-    el universo crece a 10000 activos (ver project_scaling_target) va a
-    necesitar paralelizarse.
+def _flag_actions(scope: set, by_asset: dict, existing_ids: set) -> tuple[set, set]:
+    """De los activos en `scope` (los que se acaban de re-verificar),
+    cuáles hay que upsertear (siguen con algún hallazgo) y cuáles borrar
+    (tenían fila guardada pero la corrida fresca ya no encontró nada).
+    Pura — no toca la base. Activos fuera de `scope` no se tocan: la
+    marca de un activo se reescribe exactamente cuando ESE activo se
+    vuelve a verificar, nunca por otro motivo."""
+    to_upsert = {aid for aid in scope if aid in by_asset}
+    to_delete = {aid for aid in scope if aid not in by_asset and aid in existing_ids}
+    return to_upsert, to_delete
+
+
+def update_flags_for_assets(asset_ids: list | None = None, progress_cb=None) -> dict:
+    """Verifica indicadores + fundamentales (todos los códigos) para
+    `asset_ids` — o TODOS los activos si asset_ids es None — y actualiza
+    asset_verification_flag solo para esos activos: upsert si sigue con
+    hallazgos, borra la fila si ya no tiene ninguno. Los activos fuera de
+    ese conjunto no se tocan.
+
+    asset_ids=None: corrida completa (job semanal, ver scheduler_service
+    y run_full_verification_and_store). asset_ids=<lista>: re-verificación
+    puntual — p. ej. "solo los ya marcados" desde /admin/verify, para
+    confirmar si un hallazgo sigue vigente sin pagar el costo de una
+    corrida completa.
+
+    A la escala actual (~500 activos) una corrida completa tarda similar
+    a un rebuild completo de indicadores (paralelizada con
+    _VERIFY_WORKERS threads, ver run_verification/run_fund_verification);
+    si el universo crece a 10000 activos (project_scaling_target) el
+    techo del GIL para el cómputo pandas/numpy va a pedir migrar a
+    ProcessPoolExecutor, mismo tema ya anotado para el pool de indicadores.
 
     progress_cb(cur, tot, label): cur/tot en base 100 (50 indicadores +
-    50 fundamentales), para loguear avance en un job largo."""
+    50 fundamentales)."""
     from datetime import datetime as _dt
     from app.models import AssetVerificationFlag
 
@@ -527,28 +599,47 @@ def run_full_verification_and_store(progress_cb=None) -> dict:
                 progress_cb(base + int(cur / max(tot, 1) * span), 100, label)
         return _cb
 
-    ind_result  = run_verification(sample=None, progress_cb=_split_cb(0, 50))
-    fund_result = run_fund_verification(sample=None, progress_cb=_split_cb(50, 50))
+    ind_result  = run_verification(sample=None, asset_ids=asset_ids, progress_cb=_split_cb(0, 50))
+    fund_result = run_fund_verification(sample=None, asset_ids=asset_ids, progress_cb=_split_cb(50, 50))
 
     by_asset = _aggregate_flags(ind_result, fund_result)
+    scope = set(asset_ids) if asset_ids is not None else set(ind_result["asset_ids"])
+
+    existing = {f.asset_id: f for f in
+                s.query(AssetVerificationFlag)
+                 .filter(AssetVerificationFlag.asset_id.in_(scope)).all()} if scope else {}
+    to_upsert, to_delete = _flag_actions(scope, by_asset, set(existing))
 
     now = _dt.utcnow()
-    s.query(AssetVerificationFlag).delete()
-    for asset_id, agg in by_asset.items():
-        s.add(AssetVerificationFlag(
-            asset_id=asset_id,
-            n_calc_diffs=agg["calc"],
-            n_sanity_diffs=agg["sanity"],
-            detail=", ".join(sorted(agg["codes"])),
-            checked_at=now,
-        ))
+    for asset_id in to_delete:
+        s.delete(existing[asset_id])
+    for asset_id in to_upsert:
+        agg = by_asset[asset_id]
+        flag = existing.get(asset_id) or AssetVerificationFlag(asset_id=asset_id)
+        flag.n_calc_diffs   = agg["calc"]
+        flag.n_sanity_diffs = agg["sanity"]
+        flag.detail         = ", ".join(sorted(agg["codes"]))
+        flag.checked_at     = now
+        if asset_id not in existing:
+            s.add(flag)
     s.commit()
 
     return {
-        "flagged_assets": len(by_asset),
+        "checked_assets": len(scope),
+        "flagged_assets": len(to_upsert),
+        "cleared_assets": len(to_delete),
         "indicators_combos":   ind_result["combos"],
         "fundamentals_combos": fund_result["combos"],
     }
+
+
+def run_full_verification_and_store(progress_cb=None) -> dict:
+    """Corrida completa (todos los activos) — ver update_flags_for_assets.
+    Nombre separado porque es el que llama el job programado
+    (scheduler_service._weekly_verification_job); conviene distinguir en
+    el código "corrida completa" de "reverificar un subconjunto puntual"
+    aunque sea la misma función por debajo."""
+    return update_flags_for_assets(asset_ids=None, progress_cb=progress_cb)
 
 
 def get_flagged_asset_ids() -> dict:

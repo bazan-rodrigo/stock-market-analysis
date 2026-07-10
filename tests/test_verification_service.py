@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from app.services.fundamental_service import _Quarter
 from app.services.verification_service import (
     _aggregate_flags, _current_ratio_diff_entry, _current_ratio_fresh,
-    _diff_category, _values_equal, check_sanity,
+    _diff_category, _flag_actions, _values_equal, check_sanity,
 )
 
 
@@ -208,6 +208,44 @@ def test_aggregate_flags_activos_distintos_no_se_mezclan():
 
 def test_aggregate_flags_sin_resultados_es_vacio():
     assert _aggregate_flags({"results": []}) == {}
+
+
+# ── _flag_actions: decide upsert/delete por activo re-verificado -- la
+# marca de un activo se reescribe exactamente cuando ESE activo se vuelve
+# a verificar (corrida completa o re-verificación puntual), nunca antes.
+
+def test_flag_actions_sigue_con_hallazgos_es_upsert():
+    scope = {1}
+    by_asset = {1: {"calc": 1, "sanity": 0, "codes": {"rsi_daily"}}}
+    to_upsert, to_delete = _flag_actions(scope, by_asset, existing_ids=set())
+    assert to_upsert == {1}
+    assert to_delete == set()
+
+
+def test_flag_actions_ya_no_tiene_hallazgos_y_tenia_fila_es_delete():
+    scope = {1}
+    to_upsert, to_delete = _flag_actions(scope, by_asset={}, existing_ids={1})
+    assert to_upsert == set()
+    assert to_delete == {1}
+
+
+def test_flag_actions_sin_hallazgos_y_sin_fila_previa_no_hace_nada():
+    scope = {1}
+    to_upsert, to_delete = _flag_actions(scope, by_asset={}, existing_ids=set())
+    assert to_upsert == set()
+    assert to_delete == set()
+
+
+def test_flag_actions_fuera_de_scope_no_se_toca():
+    # activo 2 tiene hallazgos pero no esta en el scope re-verificado (p.
+    # ej. una reverificacion puntual de "solo los marcados" que no lo
+    # incluia) -- no debe aparecer en ninguna de las dos listas
+    scope = {1}
+    by_asset = {1: {"calc": 0, "sanity": 1, "codes": {"return_daily"}},
+                2: {"calc": 1, "sanity": 0, "codes": {"rsi_daily"}}}
+    to_upsert, to_delete = _flag_actions(scope, by_asset, existing_ids={1, 2})
+    assert to_upsert == {1}
+    assert to_delete == set()
 
 
 def test_current_ratio_diff_entry_sin_nada_guardado_usa_hoy():

@@ -3,7 +3,7 @@ import sys
 import threading
 from pathlib import Path
 
-from dash import Input, Output, State, callback, no_update
+from dash import Input, Output, State, callback, ctx, no_update
 from flask_login import current_user
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -11,6 +11,8 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 _pytest_state = {"running": False, "output": "", "passed": None, "error": None}
 _verify_state = {"running": False, "current": 0, "total": 0, "label": "",
                  "result": None, "error": None}
+_flags_state = {"running": False, "current": 0, "total": 0, "label": "",
+                "result": None, "error": None}
 
 
 # ── Suite de tests (pytest) ─────────────────────────────────────────────────
@@ -254,3 +256,84 @@ def poll_verify(_):
             msg, True, color,
             _format_summary(calc),   _format_detail(calc),
             _format_summary(sanity), _format_detail(sanity))
+
+
+# ── Marcado de activos (⚠️ en los selectores de la app) ─────────────────────
+
+@callback(
+    Output("verify-flags-interval",   "disabled", allow_duplicate=True),
+    Output("verify-flags-progress",   "style",    allow_duplicate=True),
+    Output("verify-flags-btn-all",    "disabled", allow_duplicate=True),
+    Output("verify-flags-btn-marked", "disabled", allow_duplicate=True),
+    Output("verify-flags-alert",      "is_open",  allow_duplicate=True),
+    Input("verify-flags-btn-all",    "n_clicks"),
+    Input("verify-flags-btn-marked", "n_clicks"),
+    prevent_initial_call=True,
+)
+def start_flags_update(n_all, n_marked):
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return no_update, no_update, no_update, no_update, no_update
+    if _flags_state["running"]:
+        return False, {"display": "block"}, True, True, no_update
+
+    mode = "all" if ctx.triggered_id == "verify-flags-btn-all" else "marked"
+    _flags_state.update({"running": True, "current": 0, "total": 0, "label": "",
+                         "result": None, "error": None})
+
+    def _run():
+        def _progress(cur, tot, label=""):
+            _flags_state["current"] = cur
+            _flags_state["total"]   = tot
+            _flags_state["label"]   = label
+        try:
+            from app.services.verification_service import (
+                get_flagged_asset_ids, update_flags_for_assets,
+            )
+            asset_ids = None if mode == "all" else list(get_flagged_asset_ids())
+            result = update_flags_for_assets(asset_ids=asset_ids, progress_cb=_progress)
+            _flags_state["result"] = result
+        except Exception as exc:
+            _flags_state["error"] = str(exc)
+        finally:
+            _flags_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return False, {"display": "block"}, True, True, False
+
+
+@callback(
+    Output("verify-flags-interval",   "disabled",  allow_duplicate=True),
+    Output("verify-flags-progress",   "value",     allow_duplicate=True),
+    Output("verify-flags-progress",   "label",     allow_duplicate=True),
+    Output("verify-flags-progress",   "style",     allow_duplicate=True),
+    Output("verify-flags-btn-all",    "disabled",  allow_duplicate=True),
+    Output("verify-flags-btn-marked", "disabled",  allow_duplicate=True),
+    Output("verify-flags-alert",      "children",  allow_duplicate=True),
+    Output("verify-flags-alert",      "is_open",   allow_duplicate=True),
+    Output("verify-flags-alert",      "color",     allow_duplicate=True),
+    Input("verify-flags-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def poll_flags_update(_):
+    if _flags_state["running"]:
+        tot = _flags_state["total"] or 1
+        pct = int(_flags_state["current"] / tot * 100)
+        label = f"{_flags_state['current']} / {_flags_state['total']}  {_flags_state['label']}"
+        return (False, pct, label, {"display": "block"}, True, True,
+                no_update, False, no_update)
+
+    if _flags_state["error"]:
+        msg = f"Error actualizando el marcado: {_flags_state['error']}"
+        return (True, 0, "", {"display": "none"}, False, False,
+                msg, True, "danger")
+
+    result = _flags_state["result"]
+    if result is None:
+        return (True, 0, "", {"display": "none"}, False, False,
+                no_update, False, no_update)
+
+    msg = (f"Verificados {result['checked_assets']} activos: "
+           f"{result['flagged_assets']} quedaron marcados, "
+           f"{result['cleared_assets']} se limpiaron.")
+    return (True, 100, "Completo", {"display": "none"}, False, False,
+            msg, True, "success")
