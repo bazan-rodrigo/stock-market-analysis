@@ -347,21 +347,24 @@ def _current_ratio_fresh(quarters: list, price_rows: list) -> dict:
 
 
 def _current_ratio_diff_entry(current_val, stored: dict, today):
-    """Decide si el valor "vigente" recalculado necesita agregarse a
-    `fresh` para que el loop de comparación de verify_asset_ratio_code lo
-    trate como diferencia real. None si coincide con lo ya guardado —sin
-    importar la fecha exacta: el vigente se reescribe con la fecha del día
-    en que corrió producción, no una fecha fija, así que comparar contra
-    "hoy" a secas daría una diferencia falsa cada vez que la verificación
-    no corre el mismo día que el último refresh de producción."""
+    """Bajo qué fecha agregar el valor "vigente" recalculado a `fresh`
+    para que el loop de comparación de verify_asset_ratio_code lo evalúe.
+    None solo si no hay valor vigente que comparar.
+
+    El vigente se reescribe con la fecha del día en que corrió
+    producción, no una fecha fija — comparar contra "hoy" a secas daría
+    una diferencia falsa cada vez que la verificación no corre el mismo
+    día que el último refresh de producción (prácticamente siempre). Por
+    eso se apunta a la fecha más reciente YA guardada (si existe): el
+    loop de abajo compara los VALORES con _values_equal, así que si
+    coinciden no genera ningún diff pase lo que pase con la fecha —
+    NO hay que "saltearse" el agregado cuando coinciden (eso dejaría la
+    fecha de `stored` sin contraparte en `fresh` y el loop la marcaría
+    como "solo en DB" igual)."""
     if current_val is None:
         return None
-    if not stored:
-        return today, current_val
-    latest = max(stored)
-    if _values_equal(current_val, stored[latest]):
-        return None
-    return latest, current_val
+    target = max(stored) if stored else today
+    return target, current_val
 
 
 def verify_asset_ratio_code(session, code: str, asset_id: int,

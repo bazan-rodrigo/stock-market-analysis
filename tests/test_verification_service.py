@@ -149,19 +149,14 @@ def test_diff_category_sanity_es_cualquier_otro_motivo():
 # a secas daría una diferencia falsa cada vez que la verificación no corre
 # el mismo día que el último refresh de producción (prácticamente siempre).
 
-def test_current_ratio_diff_entry_none_si_ya_esta():
+def test_current_ratio_diff_entry_none_sin_valor_vigente():
     assert _current_ratio_diff_entry(None, {date(2026, 7, 9): 1.5}, date(2026, 7, 10)) is None
 
 
-def test_current_ratio_diff_entry_coincide_con_fecha_vieja_no_dispara():
-    # el vigente vale lo mismo que lo guardado ayer -- no importa que la
-    # fecha guardada no sea "hoy"
-    stored = {date(2026, 7, 9): 1.5}
-    assert _current_ratio_diff_entry(1.5, stored, date(2026, 7, 10)) is None
-
-
-def test_current_ratio_diff_entry_difiere_usa_la_fecha_guardada():
-    stored = {date(2026, 7, 9): 1.5}
+def test_current_ratio_diff_entry_usa_la_fecha_mas_reciente_guardada():
+    # no "hoy" -- el vigente se reescribe con la fecha del dia en que
+    # corrio produccion, no una fecha fija
+    stored = {date(2026, 7, 8): 1.2, date(2026, 7, 9): 1.5}
     entry = _current_ratio_diff_entry(1.8, stored, date(2026, 7, 10))
     assert entry == (date(2026, 7, 9), 1.8)
 
@@ -169,3 +164,18 @@ def test_current_ratio_diff_entry_difiere_usa_la_fecha_guardada():
 def test_current_ratio_diff_entry_sin_nada_guardado_usa_hoy():
     entry = _current_ratio_diff_entry(1.5, {}, date(2026, 7, 10))
     assert entry == (date(2026, 7, 10), 1.5)
+
+
+def test_current_ratio_diff_entry_coincide_no_genera_diff_en_el_loop():
+    # el propio valor de entry no distingue "coincide" de "difiere" --
+    # eso lo resuelve _values_equal en el loop de verify_asset_ratio_code
+    # (fv == sv -> ninguna rama dispara). Acá solo verificamos que SIEMPRE
+    # se devuelve una entrada con la fecha guardada (nunca None) cuando
+    # hay valor vigente y algo guardado, aunque coincidan: si se
+    # "saltease" el agregado por coincidir, esa fecha quedaría en
+    # `stored` sin contraparte en `fresh` y el loop la marcaría como
+    # "solo en DB" -- justamente el bug que esto reemplaza.
+    stored = {date(2026, 7, 9): 1.5}
+    entry = _current_ratio_diff_entry(1.5, stored, date(2026, 7, 10))
+    assert entry == (date(2026, 7, 9), 1.5)
+    assert _values_equal(entry[1], stored[entry[0]])
