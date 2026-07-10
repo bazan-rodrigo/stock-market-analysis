@@ -77,18 +77,34 @@ def poll_pytest(_):
 # ── Verificación de datos reales ────────────────────────────────────────────
 
 @callback(
+    Output("verify-codes", "options"),
+    Output("verify-codes", "value"),
+    Input("verify-domain", "value"),
+)
+def update_code_options(domain):
+    if domain == "fundamentals":
+        from app.services.fundamental_service import _ALL_FUND_CODES
+        options = [{"label": c, "value": c} for c in sorted(_ALL_FUND_CODES)]
+    else:
+        from app.services.technical_service import _DELTA_TAIL_MODE
+        options = [{"label": c, "value": c} for c in sorted(_DELTA_TAIL_MODE)]
+    return options, []
+
+
+@callback(
     Output("verify-run-interval", "disabled", allow_duplicate=True),
     Output("verify-run-progress", "style",    allow_duplicate=True),
     Output("verify-run-btn",      "disabled", allow_duplicate=True),
     Output("verify-run-alert",    "is_open",  allow_duplicate=True),
     Output("verify-run-output",   "children", allow_duplicate=True),
     Input("verify-run-btn", "n_clicks"),
+    State("verify-domain",  "value"),
     State("verify-codes",   "value"),
     State("verify-sample",  "value"),
     State("verify-tickers", "value"),
     prevent_initial_call=True,
 )
-def start_verify(_, codes, sample, tickers_raw):
+def start_verify(_, domain, codes, sample, tickers_raw):
     if not current_user.is_authenticated or not current_user.is_admin:
         return no_update, no_update, no_update, no_update, no_update
     if _verify_state["running"]:
@@ -107,8 +123,11 @@ def start_verify(_, codes, sample, tickers_raw):
             _verify_state["total"]   = tot
             _verify_state["label"]   = label
         try:
-            from app.services.verification_service import run_verification
-            result = run_verification(
+            from app.services.verification_service import (
+                run_fund_verification, run_verification,
+            )
+            run_fn = run_verification if domain != "fundamentals" else run_fund_verification
+            result = run_fn(
                 codes=codes or None,
                 sample=int(sample) if sample else 30,
                 tickers=tickers,

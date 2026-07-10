@@ -9,7 +9,7 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     from app.services.technical_service import _DELTA_TAIL_MODE
-    code_options = [{"label": c, "value": c} for c in sorted(_DELTA_TAIL_MODE)]
+    indicator_options = [{"label": c, "value": c} for c in sorted(_DELTA_TAIL_MODE)]
 
     _PRE_STYLE = {
         "maxHeight": "420px", "overflowY": "auto", "overflowX": "auto",
@@ -50,15 +50,30 @@ def layout(**kwargs):
             dbc.CardBody([
                 html.P(
                     "Recalcula desde cero (en memoria, sin escribir nada) los "
-                    "indicadores de una muestra de activos y los compara "
-                    "contra lo guardado en ind_{código}. Solo lectura — "
-                    "seguro de correr contra producción.",
+                    "indicadores o ratios de una muestra de activos y los "
+                    "compara contra lo guardado en ind_{código} — incluye "
+                    "chequeos de cordura (RSI fuera de [0,100], categorías "
+                    "desconocidas, valores absurdos). Solo lectura — seguro "
+                    "de correr contra producción.",
                     className="text-muted small mb-3",
                 ),
                 dbc.Row([
                     dbc.Col([
+                        dbc.Label("Dominio", size="sm"),
+                        dbc.RadioItems(
+                            id="verify-domain",
+                            options=[
+                                {"label": "Indicadores técnicos", "value": "indicators"},
+                                {"label": "Ratios fundamentales", "value": "fundamentals"},
+                            ],
+                            value="indicators", inline=True,
+                        ),
+                    ], width=12, className="mb-2"),
+                ]),
+                dbc.Row([
+                    dbc.Col([
                         dbc.Label("Códigos (vacío = todos)", size="sm"),
-                        dcc.Dropdown(id="verify-codes", options=code_options,
+                        dcc.Dropdown(id="verify-codes", options=indicator_options,
                                     multi=True, placeholder="Todos los códigos"),
                     ], width=5),
                     dbc.Col([
