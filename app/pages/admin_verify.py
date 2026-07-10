@@ -133,6 +133,7 @@ def layout(**kwargs):
                     "semana; estos botones permiten forzarlo antes.",
                     className="text-muted small mb-3",
                 ),
+                html.Div(id="verify-flags-last-run", className="text-muted small mb-2"),
                 dbc.Button("Todos los activos", id="verify-flags-btn-all",
                           color="warning", size="sm", className="mb-2 me-2"),
                 dbc.Button("Solo los ya marcados", id="verify-flags-btn-marked",

@@ -301,6 +301,28 @@ def start_flags_update(n_all, n_marked):
     return False, {"display": "block"}, True, True, False
 
 
+def _format_last_run(info: dict | None) -> str:
+    if info is None:
+        return "Todavía no corrió ninguna verificación completa."
+    mode = "todos los activos" if info["mode"] == "all" else "solo los marcados"
+    mins, secs = divmod(int(info["seconds"]), 60)
+    dur = f"{mins}m{secs:02d}s" if mins else f"{secs}s"
+    when = info["started_at"].strftime("%Y-%m-%d %H:%M UTC")
+    return (f"Última corrida: {when} — modo: {mode} — "
+           f"{info['checked_assets']} activos verificados, "
+           f"{info['flagged_assets']} marcados, {info['cleared_assets']} limpiados — "
+           f"tardó {dur}.")
+
+
+@callback(
+    Output("verify-flags-last-run", "children"),
+    Input("verify-flags-last-run", "id"),
+)
+def load_last_run(_):
+    from app.services.verification_service import get_last_verification_run
+    return _format_last_run(get_last_verification_run())
+
+
 @callback(
     Output("verify-flags-interval",   "disabled",  allow_duplicate=True),
     Output("verify-flags-progress",   "value",     allow_duplicate=True),
@@ -311,6 +333,7 @@ def start_flags_update(n_all, n_marked):
     Output("verify-flags-alert",      "children",  allow_duplicate=True),
     Output("verify-flags-alert",      "is_open",   allow_duplicate=True),
     Output("verify-flags-alert",      "color",     allow_duplicate=True),
+    Output("verify-flags-last-run",   "children",  allow_duplicate=True),
     Input("verify-flags-interval", "n_intervals"),
     prevent_initial_call=True,
 )
@@ -320,20 +343,22 @@ def poll_flags_update(_):
         pct = int(_flags_state["current"] / tot * 100)
         label = f"{_flags_state['current']} / {_flags_state['total']}  {_flags_state['label']}"
         return (False, pct, label, {"display": "block"}, True, True,
-                no_update, False, no_update)
+                no_update, False, no_update, no_update)
 
     if _flags_state["error"]:
         msg = f"Error actualizando el marcado: {_flags_state['error']}"
         return (True, 0, "", {"display": "none"}, False, False,
-                msg, True, "danger")
+                msg, True, "danger", no_update)
 
     result = _flags_state["result"]
     if result is None:
         return (True, 0, "", {"display": "none"}, False, False,
-                no_update, False, no_update)
+                no_update, False, no_update, no_update)
 
-    msg = (f"Verificados {result['checked_assets']} activos: "
+    msg = (f"Verificados {result['checked_assets']} activos en {result['seconds']}s: "
            f"{result['flagged_assets']} quedaron marcados, "
            f"{result['cleared_assets']} se limpiaron.")
+    from app.services.verification_service import get_last_verification_run
+    last_run_text = _format_last_run(get_last_verification_run())
     return (True, 100, "Completo", {"display": "none"}, False, False,
-            msg, True, "success")
+            msg, True, "success", last_run_text)

@@ -587,11 +587,18 @@ def update_flags_for_assets(asset_ids: list | None = None, progress_cb=None) -> 
     ProcessPoolExecutor, mismo tema ya anotado para el pool de indicadores.
 
     progress_cb(cur, tot, label): cur/tot en base 100 (50 indicadores +
-    50 fundamentales)."""
+    50 fundamentales).
+
+    Guarda duración y resultado en verification_run_log (fila única,
+    id=1) — es lo que muestra /admin/verify como "última corrida", para
+    no depender de leer logs de servidor para saber cuánto tardó."""
+    import time as _time
     from datetime import datetime as _dt
-    from app.models import AssetVerificationFlag
+    from app.models import AssetVerificationFlag, VerificationRunLog
 
     s = get_session()
+    t0 = _time.monotonic()
+    started_at = _dt.utcnow()
 
     def _split_cb(base, span):
         def _cb(cur, tot, label=""):
@@ -622,15 +629,27 @@ def update_flags_for_assets(asset_ids: list | None = None, progress_cb=None) -> 
         flag.checked_at     = now
         if asset_id not in existing:
             s.add(flag)
-    s.commit()
 
-    return {
+    result = {
         "checked_assets": len(scope),
         "flagged_assets": len(to_upsert),
         "cleared_assets": len(to_delete),
         "indicators_combos":   ind_result["combos"],
         "fundamentals_combos": fund_result["combos"],
+        "seconds": round(_time.monotonic() - t0, 1),
     }
+
+    log = s.get(VerificationRunLog, 1) or VerificationRunLog(id=1)
+    log.mode           = "all" if asset_ids is None else "marked"
+    log.started_at     = started_at
+    log.seconds        = result["seconds"]
+    log.checked_assets = result["checked_assets"]
+    log.flagged_assets = result["flagged_assets"]
+    log.cleared_assets = result["cleared_assets"]
+    s.merge(log)
+    s.commit()
+
+    return result
 
 
 def run_full_verification_and_store(progress_cb=None) -> dict:
@@ -664,3 +683,19 @@ def get_flagged_asset_ids() -> dict:
             parts.append(f"{n_sanity} posible(s) error(es) de datos de origen")
         out[asset_id] = " + ".join(parts)
     return out
+
+
+def get_last_verification_run() -> dict | None:
+    """Última corrida de update_flags_for_assets (botón manual o job
+    semanal) — None si nunca corrió. Ver verification_run_log."""
+    from app.models import VerificationRunLog
+
+    s = get_session()
+    log = s.get(VerificationRunLog, 1)
+    if log is None:
+        return None
+    return {
+        "mode": log.mode, "started_at": log.started_at, "seconds": log.seconds,
+        "checked_assets": log.checked_assets, "flagged_assets": log.flagged_assets,
+        "cleared_assets": log.cleared_assets,
+    }

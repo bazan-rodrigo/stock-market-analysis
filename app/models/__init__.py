@@ -35,6 +35,7 @@ from app.models.strategy import Strategy
 from app.models.strategy_component import StrategyComponent
 from app.models.strategy_result import StrategyResult
 from app.models.asset_verification_flag import AssetVerificationFlag
+from app.models.verification_run_log import VerificationRunLog
 
 __all__ = [
     "User",
@@ -76,4 +77,5 @@ __all__ = [
     "StrategyComponent",
     "StrategyResult",
     "AssetVerificationFlag",
+    "VerificationRunLog",
 ]
