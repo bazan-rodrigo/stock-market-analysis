@@ -33,6 +33,7 @@ Dos consumidores comparten esta lógica: scripts/verify_delta_correctness.py
 (CLI) y app/callbacks/admin_verify_callbacks.py (panel /admin/verify).
 """
 import random
+from datetime import date as _date_type, timedelta
 
 import numpy as np
 import pandas as pd
@@ -42,8 +43,8 @@ from app.database import get_session
 from app.models import Asset, FundamentalQuarterly, Price
 from app.models.indicator_store import get_ind_table
 from app.services.fundamental_service import (
-    _ALL_FUND_CODES, _FUND_DAILY_CODES, _Quarter, _compute_quarterly_ratios,
-    _daily_ratio_series,
+    _ALL_FUND_CODES, _FUND_DAILY_CODES, _Quarter, _compute_daily_ratios,
+    _compute_quarterly_ratios, _daily_ratio_series, _ref_1y_ord,
 )
 from app.services.technical_service import (
     _BACKFILL_FNS, _DELTA_TAIL_MODE, _get_regime_config,
@@ -51,6 +52,12 @@ from app.services.technical_service import (
 )
 
 _TOL = 0.01  # tolerancia numérica: mismo redondeo que usa el sistema (.round(2))
+# Complementa _TOL para magnitudes grandes: ind_fundamental_* guarda en una
+# columna Float (FLOAT de MySQL, precisión simple, ~7 dígitos significativos)
+# — un ratio en pesos argentinos/chilenos de 5-6 cifras ya pierde más de
+# 0.01 de precisión en el redondeo de la propia columna, sin que eso sea
+# un bug de cálculo. _TOL solo alcanza para valores chicos.
+_REL_TOL = 1e-4
 
 # ── Chequeos de cordura: ¿el valor tiene sentido, sin importar cómo se
 # calculó? Límites deliberadamente laxos — el objetivo es atrapar lo
@@ -145,9 +152,11 @@ def _stored_values(session, code: str, asset_id: int) -> dict:
 
 def _values_equal(fresh, stored) -> bool:
     try:
-        return abs(float(fresh) - float(stored)) <= _TOL
+        f, s = float(fresh), float(stored)
     except (TypeError, ValueError):
         return str(fresh) == str(stored)
+    diff = abs(f - s)
+    return diff <= _TOL or diff <= _REL_TOL * max(abs(f), abs(s))
 
 
 def verify_asset_code(session, code: str, asset_id: int, df, regime_cfg, vol_cfg) -> list:
@@ -276,6 +285,39 @@ def _load_fund_price_rows(session, asset_id: int) -> list:
     return [(d, float(c)) for d, c in rows]
 
 
+def _current_ratio_fresh(quarters: list, price_rows: list) -> dict:
+    """Reproduce _compute_current_ratios (fundamental_service.py) en modo
+    solo lectura, a partir de quarters/price_rows ya cargados.
+
+    _compute_current_ratios escribe TODOS los ratios (trimestrales y
+    diarios) con fecha de HOY usando el último trimestre + último precio
+    disponible, sea o no hoy un cierre de trimestre o una fecha con precio
+    propio — es el equivalente fundamental de compute_current_indicators
+    del lado técnico. Sin reproducir este cálculo acá, la fila "vigente"
+    de cualquier activo/código aparece como diferencia fantasma ("solo en
+    DB") porque ni el camino trimestral ni el diario de abajo la generan."""
+    if not quarters:
+        return {}
+    idx    = len(quarters) - 1
+    values = dict(_compute_quarterly_ratios(quarters, idx))
+
+    price = price_rows[-1][1] if price_rows else None
+    if price:
+        today   = _date_type.today()
+        ref_ord = _ref_1y_ord(today)
+        target  = today - timedelta(days=365)
+        px_1y   = next((c for d, c in reversed(price_rows) if d <= target), None)
+        if px_1y:
+            p_ords, p_closes = np.array([ref_ord]), np.array([float(px_1y)])
+        else:
+            p_ords, p_closes = np.array([], dtype=np.int64), np.array([])
+        q_ords = np.array([q.period_date.toordinal() for q in quarters])
+        values.update(_compute_daily_ratios(
+            float(price), quarters, q_ords, idx, p_ords, p_closes, ref_ord,
+        ))
+    return {k: v for k, v in values.items() if v is not None}
+
+
 def verify_asset_ratio_code(session, code: str, asset_id: int,
                             quarters: list, price_rows: list) -> list:
     """Equivalente a verify_asset_code, para un código fundamental."""
@@ -285,19 +327,24 @@ def verify_asset_ratio_code(session, code: str, asset_id: int,
 
     if code in _FUND_DAILY_CODES:
         if not price_rows:
-            return []
-        dates_seq       = [d for d, _ in price_rows]
-        price_dates_ord = np.array([d.toordinal() for d, _ in price_rows])
-        price_closes    = np.array([c for _, c in price_rows])
-        series = _daily_ratio_series(quarters, q_ords, dates_seq,
-                                     price_dates_ord, price_closes)
-        fresh = {d: v for d, v in zip(dates_seq, series[code]) if not np.isnan(v)}
+            fresh = {}
+        else:
+            dates_seq       = [d for d, _ in price_rows]
+            price_dates_ord = np.array([d.toordinal() for d, _ in price_rows])
+            price_closes    = np.array([c for _, c in price_rows])
+            series = _daily_ratio_series(quarters, q_ords, dates_seq,
+                                         price_dates_ord, price_closes)
+            fresh = {d: v for d, v in zip(dates_seq, series[code]) if not np.isnan(v)}
     else:
         fresh = {}
         for idx, q in enumerate(quarters):
             val = _compute_quarterly_ratios(quarters, idx).get(code)
             if val is not None:
                 fresh[q.period_date] = val
+
+    current_val = _current_ratio_fresh(quarters, price_rows).get(code)
+    if current_val is not None:
+        fresh[_date_type.today()] = current_val
 
     stored = _stored_values(session, code, asset_id)
 
