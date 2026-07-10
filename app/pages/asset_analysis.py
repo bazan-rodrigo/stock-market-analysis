@@ -73,39 +73,11 @@ def layout(**kwargs):
         return html.Div()
 
     chart_tab = dbc.Tab(label="Gráfico Técnico", tab_id="tab-chart", children=[
-        # ── Barra única de controles: freq/tipo/escala + indicadores ─────
+        # ── Barra única de controles: indicadores/overlays ────────────────
+        # freq/tipo de gráfico/escala son opciones de visualización, no
+        # indicadores — viven junto al selector de activo, ver layout() más
+        # abajo (dbc.Row "Selector de activo compartido").
         html.Div([
-            html.Div(dbc.RadioItems(
-                id="chart-freq",
-                options=[{"label": x, "value": x} for x in ["D", "W", "M"]],
-                value="D",
-                input_class_name="btn-check",
-                label_class_name="btn btn-outline-secondary btn-sm",
-                label_checked_class_name="active",
-                class_name="btn-group btn-group-sm",
-            ), className="ind-group"),
-            html.Div(dbc.RadioItems(
-                id="chart-type",
-                options=[{"label": "Velas",   "value": "candlestick"},
-                         {"label": "Línea",   "value": "line"},
-                         {"label": "P&F",     "value": "pnf"},
-                         {"label": "P&F X/O", "value": "pnf_classic"}],
-                value="candlestick",
-                input_class_name="btn-check",
-                label_class_name="btn btn-outline-secondary btn-sm",
-                label_checked_class_name="active",
-                class_name="btn-group btn-group-sm",
-            ), className="ind-group"),
-            html.Div(dbc.RadioItems(
-                id="chart-yscale",
-                options=[{"label": "Arit", "value": "linear"},
-                         {"label": "Log",  "value": "log"}],
-                value="linear",
-                input_class_name="btn-check",
-                label_class_name="btn btn-outline-secondary btn-sm",
-                label_checked_class_name="active",
-                class_name="btn-group btn-group-sm",
-            ), className="ind-group"),
             html.Div([_chk("chart-volume-enabled", "Vol", default_on=True)], className="ind-group"),
             _simple_slot("sma", 1, _SMA_COLORS[0], _SMA_DEF[0], dist_label_id="chart-sma-best-label"),
             _simple_slot("sma", 2, _SMA_COLORS[1], _SMA_DEF[1], dist_label_id="chart-sma-2-label"),
@@ -227,7 +199,7 @@ def layout(**kwargs):
                         html.Small("Ancho de bin", style={"color": "#9ca3af", "whiteSpace": "nowrap"}),
                         dbc.Input(
                             id="dist-bin-size",
-                            type="number", value=5, min=0.01, max=1000, step=0.01,
+                            type="number", value=5, min=0.01, max=1000, step=1,
                             style={"width": "80px", "fontSize": "0.8rem"},
                         ),
                     ],
@@ -248,7 +220,9 @@ def layout(**kwargs):
     )
 
     return html.Div([
-        # ── Selector de activo compartido ─────────────────────────────────
+        # ── Selector de activo + opciones de visualización del gráfico ─────
+        # freq/tipo de gráfico/escala no son indicadores, son cómo se ve el
+        # gráfico — viven acá, no en la barra de indicadores del tab.
         dbc.Row([
             dbc.Col(
                 dcc.Dropdown(
@@ -261,7 +235,38 @@ def layout(**kwargs):
                 ),
                 style={"minWidth": "220px", "maxWidth": "380px"},
             ),
-        ], className="mb-1 g-2 align-items-center"),
+            dbc.Col(html.Div(dbc.RadioItems(
+                id="chart-freq",
+                options=[{"label": x, "value": x} for x in ["D", "W", "M"]],
+                value="D",
+                input_class_name="btn-check",
+                label_class_name="btn btn-outline-secondary btn-sm",
+                label_checked_class_name="active",
+                class_name="btn-group btn-group-sm",
+            ), className="ind-group"), width="auto"),
+            dbc.Col(html.Div(dbc.RadioItems(
+                id="chart-type",
+                options=[{"label": "Velas",   "value": "candlestick"},
+                         {"label": "Línea",   "value": "line"},
+                         {"label": "P&F",     "value": "pnf"},
+                         {"label": "P&F X/O", "value": "pnf_classic"}],
+                value="candlestick",
+                input_class_name="btn-check",
+                label_class_name="btn btn-outline-secondary btn-sm",
+                label_checked_class_name="active",
+                class_name="btn-group btn-group-sm",
+            ), className="ind-group"), width="auto"),
+            dbc.Col(html.Div(dbc.RadioItems(
+                id="chart-yscale",
+                options=[{"label": "Arit", "value": "linear"},
+                         {"label": "Log",  "value": "log"}],
+                value="linear",
+                input_class_name="btn-check",
+                label_class_name="btn btn-outline-secondary btn-sm",
+                label_checked_class_name="active",
+                class_name="btn-group btn-group-sm",
+            ), className="ind-group"), width="auto"),
+        ], className="mb-1 g-2 align-items-center chart-toolbar"),
 
         # ── Tabs ──────────────────────────────────────────────────────────
         dbc.Tabs(
