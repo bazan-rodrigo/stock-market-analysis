@@ -17,6 +17,19 @@ def layout(**kwargs):
         "padding": "0.75rem", "borderRadius": "4px", "fontSize": "0.78rem",
         "whiteSpace": "pre-wrap",
     }
+    _SUMMARY_STYLE = {
+        **_PRE_STYLE, "maxHeight": "180px",
+        "backgroundColor": "#1f2937", "fontWeight": "500",
+    }
+
+    def _result_tab(label, tab_id, summary_id, detail_id):
+        return dbc.Tab(
+            html.Div([
+                html.Pre(id=summary_id, style=_SUMMARY_STYLE, children=""),
+                html.Pre(id=detail_id,  style=_PRE_STYLE,     children=""),
+            ], className="mt-2"),
+            label=label, tab_id=tab_id,
+        )
 
     return html.Div([
         html.H3("Verificación de Datos", className="mb-3"),
@@ -96,7 +109,12 @@ def layout(**kwargs):
                            animated=True, label="", className="mb-2",
                            style={"display": "none"}),
                 dbc.Alert(id="verify-run-alert", is_open=False, dismissable=True),
-                html.Pre(id="verify-run-output", style=_PRE_STYLE, children=""),
+                dbc.Tabs([
+                    _result_tab("Discrepancias de cálculo", "calc",
+                               "verify-run-summary-calc", "verify-run-detail-calc"),
+                    _result_tab("Datos de origen", "sanity",
+                               "verify-run-summary-sanity", "verify-run-detail-sanity"),
+                ], active_tab="calc"),
             ]),
         ]),
     ])

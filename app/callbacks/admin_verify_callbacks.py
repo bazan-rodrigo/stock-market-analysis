@@ -92,11 +92,14 @@ def update_code_options(domain):
 
 
 @callback(
-    Output("verify-run-interval", "disabled", allow_duplicate=True),
-    Output("verify-run-progress", "style",    allow_duplicate=True),
-    Output("verify-run-btn",      "disabled", allow_duplicate=True),
-    Output("verify-run-alert",    "is_open",  allow_duplicate=True),
-    Output("verify-run-output",   "children", allow_duplicate=True),
+    Output("verify-run-interval",       "disabled", allow_duplicate=True),
+    Output("verify-run-progress",       "style",    allow_duplicate=True),
+    Output("verify-run-btn",            "disabled", allow_duplicate=True),
+    Output("verify-run-alert",          "is_open",  allow_duplicate=True),
+    Output("verify-run-summary-calc",   "children", allow_duplicate=True),
+    Output("verify-run-detail-calc",    "children", allow_duplicate=True),
+    Output("verify-run-summary-sanity", "children", allow_duplicate=True),
+    Output("verify-run-detail-sanity",  "children", allow_duplicate=True),
     Input("verify-run-btn", "n_clicks"),
     State("verify-domain",  "value"),
     State("verify-codes",   "value"),
@@ -106,9 +109,9 @@ def update_code_options(domain):
 )
 def start_verify(_, domain, codes, sample, tickers_raw):
     if not current_user.is_authenticated or not current_user.is_admin:
-        return no_update, no_update, no_update, no_update, no_update
+        return (no_update,) * 8
     if _verify_state["running"]:
-        return False, {"display": "block"}, True, no_update, no_update
+        return False, {"display": "block"}, True, no_update, no_update, no_update, no_update, no_update
 
     tickers = None
     if tickers_raw and tickers_raw.strip():
@@ -140,7 +143,7 @@ def start_verify(_, domain, codes, sample, tickers_raw):
             _verify_state["running"] = False
 
     threading.Thread(target=_run, daemon=True).start()
-    return False, {"display": "block"}, True, False, ""
+    return False, {"display": "block"}, True, False, "", "", "", ""
 
 
 def _split_by_category(result: dict) -> tuple[list, list]:
@@ -160,10 +163,29 @@ def _split_by_category(result: dict) -> tuple[list, list]:
     return calc, sanity
 
 
-def _format_section(title: str, combos: list) -> list:
+def _format_summary(combos: list) -> str:
+    """Un renglón por activo (no por código/activo como "combos"): cuántos
+    códigos y diferencias tiene, ordenado de más a menos — para ver de un
+    vistazo qué activos concentran el problema antes de bajar al detalle."""
     if not combos:
-        return []
-    lines = [f"=== {title} ===", ""]
+        return "Sin diferencias."
+    by_asset: dict = {}
+    for r in combos:
+        key = (r["asset_id"], r["ticker"])
+        agg = by_asset.setdefault(key, {"codes": 0, "diffs": 0})
+        agg["codes"] += 1
+        agg["diffs"] += len(r["diffs"])
+    lines = [f"{len(by_asset)} activo(s) afectados:"]
+    for (asset_id, ticker), agg in sorted(by_asset.items(), key=lambda kv: -kv[1]["diffs"]):
+        lines.append(f"  {ticker} (id={asset_id}): {agg['codes']} código(s), "
+                     f"{agg['diffs']} diferencia(s)")
+    return "\n".join(lines)
+
+
+def _format_detail(combos: list) -> str:
+    if not combos:
+        return ""
+    lines = []
     for r in combos:
         lines.append(f"[DIFF] {r['code']} / {r['ticker']} (id={r['asset_id']}): "
                      f"{len(r['diffs'])} diferencias")
@@ -172,33 +194,22 @@ def _format_section(title: str, combos: list) -> list:
         if len(r["diffs"]) > 10:
             lines.append(f"    ... y {len(r['diffs']) - 10} más")
         lines.append("")
-    return lines
-
-
-def _format_results(result: dict) -> str:
-    lines = []
-    if result["missing_tickers"]:
-        lines.append(f"(aviso: tickers no encontrados, salteados: "
-                     f"{', '.join(result['missing_tickers'])})\n")
-    calc, sanity = _split_by_category(result)
-    lines += _format_section(
-        "DISCREPANCIAS DE CÁLCULO (guardado != recalculado — posible bug)", calc)
-    lines += _format_section(
-        "POSIBLES ERRORES DE DATOS DE ORIGEN "
-        "(guardado == recalculado, fuera de rango — no es un bug de caché)", sanity)
     return "\n".join(lines)
 
 
 @callback(
-    Output("verify-run-interval", "disabled",  allow_duplicate=True),
-    Output("verify-run-progress", "value",     allow_duplicate=True),
-    Output("verify-run-progress", "label",     allow_duplicate=True),
-    Output("verify-run-progress", "style",     allow_duplicate=True),
-    Output("verify-run-btn",      "disabled",  allow_duplicate=True),
-    Output("verify-run-alert",    "children",  allow_duplicate=True),
-    Output("verify-run-alert",    "is_open",   allow_duplicate=True),
-    Output("verify-run-alert",    "color",     allow_duplicate=True),
-    Output("verify-run-output",   "children",  allow_duplicate=True),
+    Output("verify-run-interval",        "disabled",  allow_duplicate=True),
+    Output("verify-run-progress",        "value",     allow_duplicate=True),
+    Output("verify-run-progress",        "label",     allow_duplicate=True),
+    Output("verify-run-progress",        "style",     allow_duplicate=True),
+    Output("verify-run-btn",             "disabled",  allow_duplicate=True),
+    Output("verify-run-alert",           "children",  allow_duplicate=True),
+    Output("verify-run-alert",           "is_open",   allow_duplicate=True),
+    Output("verify-run-alert",           "color",     allow_duplicate=True),
+    Output("verify-run-summary-calc",    "children",  allow_duplicate=True),
+    Output("verify-run-detail-calc",     "children",  allow_duplicate=True),
+    Output("verify-run-summary-sanity",  "children",  allow_duplicate=True),
+    Output("verify-run-detail-sanity",   "children",  allow_duplicate=True),
     Input("verify-run-interval", "n_intervals"),
     prevent_initial_call=True,
 )
@@ -208,16 +219,17 @@ def poll_verify(_):
         pct = int(_verify_state["current"] / tot * 100)
         label = f"{_verify_state['current']} / {_verify_state['total']}  {_verify_state['label']}"
         return (False, pct, label, {"display": "block"}, True,
-                no_update, False, no_update, no_update)
+                no_update, False, no_update, no_update, no_update, no_update, no_update)
 
     if _verify_state["error"]:
         msg = f"Error corriendo la verificación: {_verify_state['error']}"
         return (True, 0, "", {"display": "none"}, False,
-                msg, True, "danger", "")
+                msg, True, "danger", "", "", "", "")
 
     result = _verify_state["result"]
     if result is None:
-        return True, 0, "", {"display": "none"}, False, no_update, False, no_update, no_update
+        return (True, 0, "", {"display": "none"}, False,
+                no_update, False, no_update, no_update, no_update, no_update, no_update)
 
     calc, sanity = _split_by_category(result)
     n_calc   = sum(len(r["diffs"]) for r in calc)
@@ -229,11 +241,16 @@ def poll_verify(_):
     elif n_calc == 0:
         color = "warning"
         msg = (f"Sin discrepancias de cálculo. {n_sanity} posibles errores de datos de "
-               f"origen (revisar el dato de entrada, no es un bug de caché) — ver detalle abajo.")
+               f"origen (revisar el dato de entrada, no es un bug de caché) — ver pestaña "
+               f"'Datos de origen'.")
     else:
         color = "danger"
         msg = (f"{n_calc} discrepancias de cálculo (posible bug de caché/delta) + "
-               f"{n_sanity} posibles errores de datos de origen — ver detalle abajo.")
+               f"{n_sanity} posibles errores de datos de origen — ver detalle en cada pestaña.")
+    if result["missing_tickers"]:
+        msg += f" (tickers no encontrados, salteados: {', '.join(result['missing_tickers'])})"
 
     return (True, 100, "Completo", {"display": "none"}, False,
-            msg, True, color, _format_results(result))
+            msg, True, color,
+            _format_summary(calc),   _format_detail(calc),
+            _format_summary(sanity), _format_detail(sanity))

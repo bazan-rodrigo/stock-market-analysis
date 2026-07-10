@@ -52,10 +52,26 @@ def main():
     if result["missing_tickers"]:
         print(f"(aviso: tickers no encontrados, salteados: {', '.join(result['missing_tickers'])})")
 
+    def _print_summary(combos):
+        # un renglón por activo (no por código/activo): cuántos códigos y
+        # diferencias tiene, ordenado de más a menos, para ver de un
+        # vistazo qué activos concentran el problema antes del detalle.
+        by_asset: dict = {}
+        for r in combos:
+            key = (r["asset_id"], r["ticker"])
+            agg = by_asset.setdefault(key, {"codes": 0, "diffs": 0})
+            agg["codes"] += 1
+            agg["diffs"] += len(r["diffs"])
+        print(f"Resumen: {len(by_asset)} activo(s) afectados:")
+        for (asset_id, ticker), agg in sorted(by_asset.items(), key=lambda kv: -kv[1]["diffs"]):
+            print(f"  {ticker} (id={asset_id}): {agg['codes']} código(s), "
+                  f"{agg['diffs']} diferencia(s)")
+
     def _print_section(title, combos):
         if not combos:
             return
         print(f"\n{'=' * 70}\n{title}\n{'=' * 70}")
+        _print_summary(combos)
         for r in combos:
             print(f"\n[DIFF] {r['code']} / {r['ticker']} (id={r['asset_id']}): "
                   f"{len(r['diffs'])} diferencias")
