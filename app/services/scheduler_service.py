@@ -101,6 +101,27 @@ def _daily_update_job() -> None:
         Session.remove()
 
 
+def _weekly_verification_job() -> None:
+    """Recalcula desde cero (en memoria, solo lectura sobre precios/
+    trimestrales) todos los indicadores y ratios de TODOS los activos y
+    guarda en asset_verification_flag los que difieren de lo guardado —
+    fuente de los ⚠️ en los selectores de activo de Análisis de Activo,
+    RRG, Evolución, Pares y Retornos (ver verification_service.
+    get_flagged_asset_ids). Semanal porque a diferencia de la actualización
+    diaria de precios, no hace falta que estas marcas estén al minuto:
+    alcanza con no quedar desactualizadas por más de unos días."""
+    logger.info("Iniciando verificación semanal de datos (scheduled)")
+    try:
+        from app.services.verification_service import run_full_verification_and_store
+        result = run_full_verification_and_store()
+        logger.info("Verificación semanal finalizada: %s", result)
+    except Exception as exc:
+        logger.exception("Error en la verificación semanal: %s", exc)
+    finally:
+        from app.database import Session
+        Session.remove()
+
+
 # ── Control del scheduler ─────────────────────────────────────────────────────
 
 def start_scheduler() -> None:
@@ -116,10 +137,21 @@ def start_scheduler() -> None:
             id="daily_price_update",
             replace_existing=True,
         )
+        # Mismo proceso único de APScheduler, un segundo job con su propio
+        # horario fijo (domingo temprano, lejos de la actualización diaria)
+        # — no tiene configuración propia en scheduler_config, se prende y
+        # apaga junto con el scheduler general.
+        _scheduler.add_job(
+            _weekly_verification_job,
+            trigger=CronTrigger(day_of_week="sun", hour=3, minute=0),
+            id="weekly_verification",
+            replace_existing=True,
+        )
         _scheduler.start()
     _save_config(enabled=True)
     logger.info(
-        "Scheduler iniciado. Actualización diaria a las %02d:%02d UTC",
+        "Scheduler iniciado. Actualización diaria a las %02d:%02d UTC, "
+        "verificación semanal domingos 03:00 UTC",
         cfg.hour, cfg.minute,
     )
 
