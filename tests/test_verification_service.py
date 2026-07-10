@@ -4,8 +4,8 @@ from datetime import date, timedelta
 
 from app.services.fundamental_service import _Quarter
 from app.services.verification_service import (
-    _current_ratio_diff_entry, _current_ratio_fresh, _diff_category,
-    _values_equal, check_sanity,
+    _aggregate_flags, _current_ratio_diff_entry, _current_ratio_fresh,
+    _diff_category, _values_equal, check_sanity,
 )
 
 
@@ -159,6 +159,55 @@ def test_current_ratio_diff_entry_usa_la_fecha_mas_reciente_guardada():
     stored = {date(2026, 7, 8): 1.2, date(2026, 7, 9): 1.5}
     entry = _current_ratio_diff_entry(1.8, stored, date(2026, 7, 10))
     assert entry == (date(2026, 7, 9), 1.8)
+
+
+def _diff(cat, code_date=date(2026, 1, 1)):
+    return (code_date, "motivo", "guardado", "fresco", cat)
+
+
+# ── _aggregate_flags: agrupa resultados de run_verification/
+# run_fund_verification por activo -- fuente de asset_verification_flag
+# (ver run_full_verification_and_store) que marca los selectores de
+# activo con posibles hallazgos.
+
+def test_aggregate_flags_cuenta_por_categoria():
+    result = {"results": [
+        {"code": "rsi_daily", "asset_id": 1, "ticker": "AAPL",
+         "diffs": [_diff("calc"), _diff("calc"), _diff("sanity")]},
+    ]}
+    agg = _aggregate_flags(result)
+    assert agg[1]["calc"] == 2
+    assert agg[1]["sanity"] == 1
+    assert agg[1]["codes"] == {"rsi_daily"}
+
+
+def test_aggregate_flags_combina_varios_resultados_del_mismo_activo():
+    # indicadores + fundamentales para el mismo activo -- típico de
+    # run_full_verification_and_store, que llama run_verification y
+    # run_fund_verification por separado
+    ind  = {"results": [{"code": "rsi_daily", "asset_id": 1, "ticker": "AAPL",
+                         "diffs": [_diff("sanity")]}]}
+    fund = {"results": [{"code": "fundamental_pe_ttm", "asset_id": 1, "ticker": "AAPL",
+                         "diffs": [_diff("calc")]}]}
+    agg = _aggregate_flags(ind, fund)
+    assert agg[1]["calc"] == 1
+    assert agg[1]["sanity"] == 1
+    assert agg[1]["codes"] == {"rsi_daily", "fundamental_pe_ttm"}
+
+
+def test_aggregate_flags_activos_distintos_no_se_mezclan():
+    result = {"results": [
+        {"code": "rsi_daily", "asset_id": 1, "ticker": "AAPL", "diffs": [_diff("calc")]},
+        {"code": "rsi_daily", "asset_id": 2, "ticker": "MSFT", "diffs": [_diff("sanity")]},
+    ]}
+    agg = _aggregate_flags(result)
+    assert set(agg) == {1, 2}
+    assert agg[1]["calc"] == 1 and agg[1]["sanity"] == 0
+    assert agg[2]["sanity"] == 1 and agg[2]["calc"] == 0
+
+
+def test_aggregate_flags_sin_resultados_es_vacio():
+    assert _aggregate_flags({"results": []}) == {}
 
 
 def test_current_ratio_diff_entry_sin_nada_guardado_usa_hoy():

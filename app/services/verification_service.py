@@ -218,8 +218,12 @@ def verify_asset_code(session, code: str, asset_id: int, df, regime_cfg, vol_cfg
     return diffs
 
 
-def pick_sample_ids(session, sample: int) -> list:
+def pick_sample_ids(session, sample: int | None) -> list:
+    """sample=None: todos los activos (usado por run_full_verification_and_store,
+    no por el panel /admin/verify — ahí siempre se pasa un número)."""
     all_ids = [r[0] for r in session.execute(sa.select(Asset.id)).all()]
+    if sample is None:
+        return all_ids
     return random.sample(all_ids, min(sample, len(all_ids)))
 
 
@@ -233,7 +237,7 @@ def ids_from_tickers(session, tickers: list) -> tuple[list, list]:
     return list(found.values()), missing
 
 
-def run_verification(codes: list | None = None, sample: int = 30,
+def run_verification(codes: list | None = None, sample: int | None = 30,
                      tickers: list | None = None, progress_cb=None) -> dict:
     """Corre la verificación completa.
 
@@ -417,16 +421,18 @@ def verify_asset_ratio_code(session, code: str, asset_id: int,
     return diffs
 
 
-def pick_fund_sample_ids(session, sample: int) -> list:
+def pick_fund_sample_ids(session, sample: int | None) -> list:
     """Solo activos con al menos un trimestre cargado (sin eso no hay
-    nada que comparar)."""
+    nada que comparar). sample=None: todos (ver pick_sample_ids)."""
     all_ids = [r[0] for r in session.execute(
         sa.select(FundamentalQuarterly.asset_id).distinct()
     ).all()]
+    if sample is None:
+        return all_ids
     return random.sample(all_ids, min(sample, len(all_ids)))
 
 
-def run_fund_verification(codes: list | None = None, sample: int = 30,
+def run_fund_verification(codes: list | None = None, sample: int | None = 30,
                           tickers: list | None = None, progress_cb=None) -> dict:
     """Equivalente a run_verification, para ratios fundamentales
     (ind_fundamental_*) — ver verify_asset_ratio_code."""
@@ -475,3 +481,95 @@ def run_fund_verification(codes: list | None = None, sample: int = 30,
         "missing_tickers": missing_tickers,
         "combos": total_work, "results": results,
     }
+
+
+# ── Marcado de activos con hallazgos (job programado, ver scheduler_service) ──
+# Persiste el resultado de una corrida COMPLETA (todos los activos, no una
+# muestra) para poder marcar en los selectores de activo de la app
+# (Análisis de Activo, RRG, Evolución, Pares, Retornos) los que tienen
+# posibles errores de datos de origen o discrepancias de cálculo, sin
+# recalcular nada en vivo cada vez que alguien abre un dropdown.
+
+def _aggregate_flags(*results: dict) -> dict:
+    """Agrupa los resultados de run_verification/run_fund_verification
+    (uno o más, típicamente indicadores + fundamentales) por activo:
+    cuántas diferencias "calc"/"sanity" tiene en total y qué códigos están
+    involucrados. Pura — no toca la base, no sabe nada de tickers."""
+    by_asset: dict = {}
+    for result in results:
+        for r in result["results"]:
+            agg = by_asset.setdefault(r["asset_id"], {"calc": 0, "sanity": 0, "codes": set()})
+            for d in r["diffs"]:
+                agg[d[4]] += 1
+            agg["codes"].add(r["code"])
+    return by_asset
+
+
+def run_full_verification_and_store(progress_cb=None) -> dict:
+    """Corre la verificación completa (TODOS los activos, todos los
+    códigos, indicadores + fundamentales) y reemplaza asset_verification_flag
+    con los hallazgos. Pensado para un job programado (semanal, ver
+    scheduler_service), no para uso interactivo — a la escala actual
+    (~500 activos) tarda similar a un rebuild completo de indicadores; si
+    el universo crece a 10000 activos (ver project_scaling_target) va a
+    necesitar paralelizarse.
+
+    progress_cb(cur, tot, label): cur/tot en base 100 (50 indicadores +
+    50 fundamentales), para loguear avance en un job largo."""
+    from datetime import datetime as _dt
+    from app.models import AssetVerificationFlag
+
+    s = get_session()
+
+    def _split_cb(base, span):
+        def _cb(cur, tot, label=""):
+            if progress_cb:
+                progress_cb(base + int(cur / max(tot, 1) * span), 100, label)
+        return _cb
+
+    ind_result  = run_verification(sample=None, progress_cb=_split_cb(0, 50))
+    fund_result = run_fund_verification(sample=None, progress_cb=_split_cb(50, 50))
+
+    by_asset = _aggregate_flags(ind_result, fund_result)
+
+    now = _dt.utcnow()
+    s.query(AssetVerificationFlag).delete()
+    for asset_id, agg in by_asset.items():
+        s.add(AssetVerificationFlag(
+            asset_id=asset_id,
+            n_calc_diffs=agg["calc"],
+            n_sanity_diffs=agg["sanity"],
+            detail=", ".join(sorted(agg["codes"])),
+            checked_at=now,
+        ))
+    s.commit()
+
+    return {
+        "flagged_assets": len(by_asset),
+        "indicators_combos":   ind_result["combos"],
+        "fundamentals_combos": fund_result["combos"],
+    }
+
+
+def get_flagged_asset_ids() -> dict:
+    """asset_id -> texto corto para el tooltip del selector de activos.
+    Lectura liviana (una query a la tabla ya poblada por
+    run_full_verification_and_store) — llamar libremente desde cualquier
+    callback que arme un dropdown de activos, no recalcula nada."""
+    from app.models import AssetVerificationFlag
+
+    s = get_session()
+    rows = s.execute(sa.select(
+        AssetVerificationFlag.asset_id,
+        AssetVerificationFlag.n_calc_diffs,
+        AssetVerificationFlag.n_sanity_diffs,
+    )).all()
+    out = {}
+    for asset_id, n_calc, n_sanity in rows:
+        parts = []
+        if n_calc:
+            parts.append(f"{n_calc} discrepancia(s) de cálculo")
+        if n_sanity:
+            parts.append(f"{n_sanity} posible(s) error(es) de datos de origen")
+        out[asset_id] = " + ".join(parts)
+    return out

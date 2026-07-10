@@ -34,6 +34,7 @@ from app.models.group_signal_value import GroupSignalValue
 from app.models.strategy import Strategy
 from app.models.strategy_component import StrategyComponent
 from app.models.strategy_result import StrategyResult
+from app.models.asset_verification_flag import AssetVerificationFlag
 
 __all__ = [
     "User",
@@ -74,4 +75,5 @@ __all__ = [
     "Strategy",
     "StrategyComponent",
     "StrategyResult",
+    "AssetVerificationFlag",
 ]

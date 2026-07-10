@@ -76,3 +76,9 @@ class Asset(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    verification_flag = relationship(
+        "AssetVerificationFlag",
+        back_populates="asset",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
