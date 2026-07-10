@@ -111,6 +111,30 @@ _CATEGORICAL_VALUES: dict[str, frozenset] = {
 }
 
 
+# Categoría de cada fila de diferencia — separa dos cosas distintas que
+# antes quedaban mezcladas en la misma lista:
+#   "calc"   → guardado != recalculado: el propósito real de esta
+#              herramienta, sospecha de bug de caché/delta.
+#   "sanity" → guardado == recalculado pero el valor no tiene sentido
+#              (fuera de rango / categoría desconocida): la fórmula
+#              calculó lo mismo que ya estaba guardado, así que NO es un
+#              bug de caché — es un dato de entrada raro (o, más raro
+#              todavía, un bug en la fórmula misma, pero tampoco algo que
+#              el sistema de delta pueda "cachear mal"). Ver hallazgos
+#              reales: ITX.MC (precio corrupto en la fuente) y CMPC.SN
+#              (P/E TTM con <4 trimestres — ya no se calcula, ver
+#              _compute_daily_ratios).
+_CALC_REASONS = frozenset({
+    "solo en DB (¿debería haberse borrado?)",
+    "falta en DB (¿el delta no la escribió?)",
+    "valor distinto",
+})
+
+
+def _diff_category(kind: str) -> str:
+    return "calc" if kind in _CALC_REASONS else "sanity"
+
+
 def check_sanity(code: str, value) -> str | None:
     """None si el valor es razonable para ese código; si no, una
     descripción corta de qué límite violó."""
@@ -160,7 +184,8 @@ def _values_equal(fresh, stored) -> bool:
 
 
 def verify_asset_code(session, code: str, asset_id: int, df, regime_cfg, vol_cfg) -> list:
-    """Devuelve la lista de diferencias (fecha, motivo, guardado, fresco)."""
+    """Devuelve la lista de diferencias (fecha, motivo, guardado, fresco,
+    categoría) — ver _diff_category."""
     df_w = _resample_ohlc(df, "W")
     df_m = _resample_ohlc(df, "M")
     compute_fn = _BACKFILL_FNS[code]
@@ -178,15 +203,18 @@ def verify_asset_code(session, code: str, asset_id: int, df, regime_cfg, vol_cfg
     for d in sorted(set(fresh) | set(stored)):
         fv, sv = fresh.get(d), stored.get(d)
         if fv is None and sv is not None:
-            diffs.append((d, "solo en DB (¿debería haberse borrado?)", sv, fv))
+            kind = "solo en DB (¿debería haberse borrado?)"
+            diffs.append((d, kind, sv, fv, _diff_category(kind)))
         elif fv is not None and sv is None:
-            diffs.append((d, "falta en DB (¿el delta no la escribió?)", sv, fv))
+            kind = "falta en DB (¿el delta no la escribió?)"
+            diffs.append((d, kind, sv, fv, _diff_category(kind)))
         elif not _values_equal(fv, sv):
-            diffs.append((d, "valor distinto", sv, fv))
+            kind = "valor distinto"
+            diffs.append((d, kind, sv, fv, _diff_category(kind)))
         if fv is not None:
             sanity = check_sanity(code, fv)
             if sanity:
-                diffs.append((d, sanity, sv, fv))
+                diffs.append((d, sanity, sv, fv, _diff_category(sanity)))
     return diffs
 
 
@@ -352,15 +380,18 @@ def verify_asset_ratio_code(session, code: str, asset_id: int,
     for d in sorted(set(fresh) | set(stored)):
         fv, sv = fresh.get(d), stored.get(d)
         if fv is None and sv is not None:
-            diffs.append((d, "solo en DB (¿debería haberse borrado?)", sv, fv))
+            kind = "solo en DB (¿debería haberse borrado?)"
+            diffs.append((d, kind, sv, fv, _diff_category(kind)))
         elif fv is not None and sv is None:
-            diffs.append((d, "falta en DB (¿el delta no la escribió?)", sv, fv))
+            kind = "falta en DB (¿el delta no la escribió?)"
+            diffs.append((d, kind, sv, fv, _diff_category(kind)))
         elif not _values_equal(fv, sv):
-            diffs.append((d, "valor distinto", sv, fv))
+            kind = "valor distinto"
+            diffs.append((d, kind, sv, fv, _diff_category(kind)))
         if fv is not None:
             sanity = check_sanity(code, fv)
             if sanity:
-                diffs.append((d, sanity, sv, fv))
+                diffs.append((d, sanity, sv, fv, _diff_category(sanity)))
     return diffs
 
 

@@ -639,29 +639,36 @@ def _compute_daily_ratios(
     latest = quarters[last_q_idx]
     shares = next((q.shares for q in reversed(ttm4) if q.shares), None)
 
-    ttm_eps = sum(q.net_income for q in ttm4 if q.net_income is not None)
-    ttm_rev = sum(q.revenue    for q in ttm4 if q.revenue    is not None)
     book_ps = _safe_div_r(latest.equity, shares)
+    pb = _safe_div_r(price, book_ps) if book_ps and book_ps > 0 else None
 
-    ttm_eps_ps = _safe_div_r(ttm_eps, shares)
-    ttm_rev_ps = _safe_div_r(ttm_rev, shares)
-
-    pe = _safe_div_r(price, ttm_eps_ps) if ttm_eps_ps and ttm_eps_ps > 0 else None
-    pb = _safe_div_r(price, book_ps)    if book_ps    and book_ps    > 0 else None
-    ps = _safe_div_r(price, ttm_rev_ps) if ttm_rev_ps and ttm_rev_ps > 0 else None
+    # TTM (trailing twelve months) necesita 4 trimestres reales: con menos
+    # (activo recién agregado, aún sin un año de historia) sumar los que
+    # haya subestima la ganancia/ingreso anualizado y da un P/E sin
+    # sentido (hallazgo real: CMPC.SN con 1 solo trimestre cargado dio
+    # P/E ~369000) — mejor no calcular hasta tener el año completo.
+    pe = ps = None
+    if len(ttm4) == 4:
+        ttm_eps = sum(q.net_income for q in ttm4 if q.net_income is not None)
+        ttm_rev = sum(q.revenue    for q in ttm4 if q.revenue    is not None)
+        ttm_eps_ps = _safe_div_r(ttm_eps, shares)
+        ttm_rev_ps = _safe_div_r(ttm_rev, shares)
+        pe = _safe_div_r(price, ttm_eps_ps) if ttm_eps_ps and ttm_eps_ps > 0 else None
+        ps = _safe_div_r(price, ttm_rev_ps) if ttm_rev_ps and ttm_rev_ps > 0 else None
 
     pe_growth = None
     last_q_1y = int(np.searchsorted(q_ords, ref_1y_ord, side="right")) - 1
     if last_q_1y >= 0:
         ttm4_prev = quarters[max(0, last_q_1y - 3): last_q_1y + 1]
-        sh_prev   = next((q.shares for q in reversed(ttm4_prev) if q.shares), None)
-        eps_prev  = sum(q.net_income for q in ttm4_prev if q.net_income is not None)
-        eps_ps_pv = _safe_div_r(eps_prev, sh_prev)
-        p_1y_idx  = int(np.searchsorted(price_dates_ord, ref_1y_ord, side="right")) - 1
-        price_1y  = float(price_closes[p_1y_idx]) if p_1y_idx >= 0 else None
-        pe_prev   = _safe_div_r(price_1y, eps_ps_pv) if eps_ps_pv and eps_ps_pv > 0 else None
-        if pe and pe_prev and pe_prev != 0:
-            pe_growth = round((pe - pe_prev) / abs(pe_prev), 4)
+        if len(ttm4_prev) == 4:
+            sh_prev   = next((q.shares for q in reversed(ttm4_prev) if q.shares), None)
+            eps_prev  = sum(q.net_income for q in ttm4_prev if q.net_income is not None)
+            eps_ps_pv = _safe_div_r(eps_prev, sh_prev)
+            p_1y_idx  = int(np.searchsorted(price_dates_ord, ref_1y_ord, side="right")) - 1
+            price_1y  = float(price_closes[p_1y_idx]) if p_1y_idx >= 0 else None
+            pe_prev   = _safe_div_r(price_1y, eps_ps_pv) if eps_ps_pv and eps_ps_pv > 0 else None
+            if pe and pe_prev and pe_prev != 0:
+                pe_growth = round((pe - pe_prev) / abs(pe_prev), 4)
 
     return {
         "fundamental_pe_ttm":        pe,
@@ -697,15 +704,20 @@ def _daily_ratio_series(quarters, q_ords: np.ndarray, price_dates: list,
         shares = next((x.shares for x in reversed(ttm4) if x.shares), None)
         if not shares:
             continue
+        b = _safe_div_r(q.equity, shares)
+        if b is not None:
+            book_ps[i] = b
+        # ver _compute_daily_ratios: TTM necesita 4 trimestres reales, si no
+        # el ingreso/ganancia anualizado queda subestimado y el ratio no
+        # tiene sentido. pb no depende de esto (usa solo el trimestre actual).
+        if len(ttm4) != 4:
+            continue
         e = _safe_div_r(sum(x.net_income for x in ttm4 if x.net_income is not None), shares)
         r = _safe_div_r(sum(x.revenue    for x in ttm4 if x.revenue    is not None), shares)
-        b = _safe_div_r(q.equity, shares)
         if e is not None:
             eps_ps[i] = e
         if r is not None:
             rev_ps[i] = r
-        if b is not None:
-            book_ps[i] = b
 
     seg   = np.searchsorted(q_ords, price_dates_ord, side="right") - 1
     has_q = seg >= 0

@@ -143,19 +143,49 @@ def start_verify(_, domain, codes, sample, tickers_raw):
     return False, {"display": "block"}, True, False, ""
 
 
+def _split_by_category(result: dict) -> tuple[list, list]:
+    """Separa cada combo (código, activo) en sus diffs "calc" (guardado !=
+    recalculado — sospecha real de bug de caché/delta) vs. "sanity"
+    (guardado == recalculado pero el valor no tiene sentido — no es un bug
+    de esta herramienta, es un dato de entrada raro). Ver _diff_category
+    en verification_service.py."""
+    calc, sanity = [], []
+    for r in result["results"]:
+        calc_diffs   = [d for d in r["diffs"] if d[4] == "calc"]
+        sanity_diffs = [d for d in r["diffs"] if d[4] == "sanity"]
+        if calc_diffs:
+            calc.append({**r, "diffs": calc_diffs})
+        if sanity_diffs:
+            sanity.append({**r, "diffs": sanity_diffs})
+    return calc, sanity
+
+
+def _format_section(title: str, combos: list) -> list:
+    if not combos:
+        return []
+    lines = [f"=== {title} ===", ""]
+    for r in combos:
+        lines.append(f"[DIFF] {r['code']} / {r['ticker']} (id={r['asset_id']}): "
+                     f"{len(r['diffs'])} diferencias")
+        for d, kind, stored, fresh, _cat in r["diffs"][:10]:
+            lines.append(f"    {d}  {kind}  guardado={stored!r}  recalculado={fresh!r}")
+        if len(r["diffs"]) > 10:
+            lines.append(f"    ... y {len(r['diffs']) - 10} más")
+        lines.append("")
+    return lines
+
+
 def _format_results(result: dict) -> str:
     lines = []
     if result["missing_tickers"]:
         lines.append(f"(aviso: tickers no encontrados, salteados: "
                      f"{', '.join(result['missing_tickers'])})\n")
-    for r in result["results"]:
-        lines.append(f"[DIFF] {r['code']} / {r['ticker']} (id={r['asset_id']}): "
-                     f"{len(r['diffs'])} diferencias")
-        for d, kind, stored, fresh in r["diffs"][:10]:
-            lines.append(f"    {d}  {kind}  guardado={stored!r}  recalculado={fresh!r}")
-        if len(r["diffs"]) > 10:
-            lines.append(f"    ... y {len(r['diffs']) - 10} más")
-        lines.append("")
+    calc, sanity = _split_by_category(result)
+    lines += _format_section(
+        "DISCREPANCIAS DE CÁLCULO (guardado != recalculado — posible bug)", calc)
+    lines += _format_section(
+        "POSIBLES ERRORES DE DATOS DE ORIGEN "
+        "(guardado == recalculado, fuera de rango — no es un bug de caché)", sanity)
     return "\n".join(lines)
 
 
@@ -189,15 +219,21 @@ def poll_verify(_):
     if result is None:
         return True, 0, "", {"display": "none"}, False, no_update, False, no_update, no_update
 
-    n_diffs = sum(len(r["diffs"]) for r in result["results"])
-    if n_diffs == 0:
+    calc, sanity = _split_by_category(result)
+    n_calc   = sum(len(r["diffs"]) for r in calc)
+    n_sanity = sum(len(r["diffs"]) for r in sanity)
+    if n_calc == 0 and n_sanity == 0:
         color = "success"
         msg = (f"OK — sin diferencias en {len(result['codes'])} códigos x "
                f"{len(result['asset_ids'])} activos ({result['combos']} combinaciones).")
-    else:
+    elif n_calc == 0:
         color = "warning"
-        msg = (f"Encontradas {n_diffs} diferencias en {len(result['results'])} "
-               f"combinaciones código/activo — ver detalle abajo.")
+        msg = (f"Sin discrepancias de cálculo. {n_sanity} posibles errores de datos de "
+               f"origen (revisar el dato de entrada, no es un bug de caché) — ver detalle abajo.")
+    else:
+        color = "danger"
+        msg = (f"{n_calc} discrepancias de cálculo (posible bug de caché/delta) + "
+               f"{n_sanity} posibles errores de datos de origen — ver detalle abajo.")
 
     return (True, 100, "Completo", {"display": "none"}, False,
             msg, True, color, _format_results(result))

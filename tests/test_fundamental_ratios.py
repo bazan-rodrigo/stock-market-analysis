@@ -178,6 +178,24 @@ def test_pe_growth_sin_historia_es_none():
     assert r["fundamental_pe_growth_yoy"] is None
 
 
+def test_pe_ttm_y_ps_ttm_none_con_menos_de_4_trimestres():
+    # TTM necesita el año completo: con menos trimestres, sumar los que
+    # haya subestima el ingreso/ganancia anualizado y da un ratio sin
+    # sentido (hallazgo real: activo con 1 solo trimestre cargado dio
+    # un P/E de ~369000 en vez de quedar sin calcular).
+    qs = _ttm_quarters()[:2]
+    r = _daily(20.0, qs)
+    assert r["fundamental_pe_ttm"] is None
+    assert r["fundamental_ps_ttm"] is None
+
+
+def test_pb_se_calcula_igual_con_menos_de_4_trimestres():
+    # pb no es TTM: usa equity/shares del trimestre vigente nada más.
+    qs = _ttm_quarters()[:2]
+    r = _daily(20.0, qs)
+    assert r["fundamental_pb"] is not None
+
+
 # ── _daily_ratio_series: paridad con _compute_daily_ratios ────────────────────
 
 def test_serie_diaria_vectorizada_paridad_con_por_fecha():

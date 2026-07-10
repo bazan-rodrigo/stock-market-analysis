@@ -52,22 +52,41 @@ def main():
     if result["missing_tickers"]:
         print(f"(aviso: tickers no encontrados, salteados: {', '.join(result['missing_tickers'])})")
 
-    total_diffs = 0
-    for r in result["results"]:
-        total_diffs += len(r["diffs"])
-        print(f"\n[DIFF] {r['code']} / {r['ticker']} (id={r['asset_id']}): {len(r['diffs'])} diferencias")
-        for d, kind, stored, fresh in r["diffs"][:args.max_print]:
-            print(f"    {d}  {kind}  guardado={stored!r}  recalculado={fresh!r}")
-        if len(r["diffs"]) > args.max_print:
-            print(f"    ... y {len(r['diffs']) - args.max_print} más")
+    def _print_section(title, combos):
+        if not combos:
+            return
+        print(f"\n{'=' * 70}\n{title}\n{'=' * 70}")
+        for r in combos:
+            print(f"\n[DIFF] {r['code']} / {r['ticker']} (id={r['asset_id']}): "
+                  f"{len(r['diffs'])} diferencias")
+            for d, kind, stored, fresh, _cat in r["diffs"][:args.max_print]:
+                print(f"    {d}  {kind}  guardado={stored!r}  recalculado={fresh!r}")
+            if len(r["diffs"]) > args.max_print:
+                print(f"    ... y {len(r['diffs']) - args.max_print} más")
+
+    # "calc": guardado != recalculado — sospecha real de bug de caché/delta.
+    # "sanity": guardado == recalculado pero el valor no tiene sentido — no
+    # es un bug de esta herramienta, es un dato de entrada raro (o una
+    # fórmula con un caso límite, pero no algo que el delta cachee mal).
+    calc    = [{**r, "diffs": d} for r in result["results"]
+               if (d := [x for x in r["diffs"] if x[4] == "calc"])]
+    sanity  = [{**r, "diffs": d} for r in result["results"]
+               if (d := [x for x in r["diffs"] if x[4] == "sanity"])]
+    n_calc   = sum(len(r["diffs"]) for r in calc)
+    n_sanity = sum(len(r["diffs"]) for r in sanity)
+
+    _print_section("DISCREPANCIAS DE CÁLCULO (guardado != recalculado — posible bug)", calc)
+    _print_section("POSIBLES ERRORES DE DATOS DE ORIGEN "
+                   "(guardado == recalculado, fuera de rango — no es un bug de caché)", sanity)
 
     print(f"\n{'=' * 70}")
-    if total_diffs == 0:
+    if n_calc == 0 and n_sanity == 0:
         print(f"OK — sin diferencias en {len(result['codes'])} códigos x "
               f"{len(result['asset_ids'])} activos ({result['combos']} combinaciones).")
     else:
-        print(f"ENCONTRADAS {total_diffs} diferencias en {len(result['results'])} "
-              f"combinaciones código/activo — revisar el detalle arriba.")
+        print(f"{n_calc} discrepancias de cálculo + {n_sanity} posibles errores de "
+              f"datos de origen, en {len(result['results'])} combinaciones código/activo "
+              f"— revisar el detalle arriba.")
 
 
 if __name__ == "__main__":
