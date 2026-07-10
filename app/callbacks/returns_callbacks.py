@@ -22,9 +22,12 @@ _BG = "#111827"
     Input("ret-individual",  "id"),
 )
 def load_options(_):
+    from app.services.verification_service import get_flagged_asset_ids
     assets = get_assets()
+    flags  = get_flagged_asset_ids()
     return (
-        [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets],
+        [{"label": f"{'⚠️ ' if a.id in flags else ''}{a.ticker} — {a.name}", "value": a.id}
+         for a in assets],
         get_benchmark_assets_options(),
         get_synthetic_assets_options(),
     )

@@ -90,8 +90,11 @@ def _t(d):
     Input("analysis-asset-select", "id"),
 )
 def load_chart_assets(_):
+    from app.services.verification_service import get_flagged_asset_ids
     assets = get_assets()
-    return [{"label": f"{a.ticker} - {a.name or a.ticker}", "value": a.id} for a in assets]
+    flags  = get_flagged_asset_ids()
+    return [{"label": f"{'⚠️ ' if a.id in flags else ''}{a.ticker} - {a.name or a.ticker}",
+             "value": a.id} for a in assets]
 
 
 @callback(

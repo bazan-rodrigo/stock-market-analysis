@@ -20,7 +20,10 @@ from app.utils import safe_callback
     Input("pair-asset1", "id"),
 )
 def load_options(_):
-    opts = [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in get_assets()]
+    from app.services.verification_service import get_flagged_asset_ids
+    flags = get_flagged_asset_ids()
+    opts = [{"label": f"{'⚠️ ' if a.id in flags else ''}{a.ticker} — {a.name}", "value": a.id}
+            for a in get_assets()]
     return opts, opts
 
 

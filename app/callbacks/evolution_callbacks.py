@@ -24,7 +24,9 @@ from app.services.asset_service import get_assets
     Input("evol-add-select",  "id"),
 )
 def load_options(_):
+    from app.services.verification_service import get_flagged_asset_ids
     assets     = get_assets()
+    flags      = get_flagged_asset_ids()
     countries  = ref_svc.get_countries()
     currencies = ref_svc.get_currencies()
     itypes     = ref_svc.get_instrument_types()
@@ -33,7 +35,8 @@ def load_options(_):
     markets    = ref_svc.get_markets()
 
     return (
-        [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets],
+        [{"label": f"{'⚠️ ' if a.id in flags else ''}{a.ticker} — {a.name}", "value": a.id}
+         for a in assets],
         svc.get_benchmark_assets_options(),
         svc.get_synthetic_assets_options(),
         [{"label": c.name, "value": c.id} for c in countries],

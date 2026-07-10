@@ -121,9 +121,12 @@ def compute_rrg(
 
 
 def get_all_assets_options() -> list[dict]:
+    from app.services.verification_service import get_flagged_asset_ids
     s = get_session()
     assets = s.query(Asset).order_by(Asset.ticker).all()
-    return [{"label": f"{a.ticker} — {a.name}", "value": a.id} for a in assets]
+    flags  = get_flagged_asset_ids()
+    return [{"label": f"{'⚠️ ' if a.id in flags else ''}{a.ticker} — {a.name}", "value": a.id}
+            for a in assets]
 
 
 def get_assets_for_benchmark(benchmark_id: int) -> list[int]:
