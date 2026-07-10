@@ -64,13 +64,35 @@ def layout(**kwargs):
             dbc.CardBody([
                 html.P(
                     "Recalcula desde cero (en memoria, sin escribir nada) los "
-                    "indicadores o ratios de una muestra de activos y los "
-                    "compara contra lo guardado en ind_{código} — incluye "
-                    "chequeos de cordura (RSI fuera de [0,100], categorías "
-                    "desconocidas, valores absurdos). Solo lectura — seguro "
-                    "de correr contra producción.",
+                    "indicadores o ratios y los compara contra lo guardado en "
+                    "ind_{código} — incluye chequeos de cordura (RSI fuera de "
+                    "[0,100], categorías desconocidas, valores absurdos). Solo "
+                    "lectura sobre precios/trimestrales — seguro de correr "
+                    "contra producción. \"Todos los activos\" y \"Solo los ya "
+                    "marcados\" además actualizan asset_verification_flag (⚠️ "
+                    "en los selectores de Análisis de Activo, RRG, Evolución, "
+                    "Pares y Retornos) — un activo se reescribe ahí (o se "
+                    "limpia, si ya no tiene hallazgos) solo cuando se lo "
+                    "vuelve a verificar; el job semanal (ver /admin/scheduler) "
+                    "corre \"Todos los activos\" automáticamente.",
                     className="text-muted small mb-3",
                 ),
+                html.Div(id="verify-flags-last-run", className="text-muted small mb-3"),
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label("Alcance", size="sm"),
+                        dbc.RadioItems(
+                            id="verify-scope",
+                            options=[
+                                {"label": "Muestra al azar", "value": "sample"},
+                                {"label": "Tickers puntuales", "value": "tickers"},
+                                {"label": "Todos los activos", "value": "all"},
+                                {"label": "Solo los ya marcados", "value": "marked"},
+                            ],
+                            value="sample", inline=True,
+                        ),
+                    ], width=12, className="mb-2"),
+                ]),
                 dbc.Row([
                     dbc.Col([
                         dbc.Label("Dominio", size="sm"),
@@ -82,6 +104,12 @@ def layout(**kwargs):
                             ],
                             value="indicators", inline=True,
                         ),
+                        html.Small(
+                            "Se ignora con alcance \"Todos los activos\"/\"Solo los ya "
+                            "marcados\" — esos siempre chequean indicadores + "
+                            "fundamentales completos.",
+                            id="verify-domain-note", className="text-muted d-none",
+                        ),
                     ], width=12, className="mb-2"),
                 ]),
                 dbc.Row([
@@ -89,17 +117,17 @@ def layout(**kwargs):
                         dbc.Label("Códigos (vacío = todos)", size="sm"),
                         dcc.Dropdown(id="verify-codes", options=indicator_options,
                                     multi=True, placeholder="Todos los códigos"),
-                    ], width=5),
+                    ], width=5, id="verify-codes-col"),
                     dbc.Col([
                         dbc.Label("Muestra (activos al azar)", size="sm"),
                         dbc.Input(id="verify-sample", type="number", value=30,
                                   min=1, max=2000, size="sm"),
-                    ], width=3),
+                    ], width=3, id="verify-sample-col"),
                     dbc.Col([
-                        dbc.Label("Tickers puntuales (opcional, ignora la muestra)", size="sm"),
+                        dbc.Label("Tickers puntuales", size="sm"),
                         dbc.Input(id="verify-tickers", type="text", size="sm",
                                   placeholder="AAPL,GGAL.BA"),
-                    ], width=4),
+                    ], width=4, id="verify-tickers-col"),
                 ], className="mb-3 gy-2"),
                 dbc.Button("Verificar", id="verify-run-btn",
                            color="primary", size="sm", className="mb-2"),
@@ -115,35 +143,6 @@ def layout(**kwargs):
                     _result_tab("Datos de origen", "sanity",
                                "verify-run-summary-sanity", "verify-run-detail-sanity"),
                 ], active_tab="calc"),
-            ]),
-        ], className="mb-4"),
-
-        # ── Marcado de activos (⚠️ en los selectores de la app) ──────────────
-        dbc.Card([
-            dbc.CardHeader("Marcado de activos con hallazgos"),
-            dbc.CardBody([
-                html.P(
-                    "Recalcula indicadores + fundamentales para los activos "
-                    "elegidos y actualiza asset_verification_flag — la tabla "
-                    "que hace aparecer un ⚠️ junto al activo en los selectores "
-                    "de Análisis de Activo, RRG, Evolución, Pares y Retornos. "
-                    "Un activo se reescribe (o se limpia, si ya no tiene "
-                    "hallazgos) solo cuando se lo vuelve a verificar acá — el "
-                    "job programado corre \"Todos los activos\" una vez por "
-                    "semana; estos botones permiten forzarlo antes.",
-                    className="text-muted small mb-3",
-                ),
-                html.Div(id="verify-flags-last-run", className="text-muted small mb-2"),
-                dbc.Button("Todos los activos", id="verify-flags-btn-all",
-                          color="warning", size="sm", className="mb-2 me-2"),
-                dbc.Button("Solo los ya marcados", id="verify-flags-btn-marked",
-                          color="secondary", size="sm", className="mb-2"),
-                dcc.Interval(id="verify-flags-interval", interval=1000,
-                             disabled=True, n_intervals=0),
-                dbc.Progress(id="verify-flags-progress", value=0, striped=True,
-                           animated=True, label="", className="mb-2",
-                           style={"display": "none"}),
-                dbc.Alert(id="verify-flags-alert", is_open=False, dismissable=True),
             ]),
         ]),
     ])

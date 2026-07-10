@@ -637,6 +637,11 @@ def update_flags_for_assets(asset_ids: list | None = None, progress_cb=None) -> 
         "indicators_combos":   ind_result["combos"],
         "fundamentals_combos": fund_result["combos"],
         "seconds": round(_time.monotonic() - t0, 1),
+        # detalle completo (indicadores + fundamentales combinados), para
+        # que /admin/verify pueda mostrar las mismas pestañas de
+        # discrepancias/datos de origen que un run_verification suelto —
+        # no lo usa el job programado, solo lo lee el botón manual.
+        "results": ind_result["results"] + fund_result["results"],
     }
 
     log = s.get(VerificationRunLog, 1) or VerificationRunLog(id=1)

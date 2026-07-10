@@ -3,16 +3,14 @@ import sys
 import threading
 from pathlib import Path
 
-from dash import Input, Output, State, callback, ctx, no_update
+from dash import Input, Output, State, callback, no_update
 from flask_login import current_user
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 
 _pytest_state = {"running": False, "output": "", "passed": None, "error": None}
 _verify_state = {"running": False, "current": 0, "total": 0, "label": "",
-                 "result": None, "error": None}
-_flags_state = {"running": False, "current": 0, "total": 0, "label": "",
-                "result": None, "error": None}
+                 "result": None, "error": None, "kind": None}
 
 
 # ── Suite de tests (pytest) ─────────────────────────────────────────────────
@@ -94,6 +92,30 @@ def update_code_options(domain):
 
 
 @callback(
+    Output("verify-sample-col",  "style"),
+    Output("verify-tickers-col", "style"),
+    Output("verify-domain",      "options"),
+    Output("verify-codes",       "disabled"),
+    Output("verify-domain-note", "className"),
+    Input("verify-scope", "value"),
+)
+def toggle_scope_inputs(scope):
+    show  = {"display": "block"}
+    hide  = {"display": "none"}
+    full_scope = scope in ("all", "marked")
+    domain_opts = [
+        {"label": "Indicadores técnicos", "value": "indicators", "disabled": full_scope},
+        {"label": "Ratios fundamentales", "value": "fundamentals", "disabled": full_scope},
+    ]
+    note_class = "text-muted" if full_scope else "text-muted d-none"
+    return (
+        show if scope == "sample"  else hide,
+        show if scope == "tickers" else hide,
+        domain_opts, full_scope, note_class,
+    )
+
+
+@callback(
     Output("verify-run-interval",       "disabled", allow_duplicate=True),
     Output("verify-run-progress",       "style",    allow_duplicate=True),
     Output("verify-run-btn",            "disabled", allow_duplicate=True),
@@ -103,13 +125,14 @@ def update_code_options(domain):
     Output("verify-run-summary-sanity", "children", allow_duplicate=True),
     Output("verify-run-detail-sanity",  "children", allow_duplicate=True),
     Input("verify-run-btn", "n_clicks"),
+    State("verify-scope",   "value"),
     State("verify-domain",  "value"),
     State("verify-codes",   "value"),
     State("verify-sample",  "value"),
     State("verify-tickers", "value"),
     prevent_initial_call=True,
 )
-def start_verify(_, domain, codes, sample, tickers_raw):
+def start_verify(_, scope, domain, codes, sample, tickers_raw):
     if not current_user.is_authenticated or not current_user.is_admin:
         return (no_update,) * 8
     if _verify_state["running"]:
@@ -119,8 +142,9 @@ def start_verify(_, domain, codes, sample, tickers_raw):
     if tickers_raw and tickers_raw.strip():
         tickers = [t.strip() for t in tickers_raw.split(",") if t.strip()]
 
+    kind = "flags" if scope in ("all", "marked") else "sample"
     _verify_state.update({"running": True, "current": 0, "total": 0, "label": "",
-                          "result": None, "error": None})
+                          "result": None, "error": None, "kind": kind})
 
     def _run():
         def _progress(cur, tot, label=""):
@@ -128,16 +152,23 @@ def start_verify(_, domain, codes, sample, tickers_raw):
             _verify_state["total"]   = tot
             _verify_state["label"]   = label
         try:
-            from app.services.verification_service import (
-                run_fund_verification, run_verification,
-            )
-            run_fn = run_verification if domain != "fundamentals" else run_fund_verification
-            result = run_fn(
-                codes=codes or None,
-                sample=int(sample) if sample else 30,
-                tickers=tickers,
-                progress_cb=_progress,
-            )
+            if kind == "flags":
+                from app.services.verification_service import (
+                    get_flagged_asset_ids, update_flags_for_assets,
+                )
+                asset_ids = None if scope == "all" else list(get_flagged_asset_ids())
+                result = update_flags_for_assets(asset_ids=asset_ids, progress_cb=_progress)
+            else:
+                from app.services.verification_service import (
+                    run_fund_verification, run_verification,
+                )
+                run_fn = run_verification if domain != "fundamentals" else run_fund_verification
+                result = run_fn(
+                    codes=codes or None,
+                    sample=int(sample) if sample else 30,
+                    tickers=tickers,
+                    progress_cb=_progress,
+                )
             _verify_state["result"] = result
         except Exception as exc:
             _verify_state["error"] = str(exc)
@@ -212,6 +243,7 @@ def _format_detail(combos: list) -> str:
     Output("verify-run-detail-calc",     "children",  allow_duplicate=True),
     Output("verify-run-summary-sanity",  "children",  allow_duplicate=True),
     Output("verify-run-detail-sanity",   "children",  allow_duplicate=True),
+    Output("verify-flags-last-run",      "children",  allow_duplicate=True),
     Input("verify-run-interval", "n_intervals"),
     prevent_initial_call=True,
 )
@@ -221,84 +253,51 @@ def poll_verify(_):
         pct = int(_verify_state["current"] / tot * 100)
         label = f"{_verify_state['current']} / {_verify_state['total']}  {_verify_state['label']}"
         return (False, pct, label, {"display": "block"}, True,
-                no_update, False, no_update, no_update, no_update, no_update, no_update)
+                no_update, False, no_update, no_update, no_update, no_update, no_update, no_update)
 
     if _verify_state["error"]:
         msg = f"Error corriendo la verificación: {_verify_state['error']}"
         return (True, 0, "", {"display": "none"}, False,
-                msg, True, "danger", "", "", "", "")
+                msg, True, "danger", "", "", "", "", no_update)
 
     result = _verify_state["result"]
     if result is None:
         return (True, 0, "", {"display": "none"}, False,
-                no_update, False, no_update, no_update, no_update, no_update, no_update)
+                no_update, False, no_update, no_update, no_update, no_update, no_update, no_update)
 
     calc, sanity = _split_by_category(result)
     n_calc   = sum(len(r["diffs"]) for r in calc)
     n_sanity = sum(len(r["diffs"]) for r in sanity)
+
+    prefix = ""
+    last_run_text = no_update
+    if _verify_state["kind"] == "flags":
+        prefix = (f"Marcado actualizado — {result['checked_assets']} activos verificados "
+                 f"en {result['seconds']}s, {result['flagged_assets']} quedaron marcados, "
+                 f"{result['cleared_assets']} se limpiaron. ")
+        from app.services.verification_service import get_last_verification_run
+        last_run_text = _format_last_run(get_last_verification_run())
+
     if n_calc == 0 and n_sanity == 0:
         color = "success"
-        msg = (f"OK — sin diferencias en {len(result['codes'])} códigos x "
-               f"{len(result['asset_ids'])} activos ({result['combos']} combinaciones).")
+        msg = prefix + "Sin diferencias en lo verificado."
     elif n_calc == 0:
         color = "warning"
-        msg = (f"Sin discrepancias de cálculo. {n_sanity} posibles errores de datos de "
-               f"origen (revisar el dato de entrada, no es un bug de caché) — ver pestaña "
-               f"'Datos de origen'.")
+        msg = (prefix + f"Sin discrepancias de cálculo. {n_sanity} posibles errores de "
+               f"datos de origen (revisar el dato de entrada, no es un bug de caché) — "
+               f"ver pestaña 'Datos de origen'.")
     else:
         color = "danger"
-        msg = (f"{n_calc} discrepancias de cálculo (posible bug de caché/delta) + "
+        msg = (prefix + f"{n_calc} discrepancias de cálculo (posible bug de caché/delta) + "
                f"{n_sanity} posibles errores de datos de origen — ver detalle en cada pestaña.")
-    if result["missing_tickers"]:
+    if result.get("missing_tickers"):
         msg += f" (tickers no encontrados, salteados: {', '.join(result['missing_tickers'])})"
 
     return (True, 100, "Completo", {"display": "none"}, False,
             msg, True, color,
             _format_summary(calc),   _format_detail(calc),
-            _format_summary(sanity), _format_detail(sanity))
-
-
-# ── Marcado de activos (⚠️ en los selectores de la app) ─────────────────────
-
-@callback(
-    Output("verify-flags-interval",   "disabled", allow_duplicate=True),
-    Output("verify-flags-progress",   "style",    allow_duplicate=True),
-    Output("verify-flags-btn-all",    "disabled", allow_duplicate=True),
-    Output("verify-flags-btn-marked", "disabled", allow_duplicate=True),
-    Output("verify-flags-alert",      "is_open",  allow_duplicate=True),
-    Input("verify-flags-btn-all",    "n_clicks"),
-    Input("verify-flags-btn-marked", "n_clicks"),
-    prevent_initial_call=True,
-)
-def start_flags_update(n_all, n_marked):
-    if not current_user.is_authenticated or not current_user.is_admin:
-        return no_update, no_update, no_update, no_update, no_update
-    if _flags_state["running"]:
-        return False, {"display": "block"}, True, True, no_update
-
-    mode = "all" if ctx.triggered_id == "verify-flags-btn-all" else "marked"
-    _flags_state.update({"running": True, "current": 0, "total": 0, "label": "",
-                         "result": None, "error": None})
-
-    def _run():
-        def _progress(cur, tot, label=""):
-            _flags_state["current"] = cur
-            _flags_state["total"]   = tot
-            _flags_state["label"]   = label
-        try:
-            from app.services.verification_service import (
-                get_flagged_asset_ids, update_flags_for_assets,
-            )
-            asset_ids = None if mode == "all" else list(get_flagged_asset_ids())
-            result = update_flags_for_assets(asset_ids=asset_ids, progress_cb=_progress)
-            _flags_state["result"] = result
-        except Exception as exc:
-            _flags_state["error"] = str(exc)
-        finally:
-            _flags_state["running"] = False
-
-    threading.Thread(target=_run, daemon=True).start()
-    return False, {"display": "block"}, True, True, False
+            _format_summary(sanity), _format_detail(sanity),
+            last_run_text)
 
 
 def _format_last_run(info: dict | None) -> str:
@@ -321,44 +320,3 @@ def _format_last_run(info: dict | None) -> str:
 def load_last_run(_):
     from app.services.verification_service import get_last_verification_run
     return _format_last_run(get_last_verification_run())
-
-
-@callback(
-    Output("verify-flags-interval",   "disabled",  allow_duplicate=True),
-    Output("verify-flags-progress",   "value",     allow_duplicate=True),
-    Output("verify-flags-progress",   "label",     allow_duplicate=True),
-    Output("verify-flags-progress",   "style",     allow_duplicate=True),
-    Output("verify-flags-btn-all",    "disabled",  allow_duplicate=True),
-    Output("verify-flags-btn-marked", "disabled",  allow_duplicate=True),
-    Output("verify-flags-alert",      "children",  allow_duplicate=True),
-    Output("verify-flags-alert",      "is_open",   allow_duplicate=True),
-    Output("verify-flags-alert",      "color",     allow_duplicate=True),
-    Output("verify-flags-last-run",   "children",  allow_duplicate=True),
-    Input("verify-flags-interval", "n_intervals"),
-    prevent_initial_call=True,
-)
-def poll_flags_update(_):
-    if _flags_state["running"]:
-        tot = _flags_state["total"] or 1
-        pct = int(_flags_state["current"] / tot * 100)
-        label = f"{_flags_state['current']} / {_flags_state['total']}  {_flags_state['label']}"
-        return (False, pct, label, {"display": "block"}, True, True,
-                no_update, False, no_update, no_update)
-
-    if _flags_state["error"]:
-        msg = f"Error actualizando el marcado: {_flags_state['error']}"
-        return (True, 0, "", {"display": "none"}, False, False,
-                msg, True, "danger", no_update)
-
-    result = _flags_state["result"]
-    if result is None:
-        return (True, 0, "", {"display": "none"}, False, False,
-                no_update, False, no_update, no_update)
-
-    msg = (f"Verificados {result['checked_assets']} activos en {result['seconds']}s: "
-           f"{result['flagged_assets']} quedaron marcados, "
-           f"{result['cleared_assets']} se limpiaron.")
-    from app.services.verification_service import get_last_verification_run
-    last_run_text = _format_last_run(get_last_verification_run())
-    return (True, 100, "Completo", {"display": "none"}, False, False,
-            msg, True, "success", last_run_text)
