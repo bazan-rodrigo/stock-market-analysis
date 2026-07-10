@@ -1,6 +1,9 @@
 """
-APScheduler para la actualización diaria de precios.
-Configuración (enabled, hour, minute) persistida en la tabla scheduler_config.
+APScheduler para la actualización diaria de precios y la verificación
+semanal de datos (asset_verification_flag). Un único proceso de
+BackgroundScheduler con dos jobs independientes: el diario se habilita
+junto con "Iniciar" (como siempre), el semanal tiene su propio toggle
+en scheduler_config (weekly_verify_enabled) y nace deshabilitado.
 """
 import logging
 import threading
@@ -16,6 +19,8 @@ _scheduler_lock = threading.Lock()
 # True mientras corre la actualización diaria programada (lo consulta el
 # Centro de Datos para no lanzar operaciones ni COUNTs pesados en paralelo)
 _daily_running = False
+
+_WEEKLY_JOB_ID = "weekly_verification"
 
 
 def is_daily_update_running() -> bool:
@@ -36,7 +41,7 @@ def _get_config():
     return cfg
 
 
-def _save_config(enabled: bool | None = None, hour: int | None = None, minute: int | None = None) -> None:
+def _save_config(**fields) -> None:
     from app.database import get_session
     from app.models.scheduler_config import SchedulerConfig
     s = get_session()
@@ -44,12 +49,9 @@ def _save_config(enabled: bool | None = None, hour: int | None = None, minute: i
     if cfg is None:
         cfg = SchedulerConfig(id=1, enabled=False, hour=18, minute=0)
         s.add(cfg)
-    if enabled is not None:
-        cfg.enabled = enabled
-    if hour is not None:
-        cfg.hour = hour
-    if minute is not None:
-        cfg.minute = minute
+    for key, value in fields.items():
+        if value is not None:
+            setattr(cfg, key, value)
     s.commit()
 
 
@@ -114,7 +116,12 @@ def _weekly_verification_job() -> None:
     try:
         from app.services.verification_service import run_full_verification_and_store
         result = run_full_verification_and_store()
-        logger.info("Verificación semanal finalizada: %s", result)
+        logger.info(
+            "Verificación semanal finalizada: %d activos verificados, "
+            "%d marcados, %d limpiados, %.1fs",
+            result["checked_assets"], result["flagged_assets"],
+            result["cleared_assets"], result["seconds"],
+        )
     except Exception as exc:
         logger.exception("Error en la verificación semanal: %s", exc)
     finally:
@@ -122,7 +129,7 @@ def _weekly_verification_job() -> None:
         Session.remove()
 
 
-# ── Control del scheduler ─────────────────────────────────────────────────────
+# ── Control del scheduler (job diario) ────────────────────────────────────────
 
 def start_scheduler() -> None:
     global _scheduler
@@ -137,23 +144,19 @@ def start_scheduler() -> None:
             id="daily_price_update",
             replace_existing=True,
         )
-        # Mismo proceso único de APScheduler, un segundo job con su propio
-        # horario fijo (domingo temprano, lejos de la actualización diaria)
-        # — no tiene configuración propia en scheduler_config, se prende y
-        # apaga junto con el scheduler general.
-        _scheduler.add_job(
-            _weekly_verification_job,
-            trigger=CronTrigger(day_of_week="sun", hour=3, minute=0),
-            id="weekly_verification",
-            replace_existing=True,
-        )
+        if cfg.weekly_verify_enabled:
+            _scheduler.add_job(
+                _weekly_verification_job,
+                trigger=CronTrigger(day_of_week=cfg.weekly_verify_day,
+                                    hour=cfg.weekly_verify_hour,
+                                    minute=cfg.weekly_verify_minute),
+                id=_WEEKLY_JOB_ID,
+                replace_existing=True,
+            )
         _scheduler.start()
     _save_config(enabled=True)
-    logger.info(
-        "Scheduler iniciado. Actualización diaria a las %02d:%02d UTC, "
-        "verificación semanal domingos 03:00 UTC",
-        cfg.hour, cfg.minute,
-    )
+    logger.info("Scheduler iniciado. Actualización diaria a las %02d:%02d UTC",
+               cfg.hour, cfg.minute)
 
 
 def shutdown_scheduler() -> None:
@@ -205,6 +208,73 @@ def run_now() -> None:
     _scheduler.get_job("daily_price_update").modify(
         next_run_time=datetime.datetime.utcnow()
     )
+
+
+# ── Control de la verificación semanal (job independiente) ───────────────────
+# No comparte el habilitado/deshabilitado del job diario: "Iniciar"/"Detener"
+# arriba prende/apaga el proceso de APScheduler en sí (infraestructura
+# compartida), pero este job además necesita su PROPIO toggle — nace
+# deshabilitado (weekly_verify_enabled=False por default) y el usuario lo
+# habilita explícitamente cuando quiere.
+
+def enable_weekly_verification() -> None:
+    cfg = _get_config()
+    _save_config(weekly_verify_enabled=True)
+    with _scheduler_lock:
+        if _scheduler and _scheduler.running:
+            _scheduler.add_job(
+                _weekly_verification_job,
+                trigger=CronTrigger(day_of_week=cfg.weekly_verify_day,
+                                    hour=cfg.weekly_verify_hour,
+                                    minute=cfg.weekly_verify_minute),
+                id=_WEEKLY_JOB_ID,
+                replace_existing=True,
+            )
+    logger.info("Verificación semanal habilitada")
+
+
+def disable_weekly_verification() -> None:
+    _save_config(weekly_verify_enabled=False)
+    with _scheduler_lock:
+        if _scheduler and _scheduler.running and _scheduler.get_job(_WEEKLY_JOB_ID):
+            _scheduler.remove_job(_WEEKLY_JOB_ID)
+    logger.info("Verificación semanal deshabilitada")
+
+
+def update_weekly_verification_schedule(day: str, hour: int, minute: int) -> None:
+    _save_config(weekly_verify_day=day, weekly_verify_hour=hour, weekly_verify_minute=minute)
+    with _scheduler_lock:
+        if _scheduler and _scheduler.running and _scheduler.get_job(_WEEKLY_JOB_ID):
+            _scheduler.reschedule_job(
+                _WEEKLY_JOB_ID,
+                trigger=CronTrigger(day_of_week=day, hour=hour, minute=minute),
+            )
+    logger.info("Horario de verificación semanal actualizado: %s %02d:%02d UTC",
+               day, hour, minute)
+
+
+def run_weekly_verification_now() -> None:
+    with _scheduler_lock:
+        job = _scheduler.get_job(_WEEKLY_JOB_ID) if _scheduler and _scheduler.running else None
+    if job is None:
+        raise RuntimeError("La verificación semanal no está habilitada/corriendo.")
+    import datetime
+    job.modify(next_run_time=datetime.datetime.utcnow())
+
+
+def get_weekly_verification_status() -> dict:
+    cfg = _get_config()
+    with _scheduler_lock:
+        job = _scheduler.get_job(_WEEKLY_JOB_ID) if _scheduler and _scheduler.running else None
+        next_run = str(job.next_run_time)[:19] if job and job.next_run_time else "—"
+    return {
+        "enabled": cfg.weekly_verify_enabled,
+        "running": job is not None,
+        "next_run": next_run,
+        "day": cfg.weekly_verify_day,
+        "hour": cfg.weekly_verify_hour,
+        "minute": cfg.weekly_verify_minute,
+    }
 
 
 def start_if_enabled() -> None:
