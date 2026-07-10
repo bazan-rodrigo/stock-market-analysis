@@ -61,7 +61,12 @@ _NUMERIC_BOUNDS: dict[str, tuple[float, float]] = {
     "rsi_daily": (0, 100), "rsi_weekly": (0, 100), "rsi_monthly": (0, 100),
     "atr_percentile_daily": (0, 100), "atr_percentile_weekly": (0, 100),
     "atr_percentile_monthly": (0, 100),
-    "dist_sma20": (-50, 50), "dist_sma50": (-50, 50), "dist_sma200": (-50, 50),
+    # dist_sma20/50/200: (precio-sma)/sma*100 — distancia PORCENTUAL, no
+    # z-score. Para activos volátiles (small caps, cripto) puede pasar
+    # cómodamente 100-200% sin ser un bug — límite generoso.
+    "dist_sma20": (-500, 2000), "dist_sma50": (-500, 2000), "dist_sma200": (-500, 2000),
+    # dist_optimal_sma_*: (precio-sma)/desvío — esto sí es un z-score,
+    # límite ajustado tiene sentido acá.
     "dist_optimal_sma_daily": (-50, 50), "dist_optimal_sma_weekly": (-50, 50),
     "dist_optimal_sma_monthly": (-50, 50),
     "return_daily": (-100, 2000),
