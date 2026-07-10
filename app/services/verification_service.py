@@ -346,6 +346,24 @@ def _current_ratio_fresh(quarters: list, price_rows: list) -> dict:
     return {k: v for k, v in values.items() if v is not None}
 
 
+def _current_ratio_diff_entry(current_val, stored: dict, today):
+    """Decide si el valor "vigente" recalculado necesita agregarse a
+    `fresh` para que el loop de comparación de verify_asset_ratio_code lo
+    trate como diferencia real. None si coincide con lo ya guardado —sin
+    importar la fecha exacta: el vigente se reescribe con la fecha del día
+    en que corrió producción, no una fecha fija, así que comparar contra
+    "hoy" a secas daría una diferencia falsa cada vez que la verificación
+    no corre el mismo día que el último refresh de producción."""
+    if current_val is None:
+        return None
+    if not stored:
+        return today, current_val
+    latest = max(stored)
+    if _values_equal(current_val, stored[latest]):
+        return None
+    return latest, current_val
+
+
 def verify_asset_ratio_code(session, code: str, asset_id: int,
                             quarters: list, price_rows: list) -> list:
     """Equivalente a verify_asset_code, para un código fundamental."""
@@ -370,11 +388,12 @@ def verify_asset_ratio_code(session, code: str, asset_id: int,
             if val is not None:
                 fresh[q.period_date] = val
 
-    current_val = _current_ratio_fresh(quarters, price_rows).get(code)
-    if current_val is not None:
-        fresh[_date_type.today()] = current_val
-
     stored = _stored_values(session, code, asset_id)
+
+    current_val = _current_ratio_fresh(quarters, price_rows).get(code)
+    entry = _current_ratio_diff_entry(current_val, stored, _date_type.today())
+    if entry is not None:
+        fresh[entry[0]] = entry[1]
 
     diffs = []
     for d in sorted(set(fresh) | set(stored)):

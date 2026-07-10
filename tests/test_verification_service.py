@@ -4,7 +4,8 @@ from datetime import date, timedelta
 
 from app.services.fundamental_service import _Quarter
 from app.services.verification_service import (
-    _current_ratio_fresh, _diff_category, _values_equal, check_sanity,
+    _current_ratio_diff_entry, _current_ratio_fresh, _diff_category,
+    _values_equal, check_sanity,
 )
 
 
@@ -141,3 +142,30 @@ def test_diff_category_discrepancia_de_valor_es_calc():
 def test_diff_category_sanity_es_cualquier_otro_motivo():
     assert _diff_category("fuera de rango [0,100] para rsi_daily: 150") == "sanity"
     assert _diff_category("categoría desconocida para trend_daily: 'sideways'") == "sanity"
+
+
+# ── _current_ratio_diff_entry: el "vigente" se reescribe con la fecha del
+# día en que corrió producción, no una fecha fija — comparar contra "hoy"
+# a secas daría una diferencia falsa cada vez que la verificación no corre
+# el mismo día que el último refresh de producción (prácticamente siempre).
+
+def test_current_ratio_diff_entry_none_si_ya_esta():
+    assert _current_ratio_diff_entry(None, {date(2026, 7, 9): 1.5}, date(2026, 7, 10)) is None
+
+
+def test_current_ratio_diff_entry_coincide_con_fecha_vieja_no_dispara():
+    # el vigente vale lo mismo que lo guardado ayer -- no importa que la
+    # fecha guardada no sea "hoy"
+    stored = {date(2026, 7, 9): 1.5}
+    assert _current_ratio_diff_entry(1.5, stored, date(2026, 7, 10)) is None
+
+
+def test_current_ratio_diff_entry_difiere_usa_la_fecha_guardada():
+    stored = {date(2026, 7, 9): 1.5}
+    entry = _current_ratio_diff_entry(1.8, stored, date(2026, 7, 10))
+    assert entry == (date(2026, 7, 9), 1.8)
+
+
+def test_current_ratio_diff_entry_sin_nada_guardado_usa_hoy():
+    entry = _current_ratio_diff_entry(1.5, {}, date(2026, 7, 10))
+    assert entry == (date(2026, 7, 10), 1.5)
