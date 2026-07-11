@@ -23,11 +23,12 @@ def layout(**kwargs):
     return html.Div([
         html.Div([
             html.H3("Actualización de precios", className="d-inline-block me-3"),
-            dbc.Button("Recalcular indicadores", id="prices-btn-indicators", color="secondary", size="sm", disabled=False, className="me-2"),
             dbc.Button("Limpiar log", id="prices-btn-clear-log", color="link", size="sm"),
         ], className="d-flex align-items-center mb-2"),
         html.Div([
             dbc.Button("Actualizar seleccionados", id="prices-btn-one", color="secondary", size="sm", disabled=True, className="me-2"),
+            dbc.Button("Recalcular seleccionados (completo)", id="prices-btn-indicators",
+                       color="secondary", size="sm", disabled=True, className="me-2"),
             dbc.Button("Reintentar fallidos", id="prices-btn-retry", color="warning", size="sm", className="me-2"),
             dbc.Button("Redescargar completo (seleccionados)", id="prices-btn-redownload-selected",
                        color="danger", size="sm", outline=True, disabled=True, className="me-2"),
@@ -63,7 +64,8 @@ def layout(**kwargs):
             dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),
             dbc.ModalBody(
                 "Esta acción borrará toda la historia de precios de los activos "
-                "seleccionados y la redescargará desde Yahoo Finance. ¿Confirmás?"
+                "seleccionados, la redescargará desde Yahoo Finance y recalculará "
+                "sus indicadores y ratios fundamentales por completo. ¿Confirmás?"
             ),
             dbc.ModalFooter([
                 dbc.Button("Sí, borrar y redescargar", id="prices-btn-redownload-selected-confirm", color="danger"),

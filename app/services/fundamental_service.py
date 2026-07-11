@@ -250,6 +250,81 @@ def recompute_ratios_for_asset(asset_id: int) -> None:
     s.commit()
 
 
+def backfill_asset_fund_history(asset_id: int) -> dict:
+    """Reconstruye desde cero la historia de ratios fundamentales
+    (ind_fundamental_*) de UN activo — equivalente fundamental de
+    backfill_asset_history (technical_service.py): borra las filas de ese
+    activo en cada ind_fundamental_* (DELETE puntual por asset_id, no
+    TRUNCATE — a diferencia de backfill_all_fundamental_values(force=True),
+    esto no toca el resto de la tabla) y las recalcula completas a partir
+    de los trimestrales/precios ya guardados.
+
+    Pensado para después de un redescargo puntual de fundamentales
+    (ver redownload_all_fundamentals con selección): como los trimestrales
+    son enteramente nuevos, conviene recalcular todo en vez de confiar en
+    el atajo delta de _backfill_fund_indicator (que solo completa fechas
+    faltantes)."""
+    s = get_session()
+    quarters = _load_all_quarters(s, [asset_id]).get(asset_id, [])
+    if not quarters:
+        return {"inserted": 0}
+    q_ords = np.array([q.period_date.toordinal() for q in quarters])
+    price_rows = _load_fund_prices(s, [asset_id]).get(asset_id, [])
+
+    inserted = 0
+    for code in sorted(_ALL_FUND_CODES):
+        t = get_ind_table(code)
+        s.execute(t.delete().where(t.c.asset_id == asset_id))
+
+        if code in _FUND_DAILY_CODES:
+            if not price_rows:
+                continue
+            dates_seq       = [d for d, _ in price_rows]
+            price_dates_ord = np.array([d.toordinal() for d, _ in price_rows])
+            price_closes    = np.array([c for _, c in price_rows])
+            series = _daily_ratio_series(quarters, q_ords, dates_seq,
+                                         price_dates_ord, price_closes)
+            batch = [{"asset_id": asset_id, "date": d, "value": float(v)}
+                    for d, v in zip(dates_seq, series[code]) if not np.isnan(v)]
+        else:
+            batch = []
+            for idx, q in enumerate(quarters):
+                val = _compute_quarterly_ratios(quarters, idx).get(code)
+                if val is not None:
+                    batch.append({"asset_id": asset_id, "date": q.period_date,
+                                  "value": float(val)})
+
+        if batch:
+            stmt = _mysql_insert(t).values(batch)
+            s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+            inserted += len(batch)
+
+    s.commit()
+    return {"inserted": inserted}
+
+
+def _rebuild_ratios_for_assets(progress_cb, asset_ids: list) -> dict:
+    """Recalculo COMPLETO (no delta) de ratios fundamentales para una
+    selección puntual de activos — usado tras un redescargo de
+    trimestrales puntual (ver redownload_all_fundamentals): como los
+    trimestrales son enteramente nuevos, un delta podría no recalcular
+    fechas ya escritas que ahora deberían dar un valor distinto; el
+    rebuild por activo no tiene atajos, así que siempre queda consistente.
+    El costo es aceptable porque esta selección siempre es chica (uso
+    puntual desde /admin/fundamentals, no la corrida global)."""
+    total  = len(asset_ids)
+    errors = []
+    for i, aid in enumerate(asset_ids, 1):
+        if progress_cb:
+            progress_cb(i, total, f"Recalculando ratios id={aid}...")
+        try:
+            recompute_ratios_for_asset(aid)
+            backfill_asset_fund_history(aid)
+        except Exception as exc:
+            errors.append({"ticker": str(aid), "error": str(exc)})
+    return {"total": total, "success": total - len(errors), "errors": errors}
+
+
 def recompute_all_ratios(progress_cb=None, *, quarters_cache: dict | None = None,
                          price_cache: dict | None = None) -> dict:
     """Recomputa los ratios vigentes de todos los activos con fundamentales.
@@ -393,7 +468,12 @@ def _chain_to_ratio_delta(progress_cb, download_result: dict) -> dict:
     mensaje aclara qué fase está corriendo en cada momento.
 
     Si no había nada para descargar (ej. "solo nuevos" sin nada nuevo), no
-    vale la pena pagar un delta completo por nada — se salta."""
+    vale la pena pagar un delta completo por nada — se salta.
+
+    Solo la usan los jobs globales (update_new_fundamentals/update_all_
+    fundamentals) — redownload_all_fundamentals con selección puntual usa
+    _rebuild_ratios_for_assets en su lugar (rebuild completo por activo,
+    no delta: ver esa función para el motivo)."""
     if download_result.get("total", 0) == 0:
         return download_result
     if progress_cb:
@@ -446,7 +526,15 @@ def update_all_fundamentals(progress_cb=None) -> dict:
 def redownload_all_fundamentals(asset_ids: list[int] | None = None, progress_cb=None) -> dict:
     """Borra el historial trimestral y lo redescarga completo desde la fuente.
     Si asset_ids es None, aplica a todos los activos con fuente configurada
-    (mismo patrón que redownload_prices en price_service.py)."""
+    (mismo patrón que redownload_prices en price_service.py).
+
+    Con una selección puntual, el recálculo de ratios que sigue a la
+    descarga es un rebuild COMPLETO por activo (_rebuild_ratios_for_assets),
+    no el delta que usan los jobs globales (_chain_to_ratio_delta) — los
+    trimestrales son enteramente nuevos, así que conviene recalcular todo
+    en vez de confiar en atajos. Antes esto además recorría el universo
+    entero aunque se hubiese redescargado un solo activo puntual, dando un
+    resumen final confuso (ej. "351/352 exitosos" habiendo seleccionado 1)."""
     s = get_session()
     q = s.query(Asset).filter(Asset.fundamental_source_id.isnot(None))
     if asset_ids is not None:
@@ -455,7 +543,18 @@ def redownload_all_fundamentals(asset_ids: list[int] | None = None, progress_cb=
     pairs  = [(a.id, a.ticker) for a in assets]
     download_result = _run_fund_batch(pairs, clear=True, progress_cb=progress_cb,
                                       skip_ratios=True)
-    return _chain_to_ratio_delta(progress_cb, download_result)
+
+    if asset_ids is None:
+        return _chain_to_ratio_delta(progress_cb, download_result)
+    if download_result.get("total", 0) == 0:
+        return download_result
+    if progress_cb:
+        progress_cb(0, 1, "Recalculando ratios...")
+    ratio_result = _rebuild_ratios_for_assets(progress_cb, asset_ids)
+    total   = download_result["total"]   + ratio_result["total"]
+    success = download_result["success"] + ratio_result["success"]
+    errors  = download_result["errors"]  + ratio_result["errors"]
+    return {"total": total, "success": success, "errors": errors}
 
 
 def get_fundamentals_log() -> list[dict]:
@@ -763,12 +862,18 @@ _Quarter = _nt("_Quarter", [
 ])
 
 
-def _load_all_quarters(s) -> dict:
-    """Carga todos los quarters como namedtuples thread-safe. {asset_id: [_Quarter]}"""
+def _load_all_quarters(s, asset_ids: list | None = None) -> dict:
+    """Carga los quarters como namedtuples thread-safe. {asset_id: [_Quarter]}
+    asset_ids=None: todos los activos con fundamentales (default, sin
+    cambios); si se pasa una lista, solo esos (ver _run_ratios_and_backfill,
+    usado para escopar el recálculo de ratios a un redescargo puntual en
+    vez de recorrer siempre el universo entero)."""
     from itertools import groupby as _gb
-    rows = (s.query(FundamentalQuarterly)
-              .order_by(FundamentalQuarterly.asset_id,
-                        FundamentalQuarterly.period_date.asc())
+    q = s.query(FundamentalQuarterly)
+    if asset_ids is not None:
+        q = q.filter(FundamentalQuarterly.asset_id.in_(asset_ids))
+    rows = (q.order_by(FundamentalQuarterly.asset_id,
+                       FundamentalQuarterly.period_date.asc())
               .all())
     cache: dict = {}
     for asset_id, grp in _gb(rows, key=lambda q: q.asset_id):

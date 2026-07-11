@@ -26,15 +26,15 @@ def layout(**kwargs):
 
         html.Div([
             html.H3("Actualización de Fundamentales", className="d-inline-block me-3"),
-            dbc.Button("Reintentar fallidos", id="fund-upd-btn-retry",
-                       color="warning", size="sm", className="me-2"),
-            dbc.Button("Limpiar log",         id="fund-upd-btn-clear",
+            dbc.Button("Limpiar log", id="fund-upd-btn-clear",
                        color="link", size="sm"),
         ], className="d-flex align-items-center mb-2"),
 
         html.Div([
             dbc.Button("Actualizar seleccionados", id="fund-upd-btn-one",
                        color="secondary", size="sm", disabled=True, className="me-2"),
+            dbc.Button("Reintentar fallidos", id="fund-upd-btn-retry",
+                       color="warning", size="sm", className="me-2"),
             dbc.Button("Redescargar completo (seleccionados)", id="fund-upd-btn-redownload-selected",
                        color="danger", size="sm", outline=True, disabled=True),
         ], className="mb-3"),
@@ -73,7 +73,8 @@ def layout(**kwargs):
             dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),
             dbc.ModalBody(
                 "Esta acción borrará el historial trimestral de los activos "
-                "seleccionados y lo redescargará desde la fuente. ¿Confirmás?"
+                "seleccionados, lo redescargará desde la fuente y recalculará "
+                "sus ratios fundamentales por completo. ¿Confirmás?"
             ),
             dbc.ModalFooter([
                 dbc.Button("Sí, borrar y redescargar", id="fund-upd-btn-redownload-selected-confirm", color="danger"),

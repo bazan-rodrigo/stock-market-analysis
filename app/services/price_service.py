@@ -409,7 +409,12 @@ def _chain_to_indicator_and_ratio_delta(progress_cb, download_summary: dict) -> 
     aclara cuál está corriendo.
 
     Si no se tocó ningún activo (ej. "solo nuevos" sin nada nuevo), no vale
-    la pena pagar un delta completo de ~2 minutos por nada — se salta."""
+    la pena pagar un delta completo de ~2 minutos por nada — se salta.
+
+    Solo la usan los jobs globales (update_new_assets_prices/
+    update_all_active_assets) — redownload_prices con selección puntual
+    usa _rebuild_indicators_for_assets en su lugar (rebuild completo por
+    activo, no delta: ver esa función para el motivo)."""
     if download_summary.get("total", 0) == 0:
         return download_summary
 
@@ -429,6 +434,38 @@ def _chain_to_indicator_and_ratio_delta(progress_cb, download_summary: dict) -> 
     download_summary["errors"].extend(ind_result.get("errors", []))
     download_summary["errors"].extend(ratio_result.get("errors", []))
     return download_summary
+
+
+def _rebuild_indicators_for_assets(progress_cb, asset_ids: list) -> dict:
+    """Recalculo COMPLETO (no delta) de indicadores técnicos + ratios
+    fundamentales para una selección puntual de activos — usado tras un
+    redescargo de precios puntual (ver redownload_prices): como los
+    precios son enteramente nuevos (posible corrección retroactiva de la
+    fuente, ej. un split/dividendo re-ajustado), un delta podría no
+    detectar el cambio para los códigos sin compuerta de checksum (ver
+    _CHECKSUM_DEP_CODES en technical_service.py); el rebuild por activo no
+    tiene atajos, así que siempre queda consistente. El costo es
+    aceptable porque esta selección siempre es chica (uso puntual desde
+    /admin/prices, no la corrida global)."""
+    from app.services.fundamental_service import (
+        backfill_asset_fund_history, recompute_ratios_for_asset,
+    )
+    from app.services.technical_service import (
+        backfill_asset_history, compute_current_indicators,
+    )
+    total  = len(asset_ids)
+    errors = []
+    for i, aid in enumerate(asset_ids, 1):
+        if progress_cb:
+            progress_cb(i, total, f"Recalculando indicadores id={aid}...")
+        try:
+            compute_current_indicators(aid)
+            backfill_asset_history(aid)
+            recompute_ratios_for_asset(aid)
+            backfill_asset_fund_history(aid)
+        except Exception as exc:
+            errors.append({"ticker": str(aid), "error": str(exc)})
+    return {"total": total, "success": total - len(errors), "errors": errors}
 
 
 def update_new_assets_prices(progress_cb=None) -> dict:
@@ -586,7 +623,17 @@ def update_all_active_assets(progress_cb=None) -> dict:
 def redownload_prices(asset_ids: list[int] | None = None, progress_cb=None) -> dict:
     """Redescarga el historial de precios completo desde la fuente.
     El historial existente solo se borra si la descarga nueva tiene datos.
-    Si asset_ids es None, aplica a todos los activos activos."""
+    Si asset_ids es None, aplica a todos los activos activos.
+
+    Con una selección puntual, el recálculo de indicadores/ratios que sigue
+    a la descarga es un rebuild COMPLETO por activo
+    (_rebuild_indicators_for_assets), no el delta que usan los jobs
+    globales (_chain_to_indicator_and_ratio_delta) — los precios son
+    enteramente nuevos, así que conviene recalcular todo en vez de confiar
+    en atajos que podrían no detectar una corrección retroactiva de un
+    precio viejo. Antes esto además recorría el universo entero (~2 min)
+    aunque se hubiese redescargado un solo ticker puntual desde
+    /admin/prices ("Redescargar seleccionados")."""
     from app.services.asset_service import get_assets
 
     if asset_ids is None:
@@ -605,7 +652,18 @@ def redownload_prices(asset_ids: list[int] | None = None, progress_cb=None) -> d
             summary["success"] += 1
         except Exception as exc:
             summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
-    return _chain_to_indicator_and_ratio_delta(progress_cb, summary)
+
+    if asset_ids is None:
+        return _chain_to_indicator_and_ratio_delta(progress_cb, summary)
+    if summary.get("total", 0) == 0:
+        return summary
+    if progress_cb:
+        progress_cb(0, 1, "Precios actualizados. Recalculando indicadores...")
+    ind_result = _rebuild_indicators_for_assets(progress_cb, asset_ids)
+    summary["total"]   += ind_result["total"]
+    summary["success"] += ind_result["success"]
+    summary["errors"].extend(ind_result["errors"])
+    return summary
 
 
 def get_prices_df(asset_id: int):

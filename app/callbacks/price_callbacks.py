@@ -31,10 +31,11 @@ def load_price_logs(_):
 @callback(
     Output("prices-btn-one", "disabled"),
     Output("prices-btn-redownload-selected", "disabled"),
+    Output("prices-btn-indicators", "disabled"),
     Input("prices-log-table", "selected_rows"),
 )
 def price_row_selection(sel_rows):
-    return not bool(sel_rows), not bool(sel_rows)
+    return not bool(sel_rows), not bool(sel_rows), not bool(sel_rows)
 
 
 @callback(
@@ -215,26 +216,27 @@ def clear_log(_):
 @callback(
     Output("prices-interval",      "disabled",  allow_duplicate=True),
     Output("prices-progress",      "style",     allow_duplicate=True),
-    Output("prices-btn-indicators",  "disabled"),
+    Output("prices-btn-indicators", "disabled", allow_duplicate=True),
     Input("prices-btn-indicators", "n_clicks"),
     State("prices-log-table", "selected_rows"),
     State("prices-log-table", "data"),
     prevent_initial_call=True,
 )
 def recompute_indicators(_, sel_rows, data):
-    """Sin selección: valores vigentes de todos los activos.
-    Con filas seleccionadas: vigentes + historia completa, solo de esos activos."""
-    from app.services.technical_service import (
-        backfill_asset_history, compute_current_indicators,
-        recompute_current_indicators, _save_indicator_log,
-    )
-    _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
+    """Recalculo completo (vigentes + historia, sin atajos) de los
+    indicadores técnicos de los activos seleccionados — requiere selección,
+    ver price_row_selection."""
+    if not sel_rows:
+        return no_update, no_update, no_update
 
-    sel_ids = []
-    if sel_rows:
-        from app.services.asset_service import get_asset_by_ticker
-        tickers = [data[i]["ticker"] for i in sel_rows]
-        sel_ids = [a.id for a in (get_asset_by_ticker(t) for t in tickers) if a is not None]
+    from app.services.technical_service import (
+        backfill_asset_history, compute_current_indicators, _save_indicator_log,
+    )
+    from app.services.asset_service import get_asset_by_ticker
+    tickers = [data[i]["ticker"] for i in sel_rows]
+    sel_ids = [a.id for a in (get_asset_by_ticker(t) for t in tickers) if a is not None]
+
+    _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
 
     def _run():
         from app.database import Session as _DbSession
@@ -244,29 +246,21 @@ def recompute_indicators(_, sel_rows, data):
             _prices_state["total"]   = total
 
         try:
-            if sel_ids:
-                errs = 0
-                for i, aid in enumerate(sel_ids, 1):
-                    _progress(i, len(sel_ids))
-                    try:
-                        compute_current_indicators(aid)
-                        backfill_asset_history(aid)
-                        _save_indicator_log(aid, success=True, error=None)
-                    except Exception as exc:
-                        errs += 1
-                        _save_indicator_log(aid, success=False, error=str(exc))
-                _prices_state["has_errors"] = bool(errs)
-                _prices_state["msg"] = (
-                    f"Indicadores recalculados (vigentes + historia): "
-                    f"{len(sel_ids) - errs}/{len(sel_ids)} exitosos, {errs} errores."
-                )
-            else:
-                result = recompute_current_indicators(progress_cb=_progress)
-                n_err = len(result["errors"])
-                _prices_state["has_errors"] = bool(n_err)
-                _prices_state["msg"] = (
-                    f"Indicadores recalculados: {result['total'] - n_err}/{result['total']} exitosos, {n_err} errores."
-                )
+            errs = 0
+            for i, aid in enumerate(sel_ids, 1):
+                _progress(i, len(sel_ids))
+                try:
+                    compute_current_indicators(aid)
+                    backfill_asset_history(aid)
+                    _save_indicator_log(aid, success=True, error=None)
+                except Exception as exc:
+                    errs += 1
+                    _save_indicator_log(aid, success=False, error=str(exc))
+            _prices_state["has_errors"] = bool(errs)
+            _prices_state["msg"] = (
+                f"Indicadores recalculados (vigentes + historia): "
+                f"{len(sel_ids) - errs}/{len(sel_ids)} exitosos, {errs} errores."
+            )
         except Exception as exc:
             _prices_state["error"] = str(exc)
         finally:
