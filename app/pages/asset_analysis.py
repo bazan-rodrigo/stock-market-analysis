@@ -199,7 +199,7 @@ def layout(**kwargs):
                         html.Small("Ancho de bin", style={"color": "#9ca3af", "whiteSpace": "nowrap"}),
                         dbc.Input(
                             id="dist-bin-size",
-                            type="number", value=5, min=0.01, max=1000, step=1,
+                            type="number", value=5, min=0, max=1000, step=1,
                             style={"width": "80px", "fontSize": "0.8rem"},
                         ),
                     ],
