@@ -175,12 +175,24 @@ def _load_price_df(session, asset_id: int) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["date", "close", "high", "low"])
 
 
-def _stored_values(session, code: str, asset_id: int) -> dict:
-    t = get_ind_table(code)
-    rows = session.execute(
-        sa.select(t.c.date, t.c.value).where(t.c.asset_id == asset_id)
-    ).all()
-    return {d: v for d, v in rows}
+def _prefetch_stored(session, codes: list, asset_ids: list) -> dict:
+    """Una query por código (no por combinación código×activo, ver
+    _stored_values) — para una corrida completa (24 códigos x 500 activos)
+    esto es 24 queries en vez de 12000. code -> {asset_id: {date: value}}."""
+    out: dict = {}
+    if not asset_ids:
+        return {code: {} for code in codes}
+    for code in codes:
+        t = get_ind_table(code)
+        rows = session.execute(
+            sa.select(t.c.asset_id, t.c.date, t.c.value)
+            .where(t.c.asset_id.in_(asset_ids))
+        ).all()
+        by_asset: dict = {}
+        for aid, d, v in rows:
+            by_asset.setdefault(aid, {})[d] = v
+        out[code] = by_asset
+    return out
 
 
 def _values_equal(fresh, stored) -> bool:
@@ -192,11 +204,11 @@ def _values_equal(fresh, stored) -> bool:
     return diff <= _TOL or diff <= _REL_TOL * max(abs(f), abs(s))
 
 
-def verify_asset_code(session, code: str, asset_id: int, df, regime_cfg, vol_cfg) -> list:
+def verify_asset_code(session, code: str, asset_id: int, df, df_w, df_m,
+                      regime_cfg, vol_cfg, stored: dict) -> list:
     """Devuelve la lista de diferencias (fecha, motivo, guardado, fresco,
-    categoría) — ver _diff_category."""
-    df_w = _resample_ohlc(df, "W")
-    df_m = _resample_ohlc(df, "M")
+    categoría) — ver _diff_category. df_w/df_m y stored se calculan una
+    sola vez por activo (ver _verify_one_asset) en vez de por cada código."""
     compute_fn = _BACKFILL_FNS[code]
     values = compute_fn(
         df=df, df_w=df_w, df_m=df_m,
@@ -206,7 +218,6 @@ def verify_asset_code(session, code: str, asset_id: int, df, regime_cfg, vol_cfg
     )
     dates_list, vals_list = _series_dates_values(values, df)
     fresh = {d: v for d, v in zip(dates_list, vals_list) if pd.notna(v)}
-    stored = _stored_values(session, code, asset_id)
 
     diffs = []
     for d in sorted(set(fresh) | set(stored)):
@@ -247,18 +258,25 @@ def ids_from_tickers(session, tickers: list) -> tuple[list, list]:
 
 
 def _verify_one_asset(asset_id: int, ticker: str, codes: list,
-                      regime_cfg, vol_cfg) -> list:
+                      regime_cfg, vol_cfg, stored_by_code: dict) -> list:
     """Corre en su propio thread/sesión (ver _VERIFY_WORKERS): verifica
     TODOS los codes para un único activo. regime_cfg/vol_cfg son de solo
-    lectura, se comparten sin problema entre threads."""
+    lectura, se comparten sin problema entre threads; stored_by_code viene
+    prefetcheado por run_verification (ver _prefetch_stored) — evita una
+    query por código acá. df_w/df_m se resamplean una sola vez por activo,
+    no una vez por código (antes verify_asset_code lo repetía)."""
     s = get_session()
     try:
         df = _load_price_df(s, asset_id)
         if df.empty:
             return []
+        df_w = _resample_ohlc(df, "W")
+        df_m = _resample_ohlc(df, "M")
         out = []
         for code in codes:
-            diffs = verify_asset_code(s, code, asset_id, df, regime_cfg, vol_cfg)
+            stored = stored_by_code.get(code, {}).get(asset_id, {})
+            diffs = verify_asset_code(s, code, asset_id, df, df_w, df_m,
+                                      regime_cfg, vol_cfg, stored)
             if diffs:
                 out.append({"code": code, "asset_id": asset_id,
                            "ticker": ticker, "diffs": diffs})
@@ -300,6 +318,7 @@ def run_verification(codes: list | None = None, sample: int | None = 30,
     vol_cfg    = _get_volatility_config()
     ticker_map = {a.id: a.ticker for a in
                   s.query(Asset).filter(Asset.id.in_(asset_ids)).all()}
+    stored_by_code = _prefetch_stored(s, codes, asset_ids)
 
     total_work = len(codes) * len(asset_ids)
     done = 0
@@ -312,7 +331,7 @@ def run_verification(codes: list | None = None, sample: int | None = 30,
     with ThreadPoolExecutor(max_workers=_VERIFY_WORKERS) as pool:
         futures = {
             pool.submit(_verify_one_asset, aid, ticker_map.get(aid, "?"),
-                       codes, regime_cfg, vol_cfg): aid
+                       codes, regime_cfg, vol_cfg, stored_by_code): aid
             for aid in asset_ids
         }
         for future in as_completed(futures):
@@ -403,33 +422,50 @@ def _current_ratio_diff_entry(current_val, stored: dict, today):
     return target, current_val
 
 
-def verify_asset_ratio_code(session, code: str, asset_id: int,
-                            quarters: list, price_rows: list) -> list:
-    """Equivalente a verify_asset_code, para un código fundamental."""
+def _compute_quarterly_by_idx(quarters: list) -> list:
+    """Todos los ratios trimestrales de cada trimestre, calculados una sola
+    vez (ver _verify_one_fund_asset) — antes verify_asset_ratio_code llamaba
+    a _compute_quarterly_ratios(quarters, idx) una vez POR CÓDIGO para cada
+    idx, aunque esa función ya calcula los 7 códigos trimestrales juntos."""
+    return [_compute_quarterly_ratios(quarters, idx) for idx in range(len(quarters))]
+
+
+def _compute_daily_series_by_code(quarters: list, q_ords, price_rows: list) -> dict:
+    """Series diarias de los 4 códigos _FUND_DAILY_CODES, calculadas una
+    sola vez por activo (_daily_ratio_series ya las devuelve juntas) —
+    antes se recalculaban las 4 series completas por cada código individual."""
+    if not price_rows:
+        return {code: {} for code in _FUND_DAILY_CODES}
+    dates_seq       = [d for d, _ in price_rows]
+    price_dates_ord = np.array([d.toordinal() for d, _ in price_rows])
+    price_closes    = np.array([c for _, c in price_rows])
+    series = _daily_ratio_series(quarters, q_ords, dates_seq, price_dates_ord, price_closes)
+    return {
+        code: {d: v for d, v in zip(dates_seq, series[code]) if not np.isnan(v)}
+        for code in _FUND_DAILY_CODES
+    }
+
+
+def verify_asset_ratio_code(code: str, asset_id: int, quarters: list,
+                            quarterly_by_idx: list, daily_series: dict,
+                            current_ratios: dict, stored: dict) -> list:
+    """Equivalente a verify_asset_code, para un código fundamental.
+    quarterly_by_idx/daily_series/current_ratios/stored ya vienen
+    calculados una sola vez por activo (ver _verify_one_fund_asset) —
+    antes se recomputaban por cada código individual."""
     if not quarters:
         return []
-    q_ords = np.array([q.period_date.toordinal() for q in quarters])
 
     if code in _FUND_DAILY_CODES:
-        if not price_rows:
-            fresh = {}
-        else:
-            dates_seq       = [d for d, _ in price_rows]
-            price_dates_ord = np.array([d.toordinal() for d, _ in price_rows])
-            price_closes    = np.array([c for _, c in price_rows])
-            series = _daily_ratio_series(quarters, q_ords, dates_seq,
-                                         price_dates_ord, price_closes)
-            fresh = {d: v for d, v in zip(dates_seq, series[code]) if not np.isnan(v)}
+        fresh = dict(daily_series.get(code, {}))
     else:
         fresh = {}
         for idx, q in enumerate(quarters):
-            val = _compute_quarterly_ratios(quarters, idx).get(code)
+            val = quarterly_by_idx[idx].get(code)
             if val is not None:
                 fresh[q.period_date] = val
 
-    stored = _stored_values(session, code, asset_id)
-
-    current_val = _current_ratio_fresh(quarters, price_rows).get(code)
+    current_val = current_ratios.get(code)
     entry = _current_ratio_diff_entry(current_val, stored, _date_type.today())
     if entry is not None:
         fresh[entry[0]] = entry[1]
@@ -464,17 +500,27 @@ def pick_fund_sample_ids(session, sample: int | None) -> list:
     return random.sample(all_ids, min(sample, len(all_ids)))
 
 
-def _verify_one_fund_asset(asset_id: int, ticker: str, codes: list) -> list:
-    """Equivalente a _verify_one_asset, para ratios fundamentales."""
+def _verify_one_fund_asset(asset_id: int, ticker: str, codes: list,
+                           stored_by_code: dict) -> list:
+    """Equivalente a _verify_one_asset, para ratios fundamentales.
+    quarterly_by_idx/daily_series/current_ratios se calculan una sola vez
+    acá (no por cada código, ver verify_asset_ratio_code); stored_by_code
+    viene prefetcheado por run_fund_verification (ver _prefetch_stored)."""
     s = get_session()
     try:
         quarters   = _load_quarters(s, asset_id)
         price_rows = _load_fund_price_rows(s, asset_id)
         if not quarters:
             return []
+        q_ords = np.array([q.period_date.toordinal() for q in quarters])
+        quarterly_by_idx = _compute_quarterly_by_idx(quarters)
+        daily_series     = _compute_daily_series_by_code(quarters, q_ords, price_rows)
+        current_ratios   = _current_ratio_fresh(quarters, price_rows)
         out = []
         for code in codes:
-            diffs = verify_asset_ratio_code(s, code, asset_id, quarters, price_rows)
+            stored = stored_by_code.get(code, {}).get(asset_id, {})
+            diffs = verify_asset_ratio_code(code, asset_id, quarters, quarterly_by_idx,
+                                            daily_series, current_ratios, stored)
             if diffs:
                 out.append({"code": code, "asset_id": asset_id,
                            "ticker": ticker, "diffs": diffs})
@@ -503,6 +549,7 @@ def run_fund_verification(codes: list | None = None, sample: int | None = 30,
 
     ticker_map = {a.id: a.ticker for a in
                   s.query(Asset).filter(Asset.id.in_(asset_ids)).all()}
+    stored_by_code = _prefetch_stored(s, codes, asset_ids)
 
     total_work = len(codes) * len(asset_ids)
     done = 0
@@ -514,7 +561,8 @@ def run_fund_verification(codes: list | None = None, sample: int | None = 30,
     lock = threading.Lock()
     with ThreadPoolExecutor(max_workers=_VERIFY_WORKERS) as pool:
         futures = {
-            pool.submit(_verify_one_fund_asset, aid, ticker_map.get(aid, "?"), codes): aid
+            pool.submit(_verify_one_fund_asset, aid, ticker_map.get(aid, "?"),
+                       codes, stored_by_code): aid
             for aid in asset_ids
         }
         for future in as_completed(futures):
