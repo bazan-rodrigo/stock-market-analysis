@@ -17,18 +17,18 @@ def layout(**kwargs):
         "padding": "0.75rem", "borderRadius": "4px", "fontSize": "0.78rem",
         "whiteSpace": "pre-wrap",
     }
-    _SUMMARY_STYLE = {
-        **_PRE_STYLE, "maxHeight": "180px",
-        "backgroundColor": "#1f2937", "fontWeight": "500",
-    }
-
-    def _result_tab(label, tab_id, summary_id, detail_id):
+    def _result_tab(label, tab_id, tree_id):
         return dbc.Tab(
             html.Div([
-                html.Pre(id=summary_id, style=_SUMMARY_STYLE, children=""),
-                html.Pre(id=detail_id,  style=_PRE_STYLE,     children=""),
+                html.Div([
+                    dbc.Button("Expandir todo", id=f"verify-tree-expand-{tab_id}",
+                               size="sm", color="link", className="p-0 me-3"),
+                    dbc.Button("Colapsar todo", id=f"verify-tree-collapse-{tab_id}",
+                               size="sm", color="link", className="p-0"),
+                ], className="mb-2"),
+                html.Div(id=tree_id, children=[]),
             ], className="mt-2"),
-            label=label, tab_id=tab_id,
+            label=label, tab_id=tab_id, id=f"verify-tab-{tab_id}",
         )
 
     return html.Div([
@@ -138,10 +138,8 @@ def layout(**kwargs):
                            style={"display": "none"}),
                 dbc.Alert(id="verify-run-alert", is_open=False, dismissable=True),
                 dbc.Tabs([
-                    _result_tab("Discrepancias de cálculo", "calc",
-                               "verify-run-summary-calc", "verify-run-detail-calc"),
-                    _result_tab("Datos de origen", "sanity",
-                               "verify-run-summary-sanity", "verify-run-detail-sanity"),
+                    _result_tab("Discrepancias de cálculo", "calc", "verify-tree-calc"),
+                    _result_tab("Datos de origen", "sanity", "verify-tree-sanity"),
                 ], active_tab="calc"),
             ]),
         ]),

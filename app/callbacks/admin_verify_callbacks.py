@@ -1,9 +1,10 @@
+import itertools
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
-from dash import Input, Output, State, callback, no_update
+from dash import ALL, Input, Output, State, callback, ctx, html, no_update
 from flask_login import current_user
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -11,6 +12,8 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 _pytest_state = {"running": False, "output": "", "passed": None, "error": None}
 _verify_state = {"running": False, "current": 0, "total": 0, "label": "",
                  "result": None, "error": None, "kind": None}
+
+_TAB_LABELS = {"calc": "Discrepancias de cálculo", "sanity": "Datos de origen"}
 
 
 # ── Suite de tests (pytest) ─────────────────────────────────────────────────
@@ -120,10 +123,10 @@ def toggle_scope_inputs(scope):
     Output("verify-run-progress",       "style",    allow_duplicate=True),
     Output("verify-run-btn",            "disabled", allow_duplicate=True),
     Output("verify-run-alert",          "is_open",  allow_duplicate=True),
-    Output("verify-run-summary-calc",   "children", allow_duplicate=True),
-    Output("verify-run-detail-calc",    "children", allow_duplicate=True),
-    Output("verify-run-summary-sanity", "children", allow_duplicate=True),
-    Output("verify-run-detail-sanity",  "children", allow_duplicate=True),
+    Output("verify-tree-calc",          "children", allow_duplicate=True),
+    Output("verify-tree-sanity",        "children", allow_duplicate=True),
+    Output("verify-tab-calc",           "label",    allow_duplicate=True),
+    Output("verify-tab-sanity",         "label",    allow_duplicate=True),
     Input("verify-run-btn", "n_clicks"),
     State("verify-scope",   "value"),
     State("verify-domain",  "value"),
@@ -136,7 +139,8 @@ def start_verify(_, scope, domain, codes, sample, tickers_raw):
     if not current_user.is_authenticated or not current_user.is_admin:
         return (no_update,) * 8
     if _verify_state["running"]:
-        return False, {"display": "block"}, True, no_update, no_update, no_update, no_update, no_update
+        return (False, {"display": "block"}, True, no_update,
+                no_update, no_update, no_update, no_update)
 
     tickers = None
     if tickers_raw and tickers_raw.strip():
@@ -176,7 +180,8 @@ def start_verify(_, scope, domain, codes, sample, tickers_raw):
             _verify_state["running"] = False
 
     threading.Thread(target=_run, daemon=True).start()
-    return False, {"display": "block"}, True, False, "", "", "", ""
+    return (False, {"display": "block"}, True, False,
+            [], [], _TAB_LABELS["calc"], _TAB_LABELS["sanity"])
 
 
 def _split_by_category(result: dict) -> tuple[list, list]:
@@ -196,54 +201,97 @@ def _split_by_category(result: dict) -> tuple[list, list]:
     return calc, sanity
 
 
-def _format_summary(combos: list) -> str:
-    """Un renglón por activo (no por código/activo como "combos"): cuántos
-    códigos y diferencias tiene, ordenado de más a menos — para ver de un
-    vistazo qué activos concentran el problema antes de bajar al detalle."""
+_TREE_PRE_STYLE = {
+    "backgroundColor": "#111827", "color": "#e5e7eb",
+    "padding": "0.5rem 0.75rem", "borderRadius": "4px",
+    "fontSize": "0.76rem", "whiteSpace": "pre-wrap", "margin": "0.25rem 0 0.5rem 0",
+}
+
+
+def _diff_lines(diffs: list) -> str:
+    return "\n".join(
+        f"{d}  {kind}  guardado={stored!r}  recalculado={fresh!r}"
+        for d, kind, stored, fresh, _cat in diffs
+    )
+
+
+def _code_node(r: dict, tab: str, counter) -> html.Details:
+    return html.Details(
+        [
+            html.Summary(f"{r['code']} — {len(r['diffs'])} diferencia(s)"),
+            html.Pre(_diff_lines(r["diffs"]), style=_TREE_PRE_STYLE),
+        ],
+        id={"type": "verify-tree-node", "tab": tab, "idx": next(counter)},
+        style={"marginLeft": "1.25rem"},
+    )
+
+
+def _domain_node(label: str, combos: list, tab: str, counter) -> html.Details:
+    total = sum(len(r["diffs"]) for r in combos)
+    children = [_code_node(r, tab, counter)
+               for r in sorted(combos, key=lambda r: -len(r["diffs"]))]
+    return html.Details(
+        [html.Summary(f"{label} — {total} diferencia(s)"), html.Div(children)],
+        id={"type": "verify-tree-node", "tab": tab, "idx": next(counter)},
+        style={"marginLeft": "1rem"},
+    )
+
+
+def _asset_node(asset_id: int, ticker: str, combos: list, tab: str, counter) -> html.Details:
+    """Un nodo por activo; si el resultado mezcla indicadores + fundamentales
+    (alcance "Todos los activos"/"Solo los marcados") se intercala un nivel
+    Técnico/Fundamentales — con un solo dominio (Muestra/Tickers) se salta
+    ese nivel porque no aportaría nada."""
+    total = sum(len(r["diffs"]) for r in combos)
+    fund = [r for r in combos if r["code"].startswith("fundamental_")]
+    tech = [r for r in combos if not r["code"].startswith("fundamental_")]
+    if tech and fund:
+        children = [_domain_node("Técnico", tech, tab, counter),
+                    _domain_node("Fundamentales", fund, tab, counter)]
+    else:
+        children = [_code_node(r, tab, counter)
+                   for r in sorted(combos, key=lambda r: -len(r["diffs"]))]
+    return html.Details(
+        [html.Summary(f"{ticker} (id={asset_id}) — {total} diferencia(s)"), html.Div(children)],
+        id={"type": "verify-tree-node", "tab": tab, "idx": next(counter)},
+    )
+
+
+def _build_tree(combos: list, tab: str) -> list:
+    """Árbol Activo > [Técnico/Fundamentales] > Código > diferencias, con
+    html.Details anidados nativos del navegador (abren/cierran sin
+    callback por nodo — solo "Expandir/Colapsar todo" necesita uno, ver
+    toggle_tree_calc/toggle_tree_sanity). Con "Expandir todo" el texto
+    completo queda seleccionable/copiable igual que antes."""
     if not combos:
-        return "Sin diferencias."
+        return [html.Div("Sin diferencias.", className="text-muted small")]
     by_asset: dict = {}
     for r in combos:
-        key = (r["asset_id"], r["ticker"])
-        agg = by_asset.setdefault(key, {"codes": 0, "diffs": 0})
-        agg["codes"] += 1
-        agg["diffs"] += len(r["diffs"])
-    lines = [f"{len(by_asset)} activo(s) afectados:"]
-    for (asset_id, ticker), agg in sorted(by_asset.items(), key=lambda kv: -kv[1]["diffs"]):
-        lines.append(f"  {ticker} (id={asset_id}): {agg['codes']} código(s), "
-                     f"{agg['diffs']} diferencia(s)")
-    return "\n".join(lines)
+        by_asset.setdefault((r["asset_id"], r["ticker"]), []).append(r)
+    counter = itertools.count()
+    ordered = sorted(by_asset.items(),
+                     key=lambda kv: -sum(len(r["diffs"]) for r in kv[1]))
+    return [_asset_node(aid, ticker, rs, tab, counter) for (aid, ticker), rs in ordered]
 
 
-def _format_detail(combos: list) -> str:
-    if not combos:
-        return ""
-    lines = []
-    for r in combos:
-        lines.append(f"[DIFF] {r['code']} / {r['ticker']} (id={r['asset_id']}): "
-                     f"{len(r['diffs'])} diferencias")
-        for d, kind, stored, fresh, _cat in r["diffs"][:10]:
-            lines.append(f"    {d}  {kind}  guardado={stored!r}  recalculado={fresh!r}")
-        if len(r["diffs"]) > 10:
-            lines.append(f"    ... y {len(r['diffs']) - 10} más")
-        lines.append("")
-    return "\n".join(lines)
+def _tab_label(base: str, n: int) -> str:
+    return f"{base} ({n})"
 
 
 @callback(
-    Output("verify-run-interval",        "disabled",  allow_duplicate=True),
-    Output("verify-run-progress",        "value",     allow_duplicate=True),
-    Output("verify-run-progress",        "label",     allow_duplicate=True),
-    Output("verify-run-progress",        "style",     allow_duplicate=True),
-    Output("verify-run-btn",             "disabled",  allow_duplicate=True),
-    Output("verify-run-alert",           "children",  allow_duplicate=True),
-    Output("verify-run-alert",           "is_open",   allow_duplicate=True),
-    Output("verify-run-alert",           "color",     allow_duplicate=True),
-    Output("verify-run-summary-calc",    "children",  allow_duplicate=True),
-    Output("verify-run-detail-calc",     "children",  allow_duplicate=True),
-    Output("verify-run-summary-sanity",  "children",  allow_duplicate=True),
-    Output("verify-run-detail-sanity",   "children",  allow_duplicate=True),
-    Output("verify-flags-last-run",      "children",  allow_duplicate=True),
+    Output("verify-run-interval",       "disabled", allow_duplicate=True),
+    Output("verify-run-progress",       "value",    allow_duplicate=True),
+    Output("verify-run-progress",       "label",    allow_duplicate=True),
+    Output("verify-run-progress",       "style",    allow_duplicate=True),
+    Output("verify-run-btn",            "disabled", allow_duplicate=True),
+    Output("verify-run-alert",          "children", allow_duplicate=True),
+    Output("verify-run-alert",          "is_open",  allow_duplicate=True),
+    Output("verify-run-alert",          "color",    allow_duplicate=True),
+    Output("verify-tree-calc",          "children", allow_duplicate=True),
+    Output("verify-tree-sanity",        "children", allow_duplicate=True),
+    Output("verify-tab-calc",           "label",    allow_duplicate=True),
+    Output("verify-tab-sanity",         "label",    allow_duplicate=True),
+    Output("verify-flags-last-run",     "children", allow_duplicate=True),
     Input("verify-run-interval", "n_intervals"),
     prevent_initial_call=True,
 )
@@ -253,17 +301,20 @@ def poll_verify(_):
         pct = int(_verify_state["current"] / tot * 100)
         label = f"{_verify_state['current']} / {_verify_state['total']}  {_verify_state['label']}"
         return (False, pct, label, {"display": "block"}, True,
-                no_update, False, no_update, no_update, no_update, no_update, no_update, no_update)
+                no_update, False, no_update, no_update, no_update,
+                no_update, no_update, no_update)
 
     if _verify_state["error"]:
         msg = f"Error corriendo la verificación: {_verify_state['error']}"
         return (True, 0, "", {"display": "none"}, False,
-                msg, True, "danger", "", "", "", "", no_update)
+                msg, True, "danger", [], [],
+                _TAB_LABELS["calc"], _TAB_LABELS["sanity"], no_update)
 
     result = _verify_state["result"]
     if result is None:
         return (True, 0, "", {"display": "none"}, False,
-                no_update, False, no_update, no_update, no_update, no_update, no_update, no_update)
+                no_update, False, no_update, no_update, no_update,
+                no_update, no_update, no_update)
 
     calc, sanity = _split_by_category(result)
     n_calc   = sum(len(r["diffs"]) for r in calc)
@@ -295,8 +346,8 @@ def poll_verify(_):
 
     return (True, 100, "Completo", {"display": "none"}, False,
             msg, True, color,
-            _format_summary(calc),   _format_detail(calc),
-            _format_summary(sanity), _format_detail(sanity),
+            _build_tree(calc, "calc"), _build_tree(sanity, "sanity"),
+            _tab_label(_TAB_LABELS["calc"], n_calc), _tab_label(_TAB_LABELS["sanity"], n_sanity),
             last_run_text)
 
 
@@ -320,3 +371,30 @@ def _format_last_run(info: dict | None) -> str:
 def load_last_run(_):
     from app.services.verification_service import get_last_verification_run
     return _format_last_run(get_last_verification_run())
+
+
+# ── Expandir/colapsar todo el árbol — un callback por pestaña: el patrón de
+# id de cada nodo fija "tab" y solo deja "idx" como comodín (ALL), así que
+# el Output alcanza a todos los nodos ya renderizados en esa pestaña sin
+# necesidad de un callback por nodo individual. ──────────────────────────────
+
+@callback(
+    Output({"type": "verify-tree-node", "tab": "calc", "idx": ALL}, "open"),
+    Input("verify-tree-expand-calc",   "n_clicks"),
+    Input("verify-tree-collapse-calc", "n_clicks"),
+    State({"type": "verify-tree-node", "tab": "calc", "idx": ALL}, "id"),
+    prevent_initial_call=True,
+)
+def toggle_tree_calc(_expand, _collapse, ids):
+    return [ctx.triggered_id == "verify-tree-expand-calc"] * len(ids)
+
+
+@callback(
+    Output({"type": "verify-tree-node", "tab": "sanity", "idx": ALL}, "open"),
+    Input("verify-tree-expand-sanity",   "n_clicks"),
+    Input("verify-tree-collapse-sanity", "n_clicks"),
+    State({"type": "verify-tree-node", "tab": "sanity", "idx": ALL}, "id"),
+    prevent_initial_call=True,
+)
+def toggle_tree_sanity(_expand, _collapse, ids):
+    return [ctx.triggered_id == "verify-tree-expand-sanity"] * len(ids)
