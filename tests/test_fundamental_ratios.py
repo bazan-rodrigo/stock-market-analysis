@@ -115,7 +115,24 @@ def test_growth_necesita_5_trimestres():
     r = _compute_quarterly_ratios(qs2, 4)
     # idx 4 vs idx 0: (1200-1000)/1000 y (150-100)/100
     assert r["fundamental_revenue_growth_yoy"] == 0.2
-    assert r["fundamental_eps_growth_yoy"] == 0.5
+    assert r["fundamental_net_income_growth_yoy"] == 0.5
+
+def test_eps_growth_yoy_usa_eps_actual_no_net_income():
+    # eps_growth_yoy mide EPS por accion (eps_actual), no Net Income total -
+    # con net_income creciendo pero eps_actual constante, no deberia moverse.
+    qs = _quarters_basicos()
+    qs = [qq._replace(eps_actual=1.0) for qq in qs]
+    qs2 = qs[:4] + [qs[4]._replace(net_income=150, eps_actual=1.5)]
+    r = _compute_quarterly_ratios(qs2, 4)
+    assert r["fundamental_eps_growth_yoy"] == 0.5          # (1.5-1.0)/1.0
+    assert r["fundamental_net_income_growth_yoy"] == 0.5   # (150-100)/100
+
+def test_eps_growth_yoy_none_sin_eps_actual():
+    qs = _quarters_basicos()  # eps_actual=None en todos (default de q())
+    qs2 = qs[:4] + [qs[4]._replace(net_income=150)]
+    r = _compute_quarterly_ratios(qs2, 4)
+    assert r["fundamental_eps_growth_yoy"] is None
+    assert r["fundamental_net_income_growth_yoy"] == 0.5
 
 def test_roic_prefiere_nopat_ic_avg():
     qs = [q(date(2025, 3, 31), net_income=100, equity=1000, total_debt=500,

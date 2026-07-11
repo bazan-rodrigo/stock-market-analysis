@@ -95,6 +95,7 @@ _NUMERIC_BOUNDS: dict[str, tuple[float, float]] = {
     "fundamental_debt_to_equity": (-10000, 10000),
     "fundamental_revenue_growth_yoy": (-1000, 100000),
     "fundamental_eps_growth_yoy": (-1000, 100000),
+    "fundamental_net_income_growth_yoy": (-1000, 100000),
     "fundamental_pe_growth_yoy": (-1000, 100000),
     "fundamental_pe_ttm": (-100000, 100000), "fundamental_pb": (-100000, 100000),
     "fundamental_ps_ttm": (-100000, 100000),

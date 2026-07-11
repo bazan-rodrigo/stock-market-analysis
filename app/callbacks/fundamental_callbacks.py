@@ -197,7 +197,11 @@ def load_fundamentals(asset_id, active_tab):
         ("rev_yoy",   "Revenue YoY",      _pct(ratios.get("revenue_growth_yoy")), _cv(ratios.get("revenue_growth_yoy")),
          "Variación del Revenue del último trimestre vs el mismo trimestre del año anterior: (Q0 − Q4) / |Q4|"),
         ("eps_yoy",   "EPS YoY",          _pct(ratios.get("eps_growth_yoy")),  _cv(ratios.get("eps_growth_yoy")),
-         "Variación del Net Income del último trimestre vs el mismo trimestre del año anterior: (Q0 − Q4) / |Q4|"),
+         "Variación del EPS (ganancia por acción) del último trimestre vs el mismo trimestre del año "
+         "anterior: (Q0 − Q4) / |Q4|"),
+        ("ni_yoy",    "Net Income YoY",   _pct(ratios.get("net_income_growth_yoy")), _cv(ratios.get("net_income_growth_yoy")),
+         "Variación del Net Income (ganancia total, sin dividir por acciones) del último trimestre vs "
+         "el mismo trimestre del año anterior: (Q0 − Q4) / |Q4|"),
         ("pe_yoy",    "P/E YoY",          _pct(ratios.get("pe_growth_yoy")),   _cv(ratios.get("pe_growth_yoy")),
          "Variación del P/E TTM actual vs el P/E TTM de hace 365 días. "
          "Requiere al menos 8 trimestres almacenados (2 años). "

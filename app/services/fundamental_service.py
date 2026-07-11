@@ -56,6 +56,7 @@ _FUND_QUARTERLY_CODES = frozenset({
     "fundamental_debt_to_equity",
     "fundamental_revenue_growth_yoy",
     "fundamental_eps_growth_yoy",
+    "fundamental_net_income_growth_yoy",
     "fundamental_roic",
 })
 
@@ -611,7 +612,8 @@ def get_asset_fundamentals(asset_id: int) -> dict:
         "fundamental_pe_ttm", "fundamental_pb", "fundamental_ps_ttm",
         "fundamental_net_margin", "fundamental_gross_margin", "fundamental_operating_margin",
         "fundamental_debt_to_equity", "fundamental_revenue_growth_yoy",
-        "fundamental_eps_growth_yoy", "fundamental_pe_growth_yoy", "fundamental_roic",
+        "fundamental_eps_growth_yoy", "fundamental_net_income_growth_yoy",
+        "fundamental_pe_growth_yoy", "fundamental_roic",
     ]
 
     snap_vals: dict = {}
@@ -663,9 +665,10 @@ def get_asset_fundamentals(asset_id: int) -> dict:
             "gross_margin":       snap_vals.get("gross_margin"),
             "operating_margin":   snap_vals.get("operating_margin"),
             "debt_to_equity":     snap_vals.get("debt_to_equity"),
-            "revenue_growth_yoy": snap_vals.get("revenue_growth_yoy"),
-            "eps_growth_yoy":     snap_vals.get("eps_growth_yoy"),
-            "pe_growth_yoy":      snap_vals.get("pe_growth_yoy"),
+            "revenue_growth_yoy":    snap_vals.get("revenue_growth_yoy"),
+            "eps_growth_yoy":        snap_vals.get("eps_growth_yoy"),
+            "net_income_growth_yoy": snap_vals.get("net_income_growth_yoy"),
+            "pe_growth_yoy":         snap_vals.get("pe_growth_yoy"),
             "roic":               snap_vals.get("roic"),
             "updated_at":         str(updated_at) if updated_at else None,
         } if snap_vals else {},
@@ -692,7 +695,7 @@ def _compute_quarterly_ratios(quarters: list, idx: int) -> dict:
     op_m     = _safe_div_r(q.operating_income, rev)
     d_e      = _safe_div_r(q.total_debt,       q.equity)
 
-    rev_growth = eps_growth = None
+    rev_growth = eps_growth = ni_growth = None
     if idx >= 4:
         q4 = quarters[idx - 4]
         rev_growth = _safe_div_r(
@@ -700,6 +703,10 @@ def _compute_quarterly_ratios(quarters: list, idx: int) -> dict:
             abs(q4.revenue) if q4.revenue else None,
         )
         eps_growth = _safe_div_r(
+            (q.eps_actual - q4.eps_actual) if (q.eps_actual is not None and q4.eps_actual is not None) else None,
+            abs(q4.eps_actual) if q4.eps_actual else None,
+        )
+        ni_growth = _safe_div_r(
             (q.net_income - q4.net_income) if (q.net_income is not None and q4.net_income is not None) else None,
             abs(q4.net_income) if q4.net_income else None,
         )
@@ -719,9 +726,10 @@ def _compute_quarterly_ratios(quarters: list, idx: int) -> dict:
         "fundamental_gross_margin":       gross_m,
         "fundamental_operating_margin":   op_m,
         "fundamental_debt_to_equity":     d_e,
-        "fundamental_revenue_growth_yoy": rev_growth,
-        "fundamental_eps_growth_yoy":     eps_growth,
-        "fundamental_roic":               roic,
+        "fundamental_revenue_growth_yoy":    rev_growth,
+        "fundamental_eps_growth_yoy":        eps_growth,
+        "fundamental_net_income_growth_yoy": ni_growth,
+        "fundamental_roic":                  roic,
     }
 
 

@@ -65,7 +65,8 @@ _BUILTIN_INDICATORS = [
     {"code": "fundamental_operating_margin",   "name": "Operating Margin",             "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Operating Income / Revenue (latest quarter)"},
     {"code": "fundamental_debt_to_equity",     "name": "Debt / Equity",                "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Total Debt / Shareholders Equity (latest quarter)"},
     {"code": "fundamental_revenue_growth_yoy", "name": "Revenue Growth YoY",           "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Revenue growth Q vs Q-4"},
-    {"code": "fundamental_eps_growth_yoy",     "name": "EPS Growth YoY",               "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Net income growth Q vs Q-4"},
+    {"code": "fundamental_eps_growth_yoy",     "name": "EPS Growth YoY",               "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "EPS (per share) growth Q vs Q-4"},
+    {"code": "fundamental_net_income_growth_yoy", "name": "Net Income Growth YoY",     "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Net income growth Q vs Q-4"},
     {"code": "fundamental_pe_growth_yoy",      "name": "P/E Change YoY",               "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Change in TTM P/E vs 1 year ago"},
     {"code": "fundamental_roic",               "name": "ROIC",                         "category": "Fundamental",  "type": "num", "scale": "ratio",       "description": "Return on Invested Capital (TTM)"},
 ]
