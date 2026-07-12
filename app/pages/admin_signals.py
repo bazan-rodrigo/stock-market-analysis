@@ -210,7 +210,6 @@ def layout(**kwargs):
                 {"name": "Fuente",    "id": "source"},
                 {"name": "Indicador", "id": "indicator_key"},
                 {"name": "Fórmula",   "id": "formula_type"},
-                {"name": "Sistema",   "id": "sistema"},
             ],
             data=[],
             row_selectable="multi",
@@ -223,7 +222,6 @@ def layout(**kwargs):
             style_data_conditional=SELECTED_ROW + [
                 {"if": {"filter_query": '{source} = "asset"'}, "color": "#38bdf8"},
                 {"if": {"filter_query": '{source} = "group"'}, "color": "#4ade80"},
-                {"if": {"filter_query": '{sistema} = "Sí"'},   "color": "#9ca3af"},
             ],
             page_size=30,
             sort_action="native",

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, Integer, String, Text
 from app.database import Base
 
 
@@ -30,5 +30,4 @@ class SignalDefinition(Base):
     indicator_key = Column(String(50))                   # campo en indicator/group_scores
     formula_type  = Column(String(20),  nullable=False)  # discrete_map|threshold|range|composite
     params        = Column(Text,        nullable=False)  # JSON
-    is_system     = Column(Boolean,     nullable=False, default=False)
     created_at    = Column(DateTime,    nullable=False, default=datetime.utcnow)

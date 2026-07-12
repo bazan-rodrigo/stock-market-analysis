@@ -3,15 +3,16 @@
 Archivos Excel listos para importar desde la app (señales y estrategias
 armadas como casos de prueba).
 
-## sistema_senales.xlsx — importar SIEMPRE primero
+Política: **toda señal debe estar usada por alguna estrategia** — las que
+no, solo agregan costo de procesamiento al pipeline diario y al backfill.
+El seed inicial y el concepto de señal/estrategia "de sistema" se
+eliminaron (migración 0064); todo se gestiona por estos Excel.
 
-Las 16 señales que originalmente sembraba la migración 0033 (con los
-códigos de indicador actuales y las señales de grupo corregidas a
-`regime_score_*`). Existe para que el seed inicial de la base se pueda
-borrar sin romper los packs: varias estrategias de pack referencian estas
-señales (`rsi_señal`, `tendencia_d/m`, `alineacion_timeframes`,
-`dist_sma_d`). Reimportarlas las deja como señales de usuario
-(editables/borrables), ya no de sistema.
+## base_senales.xlsx — importar SIEMPRE primero
+
+Las 6 señales compartidas que las estrategias de los packs referencian:
+`tendencia_d/w/m` (las w/m por la composite), `rsi_señal`, `dist_sma_d` y
+`alineacion_timeframes`.
 
 Cada pack trae hasta dos archivos:
 

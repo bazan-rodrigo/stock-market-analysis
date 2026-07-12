@@ -41,7 +41,6 @@ def load_table(_a, _m):
             "source":        s.source,
             "indicator_key": s.indicator_key or "—",
             "formula_type":  _FT_LABEL.get(s.formula_type, s.formula_type),
-            "sistema":       "Sí" if s.is_system else "",
         }
         for s in signals
     ]
@@ -120,9 +119,12 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
         # representable (editado a mano, forma inesperada), modo avanzado
         pb_store = builder_from_params(sig.formula_type, sig.params)
         advanced = pb_store is None
+        # key bloqueada al editar (para TODAS las señales): las composites y
+        # los componentes de estrategia referencian por key — renombrarla
+        # rompería esas referencias en silencio
         return (
             True, "Editar señal",
-            sig.key, sig.is_system,
+            sig.key, True,
             sig.name, sig.source,
             sig.group_type, sig.indicator_key,
             sig.formula_type, sig.description or "", sig.params,

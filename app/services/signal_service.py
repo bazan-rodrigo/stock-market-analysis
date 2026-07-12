@@ -444,7 +444,6 @@ def save_signal(
         if existing:
             raise ValueError(f"Ya existe una señal con key '{key}'.")
         sig = SignalDefinition()
-        sig.is_system = False
         s.add(sig)
 
     sig.key           = key
@@ -464,8 +463,6 @@ def delete_signal(signal_id: int) -> None:
     sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
     if sig is None:
         raise ValueError(f"Señal id={signal_id} no encontrada.")
-    if sig.is_system:
-        raise ValueError(f"No se puede eliminar la señal de sistema '{sig.key}'.")
     s.delete(sig)
     s.commit()
 
@@ -594,7 +591,6 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
             sig = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
             if sig is None:
                 sig = SignalDefinition()
-                sig.is_system = False
                 s.add(sig)
             sig.key           = key
             sig.name          = str(data.get("name") or key)

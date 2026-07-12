@@ -14,18 +14,6 @@ from app.services.indicator_catalog import CATEGORICAL_VALUES
 
 PACKS_DIR = Path(__file__).resolve().parent.parent / "strategy_packs"
 
-# Señales de sistema (seed 0033) que los packs pueden referenciar sin
-# definirlas. Si un pack referencia algo fuera de esto ∪ señales de packs,
-# el test falla — igual que fallaría el import real.
-_SYSTEM_SIGNAL_KEYS = {
-    "tendencia_d", "tendencia_w", "tendencia_m",
-    "volatilidad_d", "volatilidad_w", "volatilidad_m",
-    "drawdown_controlado", "rsi_señal", "dist_sma_d",
-    "alineacion_timeframes",
-    "tendencia_sector_d", "tendencia_sector_w", "tendencia_sector_m",
-    "tendencia_mercado_d", "tendencia_mercado_w", "tendencia_mercado_m",
-}
-
 
 def _rows(path, sheet=0):
     wb = openpyxl.load_workbook(path)
@@ -51,6 +39,7 @@ def test_hay_packs():
 @pytest.mark.parametrize("path", sorted(PACKS_DIR.glob("*_senales.xlsx")),
                          ids=lambda p: p.stem)
 def test_senales_del_pack_validas(path):
+    known_keys = _pack_signal_keys()  # tras la 0064 no hay señales de sistema
     for r in _rows(path):
         params = json.loads(r["params"])  # JSON parseable
         err = signal_engine.validate_params(r["formula_type"], params)
@@ -62,6 +51,10 @@ def test_senales_del_pack_validas(path):
             if allowed:
                 unknown = set(params["map"]) - allowed
                 assert not unknown, (r["key"], unknown)
+        # composites: sus referencias deben existir en el conjunto de packs
+        if r["formula_type"] == "composite":
+            refs = {c["signal_key"] for c in params["components"]}
+            assert refs <= known_keys, (r["key"], refs - known_keys)
 
 
 @pytest.mark.parametrize("path", sorted(PACKS_DIR.glob("*_estrategia.xlsx")),
@@ -71,7 +64,7 @@ def test_estrategia_del_pack_valida(path):
     componentes = _rows(path, sheet=1)
     assert estrategias and componentes
 
-    known_keys = _SYSTEM_SIGNAL_KEYS | _pack_signal_keys()
+    known_keys = _pack_signal_keys()
 
     for e in estrategias:
         tree = json.loads(e["filter_conditions"])
