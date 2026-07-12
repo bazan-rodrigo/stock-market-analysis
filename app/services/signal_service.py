@@ -104,7 +104,8 @@ def _build_composite_scores(
 
 
 def compute_signal_values(target_date: date_type,
-                          only_signal_ids: set[int] | None = None) -> int:
+                          only_signal_ids: set[int] | None = None,
+                          latest_price_date: date_type | None = None) -> int:
     """
     Calcula signal_value para todos los activos para target_date.
     Lee valores desde cada tabla ind_{code} por separado.
@@ -112,6 +113,9 @@ def compute_signal_values(target_date: date_type,
     only_signal_ids acota el cálculo a un subconjunto (alcance por señal o
     estrategia del backfill) — el llamador es responsable de que incluya las
     dependencias de las composites (ver _scope_signal_ids).
+
+    latest_price_date evita re-consultar MAX(prices.date) (caro sin índice
+    por fecha) cuando el llamador itera muchas fechas (backfill).
     """
     s = get_session()
 
@@ -188,8 +192,10 @@ def compute_signal_values(target_date: date_type,
     # target_date ES la fecha vigente — para fechas pasadas sería sesgo de
     # anticipación silencioso, mejor que la señal no puntúe.
     if nohist_codes:
-        from app.services.group_score_service import get_default_target_date
-        if target_date == get_default_target_date():
+        if latest_price_date is None:
+            from app.services.group_score_service import get_default_target_date
+            latest_price_date = get_default_target_date()
+        if target_date == latest_price_date:
             from app.models.indicator_store import CurrentIndicatorValue
             rows = s.query(
                 CurrentIndicatorValue.asset_id, CurrentIndicatorValue.code,
@@ -750,7 +756,8 @@ def _signal_history_run(progress_cb=None, days: int = 365,
             progress_cb(i, total, str(d))
         try:
             group_score_service.run_daily(d)
-            compute_signal_values(d, only_signal_ids=only_ids)
+            compute_signal_values(d, only_signal_ids=only_ids,
+                                  latest_price_date=last)
             compute_group_signal_values(d, only_signal_ids=only_ids)
             if scope_kind == "strategy":
                 strategy_service.compute_strategy_results(strategy_id, d)
