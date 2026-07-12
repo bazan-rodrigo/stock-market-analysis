@@ -146,6 +146,29 @@ def toggle_group_col(source):
     return {"display": "none"}
 
 
+# Las señales de grupo leen de group_scores, que solo tiene estos campos.
+# Sin esta separación el dropdown ofrecía indicadores de activo
+# (trend_daily, ...) para señales de grupo — así se rompieron las 6 señales
+# de sistema tendencia_sector_*/tendencia_mercado_* (guardadas con
+# indicator_key inválido, nunca volvieron a puntuar).
+_GROUP_INDICATOR_OPTS = [
+    {"label": "regime_score_d — Tendencia diaria del grupo",   "value": "regime_score_d"},
+    {"label": "regime_score_w — Tendencia semanal del grupo",  "value": "regime_score_w"},
+    {"label": "regime_score_m — Tendencia mensual del grupo",  "value": "regime_score_m"},
+]
+
+
+@callback(
+    Output("sig-f-indicator-key", "options"),
+    Input("sig-f-source", "value"),
+)
+def indicator_opts_by_source(source):
+    if source == "group":
+        return _GROUP_INDICATOR_OPTS
+    from app.pages.admin_signals import _build_indicator_opts
+    return _build_indicator_opts()
+
+
 # ── Ayuda de fórmula ──────────────────────────────────────────────────────────
 
 @callback(

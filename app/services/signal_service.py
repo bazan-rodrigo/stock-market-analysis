@@ -410,6 +410,25 @@ def save_signal(
         raise ValueError(shape_error)
 
     s = get_session()
+
+    # Validar referencias (mismos chequeos que el import): una señal que
+    # apunta a un indicador inexistente o inválido para su fuente guarda
+    # bien y después nunca puntúa, silenciosamente
+    if formula_type != "composite":
+        if source == "group":
+            if not group_type:
+                raise ValueError("Una señal de grupo requiere tipo de grupo.")
+            if indicator_key not in _VALID_GROUP_INDICATOR_KEYS:
+                raise ValueError(
+                    f"indicator_key '{indicator_key}' no es un campo de "
+                    f"group_scores (válidos: "
+                    f"{sorted(_VALID_GROUP_INDICATOR_KEYS)}).")
+        elif indicator_key and indicator_key not in _VIRTUAL_CODES:
+            from app.models.indicator_definition import IndicatorDefinition
+            known = s.query(IndicatorDefinition.id).filter(
+                IndicatorDefinition.code == indicator_key).first()
+            if known is None:
+                raise ValueError(f"Indicador desconocido: '{indicator_key}'.")
     if signal_id:
         sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
         if sig is None:
