@@ -5,11 +5,16 @@ import dash_bootstrap_components as dbc
 
 import app.services.strategy_service as svc
 import app.services.signal_service as sig_svc
+from app.services.visibility import can_edit, current_viewer, publica_str
 from app.callbacks.strategy_filter_ui import (
     empty_filter_store, store_to_tree, tree_to_store,
 )
 from app.pages.admin_strategies import _SCOPE_OPTS, _GROUP_TYPE_OPTS
 from app.components.ui_constants import TH as _th, TD as _td
+
+
+def _visible_strategies():
+    return svc.get_visible_strategies(*current_viewer())
 
 
 # ── Cachear opciones de señales ───────────────────────────────────────────────
@@ -21,7 +26,7 @@ from app.components.ui_constants import TH as _th, TD as _td
 def cache_signal_opts(is_open):
     if not is_open:
         return no_update
-    signals = sig_svc.get_all_signals()
+    signals = sig_svc.get_visible_signals(*current_viewer())
     return [{"label": f"{s.key} — {s.name}", "value": s.key} for s in signals]
 
 
@@ -35,7 +40,11 @@ def cache_signal_opts(is_open):
     Input("str-modal",       "is_open"),
 )
 def load_table(_a, _m):
-    strategies = svc.get_all_strategies()
+    from app.database import get_session
+    from app.models import User
+    strategies = _visible_strategies()
+    owners = {u.id: u.username
+              for u in get_session().query(User.id, User.username).all()}
     all_ids = [s.id for s in strategies]
     data = [
         {
@@ -43,6 +52,8 @@ def load_table(_a, _m):
             "name":        s.name,
             "components":  len(s.components),
             "filter":      "sí" if s.filter_conditions else "—",
+            "owner":       owners.get(s.owner_id, "—"),
+            "publica":     publica_str(s.is_public),
             "description": s.description or "—",
         }
         for s in strategies
@@ -65,14 +76,25 @@ def update_selected_ids(selected_rows, data):
 
 
 @callback(
-    Output("str-btn-edit",   "disabled"),
-    Output("str-btn-delete", "disabled"),
-    Output("str-btn-calc",   "disabled"),
+    Output("str-btn-edit",    "disabled"),
+    Output("str-btn-delete",  "disabled"),
+    Output("str-btn-calc",    "disabled"),
+    Output("str-btn-history", "disabled"),
     Input("str-selected-ids", "data"),
 )
 def update_buttons(selected_ids):
     n = len(selected_ids or [])
-    return (n != 1), (n == 0), (n == 0)
+    if n == 0:
+        return True, True, True, True
+    # Acciones solo sobre estrategias propias (o admin)
+    user_id, is_admin = current_viewer()
+    by_id = {s.id: s for s in _visible_strategies()}
+    editable = all(
+        sid in by_id and can_edit(by_id[sid].owner_id, user_id, is_admin)
+        for sid in selected_ids
+    )
+    return (n != 1 or not editable), not editable, not editable, \
+           (n != 1 or not editable)
 
 
 # ── Modal: abrir / cerrar ─────────────────────────────────────────────────────
@@ -82,6 +104,7 @@ def update_buttons(selected_ids):
     Output("str-modal-title", "children"),
     Output("str-f-name",      "value"),
     Output("str-f-description", "value"),
+    Output("str-f-public",    "value"),
     Output("str-editing-id",  "data"),
     Output("str-uid-store",   "data"),
     Output("str-filter-store","data"),
@@ -97,17 +120,20 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
     _empty = {"uids": [], "counter": 0, "initial_values": {}}
 
     if trigger == "str-btn-cancel":
-        return False, no_update, no_update, no_update, None, _empty, empty_filter_store(), False
+        return (False, no_update, no_update, no_update, no_update, None,
+                _empty, empty_filter_store(), False)
 
     if trigger == "str-btn-add":
-        return True, "Nueva estrategia", "", "", None, _empty, empty_filter_store(), False
+        return (True, "Nueva estrategia", "", "", False, None,
+                _empty, empty_filter_store(), False)
 
     if trigger == "str-btn-edit":
         if not selected_ids or len(selected_ids) != 1:
-            return (no_update,) * 8
-        strat = svc.get_strategy_by_id(selected_ids[0])
+            return (no_update,) * 9
+        strat = next((x for x in _visible_strategies()
+                      if x.id == selected_ids[0]), None)
         if strat is None:
-            return (no_update,) * 8
+            return (no_update,) * 9
         from app.models import SignalDefinition
         from app.database import get_session
         s = get_session()
@@ -129,9 +155,10 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
             }
         store = {"uids": uids, "counter": len(uids), "initial_values": ivs}
         return (True, "Editar estrategia", strat.name, strat.description or "",
-                strat.id, store, tree_to_store(strat.filter_conditions), False)
+                bool(strat.is_public), strat.id, store,
+                tree_to_store(strat.filter_conditions), False)
 
-    return (no_update,) * 8
+    return (no_update,) * 9
 
 
 # ── Render filas de componentes ───────────────────────────────────────────────
@@ -260,6 +287,7 @@ def update_comp_store(add_n, remove_ns, store, signals, weights, scopes, group_t
     Input("str-btn-save",     "n_clicks"),
     State("str-f-name",       "value"),
     State("str-f-description","value"),
+    State("str-f-public",     "value"),
     State("str-uid-store",    "data"),
     State({"type": "str-comp-signal",    "index": ALL}, "value"),
     State({"type": "str-comp-weight",    "index": ALL}, "value"),
@@ -278,7 +306,8 @@ def update_comp_store(add_n, remove_ns, store, signals, weights, scopes, group_t
     State({"type": "strf-vs",   "index": ALL}, "id"),
     prevent_initial_call=True,
 )
-def save(_, name, description, uid_store, signals, weights, scopes, group_types,
+def save(_, name, description, is_public, uid_store,
+         signals, weights, scopes, group_types,
          editing_id, filter_store, filter_opts,
          f_lefts, f_ids_left, f_ops, f_ids_op, f_vals, f_ids_val, f_vss, f_ids_vs):
 
@@ -320,6 +349,7 @@ def save(_, name, description, uid_store, signals, weights, scopes, group_types,
         if f_errors:
             return err(" ".join(f_errors))
 
+    user_id, is_admin = current_viewer()
     try:
         svc.save_strategy(
             name=name.strip(),
@@ -327,6 +357,9 @@ def save(_, name, description, uid_store, signals, weights, scopes, group_types,
             components=components,
             filter_conditions=filter_conditions,
             strategy_id=editing_id,
+            is_public=bool(is_public),
+            acting_user_id=user_id,
+            acting_is_admin=is_admin,
         )
         return "Estrategia guardada.", True, "success", False, "", False, []
     except Exception as exc:
@@ -347,10 +380,12 @@ def save(_, name, description, uid_store, signals, weights, scopes, group_types,
 def delete_selected(_, selected_ids):
     if not selected_ids:
         return no_update, no_update, no_update, no_update
+    user_id, is_admin = current_viewer()
     errors, ok = [], 0
     for sid in selected_ids:
         try:
-            svc.delete_strategy(sid)
+            svc.delete_strategy(sid, acting_user_id=user_id,
+                                acting_is_admin=is_admin)
             ok += 1
         except Exception as exc:
             errors.append(str(exc))
@@ -376,9 +411,16 @@ def calc_results(_, selected_ids, date_str):
     from datetime import date as dt_date
     if not selected_ids:
         return no_update, no_update, no_update, no_update, no_update
+    user_id, is_admin = current_viewer()
+    by_id = {s.id: s for s in _visible_strategies()}
     target_date = dt_date.fromisoformat(date_str) if date_str else dt_date.today()
     total, errors = 0, []
     for sid in selected_ids:
+        strat = by_id.get(sid)
+        if strat is None or not can_edit(strat.owner_id, user_id, is_admin):
+            errors.append(f"estrategia id={sid}: solo el dueño o un "
+                          f"administrador pueden calcular resultados")
+            continue
         try:
             total += svc.compute_strategy_results(sid, target_date)
         except Exception as exc:
@@ -468,6 +510,9 @@ def calc_results(_, selected_ids, date_str):
     prevent_initial_call=True,
 )
 def export(_):
+    _, is_admin = current_viewer()
+    if not is_admin:
+        return no_update
     return dcc.send_bytes(svc.export_strategies_excel(), "estrategias.xlsx")
 
 
@@ -485,9 +530,13 @@ def export(_):
 def import_excel(contents, filename):
     if contents is None:
         return no_update, no_update, no_update, no_update
+    user_id, is_admin = current_viewer()
+    if not is_admin:
+        return no_update, "Solo un administrador puede importar estrategias.", True, "danger"
     try:
         _, encoded = contents.split(",", 1)
-        results = svc.import_strategies_excel(base64.b64decode(encoded))
+        results = svc.import_strategies_excel(base64.b64decode(encoded),
+                                              owner_id=user_id)
     except Exception as exc:
         return no_update, str(exc), True, "danger"
 
@@ -513,3 +562,41 @@ def import_excel(contents, filename):
     msg   = f"Importación: {ok_count} OK, {err_count} error(es)."
     color = "success" if not err_count else ("warning" if ok_count else "danger")
     return table, msg, True, color
+
+
+# ── Calcular historia (backfill acotado a la estrategia propia) ───────────────
+
+@callback(
+    Output("str-status",  "children",  allow_duplicate=True),
+    Output("str-alert",   "children",  allow_duplicate=True),
+    Output("str-alert",   "is_open",   allow_duplicate=True),
+    Output("str-alert",   "color",     allow_duplicate=True),
+    Input("str-btn-history",  "n_clicks"),
+    State("str-selected-ids", "data"),
+    State("str-history-days", "value"),
+    prevent_initial_call=True,
+)
+def compute_history(_, selected_ids, days):
+    """Llena las fechas pasadas sin resultado de la estrategia seleccionada
+    (scope strategy:<id> del backfill del Centro de Datos). Sincrónico bajo
+    dcc.Loading — acotado a UNA estrategia es tolerable."""
+    if not selected_ids or len(selected_ids) != 1:
+        return no_update, no_update, no_update, no_update
+    user_id, is_admin = current_viewer()
+    strat = next((x for x in _visible_strategies()
+                  if x.id == selected_ids[0]), None)
+    if strat is None:
+        return "", "Estrategia no encontrada.", True, "danger"
+    if not can_edit(strat.owner_id, user_id, is_admin):
+        return "", "Solo el dueño o un administrador pueden calcular la historia.", True, "danger"
+    try:
+        import app.services.signal_service as sig_service
+        result = sig_service.update_signal_history(
+            days=int(days or 365), scope=f"strategy:{strat.id}")
+        n_err = len(result.get("errors") or [])
+        msg = (f"Historia de '{strat.name}': {result.get('success', 0)}/"
+               f"{result.get('total', 0)} fecha(s) calculadas"
+               + (f", {n_err} con error." if n_err else "."))
+        return "", msg, True, ("warning" if n_err else "success")
+    except Exception as exc:
+        return "", str(exc), True, "danger"

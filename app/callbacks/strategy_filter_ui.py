@@ -54,15 +54,17 @@ def build_filter_opts() -> dict:
     from app.services import strategy_filter as sf
     from app.services.indicator_catalog import CATEGORICAL_VALUES
 
+    from app.services.visibility import current_viewer, visible_filter
+
     s = get_session()
 
     indicators = s.query(
         IndicatorDefinition.code, IndicatorDefinition.name,
         IndicatorDefinition.type,
     ).order_by(IndicatorDefinition.name).all()
-    signals = s.query(
-        SignalDefinition.key, SignalDefinition.name,
-    ).order_by(SignalDefinition.key).all()
+    signals = (s.query(SignalDefinition.key, SignalDefinition.name)
+               .filter(visible_filter(SignalDefinition, *current_viewer()))
+               .order_by(SignalDefinition.key).all())
 
     operands = (
         [{"label": f"[Atributo] {_ATTR_LABELS[k]}", "value": f"attr:{k}"}

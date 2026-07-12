@@ -14,7 +14,8 @@ from app.pages.screener_signals import _th, _td
     Input("ss-strategy-sel",  "id"),
 )
 def load_strategy_opts(_):
-    strategies = svc.get_all_strategies()
+    from app.services.visibility import current_viewer
+    strategies = svc.get_visible_strategies(*current_viewer())
     return [{"label": s.name, "value": s.id} for s in strategies]
 
 

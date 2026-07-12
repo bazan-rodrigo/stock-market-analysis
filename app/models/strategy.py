@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -11,6 +11,10 @@ class Strategy(Base):
     filter_conditions (JSON, nullable): árbol de condiciones de elegibilidad
     que se evalúa ANTES del scoring — el activo que no cumple no aparece en
     strategy_result. Ver strategy_filter.py para el esquema del árbol.
+
+    owner_id / is_public (ver app/services/visibility.py): igual que en
+    SignalDefinition — owner_id controla la edición (solo admin o dueño,
+    NULL = solo admin), is_public solo la visibilidad.
     """
 
     __tablename__ = "strategy"
@@ -19,7 +23,8 @@ class Strategy(Base):
     name              = Column(String(100), nullable=False)
     description       = Column(Text)
     filter_conditions = Column(Text)   # JSON: árbol AND/OR (strategy_filter.py)
-    created_by   = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    owner_id     = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    is_public    = Column(Boolean,  nullable=False, default=False)
     created_at   = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at   = Column(DateTime, nullable=False, default=datetime.utcnow)
 

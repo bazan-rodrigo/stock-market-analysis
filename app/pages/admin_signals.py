@@ -48,8 +48,11 @@ def _build_indicator_opts() -> list[dict]:
 
 def layout(**kwargs):
     from flask_login import current_user
-    if not current_user.is_authenticated or not current_user.is_admin:
+    # Abierto a analistas (ven públicas + propias, editan solo las propias);
+    # el invitado sin usuario real no gestiona señales
+    if not current_user.is_authenticated or not getattr(current_user, "username", None):
         return html.Div()
+    is_admin = bool(current_user.is_admin)
 
     indicator_opts = _build_indicator_opts()
 
@@ -111,6 +114,15 @@ def layout(**kwargs):
                          placeholder="Descripción opcional",
                          style={"fontSize": "0.82rem", "resize": "vertical"}),
 
+            dbc.Switch(id="sig-f-public", label="Pública (visible para todos los usuarios)",
+                       value=False, style={"fontSize": "0.82rem"},
+                       className="mt-2"),
+            html.Small(
+                "Privada: solo vos (y el admin) la ven. Una señal pública "
+                "solo puede referenciar señales públicas; no se puede "
+                "despublicar si otros la usan.",
+                className="text-muted d-block"),
+
             dbc.Label("Parámetros", style={"fontSize": "0.82rem", "marginTop": "8px"}),
             dbc.Row([
                 dbc.Col([
@@ -169,6 +181,9 @@ def layout(**kwargs):
             dbc.Col(html.H4("Señales", className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nueva", id="sig-btn-add", color="primary", size="sm"),
                     className="d-flex align-items-center"),
+        ] + ([
+            # Import/export de packs: solo admin (lo importado respeta la
+            # columna `publica` del archivo)
             dbc.Col(dbc.Button("Exportar", id="sig-btn-export",
                                color="secondary", size="sm", outline=True),
                     className="d-flex align-items-center"),
@@ -179,13 +194,24 @@ def layout(**kwargs):
                 ),
                 className="d-flex align-items-center",
             ),
-        ], className="mb-2 align-items-center g-2"),
+        ] if is_admin else []), className="mb-2 align-items-center g-2"),
 
         html.Div([
             dbc.Button("Editar",   id="sig-btn-edit",   color="secondary",
                        size="sm", disabled=True, className="me-1"),
             dbc.Button("Eliminar", id="sig-btn-delete", color="danger",
                        size="sm", disabled=True, className="me-3"),
+            dbc.Button("Calcular historia", id="sig-btn-history",
+                       color="outline-warning", size="sm", disabled=True,
+                       title="Llena las fechas pasadas sin valor de la señal "
+                             "seleccionada (puede tardar varios minutos)"),
+            dbc.Input(id="sig-history-days", type="number", value=365,
+                      min=1, max=3650, step=1,
+                      style={"fontSize": "0.82rem", "width": "90px",
+                             "marginLeft": "8px"}),
+            html.Small("días", className="text-muted",
+                       style={"marginLeft": "4px", "marginRight": "12px"}),
+        ] + ([
             dbc.Button("Ejecutar pipeline", id="sig-btn-recalc",
                        color="outline-info", size="sm"),
             dcc.DatePickerSingle(id="sig-recalc-date",
@@ -193,7 +219,7 @@ def layout(**kwargs):
                                  style={"fontSize": "0.82rem", "marginLeft": "8px",
                                         "width": "150px", "backgroundColor": "#2c2c2c",
                                         "border": "1px solid #555", "borderRadius": "4px"}),
-        ], className="mb-2 d-flex align-items-center"),
+        ] if is_admin else []), className="mb-2 d-flex align-items-center"),
 
         dcc.Loading(
             html.Div(id="sig-status", style=STATUS_STYLE),
@@ -210,6 +236,8 @@ def layout(**kwargs):
                 {"name": "Fuente",    "id": "source"},
                 {"name": "Indicador", "id": "indicator_key"},
                 {"name": "Fórmula",   "id": "formula_type"},
+                {"name": "Dueño",     "id": "owner"},
+                {"name": "Pública",   "id": "publica"},
             ],
             data=[],
             row_selectable="multi",

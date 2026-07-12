@@ -94,6 +94,17 @@ def build_navbar() -> dbc.Navbar:
             analisis_menu,
             dbc.NavItem(dbc.NavLink("Datos de Mercado", href="/price-viewer")),
         ]
+        # Analistas gestionan sus señales/estrategias (públicas + propias);
+        # el invitado sin usuario real no
+        if current_user.is_authenticated and current_user.username:
+            nav_items.append(dbc.DropdownMenu(
+                label="Configuración",
+                children=[
+                    dbc.DropdownMenuItem("Señales",     href="/admin/signals"),
+                    dbc.DropdownMenuItem("Estrategias", href="/admin/strategies"),
+                ],
+                nav=True, in_navbar=True,
+            ))
 
     is_guest = current_user.is_authenticated and not current_user.username
     if is_guest:

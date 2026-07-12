@@ -6,7 +6,8 @@ import dash_bootstrap_components as dbc
 
 import app.services.signal_history_service as svc
 from app.services.asset_service import get_assets
-from app.services.strategy_service import get_all_strategies
+from app.services.strategy_service import get_visible_strategies
+from app.services.visibility import current_viewer
 from app.pages.signal_history import _th, _td
 
 from app.components.ui_constants import CHART_PALETTE as _PALETTE
@@ -25,7 +26,7 @@ def load_opts(_):
         {"label": f"{a.ticker} — {a.name or a.ticker}", "value": a.id}
         for a in assets
     ]
-    strats = get_all_strategies()
+    strats = get_visible_strategies(*current_viewer())
     strat_opts = [{"label": s.name, "value": s.id} for s in strats]
     return asset_opts, strat_opts
 
@@ -73,7 +74,7 @@ def populate_signal_picker(_, asset_id, strategy_id):
     if strategy_id:
         signals = svc.get_signals_for_strategy(strategy_id)
     else:
-        signals = svc.get_all_signals_flat()
+        signals = svc.get_all_signals_flat(*current_viewer())
 
     if not signals:
         return [], [], _hidden, []

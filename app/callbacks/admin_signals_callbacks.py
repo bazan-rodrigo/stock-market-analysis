@@ -3,6 +3,7 @@ import base64
 from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 
 import app.services.signal_service as svc
+from app.services.visibility import can_edit, current_viewer, publica_str
 from app.callbacks.signal_params_ui import (
     PB_FIELD_STATES, builder_from_params, empty_params_store,
     params_from_builder, pb_capture_from_args,
@@ -12,6 +13,17 @@ from app.components.ui_constants import (
     COLOR_POSITIVE, COLOR_NEGATIVE,
     formula_help_card as _help_card,
 )
+
+
+def _usernames_by_id() -> dict:
+    from app.database import get_session
+    from app.models import User
+    s = get_session()
+    return {u.id: u.username for u in s.query(User.id, User.username).all()}
+
+
+def _visible_signals():
+    return svc.get_visible_signals(*current_viewer())
 
 
 # ── Tabla ─────────────────────────────────────────────────────────────────────
@@ -31,7 +43,8 @@ _FT_LABEL = {
     Input("sig-modal",      "is_open"),
 )
 def load_table(_a, _m):
-    signals = svc.get_all_signals()
+    signals = _visible_signals()
+    owners = _usernames_by_id()
     all_ids = [s.id for s in signals]
     data = [
         {
@@ -41,6 +54,8 @@ def load_table(_a, _m):
             "source":        s.source,
             "indicator_key": s.indicator_key or "—",
             "formula_type":  _FT_LABEL.get(s.formula_type, s.formula_type),
+            "owner":         owners.get(s.owner_id, "—"),
+            "publica":       publica_str(s.is_public),
         }
         for s in signals
     ]
@@ -62,13 +77,23 @@ def update_selected_ids(selected_rows, data):
 
 
 @callback(
-    Output("sig-btn-edit",   "disabled"),
-    Output("sig-btn-delete", "disabled"),
+    Output("sig-btn-edit",    "disabled"),
+    Output("sig-btn-delete",  "disabled"),
+    Output("sig-btn-history", "disabled"),
     Input("sig-selected-ids", "data"),
 )
 def update_buttons(selected_ids):
     n = len(selected_ids or [])
-    return (n != 1), (n == 0)
+    if n == 0:
+        return True, True, True
+    # Editar/Eliminar/Calcular historia: solo sobre señales propias (o admin)
+    user_id, is_admin = current_viewer()
+    by_id = {s.id: s for s in _visible_signals()}
+    editable = all(
+        sid in by_id and can_edit(by_id[sid].owner_id, user_id, is_admin)
+        for sid in selected_ids
+    )
+    return (n != 1 or not editable), not editable, (n != 1 or not editable)
 
 
 # ── Modal: abrir / cerrar ─────────────────────────────────────────────────────
@@ -84,6 +109,7 @@ def update_buttons(selected_ids):
     Output("sig-f-indicator-key", "value"),
     Output("sig-f-formula-type","value"),
     Output("sig-f-description", "value"),
+    Output("sig-f-public",      "value"),
     Output("sig-f-params",      "value"),
     Output("sig-pb-store",      "data"),
     Output("sig-params-advanced", "value"),
@@ -98,21 +124,21 @@ def update_buttons(selected_ids):
 def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
     trigger = ctx.triggered_id
     _noup = no_update
-    _noop = (_noup,) * 15  # 15 outputs totales
+    _noop = (_noup,) * 16  # 16 outputs totales
 
     if trigger == "sig-btn-cancel":
         # is_open=False, resto sin cambio, editing_id=None, error=False
         return (False, _noup, _noup, _noup, _noup, _noup, _noup,
-                _noup, _noup, _noup, _noup, _noup, _noup, None, False)
+                _noup, _noup, _noup, _noup, _noup, _noup, _noup, None, False)
 
     if trigger == "sig-btn-add":
         return (True, "Nueva señal", "", False, "", None, None,
-                "", None, "", "{}", empty_params_store(), False, None, False)
+                "", None, "", False, "{}", empty_params_store(), False, None, False)
 
     if trigger == "sig-btn-edit":
         if not selected_ids or len(selected_ids) != 1:
             return _noop
-        sig = next((x for x in svc.get_all_signals() if x.id == selected_ids[0]), None)
+        sig = next((x for x in _visible_signals() if x.id == selected_ids[0]), None)
         if sig is None:
             return _noop
         # Params al editor estructurado; si el JSON guardado no es
@@ -127,7 +153,8 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
             sig.key, True,
             sig.name, sig.source,
             sig.group_type, sig.indicator_key,
-            sig.formula_type, sig.description or "", sig.params,
+            sig.formula_type, sig.description or "", bool(sig.is_public),
+            sig.params,
             pb_store if pb_store is not None else empty_params_store(),
             advanced,
             sig.id, False,
@@ -202,6 +229,7 @@ def update_help(ft, advanced):
     State("sig-f-indicator-key", "value"),
     State("sig-f-formula-type",  "value"),
     State("sig-f-description",   "value"),
+    State("sig-f-public",        "value"),
     State("sig-f-params",        "value"),
     State("sig-editing-id",      "data"),
     State("sig-params-advanced", "value"),
@@ -210,7 +238,7 @@ def update_help(ft, advanced):
     prevent_initial_call=True,
 )
 def save(_, key, name, source, group_type, indicator_key,
-         formula_type, description, params, editing_id,
+         formula_type, description, is_public, params, editing_id,
          advanced, pb_store, *pb_field_args):
 
     def err(msg):
@@ -234,6 +262,7 @@ def save(_, key, name, source, group_type, indicator_key,
     if not params or not params.strip():
         return err("Los parámetros JSON son obligatorios.")
 
+    user_id, is_admin = current_viewer()
     try:
         svc.save_signal(
             key=key.strip(),
@@ -245,6 +274,9 @@ def save(_, key, name, source, group_type, indicator_key,
             group_type=group_type or None,
             indicator_key=indicator_key or None,
             signal_id=editing_id,
+            is_public=bool(is_public),
+            acting_user_id=user_id,
+            acting_is_admin=is_admin,
         )
         return "Señal guardada.", True, "success", False, "", False, []
     except Exception as exc:
@@ -265,11 +297,13 @@ def save(_, key, name, source, group_type, indicator_key,
 def delete_selected(_, selected_ids):
     if not selected_ids:
         return no_update, no_update, no_update, no_update
+    user_id, is_admin = current_viewer()
     errors = []
     ok = 0
     for sid in selected_ids:
         try:
-            svc.delete_signal(sid)
+            svc.delete_signal(sid, acting_user_id=user_id,
+                              acting_is_admin=is_admin)
             ok += 1
         except Exception as exc:
             errors.append(str(exc))
@@ -291,6 +325,9 @@ def delete_selected(_, selected_ids):
 )
 def recalculate(_, date_str):
     from datetime import date as dt_date
+    _, is_admin = current_viewer()
+    if not is_admin:
+        return "", "Solo un administrador puede ejecutar el pipeline.", True, "danger"
     target_date = dt_date.fromisoformat(date_str) if date_str else dt_date.today()
     try:
         result = svc.run_recalculate(target_date)
@@ -311,6 +348,9 @@ def recalculate(_, date_str):
     prevent_initial_call=True,
 )
 def export(_):
+    _, is_admin = current_viewer()
+    if not is_admin:
+        return no_update
     return dcc.send_bytes(svc.export_signals_excel(), "señales.xlsx")
 
 
@@ -328,9 +368,13 @@ def export(_):
 def import_excel(contents, filename):
     if contents is None:
         return no_update, no_update, no_update, no_update
+    user_id, is_admin = current_viewer()
+    if not is_admin:
+        return no_update, "Solo un administrador puede importar señales.", True, "danger"
     try:
         _, encoded = contents.split(",", 1)
-        results = svc.import_signals_excel(base64.b64decode(encoded))
+        results = svc.import_signals_excel(base64.b64decode(encoded),
+                                           owner_id=user_id)
     except Exception as exc:
         return no_update, str(exc), True, "danger"
 
@@ -356,3 +400,40 @@ def import_excel(contents, filename):
     msg   = f"Importación: {ok_count} OK, {err_count} error(es)."
     color = "success" if not err_count else ("warning" if ok_count else "danger")
     return table, msg, True, color
+
+
+# ── Calcular historia (backfill acotado a la señal propia) ────────────────────
+
+@callback(
+    Output("sig-status",  "children",  allow_duplicate=True),
+    Output("sig-alert",   "children",  allow_duplicate=True),
+    Output("sig-alert",   "is_open",   allow_duplicate=True),
+    Output("sig-alert",   "color",     allow_duplicate=True),
+    Input("sig-btn-history",  "n_clicks"),
+    State("sig-selected-ids", "data"),
+    State("sig-history-days", "value"),
+    prevent_initial_call=True,
+)
+def compute_history(_, selected_ids, days):
+    """Llena las fechas pasadas sin valor de la señal seleccionada (scope
+    signal:<key> del backfill del Centro de Datos). Corre sincrónico bajo
+    dcc.Loading — acotado a UNA señal es tolerable; el backfill masivo
+    sigue siendo del Centro de Datos."""
+    if not selected_ids or len(selected_ids) != 1:
+        return no_update, no_update, no_update, no_update
+    user_id, is_admin = current_viewer()
+    sig = next((x for x in _visible_signals() if x.id == selected_ids[0]), None)
+    if sig is None:
+        return "", "Señal no encontrada.", True, "danger"
+    if not can_edit(sig.owner_id, user_id, is_admin):
+        return "", "Solo el dueño o un administrador pueden calcular la historia.", True, "danger"
+    try:
+        result = svc.update_signal_history(
+            days=int(days or 365), scope=f"signal:{sig.key}")
+        n_err = len(result.get("errors") or [])
+        msg = (f"Historia de '{sig.key}': {result.get('success', 0)}/"
+               f"{result.get('total', 0)} fecha(s) calculadas"
+               + (f", {n_err} con error." if n_err else "."))
+        return "", msg, True, ("warning" if n_err else "success")
+    except Exception as exc:
+        return "", str(exc), True, "danger"

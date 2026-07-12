@@ -28,6 +28,14 @@ La importación es todo-o-nada: si alguna fila es inválida no se escribe nada
 y la pantalla muestra el motivo por fila. Reimportar un archivo actualiza por
 key/nombre (no duplica).
 
+Visibilidad (migración 0065): la columna **`publica`** (si/no) de cada hoja
+define si la señal/estrategia queda visible para todos los usuarios o solo
+para su dueño. Ausente o vacía = pública (compatibilidad con archivos
+viejos). El que importa (solo admin) queda como dueño de las filas nuevas;
+las existentes conservan su dueño. Todos los packs de este directorio están
+marcados `publica=si`. Regla de referencias: una señal/estrategia pública
+solo puede referenciar señales públicas.
+
 ## pullback_en_tendencia
 
 Compra retrocesos de corto plazo dentro de tendencias alcistas confirmadas.

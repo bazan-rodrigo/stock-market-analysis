@@ -229,6 +229,45 @@ def get_all_strategies() -> list:
     return s.query(Strategy).order_by(Strategy.id).all()
 
 
+def get_visible_strategies(user_id: int | None, is_admin: bool) -> list:
+    """Estrategias visibles para el usuario: públicas + propias (admin:
+    todas). Para pantallas y dropdowns — el pipeline usa get_all_strategies."""
+    from app.services.visibility import visible_filter
+    s = get_session()
+    return (s.query(Strategy)
+            .filter(visible_filter(Strategy, user_id, is_admin))
+            .order_by(Strategy.id).all())
+
+
+def _validate_signal_refs_visibility(s, *, owner_id, is_public,
+                                     signal_keys: set[str]) -> None:
+    """Estrategia pública solo referencia señales públicas; privada,
+    públicas + del mismo dueño (componentes y operandos del filtro)."""
+    from app.models import SignalDefinition
+    from app.services.visibility import can_reference
+
+    if not signal_keys:
+        return
+    for ref in s.query(SignalDefinition).filter(
+            SignalDefinition.key.in_(signal_keys)).all():
+        if not can_reference(owner_id, is_public, ref.owner_id, ref.is_public):
+            if is_public:
+                raise ValueError(
+                    f"Una estrategia pública no puede usar la señal "
+                    f"privada '{ref.key}' — publicala primero.")
+            raise ValueError(
+                f"No podés usar la señal privada '{ref.key}' de otro usuario.")
+
+
+def _filter_signal_keys(filter_conditions: str | None) -> set[str]:
+    """Keys de señal usadas como operando en el filtro de elegibilidad."""
+    tree = strategy_filter.parse_tree(filter_conditions)
+    if tree is None:
+        return set()
+    return {k for t, k, _res in strategy_filter.collect_operands(tree)
+            if t == "signal" and k}
+
+
 def get_strategy_by_id(strategy_id: int) -> Strategy | None:
     s = get_session()
     return s.query(Strategy).filter(Strategy.id == strategy_id).first()
@@ -272,9 +311,16 @@ def save_strategy(
     description: str | None = None,
     filter_conditions: str | None = None,
     strategy_id: int | None = None,
+    is_public: bool | None = None,
+    acting_user_id: int | None = None,
+    acting_is_admin: bool = True,
 ) -> Strategy:
+    """is_public None = conservar el valor actual (o privada si es nueva).
+    acting_* identifican a quién guarda: en alta queda como dueño; en
+    edición se valida el permiso (default admin para scripts/tests)."""
     from datetime import datetime as _dt
     from app.models import SignalDefinition
+    from app.services.visibility import can_edit
 
     filter_errors = validate_filter_conditions(filter_conditions)
     if filter_errors:
@@ -285,17 +331,30 @@ def save_strategy(
         strat = s.query(Strategy).filter(Strategy.id == strategy_id).first()
         if strat is None:
             raise ValueError(f"Estrategia id={strategy_id} no encontrada.")
+        if not can_edit(strat.owner_id, acting_user_id, acting_is_admin):
+            raise ValueError("Solo el dueño o un administrador pueden "
+                             "editar esta estrategia.")
+        new_public = strat.is_public if is_public is None else bool(is_public)
         for comp in list(strat.components):
             s.delete(comp)
         s.flush()
     else:
         strat = Strategy()
+        strat.owner_id   = acting_user_id
         strat.created_at = _dt.utcnow()
         s.add(strat)
+        new_public = bool(is_public)
+
+    _validate_signal_refs_visibility(
+        s, owner_id=strat.owner_id, is_public=new_public,
+        signal_keys={str(c.get("signal_key") or "").strip()
+                     for c in components if c.get("signal_key")}
+                    | _filter_signal_keys(filter_conditions))
 
     strat.name              = name
     strat.description       = description
     strat.filter_conditions = filter_conditions or None
+    strat.is_public         = new_public
     strat.updated_at        = _dt.utcnow()
     s.flush()
 
@@ -320,11 +379,16 @@ def save_strategy(
     return strat
 
 
-def delete_strategy(strategy_id: int) -> None:
+def delete_strategy(strategy_id: int, *, acting_user_id: int | None = None,
+                    acting_is_admin: bool = True) -> None:
+    from app.services.visibility import can_edit
     s = get_session()
     strat = s.query(Strategy).filter(Strategy.id == strategy_id).first()
     if strat is None:
         raise ValueError(f"Estrategia id={strategy_id} no encontrada.")
+    if not can_edit(strat.owner_id, acting_user_id, acting_is_admin):
+        raise ValueError(f"Solo el dueño o un administrador pueden "
+                         f"eliminar la estrategia '{strat.name}'.")
     s.delete(strat)
     s.commit()
 
@@ -604,13 +668,14 @@ def export_strategies_excel() -> bytes:
     import openpyxl
     from io import BytesIO
     from app.models import SignalDefinition
+    from app.services.visibility import publica_str
 
     strategies = get_all_strategies()
     wb = openpyxl.Workbook()
 
     ws_s = wb.active
     ws_s.title = "Estrategias"
-    ws_s.append(["name", "description", "filter_conditions"])
+    ws_s.append(["name", "description", "filter_conditions", "publica"])
 
     ws_c = wb.create_sheet("Componentes")
     ws_c.append(["strategy_name", "signal_key", "weight", "scope", "group_type", "group_id"])
@@ -624,7 +689,8 @@ def export_strategies_excel() -> bytes:
 
     for strat in strategies:
         ws_s.append([strat.name, strat.description or "",
-                     strat.filter_conditions or ""])
+                     strat.filter_conditions or "",
+                     publica_str(strat.is_public)])
         for comp in strat.components:
             sig = sigs_by_id.get(comp.signal_id)
             ws_c.append([
@@ -638,11 +704,16 @@ def export_strategies_excel() -> bytes:
     return buf.getvalue()
 
 
-def import_strategies_excel(file_bytes: bytes) -> list[dict]:
+def import_strategies_excel(file_bytes: bytes,
+                            owner_id: int | None = None) -> list[dict]:
+    """La columna `publica` (sí/no; ausente = sí) define la visibilidad.
+    owner_id = quien importa: dueño de las estrategias NUEVAS (las
+    existentes conservan el suyo)."""
     import openpyxl
     from io import BytesIO
     from datetime import datetime as _dt
     from app.models import SignalDefinition
+    from app.services.visibility import can_reference, parse_publica
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes))
     ws_s = wb.worksheets[0]
@@ -664,11 +735,17 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
                     data.get("asset_filter"))
                 or None
             )
-            strategies[name] = {
+            entry = {
                 "description": data.get("description") or None,
                 "filter_conditions": filter_conditions,
                 "components": [],
+                "is_public": True,
             }
+            try:
+                entry["is_public"] = parse_publica(data.get("publica"))
+            except ValueError as exc:
+                entry.setdefault("errors", []).append(str(exc))
+            strategies[name] = entry
 
     if len(wb.worksheets) > 1:
         ws_c = wb.worksheets[1]
@@ -699,21 +776,41 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
         for sdata in strategies.values()
         for c in sdata["components"] if c["signal_key"]
     }
-    sig_ids_by_key = {
-        r.key: r.id
-        for r in db.query(SignalDefinition.key, SignalDefinition.id)
+    sigs_by_key = {
+        r.key: r
+        for r in db.query(SignalDefinition)
                    .filter(SignalDefinition.key.in_(all_keys)).all()
     } if all_keys else {}
+    sig_ids_by_key = {k: r.id for k, r in sigs_by_key.items()}
+    existing_by_name = {
+        st.name: st for st in db.query(Strategy)
+        .filter(Strategy.name.in_(strategies)).all()
+    } if strategies else {}
 
     invalid = False
     for name, sdata in strategies.items():
         errors = sdata.setdefault("errors", [])
+        existing = existing_by_name.get(name)
+        sdata["owner_id"] = existing.owner_id if existing else owner_id
         for comp in sdata["components"]:
             if not comp["signal_key"]:
                 errors.append("componente sin signal_key")
             elif comp["signal_key"] not in sig_ids_by_key:
                 errors.append(f"señal '{comp['signal_key']}' no encontrada")
         errors.extend(validate_filter_conditions(sdata["filter_conditions"]))
+        # Visibilidad de las señales referenciadas (componentes + filtro)
+        ref_keys = ({c["signal_key"] for c in sdata["components"]
+                     if c["signal_key"]}
+                    | _filter_signal_keys(sdata["filter_conditions"]))
+        for rk in sorted(ref_keys):
+            ref = sigs_by_key.get(rk) or db.query(SignalDefinition).filter(
+                SignalDefinition.key == rk).first()
+            if ref is not None and not can_reference(
+                    sdata["owner_id"], sdata["is_public"],
+                    ref.owner_id, ref.is_public):
+                errors.append(
+                    f"estrategia {'pública' if sdata['is_public'] else 'privada'} "
+                    f"usa la señal privada '{rk}' de otro dueño")
         if errors:
             invalid = True
 
@@ -738,12 +835,14 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
                 db.flush()
             else:
                 strat = Strategy()
+                strat.owner_id   = owner_id
                 strat.created_at = _dt.utcnow()
                 db.add(strat)
 
             strat.name              = name
             strat.description       = sdata["description"]
             strat.filter_conditions = sdata["filter_conditions"] or None
+            strat.is_public         = sdata["is_public"]
             strat.updated_at        = _dt.utcnow()
             db.flush()
 

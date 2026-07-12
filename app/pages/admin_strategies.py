@@ -17,8 +17,11 @@ _SCOPE_OPTS = [
 
 def layout(**kwargs):
     from flask_login import current_user
-    if not current_user.is_authenticated or not current_user.is_admin:
+    # Abierto a analistas (ven públicas + propias, editan solo las propias);
+    # el invitado sin usuario real no gestiona estrategias
+    if not current_user.is_authenticated or not getattr(current_user, "username", None):
         return html.Div()
+    is_admin = bool(current_user.is_admin)
 
     modal = dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle(id="str-modal-title")),
@@ -39,6 +42,14 @@ def layout(**kwargs):
                                  style={"fontSize": "0.82rem", "resize": "vertical"}),
                 ]),
             ], className="mb-2"),
+
+            dbc.Switch(id="str-f-public",
+                       label="Pública (visible para todos los usuarios)",
+                       value=False, style={"fontSize": "0.82rem"}),
+            html.Small(
+                "Privada: solo vos (y el admin) la ven. Una estrategia "
+                "pública solo puede usar señales públicas.",
+                className="text-muted d-block mb-2"),
 
             # ── Componentes ─────────────────────────────────────────────────
             dbc.Label("Componentes", style={"fontSize": "0.82rem", "fontWeight": "bold",
@@ -94,6 +105,9 @@ def layout(**kwargs):
             dbc.Col(html.H4("Estrategias", className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nueva", id="str-btn-add", color="primary", size="sm"),
                     className="d-flex align-items-center"),
+        ] + ([
+            # Import/export de packs: solo admin (lo importado respeta la
+            # columna `publica` del archivo)
             dbc.Col(dbc.Button("Exportar", id="str-btn-export",
                                color="secondary", size="sm", outline=True),
                     className="d-flex align-items-center"),
@@ -104,7 +118,7 @@ def layout(**kwargs):
                 ),
                 className="d-flex align-items-center",
             ),
-        ], className="mb-2 align-items-center g-2"),
+        ] if is_admin else []), className="mb-2 align-items-center g-2"),
 
         html.Div([
             dbc.Button("Editar",   id="str-btn-edit",   color="secondary",
@@ -118,6 +132,17 @@ def layout(**kwargs):
                                  style={"fontSize": "0.82rem", "marginLeft": "8px",
                                         "width": "150px", "backgroundColor": "#2c2c2c",
                                         "border": "1px solid #555", "borderRadius": "4px"}),
+            dbc.Button("Calcular historia", id="str-btn-history",
+                       color="outline-warning", size="sm", disabled=True,
+                       className="ms-3",
+                       title="Llena las fechas pasadas sin resultado de la "
+                             "estrategia seleccionada (puede tardar varios minutos)"),
+            dbc.Input(id="str-history-days", type="number", value=365,
+                      min=1, max=3650, step=1,
+                      style={"fontSize": "0.82rem", "width": "90px",
+                             "marginLeft": "8px"}),
+            html.Small("días", className="text-muted",
+                       style={"marginLeft": "4px"}),
         ], className="mb-2 d-flex align-items-center"),
 
         dcc.Loading(
@@ -134,6 +159,8 @@ def layout(**kwargs):
                 {"name": "Nombre",      "id": "name"},
                 {"name": "Comp.",       "id": "components"},
                 {"name": "Filtro",      "id": "filter"},
+                {"name": "Dueño",       "id": "owner"},
+                {"name": "Pública",     "id": "publica"},
                 {"name": "Descripción", "id": "description"},
             ],
             data=[],

@@ -45,6 +45,12 @@ def get_signals_for_strategy(strategy_id: int) -> list[SignalDefinition]:
     return s.query(SignalDefinition).filter(SignalDefinition.id.in_(sig_ids)).order_by(SignalDefinition.name).all()
 
 
-def get_all_signals_flat() -> list[SignalDefinition]:
+def get_all_signals_flat(user_id: int | None = None,
+                         is_admin: bool = True) -> list[SignalDefinition]:
+    """Default admin (todas) para compatibilidad; las pantallas pasan el
+    viewer real para ver solo públicas + propias."""
+    from app.services.visibility import visible_filter
     s = get_session()
-    return s.query(SignalDefinition).order_by(SignalDefinition.name).all()
+    return (s.query(SignalDefinition)
+            .filter(visible_filter(SignalDefinition, user_id, is_admin))
+            .order_by(SignalDefinition.name).all())

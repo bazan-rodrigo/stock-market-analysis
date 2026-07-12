@@ -396,6 +396,81 @@ def get_all_signals() -> list:
     return s.query(SignalDefinition).order_by(SignalDefinition.id).all()
 
 
+def get_visible_signals(user_id: int | None, is_admin: bool) -> list:
+    """Señales visibles para el usuario: públicas + propias (admin: todas).
+    Para pantallas y dropdowns — el pipeline de cálculo usa get_all_signals."""
+    from app.services.visibility import visible_filter
+    s = get_session()
+    return (s.query(SignalDefinition)
+            .filter(visible_filter(SignalDefinition, user_id, is_admin))
+            .order_by(SignalDefinition.id).all())
+
+
+def signal_dependents_of_others(s, sig: SignalDefinition,
+                                owner_id: int | None) -> list[str]:
+    """Quiénes referencian a sig SIN ser privados del mismo dueño: señales
+    composite (por key en params) y estrategias (componentes u operandos
+    señal del filtro) públicas o de otro usuario. Si esta lista no está
+    vacía, despublicar sig los dejaría apuntando a algo que sus dueños ya
+    no ven."""
+    import json as _json
+    from app.models import Strategy
+    from app.services import strategy_filter
+
+    deps: list[str] = []
+
+    for other in s.query(SignalDefinition).filter(
+            SignalDefinition.formula_type == "composite",
+            SignalDefinition.id != sig.id).all():
+        if not other.is_public and other.owner_id == owner_id:
+            continue
+        try:
+            refs = {c.get("signal_key")
+                    for c in _json.loads(other.params).get("components", [])}
+        except (TypeError, ValueError):
+            continue
+        if sig.key in refs:
+            deps.append(f"señal composite '{other.key}'")
+
+    for strat in s.query(Strategy).all():
+        if not strat.is_public and strat.owner_id == owner_id:
+            continue
+        in_components = any(c.signal_id == sig.id for c in strat.components)
+        in_filter = False
+        tree = strategy_filter.parse_tree(strat.filter_conditions)
+        if tree is not None:
+            in_filter = any(t == "signal" and k == sig.key
+                            for t, k, _res in strategy_filter.collect_operands(tree))
+        if in_components or in_filter:
+            deps.append(f"estrategia '{strat.name}'")
+
+    return deps
+
+
+def _validate_composite_refs_visibility(s, *, owner_id, is_public,
+                                        params_json: str) -> None:
+    """Una composite pública solo referencia públicas; privada, públicas +
+    del mismo dueño (ver visibility.can_reference)."""
+    import json as _json
+    from app.services.visibility import can_reference
+
+    refs = {c.get("signal_key")
+            for c in _json.loads(params_json).get("components", [])
+            if c.get("signal_key")}
+    if not refs:
+        return
+    for ref in s.query(SignalDefinition).filter(
+            SignalDefinition.key.in_(refs)).all():
+        if not can_reference(owner_id, is_public, ref.owner_id, ref.is_public):
+            if is_public:
+                raise ValueError(
+                    f"Una señal pública no puede referenciar la señal "
+                    f"privada '{ref.key}' — publicala primero.")
+            raise ValueError(
+                f"No podés referenciar la señal privada '{ref.key}' "
+                f"de otro usuario.")
+
+
 def save_signal(
     key: str,
     name: str,
@@ -407,8 +482,16 @@ def save_signal(
     group_type: str | None = None,
     indicator_key: str | None = None,
     signal_id: int | None = None,
+    is_public: bool | None = None,
+    acting_user_id: int | None = None,
+    acting_is_admin: bool = True,
 ) -> SignalDefinition:
+    """is_public None = conservar el valor actual (o privada si es nueva).
+    acting_* identifican a quién guarda: en alta queda como dueño; en
+    edición se valida el permiso (default admin para scripts/tests)."""
     import json as _json
+    from app.services.visibility import can_edit
+
     params = _json.loads(params_json)
     shape_error = signal_engine.validate_params(
         formula_type, params if isinstance(params, dict) else {})
@@ -439,12 +522,29 @@ def save_signal(
         sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
         if sig is None:
             raise ValueError(f"Señal id={signal_id} no encontrada.")
+        if not can_edit(sig.owner_id, acting_user_id, acting_is_admin):
+            raise ValueError("Solo el dueño o un administrador pueden "
+                             "editar esta señal.")
+        new_public = sig.is_public if is_public is None else bool(is_public)
+        if sig.is_public and not new_public:
+            deps = signal_dependents_of_others(s, sig, sig.owner_id)
+            if deps:
+                raise ValueError(
+                    "No se puede despublicar: la referencian "
+                    + ", ".join(sorted(set(deps))) + ".")
     else:
         existing = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
         if existing:
             raise ValueError(f"Ya existe una señal con key '{key}'.")
         sig = SignalDefinition()
+        sig.owner_id = acting_user_id
         s.add(sig)
+        new_public = bool(is_public)
+
+    if formula_type == "composite":
+        _validate_composite_refs_visibility(
+            s, owner_id=sig.owner_id, is_public=new_public,
+            params_json=params_json)
 
     sig.key           = key
     sig.name          = name
@@ -454,15 +554,21 @@ def save_signal(
     sig.indicator_key = indicator_key or None
     sig.formula_type  = formula_type
     sig.params        = params_json
+    sig.is_public     = new_public
     s.commit()
     return sig
 
 
-def delete_signal(signal_id: int) -> None:
+def delete_signal(signal_id: int, *, acting_user_id: int | None = None,
+                  acting_is_admin: bool = True) -> None:
+    from app.services.visibility import can_edit
     s = get_session()
     sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
     if sig is None:
         raise ValueError(f"Señal id={signal_id} no encontrada.")
+    if not can_edit(sig.owner_id, acting_user_id, acting_is_admin):
+        raise ValueError(f"Solo el dueño o un administrador pueden "
+                         f"eliminar la señal '{sig.key}'.")
     s.delete(sig)
     s.commit()
 
@@ -472,30 +578,37 @@ def delete_signal(signal_id: int) -> None:
 def export_signals_excel() -> bytes:
     import openpyxl
     from io import BytesIO
+    from app.services.visibility import publica_str
 
     signals = get_all_signals()
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Señales"
     ws.append(["key", "name", "description", "source", "group_type",
-                "indicator_key", "formula_type", "params"])
+                "indicator_key", "formula_type", "params", "publica"])
     for sig in signals:
         ws.append([
             sig.key, sig.name, sig.description or "",
             sig.source, sig.group_type or "", sig.indicator_key or "",
-            sig.formula_type, sig.params,
+            sig.formula_type, sig.params, publica_str(sig.is_public),
         ])
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
-def import_signals_excel(file_bytes: bytes) -> list[dict]:
+def import_signals_excel(file_bytes: bytes,
+                         owner_id: int | None = None) -> list[dict]:
     """Importación todo-o-nada en dos pasadas: primero se valida el archivo
-    completo sin tocar la base; solo si no hay errores se escribe todo."""
+    completo sin tocar la base; solo si no hay errores se escribe todo.
+
+    La columna `publica` (sí/no; ausente = sí) define la visibilidad de
+    cada fila. owner_id = quien importa: queda como dueño de las señales
+    NUEVAS (las existentes conservan su dueño)."""
     import openpyxl
     import json as _json
     from io import BytesIO
+    from app.services.visibility import can_reference, parse_publica
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes))
     ws = wb.active
@@ -514,7 +627,8 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
     known_indicators = {
         d.code for d in s.query(IndicatorDefinition.code).all()
     } | set(_VIRTUAL_CODES)
-    known_signal_keys = {r.key for r in s.query(SignalDefinition.key).all()}
+    db_signals = {sig.key: sig for sig in s.query(SignalDefinition).all()}
+    known_signal_keys = set(db_signals)
 
     # ── Pasada 1: validación completa sin escribir ────────────────────────────
     parsed: list[dict] = []
@@ -531,10 +645,15 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
         group_type    = str(data.get("group_type") or "").strip()
         error = None
         params = None
+        is_public = True
+        try:
+            is_public = parse_publica(data.get("publica"))
+        except ValueError as exc:
+            error = str(exc)
         try:
             params = _json.loads(params_str)
         except Exception as exc:
-            error = f"params inválido: {exc}"
+            error = error or f"params inválido: {exc}"
         if error is None and formula_type not in _FORMULA_TYPES:
             error = f"formula_type desconocido: '{formula_type}'"
         if error is None and source not in _SOURCES:
@@ -558,9 +677,21 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
             invalid = True
         parsed.append({"key": key, "data": data, "params": params_str,
                        "formula_type": formula_type, "source": source,
-                       "error": error})
+                       "is_public": is_public, "error": error})
 
-    # Refs de composites: contra las señales del archivo + las de la base
+    # (owner, is_public) resultante por key tras el import: filas del
+    # archivo (dueño: el existente si actualiza, el importador si es nueva)
+    # pisan a la base — para validar visibilidad de refs contra el estado
+    # que quedaría, no el actual
+    resulting: dict[str, tuple] = {
+        k: (sig.owner_id, sig.is_public) for k, sig in db_signals.items()
+    }
+    for p in parsed:
+        existing = db_signals.get(p["key"])
+        p["owner_id"] = existing.owner_id if existing else owner_id
+        resulting[p["key"]] = (p["owner_id"], p["is_public"])
+
+    # Refs de composites: existencia (archivo + base) y visibilidad
     file_keys = {p["key"] for p in parsed}
     for p in parsed:
         if p["error"] is None and p["formula_type"] == "composite":
@@ -572,6 +703,26 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
             if missing:
                 p["error"] = f"composite referencia señales inexistentes: {sorted(missing)}"
                 invalid = True
+                continue
+            bad = sorted(
+                ref for ref in refs
+                if not can_reference(p["owner_id"], p["is_public"],
+                                     *resulting[ref]))
+            if bad:
+                p["error"] = (f"composite {'pública' if p['is_public'] else 'privada'} "
+                              f"referencia señales privadas de otro dueño: {bad}")
+                invalid = True
+
+    # Despublicar vía import: mismo chequeo de dependientes que en el ABM
+    for p in parsed:
+        if p["error"] is None:
+            existing = db_signals.get(p["key"])
+            if existing is not None and existing.is_public and not p["is_public"]:
+                deps = signal_dependents_of_others(s, existing, existing.owner_id)
+                if deps:
+                    p["error"] = ("no se puede despublicar: la referencian "
+                                  + ", ".join(sorted(set(deps))))
+                    invalid = True
 
     if invalid:
         return [
@@ -601,9 +752,11 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
                 description=str(data.get("description") or "") or None,
                 group_type=str(data.get("group_type") or "") or None,
                 indicator_key=str(data.get("indicator_key") or "") or None,
+                is_public=p["is_public"],
             )
             if sig is None:
                 sig = SignalDefinition()
+                sig.owner_id = owner_id
                 s.add(sig)
                 outcome = "creada"
             elif all(getattr(sig, f) == v for f, v in new_vals.items()):

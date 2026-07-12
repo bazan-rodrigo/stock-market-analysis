@@ -186,10 +186,12 @@ def build_pb_opts() -> dict:
     from app.database import get_session
     from app.models import SignalDefinition
     from app.services.indicator_catalog import CATEGORICAL_VALUES
+    from app.services.visibility import current_viewer, visible_filter
 
     s = get_session()
-    signals = s.query(SignalDefinition.key, SignalDefinition.name).order_by(
-        SignalDefinition.key).all()
+    signals = (s.query(SignalDefinition.key, SignalDefinition.name)
+               .filter(visible_filter(SignalDefinition, *current_viewer()))
+               .order_by(SignalDefinition.key).all())
     return {
         "signal_opts": [{"label": f"{k} — {n}", "value": k} for k, n in signals],
         "cat_values": {code: sorted(vals) for code, vals in CATEGORICAL_VALUES.items()},
