@@ -569,6 +569,10 @@ def delete_signal(signal_id: int, *, acting_user_id: int | None = None,
     if not can_edit(sig.owner_id, acting_user_id, acting_is_admin):
         raise ValueError(f"Solo el dueño o un administrador pueden "
                          f"eliminar la señal '{sig.key}'.")
+    from app.models import SignalEvalLog
+    s.query(SignalEvalLog).filter(
+        SignalEvalLog.scope_kind == "signal",
+        SignalEvalLog.ref_id == sig.id).delete()
     s.delete(sig)
     s.commit()
 
@@ -896,6 +900,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
     # scores de ESA señal, o cualquier señal del día (alcance total)
     if scope_kind == "strategy":
         from app.models import StrategyResult
+        eval_kind, eval_ref = "strategy", strategy_id
         computed = {
             d for (d,) in _within(
                 s.query(StrategyResult.date).distinct().filter(
@@ -906,6 +911,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
         # La señal pedida (no sus dependencias) define el "ya calculado"
         target_sig = s.query(SignalDefinition).filter(
             SignalDefinition.key == scope.partition(":")[2]).first()
+        eval_kind, eval_ref = "signal", target_sig.id
         table = GroupSignalValue if target_sig.source == "group" else SignalValue
         computed = {
             d for (d,) in _within(
@@ -914,10 +920,24 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
                 table.date)
         }
     else:
+        eval_kind, eval_ref = "all", 0
         computed = {
             d for (d,) in _within(
                 s.query(SignalValue.date).distinct(), SignalValue.date)
         }
+
+    # Fechas ya evaluadas que produjeron 0 filas (nadie pasó el filtro, señal
+    # sin datos ese día): sin este registro parecen huecos y el delta las
+    # reprocesa entero en CADA corrida (1927→1993 con solo ^GSPC, p. ej.)
+    from app.models import SignalEvalLog
+    logged = {
+        d for (d,) in _within(
+            s.query(SignalEvalLog.date).filter(
+                SignalEvalLog.scope_kind == eval_kind,
+                SignalEvalLog.ref_id == eval_ref),
+            SignalEvalLog.date)
+    }
+    computed |= logged
 
     dates = _dates_to_compute(trading_dates, computed, force)
 
@@ -935,6 +955,10 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             elif scope_kind is None:
                 strategy_service.compute_all_strategies(d)
             # scope señal: no toca resultados de estrategias
+            if d not in logged:
+                s.add(SignalEvalLog(scope_kind=eval_kind, ref_id=eval_ref, date=d))
+                s.commit()
+                logged.add(d)
             ok += 1
         except Exception as exc:
             logger.exception("signal_service: backfill falló para %s", d)

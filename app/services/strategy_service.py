@@ -389,6 +389,10 @@ def delete_strategy(strategy_id: int, *, acting_user_id: int | None = None,
     if not can_edit(strat.owner_id, acting_user_id, acting_is_admin):
         raise ValueError(f"Solo el dueño o un administrador pueden "
                          f"eliminar la estrategia '{strat.name}'.")
+    from app.models import SignalEvalLog
+    s.query(SignalEvalLog).filter(
+        SignalEvalLog.scope_kind == "strategy",
+        SignalEvalLog.ref_id == strategy_id).delete()
     s.delete(strat)
     s.commit()
 

@@ -24,7 +24,8 @@ Elimina:
     mano, se crean una por indicador — ver get_ind_table).
   - metadatos/logs de indicadores y fundamentales: current_indicator_values,
     indicator_update_log, fundamental_quarterly, fundamental_update_log.
-  - señales y resultados de estrategias: signal_value, strategy_result.
+  - señales y resultados de estrategias: signal_value, group_signal_value,
+    group_scores, signal_eval_log, strategy_result.
   - screener, eventos de mercado, logs de importación, aliases de catálogo.
 
 Uso:
@@ -53,6 +54,11 @@ _TABLES = [
     "import_log",
     "catalog_aliases",
     "signal_value",
+    "group_signal_value",
+    "group_scores",
+    # crítico limpiarla junto con signal_value: si quedaran markers de
+    # fechas "ya evaluadas", el delta SALTEARÍA las fechas recién limpiadas
+    "signal_eval_log",
     "strategy_result",
     "current_indicator_values",
     "indicator_update_log",
