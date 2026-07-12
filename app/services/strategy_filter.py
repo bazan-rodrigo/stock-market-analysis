@@ -19,8 +19,11 @@ Esquema del árbol (Strategy.filter_conditions, JSON):
               = != in not_in   (categóricos / atributos)
 
 Semántica:
-  - Todo se evalúa contra target_date: indicadores desde ind_* (histórico),
-    señales desde signal_value. resolution="current" (opt-in por condición)
+  - Todo se evalúa contra target_date: indicadores desde ind_* con lookup
+    as-of (última fila <= target_date, tope de antigüedad — los indicadores
+    semanales/mensuales se guardan con fechas de fin de período, no
+    diarias), señales desde signal_value con fecha exacta (misma semántica
+    que el scoring). resolution="current" (opt-in por condición)
     lee CurrentIndicatorValue — el valor vigente para CUALQUIER fecha, o sea
     sesgo de anticipación deliberado (diagnóstico in-sample de indicadores
     full-sample tipo best_sma; ver uses_current_resolution y el badge en la
@@ -35,10 +38,19 @@ distinto, nunca por activo.
 """
 import json
 import logging
+from datetime import timedelta
 
 import sqlalchemy as sa
 
 logger = logging.getLogger(__name__)
+
+# Lookup "as-of" de indicadores: máxima antigüedad aceptada del último valor.
+# Los indicadores semanales/mensuales se guardan con fechas de fin de período
+# (el resample etiqueta las semanas en domingo), así que una fecha diaria
+# arbitraria no tiene fila exacta — se usa la última fila <= target_date.
+# El tope evita levantar valores zombie de activos que dejaron de cotizar
+# (45 días cubre etiquetas mensuales + feriados largos).
+_ASOF_MAX_LOOKBACK_DAYS = 45
 
 GROUP_OPS = frozenset({"AND", "OR"})
 
@@ -154,9 +166,25 @@ def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
                 logger.warning("strategy_filter: tabla ind_%s no existe", key)
                 values[(t, key, resolution)] = {}
                 continue
+            # As-of: última fila <= target_date por activo (con tope de
+            # antigüedad). Los indicadores semanales/mensuales no tienen
+            # fila en fechas diarias arbitrarias — un match exacto dejaría
+            # el filtro vacío casi siempre (ver _ASOF_MAX_LOOKBACK_DAYS).
+            cutoff = target_date - timedelta(days=_ASOF_MAX_LOOKBACK_DAYS)
+            latest = (
+                sa.select(tbl.c.asset_id,
+                          sa.func.max(tbl.c.date).label("mx"))
+                .where(tbl.c.date <= target_date, tbl.c.date >= cutoff)
+                .group_by(tbl.c.asset_id)
+                .subquery()
+            )
             rows = session.execute(
                 sa.select(tbl.c.asset_id, tbl.c.value)
-                .where(tbl.c.date == target_date)
+                .select_from(tbl.join(
+                    latest,
+                    sa.and_(tbl.c.asset_id == latest.c.asset_id,
+                            tbl.c.date == latest.c.mx),
+                ))
             ).fetchall()
             values[(t, key, resolution)] = {
                 aid: v for aid, v in rows if v is not None
