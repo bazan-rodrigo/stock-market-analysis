@@ -167,7 +167,7 @@ def compute_signal_values(target_date: date_type) -> int:
     # target_date ES la fecha vigente — para fechas pasadas sería sesgo de
     # anticipación silencioso, mejor que la señal no puntúe.
     if nohist_codes:
-        from app.services.indicator_service import get_default_target_date
+        from app.services.group_score_service import get_default_target_date
         if target_date == get_default_target_date():
             from app.models.indicator_store import CurrentIndicatorValue
             rows = s.query(
@@ -341,7 +341,7 @@ def compute_group_signal_values(target_date: date_type) -> int:
 
 def run_daily(target_date: date_type | None = None) -> dict:
     if target_date is None:
-        from app.services.indicator_service import get_default_target_date
+        from app.services.group_score_service import get_default_target_date
         target_date = get_default_target_date()
 
     asset_written = compute_signal_values(target_date)
@@ -564,12 +564,12 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
 
 
 def run_recalculate(target_date: date_type | None = None) -> dict:
-    from app.services import indicator_service, strategy_service
+    from app.services import group_score_service, strategy_service
 
     if target_date is None:
-        target_date = indicator_service.get_default_target_date()
+        target_date = group_score_service.get_default_target_date()
 
-    indicator_service.run_daily(target_date)
+    group_score_service.run_daily(target_date)
     result = run_daily(target_date)
 
     strat_result = strategy_service.run_daily(target_date)

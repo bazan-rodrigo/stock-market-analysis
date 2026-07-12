@@ -2470,9 +2470,9 @@ def _derive_recent_caches(price_cache_full: dict) -> tuple[dict, dict, dict]:
 def _refresh_group_scores() -> None:
     """Refresca group_scores para que el mapa de mercado quede al día."""
     try:
-        from app.services import indicator_service
-        indicator_service.compute_group_scores(
-            indicator_service.get_default_target_date())
+        from app.services import group_score_service
+        group_score_service.compute_group_scores(
+            group_score_service.get_default_target_date())
     except Exception as exc:
         logger.warning("Error refrescando scores de grupo: %s", exc)
 
@@ -2665,7 +2665,7 @@ def get_dd_events_for_chart(df: "pd.DataFrame", cfg=None) -> list:
 
 def get_market_map_data() -> dict:
     """Promedios de tendencia por grupo, leídos de group_scores
-    (última fecha disponible). Los calcula indicator_service.compute_group_scores,
+    (última fecha disponible). Los calcula group_score_service.compute_group_scores,
     que se refresca en el pipeline diario y tras cada actualización de indicadores."""
     from app.models import (
         Country, GroupScore, Industry, InstrumentType, Market, Sector,

@@ -216,7 +216,7 @@ def compute_all_strategies(target_date: date_type) -> dict:
 def run_daily(target_date: date_type | None = None) -> dict:
     """Pipeline diario de estrategias."""
     if target_date is None:
-        from app.services.indicator_service import get_default_target_date
+        from app.services.group_score_service import get_default_target_date
         target_date = get_default_target_date()
 
     return compute_all_strategies(target_date)

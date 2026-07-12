@@ -1,7 +1,12 @@
 """
-Servicio de indicadores.
-Agrega valores de tendencia por grupo para group_scores.
+Servicio de scores de grupo (ex indicator_service, renombrado: no calcula
+ningún indicador). Agrega la tendencia por sector/mercado/industria/país/
+tipo de instrumento leyendo las tablas ind_trend_* y la persiste en
+group_scores — el insumo de las señales de grupo (source=group).
 La escritura individual por activo ocurre en technical_service.compute_current_indicators().
+
+También vive acá get_default_target_date (última fecha con precios), usada
+por todo el pipeline señales → estrategias.
 """
 import logging
 import sqlalchemy as sa
@@ -148,8 +153,8 @@ def run_daily(target_date: date_type | None = None) -> int:
         compute_group_scores(target_date)
     except Exception as exc:
         logger.error(
-            "indicator_service: error en compute_group_scores para %s: %s", target_date, exc
+            "group_score_service: error en compute_group_scores para %s: %s", target_date, exc
         )
 
-    logger.info("indicator_service: run_daily completado para %s", target_date)
+    logger.info("group_score_service: run_daily completado para %s", target_date)
     return 0

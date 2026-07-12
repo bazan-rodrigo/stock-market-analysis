@@ -77,10 +77,10 @@ def _daily_update_job() -> None:
 
         # ── Pipeline de señales/estrategias ─────────────────────────────────
         try:
-            from app.services import indicator_service
-            indicator_service.run_daily()
+            from app.services import group_score_service
+            group_score_service.run_daily()
         except Exception as exc:
-            logger.exception("Error en indicator_service.run_daily: %s", exc)
+            logger.exception("Error en group_score_service.run_daily: %s", exc)
 
         try:
             from app.services import signal_service
