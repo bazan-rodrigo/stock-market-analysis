@@ -582,6 +582,9 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
         ]
 
     # ── Pasada 2: escribir todo en una sola transacción ───────────────────────
+    # Upsert por key: una señal repetida entre archivos (packs
+    # autosuficientes que comparten señales) NUNCA se duplica — actualiza la
+    # misma fila. El detail distingue creada/actualizada/sin cambios.
     s = get_session()
     results: list[dict] = []
     try:
@@ -589,19 +592,29 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
             data = p["data"]
             key  = p["key"]
             sig = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
+            new_vals = dict(
+                key=key,
+                name=str(data.get("name") or key),
+                source=p["source"],
+                formula_type=p["formula_type"],
+                params=p["params"],
+                description=str(data.get("description") or "") or None,
+                group_type=str(data.get("group_type") or "") or None,
+                indicator_key=str(data.get("indicator_key") or "") or None,
+            )
             if sig is None:
                 sig = SignalDefinition()
                 s.add(sig)
-            sig.key           = key
-            sig.name          = str(data.get("name") or key)
-            sig.source        = p["source"]
-            sig.formula_type  = p["formula_type"]
-            sig.params        = p["params"]
-            sig.description   = str(data.get("description") or "") or None
-            sig.group_type    = str(data.get("group_type") or "") or None
-            sig.indicator_key = str(data.get("indicator_key") or "") or None
+                outcome = "creada"
+            elif all(getattr(sig, f) == v for f, v in new_vals.items()):
+                outcome = "ya existía, sin cambios"
+            else:
+                outcome = "actualizada"
+            for f, v in new_vals.items():
+                setattr(sig, f, v)
             s.flush()
-            results.append({"key": key, "status": "ok", "detail": f"id={sig.id}"})
+            results.append({"key": key, "status": "ok",
+                            "detail": f"{outcome} (id={sig.id})"})
         s.commit()
     except Exception as exc:
         s.rollback()
