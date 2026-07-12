@@ -30,6 +30,43 @@ def get_ind_table(code: str) -> Table:
         return Table(name, _meta, autoload_with=engine, extend_existing=True)
 
 
+# Lookup "as-of": máxima antigüedad aceptada del último valor. Los
+# indicadores semanales/mensuales se guardan con fechas de fin de período
+# (el resample etiqueta las semanas en domingo), así que una fecha diaria
+# arbitraria no tiene fila exacta. El tope evita levantar valores zombie de
+# activos que dejaron de cotizar (45 días cubre etiquetas mensuales +
+# feriados largos).
+ASOF_MAX_LOOKBACK_DAYS = 45
+
+
+def query_values_asof(session, code: str, target_date) -> dict[int, object]:
+    """{asset_id: value} con la última fila de ind_{code} <= target_date por
+    activo (ver ASOF_MAX_LOOKBACK_DAYS). Usado por signal_service y por el
+    filtro de elegibilidad de estrategias — un match exacto de fecha dejaría
+    sin valor a los indicadores semanales/mensuales casi cualquier día."""
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+
+    tbl = get_ind_table(code)
+    cutoff = target_date - timedelta(days=ASOF_MAX_LOOKBACK_DAYS)
+    latest = (
+        sa.select(tbl.c.asset_id, sa.func.max(tbl.c.date).label("mx"))
+        .where(tbl.c.date <= target_date, tbl.c.date >= cutoff)
+        .group_by(tbl.c.asset_id)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(tbl.c.asset_id, tbl.c.value)
+        .select_from(tbl.join(
+            latest,
+            sa.and_(tbl.c.asset_id == latest.c.asset_id,
+                    tbl.c.date == latest.c.mx),
+        ))
+    ).fetchall()
+    return {aid: v for aid, v in rows if v is not None}
+
+
 class CurrentIndicatorValue(Base):
     """Indicadores sin historia (keep_history=False): un valor vigente por activo."""
 

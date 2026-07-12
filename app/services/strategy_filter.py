@@ -38,19 +38,12 @@ distinto, nunca por activo.
 """
 import json
 import logging
-from datetime import timedelta
 
 import sqlalchemy as sa
 
-logger = logging.getLogger(__name__)
+from app.models.indicator_store import query_values_asof
 
-# Lookup "as-of" de indicadores: máxima antigüedad aceptada del último valor.
-# Los indicadores semanales/mensuales se guardan con fechas de fin de período
-# (el resample etiqueta las semanas en domingo), así que una fecha diaria
-# arbitraria no tiene fila exacta — se usa la última fila <= target_date.
-# El tope evita levantar valores zombie de activos que dejaron de cotizar
-# (45 días cubre etiquetas mensuales + feriados largos).
-_ASOF_MAX_LOOKBACK_DAYS = 45
+logger = logging.getLogger(__name__)
 
 GROUP_OPS = frozenset({"AND", "OR"})
 
@@ -133,7 +126,7 @@ def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
     Una query por operando distinto — nunca por activo.
     """
     from app.models import SignalDefinition, SignalValue
-    from app.models.indicator_store import CurrentIndicatorValue, get_ind_table
+    from app.models.indicator_store import CurrentIndicatorValue
 
     values: dict[tuple, dict] = {}
     operands = collect_operands(tree)
@@ -160,35 +153,15 @@ def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
                 if num is not None or s is not None
             }
         elif t == "indicator":
+            # As-of: última fila <= target_date por activo — los indicadores
+            # semanales/mensuales no tienen fila en fechas diarias
+            # arbitrarias (ver query_values_asof)
             try:
-                tbl = get_ind_table(key)
+                values[(t, key, resolution)] = query_values_asof(
+                    session, key, target_date)
             except sa.exc.NoSuchTableError:
                 logger.warning("strategy_filter: tabla ind_%s no existe", key)
                 values[(t, key, resolution)] = {}
-                continue
-            # As-of: última fila <= target_date por activo (con tope de
-            # antigüedad). Los indicadores semanales/mensuales no tienen
-            # fila en fechas diarias arbitrarias — un match exacto dejaría
-            # el filtro vacío casi siempre (ver _ASOF_MAX_LOOKBACK_DAYS).
-            cutoff = target_date - timedelta(days=_ASOF_MAX_LOOKBACK_DAYS)
-            latest = (
-                sa.select(tbl.c.asset_id,
-                          sa.func.max(tbl.c.date).label("mx"))
-                .where(tbl.c.date <= target_date, tbl.c.date >= cutoff)
-                .group_by(tbl.c.asset_id)
-                .subquery()
-            )
-            rows = session.execute(
-                sa.select(tbl.c.asset_id, tbl.c.value)
-                .select_from(tbl.join(
-                    latest,
-                    sa.and_(tbl.c.asset_id == latest.c.asset_id,
-                            tbl.c.date == latest.c.mx),
-                ))
-            ).fetchall()
-            values[(t, key, resolution)] = {
-                aid: v for aid, v in rows if v is not None
-            }
         elif t == "signal":
             sig_id = sig_ids_by_key.get(key)
             if sig_id is None:

@@ -16,7 +16,7 @@ from app.models import (
     SignalValue,
 )
 from app.models.indicator_definition import IndicatorDefinition
-from app.models.indicator_store import get_ind_table
+from app.models.indicator_store import query_values_asof
 from app.models.price import Price
 from app.services import signal_engine
 
@@ -137,31 +137,52 @@ def compute_signal_values(target_date: date_type) -> int:
     # Descubrir qué indicator_keys necesitan las señales de activo
     needed_codes = {sg.indicator_key for sg in asset_signals if sg.indicator_key}
 
-    # Cargar todos los indicadores con keep_history=True
-    all_defs = {
-        d.code: d
-        for d in s.query(IndicatorDefinition).filter(
-            IndicatorDefinition.keep_history.is_(True)
-        ).all()
+    # keep_history por código, para decidir de dónde leer cada uno
+    keep_history_by_code = {
+        d.code: d.keep_history for d in s.query(IndicatorDefinition).all()
     }
 
-    # Solo los que las señales referencian (virtuales se manejan aparte)
-    codes_to_load = (needed_codes - _VIRTUAL_CODES) & set(all_defs.keys())
+    hist_codes = {c for c in needed_codes - _VIRTUAL_CODES
+                  if keep_history_by_code.get(c)}
+    nohist_codes = {c for c in needed_codes - _VIRTUAL_CODES
+                    if keep_history_by_code.get(c) is False}
     virtual_to_load = needed_codes & _VIRTUAL_CODES
 
-    # Construir {asset_id: {code: value}} leyendo cada ind_* table
+    # Construir {asset_id: {code: value}} leyendo cada ind_* table con
+    # lookup as-of (última fila <= target_date): los indicadores
+    # semanales/mensuales se guardan con fechas de fin de período, un match
+    # exacto los dejaba en 0 scores casi cualquier día (tendencia_w/m,
+    # volatilidad_w/m nunca puntuaban)
     isnaps: dict[int, dict] = {}
-    for code in codes_to_load:
-        defn = all_defs[code]
+    for code in hist_codes:
         try:
-            t = get_ind_table(code)
+            values_by_asset = query_values_asof(s, code, target_date)
         except Exception:
             continue
-        rows = s.execute(
-            sa.select(t.c.asset_id, t.c.value).where(t.c.date == target_date)
-        ).fetchall()
-        for asset_id_row, value in rows:
+        for asset_id_row, value in values_by_asset.items():
             isnaps.setdefault(asset_id_row, {})[code] = value
+
+    # Indicadores sin historia (drawdown_current, etc.): solo existe el valor
+    # vigente en current_indicator_values. Usarlo únicamente cuando
+    # target_date ES la fecha vigente — para fechas pasadas sería sesgo de
+    # anticipación silencioso, mejor que la señal no puntúe.
+    if nohist_codes:
+        from app.services.indicator_service import get_default_target_date
+        if target_date == get_default_target_date():
+            from app.models.indicator_store import CurrentIndicatorValue
+            rows = s.query(
+                CurrentIndicatorValue.asset_id, CurrentIndicatorValue.code,
+                CurrentIndicatorValue.value_num, CurrentIndicatorValue.value_str,
+            ).filter(CurrentIndicatorValue.code.in_(nohist_codes)).all()
+            for asset_id_row, code, num, txt in rows:
+                value = num if num is not None else txt
+                if value is not None:
+                    isnaps.setdefault(asset_id_row, {})[code] = value
+        else:
+            logger.info(
+                "signal_service: señales sobre indicadores sin historia (%s) "
+                "omitidas para fecha pasada %s (solo evaluables en la fecha "
+                "vigente)", sorted(nohist_codes), target_date)
 
     # Indicadores virtuales (last_close → prices table)
     for code in virtual_to_load:
