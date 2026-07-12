@@ -115,6 +115,36 @@ def layout(**kwargs):
                 _chk("chart-sr-pivot-enabled", "Soportes / Resistencias"),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem"}),
             ], className="d-flex align-items-center gap-1 ind-group"),
+            html.Div([
+                _chk("chart-strategy-enabled", "Estrategia"),
+                html.Div([
+                    dcc.Dropdown(
+                        id="chart-strategy-sel",
+                        options=[], placeholder="Estrategia...",
+                        clearable=False,
+                        style={"width": "200px", "fontSize": "0.72rem"},
+                    ),
+                    html.Small("Entrada ≥", style={"color": "#aaa", "fontSize": "0.68rem",
+                                                   "whiteSpace": "nowrap"}),
+                    html.Div(dcc.Slider(
+                        id="chart-strategy-entry", min=-100, max=100, step=5, value=20,
+                        marks=None,
+                        tooltip={"placement": "bottom", "always_visible": True},
+                    ), style={"width": "130px"}),
+                    html.Small("Salida <", style={"color": "#aaa", "fontSize": "0.68rem",
+                                                  "whiteSpace": "nowrap"}),
+                    html.Div(dcc.Slider(
+                        id="chart-strategy-exit", min=-100, max=100, step=5, value=0,
+                        marks=None,
+                        tooltip={"placement": "bottom", "always_visible": True},
+                    ), style={"width": "130px"}),
+                    html.Span(id="chart-strategy-label",
+                              style={"fontSize": "0.68rem", "color": "#aaa",
+                                     "whiteSpace": "nowrap"}),
+                ], id="chart-strategy-params",
+                   className="d-flex align-items-center gap-1",
+                   style={"display": "none"}),
+            ], className="d-flex align-items-center gap-1 ind-group"),
         ], className="d-flex flex-wrap align-items-center mb-1 mt-2 chart-toolbar"),
 
         # ── Stores ───────────────────────────────────────────────────────
@@ -136,6 +166,9 @@ def layout(**kwargs):
         dcc.Store(id="chart-regime-data-dummy"),
         dcc.Store(id="chart-vol-data-dummy"),
         dcc.Store(id="chart-dd-data-dummy"),
+        dcc.Store(id="chart-strategy-data"),
+        dcc.Store(id="chart-strategy-dummy"),
+        dcc.Store(id="chart-strategy-data-dummy"),
 
         # ── Gráfico ──────────────────────────────────────────────────────
         dcc.Loading(

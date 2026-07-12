@@ -286,9 +286,67 @@ def load_dd_overlay(enabled, asset_id):
     return get_dd_events_for_chart(df)
 
 
+# ─── Overlay de estrategia: entradas/salidas por umbral de score ──────────────
+
+@callback(
+    Output("chart-strategy-sel", "options"),
+    Input("chart-strategy-sel", "id"),
+)
+def load_strategy_opts(_):
+    from app.services.strategy_service import get_visible_strategies
+    from app.services.visibility import current_viewer
+    strategies = get_visible_strategies(*current_viewer())
+    return [{"label": s.name, "value": s.id} for s in strategies]
+
+
+@callback(
+    Output("chart-strategy-params", "style"),
+    Input("chart-strategy-enabled", "value"),
+)
+def toggle_strategy_params(enabled):
+    return {"display": "flex"} if enabled else {"display": "none"}
+
+
+@callback(
+    Output("chart-strategy-data", "data"),
+    Input("chart-strategy-enabled", "value"),
+    Input("chart-strategy-sel", "value"),
+    Input("analysis-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def load_strategy_overlay(enabled, strategy_id, asset_id):
+    """Historial de score de la estrategia para este activo. Los umbrales
+    de entrada/salida se aplican en el browser (los sliders no vuelven a
+    consultar la base)."""
+    if not enabled or not strategy_id or not asset_id:
+        return no_update
+    from app.models import StrategyResult
+    from app.services.strategy_service import get_strategy_by_id
+    from app.services.visibility import can_view, current_viewer
+
+    strat = get_strategy_by_id(int(strategy_id))
+    user_id, is_admin = current_viewer()
+    if strat is None or not can_view(strat.owner_id, strat.is_public,
+                                     user_id, is_admin):
+        return no_update
+
+    from app.database import get_session
+    db = get_session()
+    rows = (db.query(StrategyResult.date, StrategyResult.score)
+            .filter(StrategyResult.strategy_id == int(strategy_id),
+                    StrategyResult.asset_id == int(asset_id))
+            .order_by(StrategyResult.date).all())
+    return {
+        "asset_id":    int(asset_id),
+        "strategy_id": int(strategy_id),
+        "name":        strat.name,
+        "scores":      [[_t(d), float(sc)] for d, sc in rows if sc is not None],
+    }
+
+
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, strategyEntry, strategyExit, strategyData, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -1018,20 +1076,22 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }});
     }}
 
-    /* Marcadores de drawdown */
-    if (st.ddEnabled && st.ddEvents && st.ddEvents.length && window._lwcPriceSeries) {{
-      /* Mapea fecha exacta al tiempo de barra más cercano (necesario para S/M) */
-      function nearestBarTime(dateStr) {{
-        for (var i = 0; i < times.length; i++) {{
-          if (times[i] >= dateStr) return times[i];
-        }}
-        return times[times.length - 1];
+    /* Marcadores sobre el precio: drawdown + estrategia comparten la
+       misma llamada (setMarkers REEMPLAZA todos los markers de la serie) */
+    /* Mapea fecha exacta al índice de barra más cercano (necesario para S/M) */
+    function nearestBarIdx(dateStr) {{
+      for (var i = 0; i < times.length; i++) {{
+        if (times[i] >= dateStr) return i;
       }}
-      var markers = [];
+      return times.length - 1;
+    }}
+    var allMarkers = [];
+
+    if (st.ddEnabled && st.ddEvents && st.ddEvents.length) {{
       st.ddEvents.forEach(function(ev) {{
         if (!ev.trough) return;
-        markers.push({{
-          time: nearestBarTime(ev.trough),
+        allMarkers.push({{
+          time: times[nearestBarIdx(ev.trough)],
           position: 'belowBar',
           color: '#ef5350',
           shape: 'arrowUp',
@@ -1039,10 +1099,55 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
           size: 1,
         }});
       }});
-      if (markers.length) {{
-        markers.sort(function(a, b) {{ return a.time < b.time ? -1 : 1; }});
-        window._lwcPriceSeries.setMarkers(markers);
+    }}
+
+    /* Entradas/salidas de estrategia: máquina de estados con histéresis —
+       entra cuando el score alcanza el umbral de entrada, sale recién
+       cuando cae bajo el umbral de salida (evita señales falsas con el
+       score oscilando pegado a un solo umbral) */
+    var stratLabel = document.getElementById('chart-strategy-label');
+    if (st.strategyEnabled && st.strategyData
+        && st.strategyData.asset_id === st.assetId
+        && st.strategyData.scores && st.strategyData.scores.length) {{
+      var E = st.strategyEntry == null ? 20 : st.strategyEntry;
+      var X = st.strategyExit  == null ?  0 : st.strategyExit;
+      var inPos = false, entryClose = null;
+      var nEntries = 0, closedRets = [], openRet = null;
+      st.strategyData.scores.forEach(function(p) {{
+        var idx = nearestBarIdx(p[0]), sc = p[1];
+        if (!inPos && sc >= E) {{
+          allMarkers.push({{
+            time: times[idx], position: 'belowBar', color: '#4ade80',
+            shape: 'arrowUp', text: 'E ' + Math.round(sc), size: 1,
+          }});
+          inPos = true; entryClose = close[idx]; nEntries++;
+        }} else if (inPos && sc < X) {{
+          allMarkers.push({{
+            time: times[idx], position: 'aboveBar', color: '#ef5350',
+            shape: 'arrowDown', text: 'S ' + Math.round(sc), size: 1,
+          }});
+          inPos = false;
+          if (entryClose > 0) closedRets.push(close[idx] / entryClose - 1);
+        }}
+      }});
+      if (inPos && entryClose > 0) openRet = close[close.length - 1] / entryClose - 1;
+      if (stratLabel) {{
+        var parts = [nEntries + ' entrada' + (nEntries === 1 ? '' : 's')];
+        if (closedRets.length) {{
+          var avg = closedRets.reduce(function(a, b) {{ return a + b; }}, 0) / closedRets.length;
+          parts.push(closedRets.length + ' cerrada' + (closedRets.length === 1 ? '' : 's')
+                     + ' ret.medio ' + (avg * 100).toFixed(1) + '%');
+        }}
+        if (openRet !== null) parts.push('abierta ' + (openRet >= 0 ? '+' : '') + (openRet * 100).toFixed(1) + '%');
+        stratLabel.textContent = nEntries ? parts.join(' · ') : 'sin entradas con estos umbrales';
       }}
+    }} else if (stratLabel) {{
+      stratLabel.textContent = '';
+    }}
+
+    if (allMarkers.length && window._lwcPriceSeries) {{
+      allMarkers.sort(function(a, b) {{ return a.time < b.time ? -1 : 1; }});
+      window._lwcPriceSeries.setMarkers(allMarkers);
     }}
 
     if (window.ResizeObserver) {{
@@ -1074,6 +1179,10 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     ddEnabled:         !!(ddEnabled      && ddEnabled.length),
     volEnabled:        !!(volEnabled     && volEnabled.length),
     srPivotEnabled:    !!(srPivotEnabled && srPivotEnabled.length),
+    strategyEnabled:   !!(strategyEnabled && strategyEnabled.length),
+    strategyEntry:     (strategyEntry == null ? 20 : strategyEntry),
+    strategyExit:      (strategyExit  == null ?  0 : strategyExit),
+    strategyData:      strategyData || null,
     indParams:         indParams,
     volumeEnabled:     !!(volumeEnabled  && volumeEnabled.length),
     chartType:         chartType  || 'candlestick',
@@ -1109,6 +1218,10 @@ clientside_callback(
     State("chart-dd-enabled", "value"),
     State("chart-vol-enabled", "value"),
     State("chart-sr-pivot-enabled", "value"),
+    State("chart-strategy-enabled", "value"),
+    State("chart-strategy-entry", "value"),
+    State("chart-strategy-exit", "value"),
+    State("chart-strategy-data", "data"),
     *_state_list(State),
     prevent_initial_call=True,
 )
@@ -1214,6 +1327,32 @@ clientside_callback(
     "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.ddEvents=d;window._lwc.fullRender();return null;}",
     Output("chart-dd-data-dummy", "data"),
     Input("chart-dd-data", "data"),
+    prevent_initial_call=True,
+)
+
+# ─── Estrategia: toggle/sliders y datos lazy, sin round-trip al mover sliders ──
+
+clientside_callback(
+    """function(en, entry, exit) {
+        if (!window._lwcState || !window._lwc) return null;
+        var st = window._lwcState;
+        st.strategyEnabled = !!(en && en.length);
+        st.strategyEntry   = entry;
+        st.strategyExit    = exit;
+        window._lwc.fullRender();
+        return null;
+    }""",
+    Output("chart-strategy-dummy", "data"),
+    Input("chart-strategy-enabled", "value"),
+    Input("chart-strategy-entry", "value"),
+    Input("chart-strategy-exit", "value"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.strategyData=d;window._lwc.fullRender();return null;}",
+    Output("chart-strategy-data-dummy", "data"),
+    Input("chart-strategy-data", "data"),
     prevent_initial_call=True,
 )
 
