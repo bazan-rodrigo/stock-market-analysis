@@ -429,7 +429,7 @@ def compute_history(_, selected_ids, days):
         return "", "Solo el dueño o un administrador pueden calcular la historia.", True, "danger"
     try:
         result = svc.update_signal_history(
-            days=int(days or 365), scope=f"signal:{sig.key}")
+            days=int(days) if days else None, scope=f"signal:{sig.key}")
         n_err = len(result.get("errors") or [])
         msg = (f"Historia de '{sig.key}': {result.get('success', 0)}/"
                f"{result.get('total', 0)} fecha(s) calculadas"

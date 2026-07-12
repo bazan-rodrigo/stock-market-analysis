@@ -136,9 +136,10 @@ def layout(**kwargs):
                        color="outline-warning", size="sm", disabled=True,
                        className="ms-3",
                        title="Llena las fechas pasadas sin resultado de la "
-                             "estrategia seleccionada (puede tardar varios minutos)"),
-            dbc.Input(id="str-history-days", type="number", value=365,
-                      min=1, max=3650, step=1,
+                             "estrategia seleccionada (vacío = toda la "
+                             "historia; puede tardar varios minutos)"),
+            dbc.Input(id="str-history-days", type="number", value=None,
+                      placeholder="todo", min=1, step=1,
                       style={"fontSize": "0.82rem", "width": "90px",
                              "marginLeft": "8px"}),
             html.Small("días", className="text-muted",

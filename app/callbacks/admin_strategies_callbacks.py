@@ -592,7 +592,7 @@ def compute_history(_, selected_ids, days):
     try:
         import app.services.signal_service as sig_service
         result = sig_service.update_signal_history(
-            days=int(days or 365), scope=f"strategy:{strat.id}")
+            days=int(days) if days else None, scope=f"strategy:{strat.id}")
         n_err = len(result.get("errors") or [])
         msg = (f"Historia de '{strat.name}': {result.get('success', 0)}/"
                f"{result.get('total', 0)} fecha(s) calculadas"

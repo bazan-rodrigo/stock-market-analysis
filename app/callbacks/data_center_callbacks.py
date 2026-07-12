@@ -286,12 +286,15 @@ def _run(op_id, service_fn):
 
 def _days_partial(fn, days, scope=None):
     """Fija horizonte en días y alcance para las ops que lo aceptan
-    (_HAS_DAYS): scope None = todo, "strategy:<id>" o "signal:<key>"."""
+    (_HAS_DAYS): scope None = todo, "strategy:<id>" o "signal:<key>".
+    days vacío/inválido = SIN horizonte (toda la historia) — antes caía
+    silenciosamente a 365 y un 'sin horizonte' pedido a mano calculaba
+    solo un año."""
     import functools
     try:
         days = max(1, int(days))
     except (TypeError, ValueError):
-        days = 365
+        days = None
     return functools.partial(fn, days=days, scope=scope or None)
 
 

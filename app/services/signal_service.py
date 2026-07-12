@@ -861,11 +861,15 @@ def _scope_signal_ids(s, scope: str | None):
     raise ValueError(f"Alcance desconocido: {scope!r}")
 
 
-def _signal_history_run(progress_cb=None, days: int = 365,
+def _signal_history_run(progress_cb=None, days: int | None = None,
                         force: bool = False, scope: str | None = None) -> dict:
     """Corre el pipeline (scores de grupo → señales → estrategias) para cada
     fecha con precios dentro del horizonte. Delta (force=False): solo fechas
     sin cálculo previo + la última. Rebuild (force=True): todas.
+
+    days None o 0 = SIN horizonte (toda la historia de precios). En delta
+    es barato (las queries de fechas usan el índice por date y el trabajo
+    real es solo sobre los huecos); en rebuild recalcula la historia entera.
 
     scope acota a una estrategia (señales necesarias + sus resultados) o a
     una señal suelta (sin tocar resultados de estrategias)."""
@@ -879,11 +883,13 @@ def _signal_history_run(progress_cb=None, days: int = 365,
     last = s.query(sa.func.max(Price.date)).scalar()
     if last is None:
         return {"total": 0, "success": 0, "errors": []}
-    horizon = last - timedelta(days=int(days or 365))
+    horizon = (last - timedelta(days=int(days))) if days else None
+
+    def _within(q, col):
+        return q.filter(col >= horizon) if horizon is not None else q
 
     trading_dates = sorted({
-        d for (d,) in s.query(Price.date).distinct()
-        .filter(Price.date >= horizon).all()
+        d for (d,) in _within(s.query(Price.date).distinct(), Price.date).all()
     })
 
     # "Ya calculado" según el alcance: los resultados de ESA estrategia, los
@@ -891,9 +897,10 @@ def _signal_history_run(progress_cb=None, days: int = 365,
     if scope_kind == "strategy":
         from app.models import StrategyResult
         computed = {
-            d for (d,) in s.query(StrategyResult.date).distinct().filter(
-                StrategyResult.strategy_id == strategy_id,
-                StrategyResult.date >= horizon)
+            d for (d,) in _within(
+                s.query(StrategyResult.date).distinct().filter(
+                    StrategyResult.strategy_id == strategy_id),
+                StrategyResult.date)
         }
     elif scope_kind == "signal":
         # La señal pedida (no sus dependencias) define el "ya calculado"
@@ -901,13 +908,15 @@ def _signal_history_run(progress_cb=None, days: int = 365,
             SignalDefinition.key == scope.partition(":")[2]).first()
         table = GroupSignalValue if target_sig.source == "group" else SignalValue
         computed = {
-            d for (d,) in s.query(table.date).distinct().filter(
-                table.signal_id == target_sig.id, table.date >= horizon)
+            d for (d,) in _within(
+                s.query(table.date).distinct().filter(
+                    table.signal_id == target_sig.id),
+                table.date)
         }
     else:
         computed = {
-            d for (d,) in s.query(SignalValue.date).distinct()
-            .filter(SignalValue.date >= horizon)
+            d for (d,) in _within(
+                s.query(SignalValue.date).distinct(), SignalValue.date)
         }
 
     dates = _dates_to_compute(trading_dates, computed, force)
@@ -933,18 +942,21 @@ def _signal_history_run(progress_cb=None, days: int = 365,
     return {"total": total, "success": ok, "errors": errors}
 
 
-def update_signal_history(progress_cb=None, days: int = 365,
+def update_signal_history(progress_cb=None, days: int | None = None,
                           scope: str | None = None) -> dict:
-    """Delta: llena huecos (fechas con precios pero sin cálculo) dentro del
-    horizonte y recalcula la última fecha. Cubre el día a día manual con el
-    scheduler apagado y el catch-up tras días sin correr."""
+    """Delta: llena huecos (fechas con precios pero sin cálculo) y recalcula
+    la última fecha. Default SIN horizonte (toda la historia): un hueco
+    viejo nunca queda invisible — el trabajo real es solo sobre los huecos,
+    así que el scheduler nocturno lo usa igual. days acota si se pide."""
     return _signal_history_run(progress_cb, days=days, force=False, scope=scope)
 
 
-def rebuild_signal_history(progress_cb=None, days: int = 365,
+def rebuild_signal_history(progress_cb=None, days: int | None = None,
                            scope: str | None = None) -> dict:
     """Rebuild: recalcula TODAS las fechas con precios del horizonte
-    (reescribe lo existente — para cambios de definición o fixes)."""
+    (reescribe lo existente — para cambios de definición o fixes).
+    days None/0 = toda la historia: puede tardar MUCHO (pipeline completo
+    por cada fecha)."""
     return _signal_history_run(progress_cb, days=days, force=True, scope=scope)
 
 

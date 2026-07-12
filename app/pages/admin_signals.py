@@ -204,9 +204,10 @@ def layout(**kwargs):
             dbc.Button("Calcular historia", id="sig-btn-history",
                        color="outline-warning", size="sm", disabled=True,
                        title="Llena las fechas pasadas sin valor de la señal "
-                             "seleccionada (puede tardar varios minutos)"),
-            dbc.Input(id="sig-history-days", type="number", value=365,
-                      min=1, max=3650, step=1,
+                             "seleccionada (vacío = toda la historia; puede "
+                             "tardar varios minutos)"),
+            dbc.Input(id="sig-history-days", type="number", value=None,
+                      placeholder="todo", min=1, step=1,
                       style={"fontSize": "0.82rem", "width": "90px",
                              "marginLeft": "8px"}),
             html.Small("días", className="text-muted",
