@@ -2,6 +2,13 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+# Consulta inicial: monitor de queries en ejecución (útil para diagnosticar
+# qué está corriendo contra la base en este momento)
+_DEFAULT_QUERY = """\
+SELECT id, user, db, time, state, info, command
+FROM information_schema.processlist
+WHERE info not like '%information_schema%'
+ORDER BY time DESC;"""
 
 
 def layout(**kwargs):
@@ -18,6 +25,7 @@ def layout(**kwargs):
         # ── Editor ───────────────────────────────────────────────────────────
         dbc.Textarea(
             id="sql-input",
+            value=_DEFAULT_QUERY,
             placeholder="SELECT * FROM assets LIMIT 10;",
             style={"fontFamily": "monospace", "minHeight": "160px"},
             className="mb-2",
