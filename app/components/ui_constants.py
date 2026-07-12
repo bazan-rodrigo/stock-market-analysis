@@ -75,28 +75,51 @@ FORMULA_HELP = {
     "discrete_map": {
         "color": COLOR_INFO,
         "title": "Mapa discreto",
-        "desc": "Convierte un valor categórico (string) a un score usando un diccionario.",
+        "desc": (
+            "Para indicadores con categorías (tendencia, volatilidad). Asignás "
+            "a mano el score de cada categoría posible del indicador: p.ej. "
+            "tendencia alcista fuerte → 100, lateral → 0, bajista → −60. "
+            "Si el activo cae en una categoría sin score asignado, la señal "
+            "no puntúa ese día."
+        ),
         "example": '{"map": {"bullish_strong": 100, "bullish": 60, "lateral": 0, "bearish": -60}}',
     },
     "threshold": {
         "color": COLOR_POSITIVE,
-        "title": "Umbrales",
+        "title": "Umbrales (escalones)",
         "desc": (
-            "Recorre umbrales en orden. Si el valor > límite retorna ese score. "
-            "El último par [null, score] es el valor por defecto."
+            "Para indicadores numéricos, cuando querés puntajes por tramos en "
+            "vez de una escala continua. Se evalúa de arriba hacia abajo: el "
+            "primer umbral que el valor supera define el score. P.ej. con "
+            "drawdown: mayor a −5% → 100; mayor a −15% → 50; mayor a −30% → 0; "
+            "cualquier valor peor cae en «en otro caso» → −50. Todo valor "
+            "posible recibe exactamente un score."
         ),
         "example": '{"thresholds": [[-5, 100], [-15, 50], [-30, 0], [null, -50]]}',
     },
     "range": {
         "color": COLOR_RANGE,
         "title": "Rango lineal",
-        "desc": "Mapea un valor numérico en [min, max] a [-100, 100] de forma lineal.",
+        "desc": (
+            "Para indicadores numéricos, cuando querés una escala continua: el "
+            "score crece proporcionalmente con el valor. Definís dos puntos: "
+            "el valor que vale −100 (Min) y el que vale +100 (Max); todo lo "
+            "intermedio se interpola en línea recta (el punto medio da 0). "
+            "P.ej. Min=−3, Max=3 para una distancia en desvíos estándar. Con "
+            "«recortar» activado, valores fuera del rango quedan en ±100."
+        ),
         "example": '{"min": -3.0, "max": 3.0, "clamp": true}',
     },
     "composite": {
         "color": COLOR_PURPLE,
         "title": "Compuesta",
-        "desc": "Promedio ponderado de scores de otras señales. Puede anidar hasta 3 niveles.",
+        "desc": (
+            "No lee ningún indicador: combina los scores de otras señales ya "
+            "existentes en un promedio ponderado. P.ej. tendencia diaria "
+            "(peso 2) + tendencia semanal (peso 1) → una señal de tendencia "
+            "global que pesa más lo diario. Si a un activo le falta alguna "
+            "señal componente ese día, se promedia con las restantes."
+        ),
         "example": (
             '{"components": [\n'
             '  {"signal_key": "tendencia_d", "weight": 1},\n'
@@ -107,8 +130,10 @@ FORMULA_HELP = {
 }
 
 
-def formula_help_card(ft: str | None):
-    """Card de ayuda contextual para el tipo de fórmula seleccionado en admin_signals."""
+def formula_help_card(ft: str | None, show_example: bool = True):
+    """Card de ayuda contextual para el tipo de fórmula seleccionado en
+    admin_signals. show_example=False oculta el JSON de ejemplo (el editor
+    estructurado lo hace innecesario; solo aporta en modo avanzado)."""
     from dash import html
     import dash_bootstrap_components as dbc
 
@@ -116,16 +141,19 @@ def formula_help_card(ft: str | None):
         return html.Div()
     h = FORMULA_HELP[ft]
     c = h["color"]
-    return dbc.Card(dbc.CardBody([
+    body = [
         html.Strong(h["title"], style={"color": c, "fontSize": "0.84rem"}),
         html.P(h["desc"], style={"fontSize": "0.77rem", "color": "#d1d5db", "margin": "4px 0"}),
-        html.Code(
+    ]
+    if show_example:
+        body.append(html.Code(
             h["example"],
             style={
                 "display": "block", "whiteSpace": "pre", "fontSize": FS_CODE,
                 "backgroundColor": BG_DEEP, "padding": "6px 10px",
                 "borderRadius": "4px", "color": c, "fontFamily": "monospace",
             },
-        ),
-    ]), style={"backgroundColor": BG_HELP_CARD, "border": f"1px solid {c}33",
-               "borderLeft": f"3px solid {c}"}, className="mb-2")
+        ))
+    return dbc.Card(dbc.CardBody(body),
+                    style={"backgroundColor": BG_HELP_CARD, "border": f"1px solid {c}33",
+                           "borderLeft": f"3px solid {c}"}, className="mb-2")

@@ -111,11 +111,18 @@ def layout(**kwargs):
                          placeholder="Descripción opcional",
                          style={"fontSize": "0.82rem", "resize": "vertical"}),
 
-            dbc.Label("Parámetros (JSON)", style={"fontSize": "0.82rem", "marginTop": "8px"}),
-            dbc.Textarea(id="sig-f-params", rows=6,
-                         placeholder='{"map": {...}}',
-                         style={"fontSize": "0.80rem", "fontFamily": "monospace",
-                                "resize": "vertical"}),
+            dbc.Label("Parámetros", style={"fontSize": "0.82rem", "marginTop": "8px"}),
+            html.Div(id="sig-params-builder", className="mb-1"),
+            dbc.Switch(id="sig-params-advanced",
+                       label="Modo avanzado (editar JSON)", value=False,
+                       style={"fontSize": "0.78rem"}, className="mt-1"),
+            html.Div(
+                dbc.Textarea(id="sig-f-params", rows=6,
+                             placeholder='{"map": {...}}',
+                             style={"fontSize": "0.80rem", "fontFamily": "monospace",
+                                    "resize": "vertical"}),
+                id="sig-params-json-wrap", style={"display": "none"},
+            ),
 
             dbc.Alert(id="sig-modal-error", is_open=False, color="danger",
                       className="mt-2 mb-0 small py-1"),
@@ -128,6 +135,8 @@ def layout(**kwargs):
 
     return html.Div([
         dcc.Store(id="sig-editing-id",   data=None),
+        dcc.Store(id="sig-pb-store",     data=None),
+        dcc.Store(id="sig-pb-opts",      data={}),
 
         dbc.Card(dbc.CardBody([
             html.P([

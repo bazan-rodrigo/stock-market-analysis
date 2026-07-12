@@ -3,6 +3,10 @@ import base64
 from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 
 import app.services.signal_service as svc
+from app.callbacks.signal_params_ui import (
+    PB_FIELD_STATES, builder_from_params, empty_params_store,
+    params_from_builder, pb_capture_from_args,
+)
 from app.components.ui_constants import (
     TH as _th, TD as _td,
     COLOR_POSITIVE, COLOR_NEGATIVE,
@@ -82,6 +86,8 @@ def update_buttons(selected_ids):
     Output("sig-f-formula-type","value"),
     Output("sig-f-description", "value"),
     Output("sig-f-params",      "value"),
+    Output("sig-pb-store",      "data"),
+    Output("sig-params-advanced", "value"),
     Output("sig-editing-id",    "data"),
     Output("sig-modal-error",   "is_open", allow_duplicate=True),
     Input("sig-btn-add",        "n_clicks"),
@@ -93,16 +99,16 @@ def update_buttons(selected_ids):
 def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
     trigger = ctx.triggered_id
     _noup = no_update
-    _noop = (_noup,) * 13  # 13 outputs totales
+    _noop = (_noup,) * 15  # 15 outputs totales
 
     if trigger == "sig-btn-cancel":
         # is_open=False, resto sin cambio, editing_id=None, error=False
         return (False, _noup, _noup, _noup, _noup, _noup, _noup,
-                _noup, _noup, _noup, _noup, None, False)
+                _noup, _noup, _noup, _noup, _noup, _noup, None, False)
 
     if trigger == "sig-btn-add":
         return (True, "Nueva señal", "", False, "", None, None,
-                "", None, "", "{}", None, False)
+                "", None, "", "{}", empty_params_store(), False, None, False)
 
     if trigger == "sig-btn-edit":
         if not selected_ids or len(selected_ids) != 1:
@@ -110,12 +116,18 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
         sig = next((x for x in svc.get_all_signals() if x.id == selected_ids[0]), None)
         if sig is None:
             return _noop
+        # Params al editor estructurado; si el JSON guardado no es
+        # representable (editado a mano, forma inesperada), modo avanzado
+        pb_store = builder_from_params(sig.formula_type, sig.params)
+        advanced = pb_store is None
         return (
             True, "Editar señal",
             sig.key, sig.is_system,
             sig.name, sig.source,
             sig.group_type, sig.indicator_key,
             sig.formula_type, sig.description or "", sig.params,
+            pb_store if pb_store is not None else empty_params_store(),
+            advanced,
             sig.id, False,
         )
 
@@ -139,9 +151,12 @@ def toggle_group_col(source):
 @callback(
     Output("sig-formula-help", "children"),
     Input("sig-f-formula-type", "value"),
+    Input("sig-params-advanced", "value"),
 )
-def update_help(ft):
-    return _help_card(ft)
+def update_help(ft, advanced):
+    # El ejemplo JSON solo aporta en modo avanzado; el editor estructurado
+    # hace el resto autoexplicativo
+    return _help_card(ft, show_example=bool(advanced))
 
 
 # ── Guardar ───────────────────────────────────────────────────────────────────
@@ -164,10 +179,14 @@ def update_help(ft):
     State("sig-f-description",   "value"),
     State("sig-f-params",        "value"),
     State("sig-editing-id",      "data"),
+    State("sig-params-advanced", "value"),
+    State("sig-pb-store",        "data"),
+    *PB_FIELD_STATES,
     prevent_initial_call=True,
 )
 def save(_, key, name, source, group_type, indicator_key,
-         formula_type, description, params, editing_id):
+         formula_type, description, params, editing_id,
+         advanced, pb_store, *pb_field_args):
 
     def err(msg):
         return no_update, no_update, no_update, no_update, msg, True, no_update
@@ -180,6 +199,13 @@ def save(_, key, name, source, group_type, indicator_key,
         return err("Seleccioná la fuente (asset o group).")
     if not formula_type:
         return err("Seleccioná el tipo de fórmula.")
+
+    if not advanced:
+        # Serializar desde el editor estructurado
+        pb_store = pb_capture_from_args(pb_store, pb_field_args)
+        params, p_error = params_from_builder(formula_type, pb_store)
+        if p_error:
+            return err(p_error)
     if not params or not params.strip():
         return err("Los parámetros JSON son obligatorios.")
 
