@@ -23,11 +23,14 @@ def _rows(path, sheet=0):
     return [dict(zip(headers, r)) for r in rows[1:] if any(r)]
 
 
-def _pack_signal_keys():
-    keys = set()
-    for f in PACKS_DIR.glob("*_senales.xlsx"):
-        keys |= {r["key"] for r in _rows(f)}
-    return keys
+def _own_signal_keys(estrategia_path: Path) -> set:
+    """Señales del propio pack: cada pack debe ser autosuficiente (todas
+    las señales que su estrategia usa viven en su <pack>_senales.xlsx —
+    duplicadas entre packs si hace falta; el import upsertea por key)."""
+    senales = estrategia_path.with_name(
+        estrategia_path.name.replace("_estrategia", "_senales"))
+    assert senales.exists(), f"falta {senales.name}"
+    return {r["key"] for r in _rows(senales)}
 
 
 def test_hay_packs():
@@ -39,7 +42,7 @@ def test_hay_packs():
 @pytest.mark.parametrize("path", sorted(PACKS_DIR.glob("*_senales.xlsx")),
                          ids=lambda p: p.stem)
 def test_senales_del_pack_validas(path):
-    known_keys = _pack_signal_keys()  # tras la 0064 no hay señales de sistema
+    own_keys = {r["key"] for r in _rows(path)}
     for r in _rows(path):
         params = json.loads(r["params"])  # JSON parseable
         err = signal_engine.validate_params(r["formula_type"], params)
@@ -51,10 +54,10 @@ def test_senales_del_pack_validas(path):
             if allowed:
                 unknown = set(params["map"]) - allowed
                 assert not unknown, (r["key"], unknown)
-        # composites: sus referencias deben existir en el conjunto de packs
+        # composites: sus referencias resueltas dentro del PROPIO archivo
         if r["formula_type"] == "composite":
             refs = {c["signal_key"] for c in params["components"]}
-            assert refs <= known_keys, (r["key"], refs - known_keys)
+            assert refs <= own_keys, (r["key"], refs - own_keys)
 
 
 @pytest.mark.parametrize("path", sorted(PACKS_DIR.glob("*_estrategia.xlsx")),
@@ -64,7 +67,7 @@ def test_estrategia_del_pack_valida(path):
     componentes = _rows(path, sheet=1)
     assert estrategias and componentes
 
-    known_keys = _pack_signal_keys()
+    known_keys = _own_signal_keys(path)
 
     for e in estrategias:
         tree = json.loads(e["filter_conditions"])
