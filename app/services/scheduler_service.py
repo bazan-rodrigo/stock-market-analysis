@@ -76,25 +76,18 @@ def _daily_update_job() -> None:
             return
 
         # ── Pipeline de señales/estrategias ─────────────────────────────────
+        # Delta con relleno de huecos (misma función que el botón "Ejecutar"
+        # de Señales y Estrategias en Centro de Datos): por cada fecha con
+        # precios pero sin señales corre scores de grupo → señales →
+        # estrategias, y siempre recalcula la última fecha. Si la app estuvo
+        # apagada unos días, esos días se completan solos acá — igual que ya
+        # hacen precios/indicadores/fundamentales más arriba.
         try:
-            from app.services import group_score_service
-            group_score_service.run_daily()
+            from app.services.signal_service import update_signal_history
+            result = update_signal_history()
+            logger.info("signal_service backfill delta: %s", result)
         except Exception as exc:
-            logger.exception("Error en group_score_service.run_daily: %s", exc)
-
-        try:
-            from app.services import signal_service
-            result = signal_service.run_daily()
-            logger.info("signal_service: %s", result)
-        except Exception as exc:
-            logger.exception("Error en signal_service.run_daily: %s", exc)
-
-        try:
-            from app.services import strategy_service
-            result = strategy_service.run_daily()
-            logger.info("strategy_service: %s", result)
-        except Exception as exc:
-            logger.exception("Error en strategy_service.run_daily: %s", exc)
+            logger.exception("Error en update_signal_history: %s", exc)
     finally:
         _daily_running = False
         # El thread del scheduler se reutiliza entre corridas: liberar la
