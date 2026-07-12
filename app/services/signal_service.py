@@ -406,35 +406,29 @@ def get_visible_signals(user_id: int | None, is_admin: bool) -> list:
             .order_by(SignalDefinition.id).all())
 
 
-def signal_dependents_of_others(s, sig: SignalDefinition,
-                                owner_id: int | None) -> list[str]:
-    """Quiénes referencian a sig SIN ser privados del mismo dueño: señales
-    composite (por key en params) y estrategias (componentes u operandos
-    señal del filtro) públicas o de otro usuario. Si esta lista no está
-    vacía, despublicar sig los dejaría apuntando a algo que sus dueños ya
-    no ven."""
+def _signal_dependents(s, sig: SignalDefinition) -> list[tuple]:
+    """[(descripción, owner_id, is_public)] de TODO lo que referencia a sig:
+    señales composite (por key en params) y estrategias (componentes u
+    operandos señal del filtro de elegibilidad)."""
     import json as _json
     from app.models import Strategy
     from app.services import strategy_filter
 
-    deps: list[str] = []
+    deps: list[tuple] = []
 
     for other in s.query(SignalDefinition).filter(
             SignalDefinition.formula_type == "composite",
             SignalDefinition.id != sig.id).all():
-        if not other.is_public and other.owner_id == owner_id:
-            continue
         try:
             refs = {c.get("signal_key")
                     for c in _json.loads(other.params).get("components", [])}
         except (TypeError, ValueError):
             continue
         if sig.key in refs:
-            deps.append(f"señal composite '{other.key}'")
+            deps.append((f"señal composite '{other.key}'",
+                         other.owner_id, other.is_public))
 
     for strat in s.query(Strategy).all():
-        if not strat.is_public and strat.owner_id == owner_id:
-            continue
         in_components = any(c.signal_id == sig.id for c in strat.components)
         in_filter = False
         tree = strategy_filter.parse_tree(strat.filter_conditions)
@@ -442,9 +436,19 @@ def signal_dependents_of_others(s, sig: SignalDefinition,
             in_filter = any(t == "signal" and k == sig.key
                             for t, k, _res in strategy_filter.collect_operands(tree))
         if in_components or in_filter:
-            deps.append(f"estrategia '{strat.name}'")
+            deps.append((f"estrategia '{strat.name}'",
+                         strat.owner_id, strat.is_public))
 
     return deps
+
+
+def signal_dependents_of_others(s, sig: SignalDefinition,
+                                owner_id: int | None) -> list[str]:
+    """Dependientes de sig que NO son privados del mismo dueño (públicos o
+    de otro usuario). Si esta lista no está vacía, despublicar sig los
+    dejaría apuntando a algo que sus dueños ya no ven."""
+    return [desc for desc, dep_owner, dep_public in _signal_dependents(s, sig)
+            if dep_public or dep_owner != owner_id]
 
 
 def _validate_composite_refs_visibility(s, *, owner_id, is_public,
@@ -555,7 +559,11 @@ def save_signal(
     sig.formula_type  = formula_type
     sig.params        = params_json
     sig.is_public     = new_public
-    s.commit()
+    try:
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
     return sig
 
 
@@ -569,12 +577,25 @@ def delete_signal(signal_id: int, *, acting_user_id: int | None = None,
     if not can_edit(sig.owner_id, acting_user_id, acting_is_admin):
         raise ValueError(f"Solo el dueño o un administrador pueden "
                          f"eliminar la señal '{sig.key}'.")
+    # Chequeo ANTES de borrar: el FK de strategy_component igual lo
+    # impediría, pero con un IntegrityError críptico que además deja la
+    # sesión en estado rolled-back (envenena los requests siguientes)
+    deps = [desc for desc, _o, _p in _signal_dependents(s, sig)]
+    if deps:
+        raise ValueError(
+            f"No se puede eliminar '{sig.key}': la usan "
+            + ", ".join(sorted(set(deps)))
+            + ". Quitala de ahí primero.")
     from app.models import SignalEvalLog
-    s.query(SignalEvalLog).filter(
-        SignalEvalLog.scope_kind == "signal",
-        SignalEvalLog.ref_id == sig.id).delete()
-    s.delete(sig)
-    s.commit()
+    try:
+        s.query(SignalEvalLog).filter(
+            SignalEvalLog.scope_kind == "signal",
+            SignalEvalLog.ref_id == sig.id).delete()
+        s.delete(sig)
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
 
 
 # ── Export / Import Excel ──────────────────────────────────────────────────────
@@ -963,6 +984,10 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
         except Exception as exc:
             logger.exception("signal_service: backfill falló para %s", d)
             errors.append({"date": str(d), "error": f"{d}: {exc}"})
+            # Sin rollback, un fallo a mitad de un flush deja la sesión
+            # compartida en estado rolled-back y TODAS las fechas
+            # siguientes fallarían con "issue Session.rollback()"
+            s.rollback()
     return {"total": total, "success": ok, "errors": errors}
 
 

@@ -375,7 +375,11 @@ def save_strategy(
         )
         s.add(comp)
 
-    s.commit()
+    try:
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
     return strat
 
 
@@ -390,11 +394,15 @@ def delete_strategy(strategy_id: int, *, acting_user_id: int | None = None,
         raise ValueError(f"Solo el dueño o un administrador pueden "
                          f"eliminar la estrategia '{strat.name}'.")
     from app.models import SignalEvalLog
-    s.query(SignalEvalLog).filter(
-        SignalEvalLog.scope_kind == "strategy",
-        SignalEvalLog.ref_id == strategy_id).delete()
-    s.delete(strat)
-    s.commit()
+    try:
+        s.query(SignalEvalLog).filter(
+            SignalEvalLog.scope_kind == "strategy",
+            SignalEvalLog.ref_id == strategy_id).delete()
+        s.delete(strat)
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
 
 
 def get_strategy_results(strategy_id: int, target_date) -> list[dict]:
