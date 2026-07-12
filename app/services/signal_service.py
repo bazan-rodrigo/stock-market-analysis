@@ -141,6 +141,20 @@ def compute_signal_values(target_date: date_type,
     asset_signals  = [sg for sg in signals if sg.source == "asset"]
     group_signals  = [sg for sg in signals if sg.source == "group"]
 
+    # Señales de grupo mal configuradas (indicator_key que no es un campo de
+    # group_scores): descartarlas UNA vez acá — evaluarlas warnearía por cada
+    # (grupo × fecha), inundando el log en un backfill
+    bad_group = [sg for sg in group_signals
+                 if sg.formula_type != "composite"
+                 and sg.indicator_key not in _VALID_GROUP_INDICATOR_KEYS]
+    if bad_group:
+        logger.warning(
+            "signal_service: señales de grupo ignoradas por indicator_key "
+            "inválido (los scores de grupo solo tienen %s): %s",
+            sorted(_VALID_GROUP_INDICATOR_KEYS),
+            sorted(sg.key for sg in bad_group))
+        group_signals = [sg for sg in group_signals if sg not in bad_group]
+
     # Descubrir qué indicator_keys necesitan las señales de activo
     needed_codes = {sg.indicator_key for sg in asset_signals if sg.indicator_key}
 
@@ -296,6 +310,15 @@ def compute_group_signal_values(target_date: date_type,
     )
     if only_signal_ids is not None:
         group_signals = [sg for sg in group_signals if sg.id in only_signal_ids]
+    # Mal configuradas (ver compute_signal_values): un solo warning, no por grupo
+    bad_group = [sg for sg in group_signals
+                 if sg.formula_type != "composite"
+                 and sg.indicator_key not in _VALID_GROUP_INDICATOR_KEYS]
+    if bad_group:
+        logger.warning(
+            "signal_service: señales de grupo ignoradas por indicator_key "
+            "inválido: %s", sorted(sg.key for sg in bad_group))
+        group_signals = [sg for sg in group_signals if sg not in bad_group]
     if not group_signals:
         return 0
 
