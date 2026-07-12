@@ -1015,13 +1015,18 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     }}
 
     /* Score de estrategia (panel separado, como el RSI) con los umbrales
-       de entrada/salida como líneas de referencia */
+       de entrada/salida como líneas de referencia.
+       La serie cubre TODAS las barras del precio: las fechas sin score van
+       como whitespace ({{time}} sin value) — los paneles se sincronizan por
+       rango LÓGICO (índice de barra), así que si este chart tuviera menos
+       barras que el de precio quedaría corrido hacia la izquierda. */
     if (showStrategy && window._lwcPanelCharts.strategy) {{
-      var sd = [], lastT = null;
+      var scoreByIdx = {{}};
       st.strategyData.scores.forEach(function(p) {{
-        var t = times[nearestBarIdx(p[0])];
-        if (t === lastT) {{ sd[sd.length - 1].value = p[1]; }}  /* W/M: queda el último score del período */
-        else {{ sd.push({{time: t, value: p[1]}}); lastT = t; }}
+        scoreByIdx[nearestBarIdx(p[0])] = p[1];  /* W/M: queda el último del período */
+      }});
+      var sd = times.map(function(t, i) {{
+        return scoreByIdx.hasOwnProperty(i) ? {{time: t, value: scoreByIdx[i]}} : {{time: t}};
       }});
       window._lwc.addSeries(window._lwcPanelCharts.strategy, {{
         type: 'line',
