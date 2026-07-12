@@ -39,5 +39,24 @@ Nota: el filtro por tipo de instrumento (`instrument_type in [Equity, FUND]`)
 quedó afuera del archivo a propósito — los ids de catálogo dependen de cada
 base. Agregarlo a mano desde el editor de la estrategia si se quiere.
 
+## momentum_de_lideres
+
+Contracara del Pullback: compra los activos MÁS fuertes del mismo universo
+(mismo filtro de elegibilidad), en vez de los que retrocedieron. Al
+compartir filtro, cualquier diferencia de resultados entre ambas es
+atribuible 100% al ranking — ideal para comparar filosofías.
+
+**Requiere el pack pullback importado antes** (reutiliza la señal
+`fuerza_relativa_52w`).
+
+**Ranking** (promedio ponderado):
+
+| Señal | Peso | Origen |
+|---|---|---|
+| `retorno_52w` (range −20%→−100 ... +80%→+100) | 3 | pack |
+| `fuerza_relativa_52w` | 2 | pack pullback |
+| `alineacion_timeframes` (composite tendencia d/w/m) | 2 | sistema |
+| `dist_sma_d` (premia extensión sobre la SMA óptima, sin invertir) | 1 | sistema |
+
 Los parámetros (umbrales, pesos) son puntos de partida de manual para probar
 el sistema, no valores optimizados ni recomendación de inversión.
