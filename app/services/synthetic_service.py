@@ -21,7 +21,9 @@ from sqlalchemy.dialects.mysql import insert as _mysql_insert
 
 from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, SyntheticComponent, SyntheticFormula
-from app.services.technical_service import compute_current_indicators, _save_indicator_log
+from app.services.technical_service import (
+    backfill_asset_history, compute_current_indicators, _save_indicator_log,
+)
 
 logger = logging.getLogger(__name__)
 
