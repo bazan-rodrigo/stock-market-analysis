@@ -103,30 +103,20 @@ def _build_composite_scores(
     return asset_scores
 
 
-def compute_signal_values(target_date: date_type,
-                          only_signal_ids: set[int] | None = None,
-                          latest_price_date: date_type | None = None) -> int:
-    """
-    Calcula signal_value para todos los activos para target_date.
-    Lee valores desde cada tabla ind_{code} por separado.
-
-    only_signal_ids acota el cálculo a un subconjunto (alcance por señal o
-    estrategia del backfill) — el llamador es responsable de que incluya las
-    dependencias de las composites (ver _scope_signal_ids).
-
-    latest_price_date evita re-consultar MAX(prices.date) (caro sin índice
-    por fecha) cuando el llamador itera muchas fechas (backfill).
-    """
-    s = get_session()
+def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
+    """Contexto invariante de una corrida: señales parseadas y clasificadas
+    + códigos de indicador que necesitan. Compartido por el camino por-fecha
+    (que lo rearma en cada llamada) y el modo rango (una vez por corrida).
+    None si no hay señales que evaluar."""
+    import json as _json
 
     signals = s.query(SignalDefinition).all()
     if only_signal_ids is not None:
         signals = [sg for sg in signals if sg.id in only_signal_ids]
     if not signals:
-        return 0
+        return None
 
     # Params parseados una sola vez por señal (evita json.loads por activo)
-    import json as _json
     params_by_id: dict[int, dict | None] = {}
     for sig in signals:
         try:
@@ -167,11 +157,47 @@ def compute_signal_values(target_date: date_type,
         d.code: d.keep_history for d in s.query(IndicatorDefinition).all()
     }
 
-    hist_codes = {c for c in needed_codes - _VIRTUAL_CODES
-                  if keep_history_by_code.get(c)}
-    nohist_codes = {c for c in needed_codes - _VIRTUAL_CODES
-                    if keep_history_by_code.get(c) is False}
-    virtual_to_load = needed_codes & _VIRTUAL_CODES
+    return {
+        "signals":        signals,
+        "params_by_id":   params_by_id,
+        "refs_by_key":    refs_by_key,
+        "asset_signals":  asset_signals,
+        "group_signals":  group_signals,
+        "hist_codes":     {c for c in needed_codes - _VIRTUAL_CODES
+                           if keep_history_by_code.get(c)},
+        "nohist_codes":   {c for c in needed_codes - _VIRTUAL_CODES
+                           if keep_history_by_code.get(c) is False},
+        "virtual_codes":  needed_codes & _VIRTUAL_CODES,
+    }
+
+
+def compute_signal_values(target_date: date_type,
+                          only_signal_ids: set[int] | None = None,
+                          latest_price_date: date_type | None = None) -> int:
+    """
+    Calcula signal_value para todos los activos para target_date.
+    Lee valores desde cada tabla ind_{code} por separado.
+
+    only_signal_ids acota el cálculo a un subconjunto (alcance por señal o
+    estrategia del backfill) — el llamador es responsable de que incluya las
+    dependencias de las composites (ver _scope_signal_ids).
+
+    latest_price_date evita re-consultar MAX(prices.date) (caro sin índice
+    por fecha) cuando el llamador itera muchas fechas (backfill).
+    """
+    s = get_session()
+
+    prep = _prepare_signals(s, only_signal_ids)
+    if prep is None:
+        return 0
+    signals        = prep["signals"]
+    params_by_id   = prep["params_by_id"]
+    refs_by_key    = prep["refs_by_key"]
+    asset_signals  = prep["asset_signals"]
+    group_signals  = prep["group_signals"]
+    hist_codes     = prep["hist_codes"]
+    nohist_codes   = prep["nohist_codes"]
+    virtual_to_load = prep["virtual_codes"]
 
     # Construir {asset_id: {code: value}} leyendo cada ind_* table con
     # lookup as-of (última fila <= target_date): los indicadores
@@ -246,11 +272,43 @@ def compute_signal_values(target_date: date_type,
         for sv in s.query(SignalValue).filter(SignalValue.date == target_date).all()
     }
 
+    scores = _evaluate_asset_signal_scores(
+        signals=signals, asset_signals=asset_signals,
+        group_signals=group_signals, params_by_id=params_by_id,
+        refs_by_key=refs_by_key, isnaps=isnaps,
+        asset_groups=asset_groups, gscores=gscores)
+
     written = 0
+    for (sig_id, asset_id), score in scores.items():
+        key = (sig_id, asset_id)
+        sv = existing_svs.get(key)
+        if sv is None:
+            sv = SignalValue(signal_id=sig_id, asset_id=asset_id, date=target_date)
+            s.add(sv)
+            existing_svs[key] = sv
+        sv.score = score
+        written += 1
+
+    s.commit()
+    logger.info("signal_service: %d signal_value escritos para %s", written, target_date)
+    return written
+
+
+def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
+                                  params_by_id, refs_by_key, isnaps,
+                                  asset_groups, gscores) -> dict[tuple, float]:
+    """{(signal_id, asset_id): score} de una fecha — LÓGICA PURA, sin BD,
+    compartida por el camino por-fecha y el modo rango (la paridad entre
+    ambos depende de que este sea el único evaluador).
+
+    gscores: {(group_type, group_id): obj} con atributos regime_score_*
+    (ORM GroupScore o SimpleNamespace, indistinto)."""
+    results: dict[tuple, float] = {}
 
     # Memo de scores de grupo: todos los activos de un mismo grupo comparten
     # el mismo score, no hace falta evaluarlo una vez por activo.
     group_score_memo: dict[tuple, float | None] = {}
+    id_by_key = {sig.key: sig.id for sig in signals}
 
     for asset_id, isnap in isnaps.items():
         asset_scores: dict[str, float | None] = {}
@@ -289,22 +347,14 @@ def compute_signal_values(target_date: date_type,
         _build_composite_scores(signals, asset_scores,
                                 refs_by_key=refs_by_key, params_by_id=params_by_id)
 
-        for sig in signals:
-            score = asset_scores.get(sig.key)
+        for key, score in asset_scores.items():
             if score is None:
                 continue
-            key = (sig.id, asset_id)
-            sv = existing_svs.get(key)
-            if sv is None:
-                sv = SignalValue(signal_id=sig.id, asset_id=asset_id, date=target_date)
-                s.add(sv)
-                existing_svs[key] = sv
-            sv.score = score
-            written += 1
+            sig_id = id_by_key.get(key)
+            if sig_id is not None:
+                results[(sig_id, asset_id)] = score
 
-    s.commit()
-    logger.info("signal_service: %d signal_value escritos para %s", written, target_date)
-    return written
+    return results
 
 
 def compute_group_signal_values(target_date: date_type,
@@ -347,8 +397,36 @@ def compute_group_signal_values(target_date: date_type,
         for gsv in s.query(GroupSignalValue).filter(GroupSignalValue.date == target_date).all()
     }
 
-    written = 0
+    scores = _evaluate_group_signal_scores(
+        group_signals=group_signals, params_by_id=params_by_id, gscores=gscores)
 
+    written = 0
+    for (sig_id, group_type, group_id), score in scores.items():
+        key = (sig_id, group_type, group_id)
+        gsv = existing_gsvs.get(key)
+        if gsv is None:
+            gsv = GroupSignalValue(
+                signal_id=sig_id,
+                group_type=group_type,
+                group_id=group_id,
+                date=target_date,
+            )
+            s.add(gsv)
+            existing_gsvs[key] = gsv
+        gsv.score = score
+        written += 1
+
+    s.commit()
+    logger.info("signal_service: %d group_signal_value escritos para %s", written, target_date)
+    return written
+
+
+def _evaluate_group_signal_scores(*, group_signals, params_by_id,
+                                  gscores) -> dict[tuple, float]:
+    """{(signal_id, group_type, group_id): score} de una fecha — LÓGICA
+    PURA compartida por el camino por-fecha y el modo rango. gscores:
+    iterable de objetos con group_type/group_id/regime_score_*."""
+    results: dict[tuple, float] = {}
     for gscore in gscores:
         for sig in group_signals:
             if sig.group_type and sig.group_type != gscore.group_type:
@@ -358,24 +436,8 @@ def compute_group_signal_values(target_date: date_type,
                                            params=params_by_id.get(sig.id))
             if score is None:
                 continue
-
-            key = (sig.id, gscore.group_type, gscore.group_id)
-            gsv = existing_gsvs.get(key)
-            if gsv is None:
-                gsv = GroupSignalValue(
-                    signal_id=sig.id,
-                    group_type=gscore.group_type,
-                    group_id=gscore.group_id,
-                    date=target_date,
-                )
-                s.add(gsv)
-                existing_gsvs[key] = gsv
-            gsv.score = score
-            written += 1
-
-    s.commit()
-    logger.info("signal_service: %d group_signal_value escritos para %s", written, target_date)
-    return written
+            results[(sig.id, gscore.group_type, gscore.group_id)] = score
+    return results
 
 
 def run_daily(target_date: date_type | None = None) -> dict:
@@ -810,6 +872,10 @@ def import_signals_excel(file_bytes: bytes,
 
 # ── Backfill histórico (Centro de Datos) ──────────────────────────────────────
 
+# Umbral para cambiar del loop por-fecha al modo rango (signal_backfill_range)
+_RANGE_MODE_MIN_DATES = 30
+
+
 def _dates_to_compute(trading_dates: list, computed_dates: set,
                       force: bool) -> list:
     """Qué fechas correr. force=False (delta): las que no tienen ningún
@@ -961,6 +1027,19 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
     computed |= logged
 
     dates = _dates_to_compute(trading_dates, computed, force)
+
+    # Modo rango: con muchas fechas, el loop por-fecha repite queries
+    # constantes/incrementales 25.000 veces — el barrido cronológico hace lo
+    # mismo con una carga por chunk (ver signal_backfill_range). El camino
+    # por-fecha queda para el uso diario (última fecha, pocos huecos).
+    if len(dates) >= _RANGE_MODE_MIN_DATES:
+        from app.services import signal_backfill_range
+        return signal_backfill_range.run_range(
+            dates,
+            only_ids=only_ids, strategy_id=strategy_id,
+            scope_kind=scope_kind, latest_price_date=last,
+            eval_kind=eval_kind, eval_ref=eval_ref, logged=logged,
+            progress_cb=progress_cb)
 
     total, ok, errors = len(dates), 0, []
     for i, d in enumerate(dates, start=1):

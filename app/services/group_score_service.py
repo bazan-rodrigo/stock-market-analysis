@@ -104,6 +104,37 @@ def compute_group_scores(target_date: date_type) -> None:
         ).all()
     }
 
+    aggregated = aggregate_group_scores(asset_trends, asset_meta)
+
+    # Upsert ORM (una fecha): el modo rango escribe estas mismas filas en
+    # bloque — la agregación compartida vive en aggregate_group_scores
+    existing = {
+        (g.group_type, g.group_id): g
+        for g in s.query(GroupScore).filter(GroupScore.date == target_date).all()
+    }
+    for (group_type, group_id), vals in aggregated.items():
+        gscore = existing.get((group_type, group_id))
+        if gscore is None:
+            gscore = GroupScore(
+                group_type=group_type,
+                group_id=group_id,
+                date=target_date,
+            )
+            s.add(gscore)
+        gscore.regime_score_d = vals["regime_score_d"]
+        gscore.regime_score_w = vals["regime_score_w"]
+        gscore.regime_score_m = vals["regime_score_m"]
+        gscore.n_assets       = vals["n_assets"]
+
+    s.commit()
+
+
+def aggregate_group_scores(asset_trends: dict, asset_meta: dict) -> dict[tuple, dict]:
+    """{(group_type, group_id): {regime_score_d/w/m, n_assets}} — LÓGICA
+    PURA compartida por el camino por-fecha y el modo rango.
+
+    asset_trends: {asset_id: {tf: regime_detail}} (tf: d|w|m).
+    asset_meta:   {asset_id: {group_type: group_id}}."""
     groups: dict = defaultdict(lambda: {"d": [], "w": [], "m": []})
 
     for asset_id, trends in asset_trends.items():
@@ -117,32 +148,16 @@ def compute_group_scores(target_date: date_type) -> None:
                 if score is not None:
                     groups[(group_type, group_id)][tf].append(score)
 
-    for (group_type, group_id), scores in groups.items():
-        gscore = (
-            s.query(GroupScore)
-            .filter(
-                GroupScore.group_type == group_type,
-                GroupScore.group_id == group_id,
-                GroupScore.date == target_date,
-            )
-            .first()
-        )
-
-        if gscore is None:
-            gscore = GroupScore(
-                group_type=group_type,
-                group_id=group_id,
-                date=target_date,
-            )
-            s.add(gscore)
-
-        gscore.regime_score_d = _avg(scores["d"])
-        gscore.regime_score_w = _avg(scores["w"])
-        gscore.regime_score_m = _avg(scores["m"])
+    out: dict[tuple, dict] = {}
+    for key, scores in groups.items():
         counts = [len(scores["d"]), len(scores["w"]), len(scores["m"])]
-        gscore.n_assets = max(counts) if any(counts) else 0
-
-    s.commit()
+        out[key] = {
+            "regime_score_d": _avg(scores["d"]),
+            "regime_score_w": _avg(scores["w"]),
+            "regime_score_m": _avg(scores["m"]),
+            "n_assets":       max(counts) if any(counts) else 0,
+        }
+    return out
 
 
 def run_daily(target_date: date_type | None = None) -> int:

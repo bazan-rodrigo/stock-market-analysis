@@ -68,6 +68,33 @@ def _compute_asset_score(
     return round(weighted_sum / total_weight, 4)
 
 
+def rank_strategy_assets(*, components, asset_groups, signal_scores,
+                         group_scores, filter_tree, operand_values,
+                         ) -> list[tuple[int, float]]:
+    """[(asset_id, score)] ordenado por score desc (rank 1 = primero) —
+    LÓGICA PURA compartida por el camino por-fecha y el modo rango: filtro
+    de elegibilidad + score ponderado + orden."""
+    asset_ids = list(asset_groups.keys())
+    if filter_tree is not None and asset_ids:
+        asset_ids = [
+            aid for aid in asset_ids
+            if strategy_filter.evaluate_tree(
+                filter_tree, aid, operand_values, asset_groups[aid])
+        ]
+
+    scored: list[tuple[int, float]] = []
+    for asset_id in asset_ids:
+        score = _compute_asset_score(
+            components, asset_id, asset_groups, signal_scores, group_scores
+        )
+        if score is not None:
+            scored.append((asset_id, score))
+
+    # Ranking: mayor score → rank 1
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored
+
+
 def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
     """
     Calcula StrategyResult para todos los activos para strategy_id y target_date.
@@ -137,31 +164,15 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
     else:
         asset_groups = {}
 
-    # Filtro de elegibilidad: quien no cumple el árbol de condiciones no
-    # participa del scoring ni aparece en strategy_result
-    asset_ids = list(asset_groups.keys())
     filter_tree = strategy_filter.parse_tree(strategy.filter_conditions)
-    if filter_tree is not None and asset_ids:
-        operand_values = strategy_filter.load_operand_values(
-            s, filter_tree, target_date)
-        asset_ids = [
-            aid for aid in asset_ids
-            if strategy_filter.evaluate_tree(
-                filter_tree, aid, operand_values, asset_groups[aid])
-        ]
-
-    # Calcular scores por activo
-    scored: list[tuple[int, float]] = []
-
-    for asset_id in asset_ids:
-        score = _compute_asset_score(
-            components, asset_id, asset_groups, signal_scores, group_scores
-        )
-        if score is not None:
-            scored.append((asset_id, score))
-
-    # Ranking: mayor score → rank 1
-    scored.sort(key=lambda x: x[1], reverse=True)
+    operand_values = (
+        strategy_filter.load_operand_values(s, filter_tree, target_date)
+        if filter_tree is not None and asset_groups else {}
+    )
+    scored = rank_strategy_assets(
+        components=components, asset_groups=asset_groups,
+        signal_scores=signal_scores, group_scores=group_scores,
+        filter_tree=filter_tree, operand_values=operand_values)
 
     # Pre-cargar StrategyResults del día para esta estrategia
     existing_srs: dict[int, StrategyResult] = {
