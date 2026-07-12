@@ -656,9 +656,17 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
         data = dict(zip(headers_s, row))
         name = str(data.get("name") or "").strip()
         if name:
+            # Compatibilidad: Excel exportados antes de la migración 0061
+            # traen "asset_filter" (JSON plano) en vez de "filter_conditions"
+            filter_conditions = (
+                data.get("filter_conditions")
+                or strategy_filter.legacy_asset_filter_to_tree(
+                    data.get("asset_filter"))
+                or None
+            )
             strategies[name] = {
                 "description": data.get("description") or None,
-                "filter_conditions": data.get("filter_conditions") or None,
+                "filter_conditions": filter_conditions,
                 "components": [],
             }
 

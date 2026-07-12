@@ -99,3 +99,36 @@ def test_evaluate_params_preparseados_evitan_el_json():
     # con params pre-parseados, el params_json (roto) no debe tocarse
     p = {"min": 0, "max": 10, "clamp": True}
     assert se.evaluate("range", "{json roto", 5, params=p) == 0.0
+
+
+# ── validate_params ───────────────────────────────────────────────────────────
+
+def test_validate_params_formas_correctas():
+    assert se.validate_params("discrete_map", {"map": {"bullish": 60}}) is None
+    assert se.validate_params("threshold",
+                              {"thresholds": [[70, 100], [None, -50]]}) is None
+    assert se.validate_params("range", {"min": -3, "max": 3}) is None
+    assert se.validate_params("composite",
+                              {"components": [{"signal_key": "a"}]}) is None
+
+def test_validate_params_forma_de_otra_formula():
+    # params json-valido pero de OTRA formula: sin esta validacion la senal
+    # importaria y nunca puntuaria, silenciosamente
+    assert se.validate_params("threshold", {"map": {"bullish": 60}})
+    assert se.validate_params("discrete_map", {"thresholds": [[70, 100]]})
+    assert se.validate_params("range", {"components": []})
+
+def test_validate_params_valores_invalidos():
+    assert se.validate_params("discrete_map", {"map": {}})
+    assert se.validate_params("discrete_map", {"map": {"a": "cien"}})
+    assert se.validate_params("threshold", {"thresholds": [[70]]})
+    assert se.validate_params("threshold", {"thresholds": [["alto", 100]]})
+    assert se.validate_params("threshold", {"thresholds": [[70, None]]})
+    assert se.validate_params("range", {"min": 1, "max": 1})
+    assert se.validate_params("range", {"min": "a", "max": 3})
+    assert se.validate_params("composite", {"components": [{"weight": 1}]})
+    assert se.validate_params("composite",
+                              {"components": [{"signal_key": "a", "weight": "x"}]})
+
+def test_validate_params_formula_desconocida():
+    assert se.validate_params("magica", {})

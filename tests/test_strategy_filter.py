@@ -254,3 +254,22 @@ def test_rechaza_op_desconocido():
 def test_rechaza_resolution_desconocida():
     assert _validate(_cond(_ind("rsi_daily"), ">", _const(70),
                            resolution="magic"))
+
+
+# ── legacy_asset_filter_to_tree ───────────────────────────────────────────────
+
+def test_legacy_asset_filter_se_convierte():
+    from app.services.strategy_filter import legacy_asset_filter_to_tree
+    import json
+    tree = json.loads(legacy_asset_filter_to_tree(
+        '{"sector_id": 3, "instrument_type_id": 1}'))
+    assert tree["op"] == "AND" and len(tree["children"]) == 2
+    conds = {c["cond"]["left"]["key"]: c["cond"]["right"]["value"]
+             for c in tree["children"]}
+    assert conds == {"sector": 3, "instrument_type": 1}
+
+def test_legacy_asset_filter_vacio_o_roto():
+    from app.services.strategy_filter import legacy_asset_filter_to_tree
+    assert legacy_asset_filter_to_tree(None) is None
+    assert legacy_asset_filter_to_tree("{}") is None
+    assert legacy_asset_filter_to_tree("{roto") is None

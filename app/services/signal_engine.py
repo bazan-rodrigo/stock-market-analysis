@@ -93,6 +93,64 @@ def evaluate_composite(params: dict, scores_by_key: dict[str, float | None]) -> 
     return float(weighted_sum / total_weight)
 
 
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def validate_params(formula_type: str, params: dict) -> str | None:
+    """Valida que params tenga la forma que evaluate() espera para ese tipo
+    de fórmula. Devuelve un mensaje de error o None si es válido.
+
+    Motivación: un params sintácticamente válido pero con la forma equivocada
+    (p.ej. un 'map' en una señal threshold) no rompe nada — evaluate devuelve
+    None silenciosamente y la señal nunca puntúa. Para el import masivo eso
+    es una trampa; mejor rechazarlo con mensaje."""
+    if formula_type == "discrete_map":
+        m = params.get("map")
+        if not isinstance(m, dict) or not m:
+            return "discrete_map requiere 'map' (diccionario no vacío)"
+        bad = [k for k, v in m.items() if not _is_number(v)]
+        if bad:
+            return f"scores no numéricos en map: {bad}"
+        return None
+
+    if formula_type == "threshold":
+        th = params.get("thresholds")
+        if not isinstance(th, list) or not th:
+            return "threshold requiere 'thresholds' (lista no vacía)"
+        for i, pair in enumerate(th):
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                return f"thresholds[{i}] debe ser un par [límite, score]"
+            limit, score = pair
+            if limit is not None and not _is_number(limit):
+                return f"thresholds[{i}]: límite no numérico: {limit!r}"
+            if not _is_number(score):
+                return f"thresholds[{i}]: score no numérico: {score!r}"
+        return None
+
+    if formula_type == "range":
+        vmin, vmax = params.get("min"), params.get("max")
+        if not _is_number(vmin) or not _is_number(vmax):
+            return "range requiere 'min' y 'max' numéricos"
+        if vmin == vmax:
+            return "range: min y max no pueden ser iguales"
+        return None
+
+    if formula_type == "composite":
+        comps = params.get("components")
+        if not isinstance(comps, list) or not comps:
+            return "composite requiere 'components' (lista no vacía)"
+        for i, c in enumerate(comps):
+            if not isinstance(c, dict) or not c.get("signal_key"):
+                return f"components[{i}] requiere 'signal_key'"
+            w = c.get("weight", 1.0)
+            if not _is_number(w):
+                return f"components[{i}]: weight no numérico: {w!r}"
+        return None
+
+    return f"formula_type desconocido: {formula_type!r}"
+
+
 def evaluate(
     formula_type: str,
     params_json: str,

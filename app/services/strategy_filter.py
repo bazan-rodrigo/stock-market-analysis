@@ -320,6 +320,41 @@ def non_history_signal_keys(session) -> set[str]:
     return tainted
 
 
+# ── Compatibilidad: asset_filter legacy → árbol ──────────────────────────────
+
+_LEGACY_ATTR_BY_COLUMN = {
+    "sector_id":          "sector",
+    "market_id":          "market",
+    "industry_id":        "industry",
+    "country_id":         "country",
+    "instrument_type_id": "instrument_type",
+}
+
+
+def legacy_asset_filter_to_tree(asset_filter: str | None) -> str | None:
+    """Convierte el formato viejo de asset_filter ({"sector_id": 3, ...}) a un
+    árbol equivalente. Misma conversión que la migración 0061 — acá para que
+    los Excel exportados antes del cambio sigan importando."""
+    if not asset_filter:
+        return None
+    try:
+        flt = json.loads(asset_filter) or {}
+    except (json.JSONDecodeError, TypeError):
+        return None
+    children = [
+        {"cond": {
+            "left":     {"type": "attribute", "key": attr},
+            "operator": "=",
+            "right":    {"type": "const", "value": flt[col]},
+        }}
+        for col, attr in _LEGACY_ATTR_BY_COLUMN.items()
+        if flt.get(col) is not None
+    ]
+    if not children:
+        return None
+    return json.dumps({"op": "AND", "children": children})
+
+
 # ── Validación (al guardar) ───────────────────────────────────────────────────
 
 def validate_tree(tree, *, indicator_codes: dict[str, str],

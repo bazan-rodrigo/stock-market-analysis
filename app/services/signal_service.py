@@ -349,7 +349,11 @@ def save_signal(
     signal_id: int | None = None,
 ) -> SignalDefinition:
     import json as _json
-    _json.loads(params_json)
+    params = _json.loads(params_json)
+    shape_error = signal_engine.validate_params(
+        formula_type, params if isinstance(params, dict) else {})
+    if shape_error:
+        raise ValueError(shape_error)
 
     s = get_session()
     if signal_id:
@@ -428,6 +432,14 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
     _FORMULA_TYPES = ("discrete_map", "threshold", "range", "composite")
     _SOURCES       = ("asset", "group")
 
+    # Catálogos para validar referencias (indicadores, señales existentes)
+    s = get_session()
+    from app.models.indicator_definition import IndicatorDefinition
+    known_indicators = {
+        d.code for d in s.query(IndicatorDefinition.code).all()
+    } | set(_VIRTUAL_CODES)
+    known_signal_keys = {r.key for r in s.query(SignalDefinition.key).all()}
+
     # ── Pasada 1: validación completa sin escribir ────────────────────────────
     parsed: list[dict] = []
     invalid = False
@@ -436,23 +448,54 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
         key = str(data.get("key") or "").strip()
         if not key:
             continue
-        params_str   = str(data.get("params") or "{}")
-        formula_type = str(data.get("formula_type") or "range")
-        source       = str(data.get("source") or "asset")
+        params_str    = str(data.get("params") or "{}")
+        formula_type  = str(data.get("formula_type") or "range")
+        source        = str(data.get("source") or "asset")
+        indicator_key = str(data.get("indicator_key") or "").strip()
+        group_type    = str(data.get("group_type") or "").strip()
         error = None
+        params = None
         try:
-            _json.loads(params_str)
+            params = _json.loads(params_str)
         except Exception as exc:
             error = f"params inválido: {exc}"
         if error is None and formula_type not in _FORMULA_TYPES:
             error = f"formula_type desconocido: '{formula_type}'"
         if error is None and source not in _SOURCES:
             error = f"source desconocido: '{source}'"
+        if error is None:
+            # Forma de params según la fórmula: un params json-válido pero
+            # con la forma equivocada no rompe nada — la señal nunca
+            # puntuaría, silenciosamente. Mejor rechazar acá.
+            error = signal_engine.validate_params(
+                formula_type, params if isinstance(params, dict) else {})
+        if error is None and formula_type != "composite":
+            if source == "group":
+                if not group_type:
+                    error = "source=group requiere group_type"
+                elif indicator_key not in _VALID_GROUP_INDICATOR_KEYS:
+                    error = (f"indicator_key '{indicator_key}' no es un campo "
+                             f"válido de group_scores")
+            elif indicator_key and indicator_key not in known_indicators:
+                error = f"indicador desconocido: '{indicator_key}'"
         if error:
             invalid = True
         parsed.append({"key": key, "data": data, "params": params_str,
                        "formula_type": formula_type, "source": source,
                        "error": error})
+
+    # Refs de composites: contra las señales del archivo + las de la base
+    file_keys = {p["key"] for p in parsed}
+    for p in parsed:
+        if p["error"] is None and p["formula_type"] == "composite":
+            refs = {
+                c.get("signal_key")
+                for c in _json.loads(p["params"]).get("components", [])
+            }
+            missing = refs - file_keys - known_signal_keys
+            if missing:
+                p["error"] = f"composite referencia señales inexistentes: {sorted(missing)}"
+                invalid = True
 
     if invalid:
         return [
