@@ -807,11 +807,23 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
                  .filter(function(x) {{ return x !== null; }});
     }}
 
+    /* Mapea fecha exacta al índice de barra más cercano (necesario para S/M) */
+    function nearestBarIdx(dateStr) {{
+      for (var i = 0; i < times.length; i++) {{
+        if (times[i] >= dateStr) return i;
+      }}
+      return times.length - 1;
+    }}
+
     /* Paneles activos */
     var showVolume = !!st.volumeEnabled;
     ['rsi', 'macd', 'stochastic', 'atr', 'drawdown'].forEach(function(n) {{
       if (ip[n] && ip[n][0].enabled) activeSeps.push(n);
     }});
+    var showStrategy = !!(st.strategyEnabled && st.strategyData
+        && st.strategyData.asset_id === st.assetId
+        && st.strategyData.scores && st.strategyData.scores.length);
+    if (showStrategy) activeSeps.push('strategy');
 
     var panels = ['price'];
     if (showVolume) panels.push('volume');
@@ -1002,6 +1014,26 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       window._lwc.addSeries(window._lwcPanelCharts.atr, {{type:'line', name:'ATR', color:'#00bcd4', lineWidth:1.5, data: toData(atrVals)}});
     }}
 
+    /* Score de estrategia (panel separado, como el RSI) con los umbrales
+       de entrada/salida como líneas de referencia */
+    if (showStrategy && window._lwcPanelCharts.strategy) {{
+      var sd = [], lastT = null;
+      st.strategyData.scores.forEach(function(p) {{
+        var t = times[nearestBarIdx(p[0])];
+        if (t === lastT) {{ sd[sd.length - 1].value = p[1]; }}  /* W/M: queda el último score del período */
+        else {{ sd.push({{time: t, value: p[1]}}); lastT = t; }}
+      }});
+      window._lwc.addSeries(window._lwcPanelCharts.strategy, {{
+        type: 'line',
+        name: 'Score ' + (st.strategyData.name || ''),
+        color: '#38bdf8', lineWidth: 1.5, data: sd,
+        priceLines: [
+          {{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}},
+          {{price: (st.strategyExit  == null ?  0 : st.strategyExit),  color: '#ef5350'}},
+        ],
+      }});
+    }}
+
     /* Sync timescales */
     if (window._lwcCharts.length > 1) {{
       window._lwcCharts.forEach(function(src, i) {{
@@ -1078,13 +1110,6 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
 
     /* Marcadores sobre el precio: drawdown + estrategia comparten la
        misma llamada (setMarkers REEMPLAZA todos los markers de la serie) */
-    /* Mapea fecha exacta al índice de barra más cercano (necesario para S/M) */
-    function nearestBarIdx(dateStr) {{
-      for (var i = 0; i < times.length; i++) {{
-        if (times[i] >= dateStr) return i;
-      }}
-      return times.length - 1;
-    }}
     var allMarkers = [];
 
     if (st.ddEnabled && st.ddEvents && st.ddEvents.length) {{
@@ -1334,6 +1359,10 @@ clientside_callback(
 
 clientside_callback(
     """function(en, entry, exit) {
+        var ev = document.getElementById('chart-strategy-entry-val');
+        if (ev) ev.textContent = String(entry);
+        var xv = document.getElementById('chart-strategy-exit-val');
+        if (xv) xv.textContent = String(exit);
         if (!window._lwcState || !window._lwc) return null;
         var st = window._lwcState;
         st.strategyEnabled = !!(en && en.length);
