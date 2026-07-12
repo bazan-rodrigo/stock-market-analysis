@@ -128,8 +128,10 @@ def render_chart(sig_ids, asset_id, date_from_str, date_to_str):
     fig.add_hrect(y0=20,   y1=100, fillcolor="#4ade80", opacity=0.04, line_width=0)
     fig.add_hrect(y0=-100, y1=-20, fillcolor="#f87171", opacity=0.04, line_width=0)
     fig.add_hline(y=0,   line_dash="dot", line_color="#374151",   line_width=1)
-    fig.add_hline(y=20,  line_dash="dot", line_color="#4ade8044", line_width=1)
-    fig.add_hline(y=-20, line_dash="dot", line_color="#f8717144", line_width=1)
+    # rgba y no hex de 8 dígitos (#RRGGBBAA): el validador de plotly para
+    # shapes no acepta hex con alfa
+    fig.add_hline(y=20,  line_dash="dot", line_color="rgba(74, 222, 128, 0.27)", line_width=1)
+    fig.add_hline(y=-20, line_dash="dot", line_color="rgba(248, 113, 113, 0.27)", line_width=1)
 
     for i, sg in enumerate(sigs_with_data):
         pts    = history[sg.id]
