@@ -67,12 +67,20 @@ def publica_str(is_public) -> str:
 # ── Usuario actual (contexto Flask/Dash) ──────────────────────────────────────
 
 def current_viewer() -> tuple[int | None, bool]:
-    """(user_id, is_admin) del usuario logueado. Sin usuario real
-    (anónimo o invitado sin username) → (None, False): ve solo público."""
+    """(user_id, is_admin) del usuario actual.
+
+    is_admin se toma de current_user.is_admin tal cual — incluye al
+    GuestUser anónimo cuando el acceso público está habilitado (por diseño
+    de la app ese guest opera como admin en TODAS las pantallas admin; ver
+    app/auth/manager.py). Ese guest no tiene id → user_id None: puede ver
+    y editar todo vía is_admin, y lo que cree queda sin dueño (editable
+    solo por admins), pero nunca es "dueño" de nada."""
     from flask_login import current_user
-    if not current_user.is_authenticated or not getattr(current_user, "username", None):
+    if not current_user.is_authenticated:
         return None, False
-    return int(current_user.get_id()), bool(current_user.is_admin)
+    uid = current_user.get_id()
+    user_id = int(uid) if uid is not None else None
+    return user_id, bool(getattr(current_user, "is_admin", False))
 
 
 def visible_filter(model, user_id, is_admin):
