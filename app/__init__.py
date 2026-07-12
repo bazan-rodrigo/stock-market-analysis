@@ -280,6 +280,7 @@ def create_app():
         "app.callbacks.admin_sql_callbacks",
         "app.callbacks.admin_signals_callbacks",
         "app.callbacks.admin_strategies_callbacks",
+        "app.callbacks.strategy_filter_ui",
         "app.callbacks.screener_signals_callbacks",
         "app.callbacks.signal_history_callbacks",
         "app.callbacks.signal_heatmap_callbacks",

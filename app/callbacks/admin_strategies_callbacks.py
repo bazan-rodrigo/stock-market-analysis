@@ -5,6 +5,9 @@ import dash_bootstrap_components as dbc
 
 import app.services.strategy_service as svc
 import app.services.signal_service as sig_svc
+from app.callbacks.strategy_filter_ui import (
+    empty_filter_store, store_to_tree, tree_to_store,
+)
 from app.pages.admin_strategies import _SCOPE_OPTS, _GROUP_TYPE_OPTS
 from app.components.ui_constants import TH as _th, TD as _td
 
@@ -39,6 +42,7 @@ def load_table(_a, _m):
             "id":          s.id,
             "name":        s.name,
             "components":  len(s.components),
+            "filter":      "sí" if s.filter_conditions else "—",
             "description": s.description or "—",
         }
         for s in strategies
@@ -80,6 +84,7 @@ def update_buttons(selected_ids):
     Output("str-f-description", "value"),
     Output("str-editing-id",  "data"),
     Output("str-uid-store",   "data"),
+    Output("str-filter-store","data"),
     Output("str-modal-error", "is_open", allow_duplicate=True),
     Input("str-btn-add",      "n_clicks"),
     Input("str-btn-cancel",   "n_clicks"),
@@ -92,17 +97,17 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
     _empty = {"uids": [], "counter": 0, "initial_values": {}}
 
     if trigger == "str-btn-cancel":
-        return False, no_update, no_update, no_update, None, _empty, False
+        return False, no_update, no_update, no_update, None, _empty, empty_filter_store(), False
 
     if trigger == "str-btn-add":
-        return True, "Nueva estrategia", "", "", None, _empty, False
+        return True, "Nueva estrategia", "", "", None, _empty, empty_filter_store(), False
 
     if trigger == "str-btn-edit":
         if not selected_ids or len(selected_ids) != 1:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return (no_update,) * 8
         strat = svc.get_strategy_by_id(selected_ids[0])
         if strat is None:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return (no_update,) * 8
         from app.models import SignalDefinition
         from app.database import get_session
         s = get_session()
@@ -123,9 +128,10 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
                 "group_id":   comp.group_id,
             }
         store = {"uids": uids, "counter": len(uids), "initial_values": ivs}
-        return True, "Editar estrategia", strat.name, strat.description or "", strat.id, store, False
+        return (True, "Editar estrategia", strat.name, strat.description or "",
+                strat.id, store, tree_to_store(strat.filter_conditions), False)
 
-    return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    return (no_update,) * 8
 
 
 # ── Render filas de componentes ───────────────────────────────────────────────
@@ -257,9 +263,21 @@ def update_comp_store(add_n, remove_ns, store, signals, weights, scopes, group_t
     State({"type": "str-comp-scope",     "index": ALL}, "value"),
     State({"type": "str-comp-group-type","index": ALL}, "value"),
     State("str-editing-id",   "data"),
+    State("str-filter-store", "data"),
+    State("str-filter-opts",  "data"),
+    State({"type": "strf-left", "index": ALL}, "value"),
+    State({"type": "strf-left", "index": ALL}, "id"),
+    State({"type": "strf-op",   "index": ALL}, "value"),
+    State({"type": "strf-op",   "index": ALL}, "id"),
+    State({"type": "strf-val",  "index": ALL}, "value"),
+    State({"type": "strf-val",  "index": ALL}, "id"),
+    State({"type": "strf-vs",   "index": ALL}, "value"),
+    State({"type": "strf-vs",   "index": ALL}, "id"),
     prevent_initial_call=True,
 )
-def save(_, name, description, uid_store, signals, weights, scopes, group_types, editing_id):
+def save(_, name, description, uid_store, signals, weights, scopes, group_types,
+         editing_id, filter_store, filter_opts,
+         f_lefts, f_ids_left, f_ops, f_ids_op, f_vals, f_ids_val, f_vss, f_ids_vs):
 
     def err(msg):
         return no_update, no_update, no_update, no_update, msg, True, no_update
@@ -287,11 +305,24 @@ def save(_, name, description, uid_store, signals, weights, scopes, group_types,
             "group_id":   None,
         })
 
+    # Filtro de elegibilidad: volcar los controles al store y serializar
+    from app.callbacks.strategy_filter_ui import _capture_fields
+    filter_conditions = None
+    if filter_store:
+        filter_store, _ = _capture_fields(
+            filter_store, f_ids_left, f_lefts, f_ids_op, f_ops,
+            f_ids_val, f_vals, f_ids_vs, f_vss)
+        no_hist = set((filter_opts or {}).get("no_hist", []))
+        filter_conditions, f_errors = store_to_tree(filter_store, no_hist)
+        if f_errors:
+            return err(" ".join(f_errors))
+
     try:
         svc.save_strategy(
             name=name.strip(),
             description=description or None,
             components=components,
+            filter_conditions=filter_conditions,
             strategy_id=editing_id,
         )
         return "Estrategia guardada.", True, "success", False, "", False, []
@@ -352,6 +383,26 @@ def calc_results(_, selected_ids, date_str):
     if errors:
         return "", "; ".join(errors), True, "danger", html.Div()
 
+    # Aviso in-sample: alguna estrategia filtra con resolution=current (valor
+    # vigente) sobre una fecha pasada → sesgo de anticipación deliberado
+    insample_alert = None
+    if target_date < dt_date.today():
+        from app.services import strategy_filter as sf
+        biased = [
+            strat.name
+            for sid in selected_ids
+            if (strat := svc.get_strategy_by_id(sid)) is not None
+            and sf.uses_current_resolution(sf.parse_tree(strat.filter_conditions))
+        ]
+        if biased:
+            insample_alert = dbc.Alert(
+                [html.Strong("Diagnóstico in-sample: "),
+                 f"el filtro de {', '.join(biased)} usa valores vigentes "
+                 f"(sin historia) sobre una fecha pasada — los resultados "
+                 f"tienen sesgo de anticipación y no sirven como backtest."],
+                color="warning", className="py-2 small mb-2",
+            )
+
     # Preview: top 10 de la primera (o única) estrategia seleccionada
     preview = html.Div()
     if len(selected_ids) == 1:
@@ -401,6 +452,8 @@ def calc_results(_, selected_ids, date_str):
                 ], style={"width": "100%", "borderCollapse": "collapse"}),
             ]), style={"backgroundColor": "#1f2937", "border": "1px solid #374151"})
 
+    if insample_alert is not None:
+        preview = html.Div([insample_alert, preview])
     return "", f"Calculados {total} resultado(s) para {target_date}.", True, "success", preview
 
 

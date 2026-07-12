@@ -44,6 +44,9 @@ import sqlalchemy as sa
 from app.database import get_session
 from app.models import Asset, FundamentalQuarterly, Price
 from app.models.indicator_store import get_ind_table
+# Valores posibles por indicador categórico: catálogo compartido con el
+# constructor de filtros de estrategia (ver indicator_catalog.py).
+from app.services.indicator_catalog import CATEGORICAL_VALUES as _CATEGORICAL_VALUES
 from app.services.fundamental_service import (
     _ALL_FUND_CODES, _FUND_DAILY_CODES, _Quarter, _compute_daily_ratios,
     _compute_quarterly_ratios, _daily_ratio_series, _ref_1y_ord,
@@ -101,24 +104,6 @@ _NUMERIC_BOUNDS: dict[str, tuple[float, float]] = {
     "fundamental_ps_ttm": (-100000, 100000),
 }
 
-# trend_*: combinaciones de _regime_detail (technical_service.py:164).
-_TREND_VALUES = frozenset({
-    "bullish", "bearish", "lateral",
-    "bullish_nascent", "bearish_nascent", "lateral_nascent",
-    "bullish_strong", "bearish_strong",
-    "bullish_nascent_strong", "bearish_nascent_strong",
-})
-# volatility_*: f"{vol_regime}_{dur_regime}" (technical_service.py:282, 248).
-_VOLATILITY_VALUES = frozenset({
-    f"{v}_{d}" for v in ("baja", "normal", "alta", "extrema")
-    for d in ("corta", "media", "larga")
-})
-_CATEGORICAL_VALUES: dict[str, frozenset] = {
-    "trend_daily": _TREND_VALUES, "trend_weekly": _TREND_VALUES,
-    "trend_monthly": _TREND_VALUES,
-    "volatility_daily": _VOLATILITY_VALUES, "volatility_weekly": _VOLATILITY_VALUES,
-    "volatility_monthly": _VOLATILITY_VALUES,
-}
 
 
 # Categoría de cada fila de diferencia — separa dos cosas distintas que

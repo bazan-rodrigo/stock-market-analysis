@@ -59,6 +59,18 @@ def layout(**kwargs):
                        color="link", size="sm",
                        style={"fontSize": "0.80rem", "paddingLeft": 0}),
 
+            # ── Filtro de elegibilidad ──────────────────────────────────────
+            html.Hr(className="my-2"),
+            dbc.Label("Filtro de elegibilidad", style={"fontSize": "0.82rem",
+                                                       "fontWeight": "bold",
+                                                       "marginBottom": "2px"}),
+            html.Small(
+                "Solo los activos que cumplen estas condiciones participan del "
+                "ranking. Sin condiciones = todos los activos.",
+                className="text-muted d-block mb-2",
+            ),
+            html.Div(id="str-filter-tree"),
+
             dbc.Alert(id="str-modal-error", is_open=False, color="danger",
                       className="mt-2 mb-0 small py-1"),
         ]),
@@ -74,6 +86,8 @@ def layout(**kwargs):
         dcc.Store(id="str-all-ids",      data=[]),
         dcc.Store(id="str-uid-store",    data={"uids": [], "counter": 0, "initial_values": {}}),
         dcc.Store(id="str-signal-opts",  data=[]),
+        dcc.Store(id="str-filter-store", data=None),
+        dcc.Store(id="str-filter-opts",  data={}),
         dcc.Download(id="str-download"),
 
         dbc.Row([
@@ -119,6 +133,7 @@ def layout(**kwargs):
             columns=[
                 {"name": "Nombre",      "id": "name"},
                 {"name": "Comp.",       "id": "components"},
+                {"name": "Filtro",      "id": "filter"},
                 {"name": "Descripción", "id": "description"},
             ],
             data=[],

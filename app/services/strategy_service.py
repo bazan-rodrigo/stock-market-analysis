@@ -15,6 +15,7 @@ from app.models import (
     StrategyComponent,
     StrategyResult,
 )
+from app.services import strategy_filter
 
 logger = logging.getLogger(__name__)
 
@@ -123,21 +124,6 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
             Asset.id, Asset.sector_id, Asset.market_id,
             Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
         ).filter(Asset.id.in_(asset_ids_with_data))
-        # Aplicar asset_filter de la estrategia (JSON: {"sector_id": 3, ...})
-        if strategy.asset_filter:
-            import json
-            try:
-                flt = json.loads(strategy.asset_filter) or {}
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    "strategy_service: asset_filter inválido en strategy_id=%d: %r",
-                    strategy_id, strategy.asset_filter,
-                )
-                flt = {}
-            for col in ("sector_id", "market_id", "industry_id",
-                        "country_id", "instrument_type_id"):
-                if flt.get(col) is not None:
-                    q = q.filter(getattr(Asset, col) == flt[col])
         asset_groups: dict[int, dict] = {
             a.id: {
                 "sector":          a.sector_id,
@@ -151,8 +137,20 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
     else:
         asset_groups = {}
 
-    # Calcular scores por activo
+    # Filtro de elegibilidad: quien no cumple el árbol de condiciones no
+    # participa del scoring ni aparece en strategy_result
     asset_ids = list(asset_groups.keys())
+    filter_tree = strategy_filter.parse_tree(strategy.filter_conditions)
+    if filter_tree is not None and asset_ids:
+        operand_values = strategy_filter.load_operand_values(
+            s, filter_tree, target_date)
+        asset_ids = [
+            aid for aid in asset_ids
+            if strategy_filter.evaluate_tree(
+                filter_tree, aid, operand_values, asset_groups[aid])
+        ]
+
+    # Calcular scores por activo
     scored: list[tuple[int, float]] = []
 
     for asset_id in asset_ids:
@@ -236,16 +234,51 @@ def get_strategy_by_id(strategy_id: int) -> Strategy | None:
     return s.query(Strategy).filter(Strategy.id == strategy_id).first()
 
 
+def validate_filter_conditions(filter_conditions: str | None) -> list[str]:
+    """Errores del árbol de condiciones contra los catálogos vigentes
+    (indicadores, señales, valores discretos). Vacío si es válido o NULL."""
+    import json
+    from app.models import SignalDefinition
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.services.indicator_catalog import CATEGORICAL_VALUES
+
+    if not filter_conditions:
+        return []
+    try:
+        tree = json.loads(filter_conditions)
+    except (json.JSONDecodeError, TypeError):
+        return ["filtro: JSON inválido"]
+    if not tree:
+        return []
+
+    s = get_session()
+    indicator_codes = {
+        d.code: d.type
+        for d in s.query(IndicatorDefinition.code, IndicatorDefinition.type).all()
+    }
+    signal_keys = {r.key for r in s.query(SignalDefinition.key).all()}
+    return strategy_filter.validate_tree(
+        tree,
+        indicator_codes=indicator_codes,
+        signal_keys=signal_keys,
+        categorical_values=CATEGORICAL_VALUES,
+    )
+
+
 def save_strategy(
     name: str,
     components: list[dict],
     *,
     description: str | None = None,
-    asset_filter: str | None = None,
+    filter_conditions: str | None = None,
     strategy_id: int | None = None,
 ) -> Strategy:
     from datetime import datetime as _dt
     from app.models import SignalDefinition
+
+    filter_errors = validate_filter_conditions(filter_conditions)
+    if filter_errors:
+        raise ValueError("; ".join(filter_errors))
 
     s = get_session()
     if strategy_id:
@@ -260,10 +293,10 @@ def save_strategy(
         strat.created_at = _dt.utcnow()
         s.add(strat)
 
-    strat.name         = name
-    strat.description  = description
-    strat.asset_filter = asset_filter or None
-    strat.updated_at   = _dt.utcnow()
+    strat.name              = name
+    strat.description       = description
+    strat.filter_conditions = filter_conditions or None
+    strat.updated_at        = _dt.utcnow()
     s.flush()
 
     for comp_data in components:
@@ -577,7 +610,7 @@ def export_strategies_excel() -> bytes:
 
     ws_s = wb.active
     ws_s.title = "Estrategias"
-    ws_s.append(["name", "description", "asset_filter"])
+    ws_s.append(["name", "description", "filter_conditions"])
 
     ws_c = wb.create_sheet("Componentes")
     ws_c.append(["strategy_name", "signal_key", "weight", "scope", "group_type", "group_id"])
@@ -590,7 +623,8 @@ def export_strategies_excel() -> bytes:
     } if all_sig_ids else {}
 
     for strat in strategies:
-        ws_s.append([strat.name, strat.description or "", strat.asset_filter or ""])
+        ws_s.append([strat.name, strat.description or "",
+                     strat.filter_conditions or ""])
         for comp in strat.components:
             sig = sigs_by_id.get(comp.signal_id)
             ws_c.append([
@@ -624,7 +658,7 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
         if name:
             strategies[name] = {
                 "description": data.get("description") or None,
-                "asset_filter": data.get("asset_filter") or None,
+                "filter_conditions": data.get("filter_conditions") or None,
                 "components": [],
             }
 
@@ -671,6 +705,7 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
                 errors.append("componente sin signal_key")
             elif comp["signal_key"] not in sig_ids_by_key:
                 errors.append(f"señal '{comp['signal_key']}' no encontrada")
+        errors.extend(validate_filter_conditions(sdata["filter_conditions"]))
         if errors:
             invalid = True
 
@@ -698,10 +733,10 @@ def import_strategies_excel(file_bytes: bytes) -> list[dict]:
                 strat.created_at = _dt.utcnow()
                 db.add(strat)
 
-            strat.name         = name
-            strat.description  = sdata["description"]
-            strat.asset_filter = sdata["asset_filter"] or None
-            strat.updated_at   = _dt.utcnow()
+            strat.name              = name
+            strat.description       = sdata["description"]
+            strat.filter_conditions = sdata["filter_conditions"] or None
+            strat.updated_at        = _dt.utcnow()
             db.flush()
 
             for comp_data in sdata["components"]:
