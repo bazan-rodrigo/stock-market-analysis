@@ -139,7 +139,10 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
 @callback(
     Output("str-comp-rows",  "children"),
     Input("str-uid-store",   "data"),
-    State("str-signal-opts", "data"),
+    # Input (no State): al abrir el modal las filas se renderizan antes de
+    # que cache_signal_opts termine — cuando las opciones llegan, hay que
+    # re-renderizar o los dropdowns quedan vacíos hasta reabrir
+    Input("str-signal-opts", "data"),
 )
 def render_comp_rows(uid_store, signal_opts):
     uids = uid_store.get("uids", [])
