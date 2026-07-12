@@ -22,9 +22,12 @@ depends_on = None
 
 
 def _ind_tables(bind) -> list[str]:
+    # Solo tablas ind_* que tengan columna date: excluye ind_asset_meta
+    # (cache de metadatos, matchea el prefijo pero no es tabla de valores)
     return [r[0] for r in bind.execute(sa.text(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = DATABASE() AND table_name LIKE 'ind\\_%'"
+        "SELECT table_name FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name LIKE 'ind\\_%' "
+        "  AND column_name = 'date'"
     )).fetchall()]
 
 
