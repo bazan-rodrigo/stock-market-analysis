@@ -548,6 +548,207 @@ def cache_pb_opts(is_open):
     return build_pb_opts()
 
 
+# ── Vista previa: cómo mapea la fórmula valor → score ────────────────────────
+
+def _preview_base_figure(title: str | None = None):
+    import plotly.graph_objects as go
+    from app.components.ui_constants import PLOTLY_AXIS, PLOTLY_DARK
+
+    fig = go.Figure()
+    fig.update_layout(
+        **PLOTLY_DARK,
+        margin=dict(l=42, r=12, t=26 if title else 12, b=34),
+        height=240, showlegend=False,
+        title=dict(text=title, font=dict(size=12), x=0.02) if title else None,
+    )
+    fig.update_xaxes(**PLOTLY_AXIS)
+    fig.update_yaxes(**PLOTLY_AXIS)
+    return fig
+
+
+def _preview_note(text: str):
+    fig = _preview_base_figure()
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+    fig.add_annotation(text=text, showarrow=False,
+                       font=dict(size=11, color="#9ca3af"),
+                       xref="paper", yref="paper", x=0.5, y=0.5)
+    return fig
+
+
+def _score_axis(fig):
+    fig.update_yaxes(title_text="score", title_font=dict(size=10),
+                     range=[-115, 115], zeroline=True)
+
+
+def preview_figure(ftype: str, store: dict):
+    """Figura de vista previa para el tipo de fórmula con los parámetros
+    cargados (aunque estén incompletos: muestra lo que se pueda)."""
+    import plotly.graph_objects as go
+    from app.components.ui_constants import (
+        COLOR_NEGATIVE, COLOR_NEUTRAL, COLOR_POSITIVE, COLOR_PURPLE, COLOR_RANGE,
+    )
+
+    store = store or empty_params_store()
+
+    if ftype == "range":
+        sec = store.get("range", {})
+        vmin, vmax = sec.get("min"), sec.get("max")
+        if vmin is None or vmax is None or vmin == vmax:
+            return _preview_note("Completá Min y Max para ver la curva.")
+        clamp = bool(sec.get("clamp", True))
+        span = vmax - vmin
+        pad = abs(span) * 0.3
+        if clamp:
+            xs = [vmin - pad, vmin, vmax, vmax + pad]
+            ys = [-100, -100, 100, 100]
+        else:
+            xs = [vmin - pad, vmax + pad]
+            ys = [((x - vmin) / span) * 200 - 100 for x in xs]
+        fig = _preview_base_figure()
+        fig.add_scatter(x=xs, y=ys, mode="lines",
+                        line=dict(color=COLOR_RANGE, width=2),
+                        hovertemplate="valor %{x:.4g} → score %{y:.0f}<extra></extra>")
+        fig.add_scatter(x=[vmin, vmax], y=[-100, 100], mode="markers",
+                        marker=dict(color=COLOR_RANGE, size=8),
+                        hovertemplate="valor %{x:.4g} → score %{y:.0f}<extra></extra>")
+        _score_axis(fig)
+        fig.update_xaxes(title_text="valor del indicador", title_font=dict(size=10))
+        return fig
+
+    if ftype == "threshold":
+        sec = store.get("thresholds", {})
+        rows = [sec["rows"][str(u)] for u in sec.get("uids", [])
+                if str(u) in sec.get("rows", {})]
+        pairs = sorted(
+            [(r["limit"], r["score"]) for r in rows
+             if r.get("limit") is not None and r.get("score") is not None],
+            key=lambda p: p[0], reverse=True)
+        default = sec.get("default")
+        if not pairs:
+            return _preview_note("Agregá al menos un umbral (límite y score).")
+        limits = [l for l, _ in pairs]
+        span = (limits[0] - limits[-1]) or abs(limits[0]) or 1.0
+        pad = abs(span) * 0.3
+        # Tramos: x > l1 → s1; l2 < x ≤ l1 → s2; ...; x ≤ ln → default
+        xs, ys = [], []
+        edges = [limits[0] + pad] + limits + [limits[-1] - pad]
+        scores = [s for _, s in pairs] + [default]
+        for i, s in enumerate(scores):
+            if s is None:
+                continue  # sin default: hueco (la señal no puntúa ahí)
+            xs += [edges[i], edges[i + 1], None]
+            ys += [s, s, None]
+        fig = _preview_base_figure()
+        fig.add_scatter(x=xs, y=ys, mode="lines",
+                        line=dict(color=COLOR_POSITIVE, width=2),
+                        hovertemplate="score %{y:.0f}<extra></extra>")
+        for l in limits:
+            fig.add_vline(x=l, line=dict(color="#4b5563", width=1, dash="dot"))
+        _score_axis(fig)
+        fig.update_xaxes(title_text="valor del indicador", title_font=dict(size=10))
+        return fig
+
+    if ftype == "discrete_map":
+        sec = store.get("map", {})
+        rows = [sec["rows"][str(u)] for u in sec.get("uids", [])
+                if str(u) in sec.get("rows", {})]
+        rows = [r for r in rows if r.get("cat") and r.get("score") is not None]
+        if not rows:
+            return _preview_note("Asigná score a alguna categoría para ver "
+                                 "las barras.")
+        cats = [r["cat"] for r in rows]
+        scores = [r["score"] for r in rows]
+        colors = [COLOR_POSITIVE if s > 0 else COLOR_NEGATIVE if s < 0
+                  else COLOR_NEUTRAL for s in scores]
+        fig = _preview_base_figure()
+        fig.add_bar(x=cats, y=scores, marker=dict(color=colors),
+                    hovertemplate="%{x} → score %{y:.0f}<extra></extra>")
+        # Score 0 = barra de altura cero: un punto para que la categoría no
+        # parezca sin asignar
+        zeros = [(c, s) for c, s in zip(cats, scores) if s == 0]
+        if zeros:
+            fig.add_scatter(x=[c for c, _ in zeros], y=[0] * len(zeros),
+                            mode="markers",
+                            marker=dict(color=COLOR_NEUTRAL, size=8),
+                            hovertemplate="%{x} → score 0<extra></extra>")
+        _score_axis(fig)
+        fig.update_xaxes(tickfont=dict(size=9), tickangle=-30)
+        return fig
+
+    if ftype == "composite":
+        sec = store.get("components", {})
+        rows = [sec["rows"][str(u)] for u in sec.get("uids", [])
+                if str(u) in sec.get("rows", {})]
+        rows = [r for r in rows if r.get("signal_key")]
+        total = sum((r.get("weight") if r.get("weight") is not None else 1.0)
+                    for r in rows)
+        if not rows or not total:
+            return _preview_note("Agregá señales componentes para ver el "
+                                 "peso relativo de cada una.")
+        keys = [r["signal_key"] for r in rows]
+        shares = [
+            (r.get("weight") if r.get("weight") is not None else 1.0) / total * 100
+            for r in rows
+        ]
+        fig = _preview_base_figure("Peso relativo en el promedio (%)")
+        fig.add_bar(y=keys, x=shares, orientation="h",
+                    marker=dict(color=COLOR_PURPLE),
+                    hovertemplate="%{y}: %{x:.1f}%<extra></extra>")
+        fig.update_xaxes(range=[0, max(shares) * 1.15], ticksuffix="%")
+        fig.update_yaxes(tickfont=dict(size=9), autorange="reversed")
+        return fig
+
+    return _preview_note("Elegí el tipo de fórmula para ver la vista previa.")
+
+
+# Mismos controles que PB_FIELD_STATES pero con value como Input: el gráfico
+# se actualiza en vivo mientras se tipea, sin esperar un cambio estructural.
+PB_FIELD_INPUTS = [
+    Input({"type": "sigpb-map-cat",     "index": ALL}, "value"),
+    State({"type": "sigpb-map-cat",     "index": ALL}, "id"),
+    Input({"type": "sigpb-map-score",   "index": ALL}, "value"),
+    State({"type": "sigpb-map-score",   "index": ALL}, "id"),
+    Input({"type": "sigpb-th-limit",    "index": ALL}, "value"),
+    State({"type": "sigpb-th-limit",    "index": ALL}, "id"),
+    Input({"type": "sigpb-th-score",    "index": ALL}, "value"),
+    State({"type": "sigpb-th-score",    "index": ALL}, "id"),
+    Input({"type": "sigpb-th-default",  "index": ALL}, "value"),
+    State({"type": "sigpb-th-default",  "index": ALL}, "id"),
+    Input({"type": "sigpb-range-min",   "index": ALL}, "value"),
+    State({"type": "sigpb-range-min",   "index": ALL}, "id"),
+    Input({"type": "sigpb-range-max",   "index": ALL}, "value"),
+    State({"type": "sigpb-range-max",   "index": ALL}, "id"),
+    Input({"type": "sigpb-range-clamp", "index": ALL}, "value"),
+    State({"type": "sigpb-range-clamp", "index": ALL}, "id"),
+    Input({"type": "sigpb-comp-signal", "index": ALL}, "value"),
+    State({"type": "sigpb-comp-signal", "index": ALL}, "id"),
+    Input({"type": "sigpb-comp-weight", "index": ALL}, "value"),
+    State({"type": "sigpb-comp-weight", "index": ALL}, "id"),
+]
+
+
+@callback(
+    Output("sig-preview-graph", "figure"),
+    Input("sig-f-formula-type",  "value"),
+    Input("sig-params-advanced", "value"),
+    Input("sig-pb-store",        "data"),
+    *PB_FIELD_INPUTS,
+    State("sig-pb-store", "data"),
+)
+def update_preview(ftype, advanced, _store_trigger, *rest):
+    field_args, (store,) = rest[:-1], rest[-1:]
+    if advanced:
+        return _preview_note("Vista previa no disponible en modo avanzado.")
+    if not ftype:
+        return _preview_note("Elegí el tipo de fórmula para ver la vista previa.")
+    # Los controles en pantalla son la fuente en vivo; el store aporta la
+    # estructura (uids). Tras un cambio estructural el render recrea los
+    # controles y este callback vuelve a disparar con los valores frescos.
+    store = pb_capture_from_args(store, field_args)
+    return preview_figure(ftype, store)
+
+
 # ── Modo avanzado: sincronizar builder → textarea al activarlo ───────────────
 
 @callback(

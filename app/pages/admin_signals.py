@@ -112,17 +112,28 @@ def layout(**kwargs):
                          style={"fontSize": "0.82rem", "resize": "vertical"}),
 
             dbc.Label("Parámetros", style={"fontSize": "0.82rem", "marginTop": "8px"}),
-            html.Div(id="sig-params-builder", className="mb-1"),
-            dbc.Switch(id="sig-params-advanced",
-                       label="Modo avanzado (editar JSON)", value=False,
-                       style={"fontSize": "0.78rem"}, className="mt-1"),
-            html.Div(
-                dbc.Textarea(id="sig-f-params", rows=6,
-                             placeholder='{"map": {...}}',
-                             style={"fontSize": "0.80rem", "fontFamily": "monospace",
-                                    "resize": "vertical"}),
-                id="sig-params-json-wrap", style={"display": "none"},
-            ),
+            dbc.Row([
+                dbc.Col([
+                    html.Div(id="sig-params-builder", className="mb-1"),
+                    dbc.Switch(id="sig-params-advanced",
+                               label="Modo avanzado (editar JSON)", value=False,
+                               style={"fontSize": "0.78rem"}, className="mt-1"),
+                    html.Div(
+                        dbc.Textarea(id="sig-f-params", rows=6,
+                                     placeholder='{"map": {...}}',
+                                     style={"fontSize": "0.80rem",
+                                            "fontFamily": "monospace",
+                                            "resize": "vertical"}),
+                        id="sig-params-json-wrap", style={"display": "none"},
+                    ),
+                ], md=7),
+                dbc.Col([
+                    html.Small("Vista previa", className="text-muted d-block mb-1"),
+                    dcc.Graph(id="sig-preview-graph",
+                              config={"displayModeBar": False},
+                              style={"height": "240px"}),
+                ], md=5),
+            ], className="g-3"),
 
             dbc.Alert(id="sig-modal-error", is_open=False, color="danger",
                       className="mt-2 mb-0 small py-1"),
@@ -131,7 +142,7 @@ def layout(**kwargs):
             dbc.Button("Guardar",  id="sig-btn-save",   color="primary"),
             dbc.Button("Cancelar", id="sig-btn-cancel", color="secondary", className="ms-2"),
         ]),
-    ], id="sig-modal", is_open=False, size="lg")
+    ], id="sig-modal", is_open=False, size="xl")
 
     return html.Div([
         dcc.Store(id="sig-editing-id",   data=None),
