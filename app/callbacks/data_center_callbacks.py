@@ -284,14 +284,37 @@ def _run(op_id, service_fn):
 
 # ── Callbacks por operación ───────────────────────────────────────────────────
 
-def _days_partial(fn, days):
-    """Fija el horizonte en días para las ops que lo aceptan (_HAS_DAYS)."""
+def _days_partial(fn, days, scope=None):
+    """Fija horizonte en días y alcance para las ops que lo aceptan
+    (_HAS_DAYS): scope None = todo, "strategy:<id>" o "signal:<key>"."""
     import functools
     try:
         days = max(1, int(days))
     except (TypeError, ValueError):
         days = 365
-    return functools.partial(fn, days=days)
+    return functools.partial(fn, days=days, scope=scope or None)
+
+
+@callback(
+    Output("dc-scope-signals", "options"),
+    Input("dc-status-interval", "n_intervals"),
+)
+def load_signal_scope_opts(_):
+    """Opciones del alcance del backfill de señales: estrategias y señales."""
+    try:
+        from app.models import SignalDefinition, Strategy
+        s = get_session()
+        strategies = s.query(Strategy.id, Strategy.name).order_by(Strategy.name).all()
+        signals = s.query(SignalDefinition.key, SignalDefinition.name).order_by(
+            SignalDefinition.key).all()
+        return (
+            [{"label": f"[Estrategia] {name}", "value": f"strategy:{sid}"}
+             for sid, name in strategies]
+            + [{"label": f"[Señal] {key} — {name}", "value": f"signal:{key}"}
+               for key, name in signals]
+        )
+    except Exception:
+        return []
 
 
 def _register(op_id):
@@ -302,7 +325,8 @@ def _register(op_id):
     if has_new_only:
         extra_states.append(State(f"dc-new-only-{op_id}", "value"))
     if has_days:
-        extra_states.append(State(f"dc-days-{op_id}", "value"))
+        extra_states.append(State(f"dc-days-{op_id}",  "value"))
+        extra_states.append(State(f"dc-scope-{op_id}", "value"))
 
     _BAR_RUNNING = {"height": "5px", "display": "flex"}
 
@@ -341,7 +365,8 @@ def _register(op_id):
             from app.services.technical_service import update_indicator_history as fn
         elif op_id == "signals":
             from app.services.signal_service import update_signal_history
-            fn = _days_partial(update_signal_history, args[0] if args else None)
+            days, scope = (args + (None, None))[:2]
+            fn = _days_partial(update_signal_history, days, scope)
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 
@@ -366,7 +391,8 @@ def _register(op_id):
 
         redownload_states = []
         if has_days:
-            redownload_states.append(State(f"dc-days-{op_id}", "value"))
+            redownload_states.append(State(f"dc-days-{op_id}",  "value"))
+            redownload_states.append(State(f"dc-scope-{op_id}", "value"))
 
         @callback(
             Output(f"dc-redownload-modal-{op_id}", "is_open",  allow_duplicate=True),
@@ -396,7 +422,8 @@ def _register(op_id):
                 from app.services.technical_service import rebuild_indicator_history as fn
             elif op_id == "signals":
                 from app.services.signal_service import rebuild_signal_history
-                fn = _days_partial(rebuild_signal_history, args[0] if args else None)
+                days, scope = (args + (None, None))[:2]
+                fn = _days_partial(rebuild_signal_history, days, scope)
             else:
                 import functools
                 from app.services.synthetic_service import compute_all_synthetic

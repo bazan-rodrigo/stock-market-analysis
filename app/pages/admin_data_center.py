@@ -49,13 +49,29 @@ def _op_section(op_id, description, *, has_new_only=False,
                             style={"fontSize": "0.74rem", "color": "#9ca3af", "marginBottom": "8px"})]
     if has_days:
         extra.append(html.Div([
-            html.Span("Horizonte (días de historia): ",
-                      style={"fontSize": "0.74rem", "color": "#9ca3af"}),
-            dbc.Input(id=f"dc-days-{op_id}", type="number", value=365,
-                      min=1, step=1, size="sm",
-                      style={"width": "90px", "display": "inline-block",
-                             "fontSize": "0.76rem", "marginLeft": "6px"}),
-        ], className="mb-2 d-flex align-items-center"))
+            dbc.Row([
+                dbc.Col([
+                    html.Span("Horizonte (días): ",
+                              style={"fontSize": "0.74rem", "color": "#9ca3af"}),
+                    dbc.Input(id=f"dc-days-{op_id}", type="number", value=365,
+                              min=1, step=1, size="sm",
+                              style={"width": "80px", "display": "inline-block",
+                                     "fontSize": "0.76rem", "marginLeft": "6px"}),
+                ], width="auto", className="d-flex align-items-center"),
+                dbc.Col([
+                    dcc.Dropdown(
+                        id=f"dc-scope-{op_id}",
+                        placeholder="Todo (señales y estrategias)",
+                        clearable=True,
+                        style={"fontSize": "0.76rem", "minWidth": "260px"},
+                    ),
+                ], className="d-flex align-items-center"),
+            ], className="g-2 mb-1 align-items-center"),
+            html.Small("El horizonte y el alcance aplican a los dos botones "
+                       "(Ejecutar y Recalcular completo).",
+                       className="text-muted d-block mb-2",
+                       style={"fontSize": "0.7rem"}),
+        ]))
 
     redownload_modal = []
     if has_redownload:

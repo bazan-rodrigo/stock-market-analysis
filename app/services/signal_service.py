@@ -103,14 +103,21 @@ def _build_composite_scores(
     return asset_scores
 
 
-def compute_signal_values(target_date: date_type) -> int:
+def compute_signal_values(target_date: date_type,
+                          only_signal_ids: set[int] | None = None) -> int:
     """
     Calcula signal_value para todos los activos para target_date.
     Lee valores desde cada tabla ind_{code} por separado.
+
+    only_signal_ids acota el cálculo a un subconjunto (alcance por señal o
+    estrategia del backfill) — el llamador es responsable de que incluya las
+    dependencias de las composites (ver _scope_signal_ids).
     """
     s = get_session()
 
     signals = s.query(SignalDefinition).all()
+    if only_signal_ids is not None:
+        signals = [sg for sg in signals if sg.id in only_signal_ids]
     if not signals:
         return 0
 
@@ -280,12 +287,15 @@ def compute_signal_values(target_date: date_type) -> int:
     return written
 
 
-def compute_group_signal_values(target_date: date_type) -> int:
+def compute_group_signal_values(target_date: date_type,
+                                only_signal_ids: set[int] | None = None) -> int:
     s = get_session()
 
     group_signals = (
         s.query(SignalDefinition).filter(SignalDefinition.source == "group").all()
     )
+    if only_signal_ids is not None:
+        group_signals = [sg for sg in group_signals if sg.id in only_signal_ids]
     if not group_signals:
         return 0
 
@@ -579,14 +589,83 @@ def _dates_to_compute(trading_dates: list, computed_dates: set,
     return [d for d in trading_dates if d not in computed_dates or d == last]
 
 
+def _closure_composites(seed_ids: set[int], signals: list) -> set[int]:
+    """Cierra el subconjunto sumando las señales referenciadas por las
+    composites incluidas, recursivo."""
+    import json as _json
+    by_key = {sg.key: sg for sg in signals}
+    by_id  = {sg.id: sg for sg in signals}
+    closed, frontier = set(seed_ids), list(seed_ids)
+    while frontier:
+        sig = by_id.get(frontier.pop())
+        if sig is None or sig.formula_type != "composite":
+            continue
+        try:
+            refs = {c.get("signal_key")
+                    for c in _json.loads(sig.params).get("components", [])}
+        except (TypeError, ValueError):
+            refs = set()
+        for k in refs:
+            ref = by_key.get(k)
+            if ref is not None and ref.id not in closed:
+                closed.add(ref.id)
+                frontier.append(ref.id)
+    return closed
+
+
+def _scope_signal_ids(s, scope: str | None):
+    """Resuelve el alcance del backfill.
+
+    scope: None (todo) | "strategy:<id>" | "signal:<key>".
+    Devuelve (only_signal_ids | None, strategy_id | None, scope_kind).
+    Para una estrategia incluye: señales de sus componentes + señales usadas
+    como operando en su filtro de elegibilidad + composites referenciadas
+    (recursivo)."""
+    if not scope:
+        return None, None, None
+    kind, _, val = scope.partition(":")
+    signals = s.query(SignalDefinition).all()
+    by_key = {sg.key: sg for sg in signals}
+
+    if kind == "strategy":
+        from app.models import Strategy
+        from app.services import strategy_filter
+        strategy_id = int(val)
+        strat = s.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if strat is None:
+            raise ValueError(f"Estrategia id={strategy_id} no encontrada.")
+        seed = {c.signal_id for c in strat.components}
+        tree = strategy_filter.parse_tree(strat.filter_conditions)
+        if tree is not None:
+            for t, key, _res in strategy_filter.collect_operands(tree):
+                if t == "signal" and key in by_key:
+                    seed.add(by_key[key].id)
+        return _closure_composites(seed, signals), strategy_id, "strategy"
+
+    if kind == "signal":
+        sig = by_key.get(val)
+        if sig is None:
+            raise ValueError(f"Señal '{val}' no encontrada.")
+        return _closure_composites({sig.id}, signals), None, "signal"
+
+    raise ValueError(f"Alcance desconocido: {scope!r}")
+
+
 def _signal_history_run(progress_cb=None, days: int = 365,
-                        force: bool = False) -> dict:
+                        force: bool = False, scope: str | None = None) -> dict:
     """Corre el pipeline (scores de grupo → señales → estrategias) para cada
     fecha con precios dentro del horizonte. Delta (force=False): solo fechas
-    sin señales calculadas + la última. Rebuild (force=True): todas."""
+    sin cálculo previo + la última. Rebuild (force=True): todas.
+
+    scope acota a una estrategia (señales necesarias + sus resultados) o a
+    una señal suelta (sin tocar resultados de estrategias)."""
     from datetime import timedelta
 
+    from app.services import group_score_service, strategy_service
+
     s = get_session()
+    only_ids, strategy_id, scope_kind = _scope_signal_ids(s, scope)
+
     last = s.query(sa.func.max(Price.date)).scalar()
     if last is None:
         return {"total": 0, "success": 0, "errors": []}
@@ -596,10 +675,31 @@ def _signal_history_run(progress_cb=None, days: int = 365,
         d for (d,) in s.query(Price.date).distinct()
         .filter(Price.date >= horizon).all()
     })
-    computed = {
-        d for (d,) in s.query(SignalValue.date).distinct()
-        .filter(SignalValue.date >= horizon).all()
-    }
+
+    # "Ya calculado" según el alcance: los resultados de ESA estrategia, los
+    # scores de ESA señal, o cualquier señal del día (alcance total)
+    if scope_kind == "strategy":
+        from app.models import StrategyResult
+        computed = {
+            d for (d,) in s.query(StrategyResult.date).distinct().filter(
+                StrategyResult.strategy_id == strategy_id,
+                StrategyResult.date >= horizon)
+        }
+    elif scope_kind == "signal":
+        # La señal pedida (no sus dependencias) define el "ya calculado"
+        target_sig = s.query(SignalDefinition).filter(
+            SignalDefinition.key == scope.partition(":")[2]).first()
+        table = GroupSignalValue if target_sig.source == "group" else SignalValue
+        computed = {
+            d for (d,) in s.query(table.date).distinct().filter(
+                table.signal_id == target_sig.id, table.date >= horizon)
+        }
+    else:
+        computed = {
+            d for (d,) in s.query(SignalValue.date).distinct()
+            .filter(SignalValue.date >= horizon)
+        }
+
     dates = _dates_to_compute(trading_dates, computed, force)
 
     total, ok, errors = len(dates), 0, []
@@ -607,7 +707,14 @@ def _signal_history_run(progress_cb=None, days: int = 365,
         if progress_cb:
             progress_cb(i, total, str(d))
         try:
-            run_recalculate(d)
+            group_score_service.run_daily(d)
+            compute_signal_values(d, only_signal_ids=only_ids)
+            compute_group_signal_values(d, only_signal_ids=only_ids)
+            if scope_kind == "strategy":
+                strategy_service.compute_strategy_results(strategy_id, d)
+            elif scope_kind is None:
+                strategy_service.compute_all_strategies(d)
+            # scope señal: no toca resultados de estrategias
             ok += 1
         except Exception as exc:
             logger.exception("signal_service: backfill falló para %s", d)
@@ -615,18 +722,19 @@ def _signal_history_run(progress_cb=None, days: int = 365,
     return {"total": total, "success": ok, "errors": errors}
 
 
-def update_signal_history(progress_cb=None, days: int = 365) -> dict:
-    """Delta: llena huecos (fechas con precios pero sin señales) dentro del
+def update_signal_history(progress_cb=None, days: int = 365,
+                          scope: str | None = None) -> dict:
+    """Delta: llena huecos (fechas con precios pero sin cálculo) dentro del
     horizonte y recalcula la última fecha. Cubre el día a día manual con el
     scheduler apagado y el catch-up tras días sin correr."""
-    return _signal_history_run(progress_cb, days=days, force=False)
+    return _signal_history_run(progress_cb, days=days, force=False, scope=scope)
 
 
-def rebuild_signal_history(progress_cb=None, days: int = 365) -> dict:
-    """Rebuild: recalcula señales y estrategias para TODAS las fechas con
-    precios del horizonte (reescribe lo existente — para cambios de
-    definición de señales o fixes de cálculo)."""
-    return _signal_history_run(progress_cb, days=days, force=True)
+def rebuild_signal_history(progress_cb=None, days: int = 365,
+                           scope: str | None = None) -> dict:
+    """Rebuild: recalcula TODAS las fechas con precios del horizonte
+    (reescribe lo existente — para cambios de definición o fixes)."""
+    return _signal_history_run(progress_cb, days=days, force=True, scope=scope)
 
 
 def run_recalculate(target_date: date_type | None = None) -> dict:

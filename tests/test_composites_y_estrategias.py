@@ -140,3 +140,23 @@ def test_dates_to_compute_vacio():
     from app.services.signal_service import _dates_to_compute
     assert _dates_to_compute([], set(), force=False) == []
     assert _dates_to_compute([], set(), force=True) == []
+
+def test_closure_composites_recursivo():
+    import json
+    from types import SimpleNamespace
+    from app.services.signal_service import _closure_composites
+    def _sig2(id_, key, ftype="threshold", comps=None):
+        return SimpleNamespace(id=id_, key=key, formula_type=ftype,
+                               params=json.dumps({"components": comps or []}))
+    signals = [
+        _sig2(1, "a"),
+        _sig2(2, "b"),
+        _sig2(3, "AB", "composite", [{"signal_key": "a"}, {"signal_key": "b"}]),
+        _sig2(4, "ABC", "composite", [{"signal_key": "AB"}, {"signal_key": "c"}]),
+        _sig2(5, "c"),
+        _sig2(6, "suelta"),
+    ]
+    # partir de la composite anidada arrastra toda la cadena, no lo suelto
+    assert _closure_composites({4}, signals) == {1, 2, 3, 4, 5}
+    # una hoja no arrastra nada
+    assert _closure_composites({1}, signals) == {1}
