@@ -10,10 +10,11 @@ from app.models import (
     SyntheticFormula,
 )
 
-_OPS          = ("prices", "fund", "snap", "indicators", "synth")
+_OPS          = ("prices", "fund", "snap", "indicators", "synth", "signals")
 _HAS_NEW_ONLY = {"prices", "fund"}
-_HAS_REDOWNLOAD = {"prices", "fund", "synth", "snap", "indicators"}
+_HAS_REDOWNLOAD = {"prices", "fund", "synth", "snap", "indicators", "signals"}
 _HAS_RECONCILE  = {"indicators"}
+_HAS_DAYS       = {"signals"}  # horizonte en días (input dc-days-{op})
 
 
 def _blank():
@@ -146,12 +147,26 @@ def _status_synth():
         return "—"
 
 
+def _status_signals():
+    import sqlalchemy as sa
+    try:
+        s = get_session()
+        n_dates, last = s.execute(sa.text(
+            "SELECT COUNT(DISTINCT date), MAX(date) FROM signal_value"
+        )).fetchone()
+        last_s = str(last) if last else "—"
+        return f"Fechas con señales: {n_dates or 0}   Última: {last_s}"
+    except Exception:
+        return "—"
+
+
 _STATUS_FN = {
     "prices":       _status_prices,
     "fund":         _status_fund,
     "snap":         _status_ratios,
     "indicators":   _status_indicators,
     "synth":        _status_synth,
+    "signals":      _status_signals,
 }
 
 
@@ -161,6 +176,7 @@ _STATUS_FN = {
     Output("dc-status-snap",          "children"),
     Output("dc-status-indicators",    "children"),
     Output("dc-status-synth",         "children"),
+    Output("dc-status-signals",       "children"),
     Input("dc-status-interval",       "n_intervals"),
     # Refrescar también cuando una operación arranca (baseline) o termina
     # (números finales). _poll solo escribe 'disabled' en la transición.
@@ -176,7 +192,8 @@ def refresh_status(*_):
         # inútiles (el número cambia por miles) y compiten por I/O con las
         # escrituras masivas. El conteo real llega al terminar la operación.
         light = "actualizando…"
-        return (_status_prices(), _status_fund(), light, light, _status_synth())
+        return (_status_prices(), _status_fund(), light, light,
+                _status_synth(), light)
     return tuple(fn() for fn in _STATUS_FN.values())
 
 
@@ -267,12 +284,25 @@ def _run(op_id, service_fn):
 
 # ── Callbacks por operación ───────────────────────────────────────────────────
 
+def _days_partial(fn, days):
+    """Fija el horizonte en días para las ops que lo aceptan (_HAS_DAYS)."""
+    import functools
+    try:
+        days = max(1, int(days))
+    except (TypeError, ValueError):
+        days = 365
+    return functools.partial(fn, days=days)
+
+
 def _register(op_id):
     has_new_only = op_id in _HAS_NEW_ONLY
+    has_days     = op_id in _HAS_DAYS
 
     extra_states = []
     if has_new_only:
         extra_states.append(State(f"dc-new-only-{op_id}", "value"))
+    if has_days:
+        extra_states.append(State(f"dc-days-{op_id}", "value"))
 
     _BAR_RUNNING = {"height": "5px", "display": "flex"}
 
@@ -309,6 +339,9 @@ def _register(op_id):
             from app.services.fundamental_service import update_ratio_history as fn
         elif op_id == "indicators":
             from app.services.technical_service import update_indicator_history as fn
+        elif op_id == "signals":
+            from app.services.signal_service import update_signal_history
+            fn = _days_partial(update_signal_history, args[0] if args else None)
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 
@@ -331,6 +364,10 @@ def _register(op_id):
             from dash import ctx
             return ctx.triggered_id == f"dc-btn-redownload-{op_id}"
 
+        redownload_states = []
+        if has_days:
+            redownload_states.append(State(f"dc-days-{op_id}", "value"))
+
         @callback(
             Output(f"dc-redownload-modal-{op_id}", "is_open",  allow_duplicate=True),
             Output(f"dc-interval-{op_id}",          "disabled", allow_duplicate=True),
@@ -339,9 +376,10 @@ def _register(op_id):
             Output(f"dc-progress-{op_id}",          "value",    allow_duplicate=True),
             Output(f"dc-progress-{op_id}",          "style",    allow_duplicate=True),
             Input(f"dc-btn-redownload-{op_id}-confirm", "n_clicks"),
+            *redownload_states,
             prevent_initial_call=True,
         )
-        def _start_redownload(n):
+        def _start_redownload(n, *args):
             if not n:
                 return no_update, no_update, no_update, no_update, no_update, no_update
 
@@ -356,6 +394,9 @@ def _register(op_id):
                 from app.services.fundamental_service import rebuild_ratio_history as fn
             elif op_id == "indicators":
                 from app.services.technical_service import rebuild_indicator_history as fn
+            elif op_id == "signals":
+                from app.services.signal_service import rebuild_signal_history
+                fn = _days_partial(rebuild_signal_history, args[0] if args else None)
             else:
                 import functools
                 from app.services.synthetic_service import compute_all_synthetic

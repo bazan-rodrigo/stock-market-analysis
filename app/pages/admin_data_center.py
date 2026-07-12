@@ -21,7 +21,7 @@ def _op_section(op_id, description, *, has_new_only=False,
                     "¿Confirmás?"
                 ),
                 has_reconcile=False, reconcile_label="Recalcular caché",
-                log_href=None):
+                has_days=False, log_href=None):
     buttons = [
         dbc.Button("Ejecutar", id=f"dc-btn-{op_id}",
                    size="sm", color="primary", outline=True, className="me-2"),
@@ -47,6 +47,15 @@ def _op_section(op_id, description, *, has_new_only=False,
         extra = [dbc.Switch(id=f"dc-new-only-{op_id}", label="Solo activos nuevos",
                             value=False,
                             style={"fontSize": "0.74rem", "color": "#9ca3af", "marginBottom": "8px"})]
+    if has_days:
+        extra.append(html.Div([
+            html.Span("Horizonte (días de historia): ",
+                      style={"fontSize": "0.74rem", "color": "#9ca3af"}),
+            dbc.Input(id=f"dc-days-{op_id}", type="number", value=365,
+                      min=1, step=1, size="sm",
+                      style={"width": "90px", "display": "inline-block",
+                             "fontSize": "0.76rem", "marginLeft": "6px"}),
+        ], className="mb-2 d-flex align-items-center"))
 
     redownload_modal = []
     if has_redownload:
@@ -78,7 +87,8 @@ def _op_section(op_id, description, *, has_new_only=False,
 def _solo_card(op_id, title, description, *, has_new_only=False,
                has_redownload=False, redownload_label="Redescargar completo",
                redownload_body=None, has_reconcile=False,
-               reconcile_label="Recalcular caché", log_href=None):
+               reconcile_label="Recalcular caché", has_days=False,
+               log_href=None):
     kwargs = dict(redownload_label=redownload_label)
     if redownload_body is not None:
         kwargs["redownload_body"] = redownload_body
@@ -90,7 +100,7 @@ def _solo_card(op_id, title, description, *, has_new_only=False,
                             has_new_only=has_new_only,
                             has_redownload=has_redownload,
                             has_reconcile=has_reconcile, reconcile_label=reconcile_label,
-                            log_href=log_href, **kwargs),
+                            has_days=has_days, log_href=log_href, **kwargs),
                 style=_BODY,
             ),
         ], style=_CARD),
@@ -160,7 +170,7 @@ def layout(**kwargs):
             ),
         ]),
 
-        # Fila 3 — Sintéticos
+        # Fila 3 — Sintéticos + Señales/Estrategias
         dbc.Row([
             _solo_card(
                 "synth", "Recalcular Sintéticos",
@@ -173,6 +183,23 @@ def layout(**kwargs):
                     "y la recalculará completa a partir de sus componentes. "
                     "El proceso puede demorar varios minutos. ¿Confirmás?"
                 ),
+            ),
+            _solo_card(
+                "signals", "Señales y Estrategias",
+                "Corre el pipeline (scores de grupo → señales → estrategias) por fecha, "
+                "dentro del horizonte elegido. 'Ejecutar' calcula solo las fechas con precios "
+                "que no tienen señales (llena huecos si el scheduler estuvo apagado) y "
+                "recalcula siempre la última. 'Recalcular completo' reescribe todas las "
+                "fechas del horizonte — usar tras cambiar la definición de una señal o "
+                "estrategia. Requiere indicadores ya calculados; las señales sobre "
+                "indicadores sin historia solo puntúan en la fecha vigente.",
+                has_redownload=True, redownload_label="Recalcular completo",
+                redownload_body=(
+                    "Esta acción recalculará señales y resultados de estrategias para "
+                    "TODAS las fechas con precios del horizonte elegido, reescribiendo "
+                    "lo ya calculado. El proceso puede demorar varios minutos. ¿Confirmás?"
+                ),
+                has_days=True,
             ),
         ]),
 

@@ -563,6 +563,72 @@ def import_signals_excel(file_bytes: bytes) -> list[dict]:
     return results
 
 
+# ── Backfill histórico (Centro de Datos) ──────────────────────────────────────
+
+def _dates_to_compute(trading_dates: list, computed_dates: set,
+                      force: bool) -> list:
+    """Qué fechas correr. force=False (delta): las que no tienen ningún
+    signal_value, más SIEMPRE la última (sus precios/indicadores son
+    preliminares — mismo criterio que el delta de indicadores). force=True:
+    todas."""
+    if force:
+        return list(trading_dates)
+    if not trading_dates:
+        return []
+    last = trading_dates[-1]
+    return [d for d in trading_dates if d not in computed_dates or d == last]
+
+
+def _signal_history_run(progress_cb=None, days: int = 365,
+                        force: bool = False) -> dict:
+    """Corre el pipeline (scores de grupo → señales → estrategias) para cada
+    fecha con precios dentro del horizonte. Delta (force=False): solo fechas
+    sin señales calculadas + la última. Rebuild (force=True): todas."""
+    from datetime import timedelta
+
+    s = get_session()
+    last = s.query(sa.func.max(Price.date)).scalar()
+    if last is None:
+        return {"total": 0, "success": 0, "errors": []}
+    horizon = last - timedelta(days=int(days or 365))
+
+    trading_dates = sorted({
+        d for (d,) in s.query(Price.date).distinct()
+        .filter(Price.date >= horizon).all()
+    })
+    computed = {
+        d for (d,) in s.query(SignalValue.date).distinct()
+        .filter(SignalValue.date >= horizon).all()
+    }
+    dates = _dates_to_compute(trading_dates, computed, force)
+
+    total, ok, errors = len(dates), 0, []
+    for i, d in enumerate(dates, start=1):
+        if progress_cb:
+            progress_cb(i, total, str(d))
+        try:
+            run_recalculate(d)
+            ok += 1
+        except Exception as exc:
+            logger.exception("signal_service: backfill falló para %s", d)
+            errors.append({"date": str(d), "error": f"{d}: {exc}"})
+    return {"total": total, "success": ok, "errors": errors}
+
+
+def update_signal_history(progress_cb=None, days: int = 365) -> dict:
+    """Delta: llena huecos (fechas con precios pero sin señales) dentro del
+    horizonte y recalcula la última fecha. Cubre el día a día manual con el
+    scheduler apagado y el catch-up tras días sin correr."""
+    return _signal_history_run(progress_cb, days=days, force=False)
+
+
+def rebuild_signal_history(progress_cb=None, days: int = 365) -> dict:
+    """Rebuild: recalcula señales y estrategias para TODAS las fechas con
+    precios del horizonte (reescribe lo existente — para cambios de
+    definición de señales o fixes de cálculo)."""
+    return _signal_history_run(progress_cb, days=days, force=True)
+
+
 def run_recalculate(target_date: date_type | None = None) -> dict:
     from app.services import group_score_service, strategy_service
 

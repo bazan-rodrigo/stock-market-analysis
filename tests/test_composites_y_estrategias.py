@@ -116,3 +116,27 @@ def test_score_activo_sin_grupo_saltea_el_componente():
         signal_scores={(2, 7): 60.0}, group_scores={(1, "sector", 3): 999.0},
     )
     assert score == 60.0
+
+
+# ── Backfill de señales: qué fechas correr ────────────────────────────────────
+
+def test_dates_to_compute_delta_llena_huecos_y_siempre_la_ultima():
+    from datetime import date
+    from app.services.signal_service import _dates_to_compute
+    d1, d2, d3, d4 = (date(2026, 7, 6), date(2026, 7, 7),
+                      date(2026, 7, 8), date(2026, 7, 9))
+    trading = [d1, d2, d3, d4]
+    # d1 y d3 ya calculadas; d4 (ultima) se recalcula igual por preliminar
+    out = _dates_to_compute(trading, {d1, d3, d4}, force=False)
+    assert out == [d2, d4]
+
+def test_dates_to_compute_force_todas():
+    from datetime import date
+    from app.services.signal_service import _dates_to_compute
+    trading = [date(2026, 7, 6), date(2026, 7, 7)]
+    assert _dates_to_compute(trading, set(trading), force=True) == trading
+
+def test_dates_to_compute_vacio():
+    from app.services.signal_service import _dates_to_compute
+    assert _dates_to_compute([], set(), force=False) == []
+    assert _dates_to_compute([], set(), force=True) == []
