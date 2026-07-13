@@ -75,4 +75,7 @@ def layout(**kwargs):
     ])
 
 
-dash.register_page(__name__, path="/assets/import", title="Importar activos", layout=layout)
+# OJO: no registrar páginas bajo /assets/... — esa ruta la reserva Dash para
+# los archivos estáticos (assets/), y una carga directa de la URL (o un F5)
+# devuelve 404 del server aunque la navegación client-side funcione
+dash.register_page(__name__, path="/assets-import", title="Importar activos", layout=layout)

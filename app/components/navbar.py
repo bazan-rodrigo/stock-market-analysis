@@ -29,7 +29,7 @@ def build_navbar() -> dbc.Navbar:
                 label="Activos",
                 children=[
                     dbc.DropdownMenuItem("Gestión de activos", href="/assets"),
-                    dbc.DropdownMenuItem("Importar activos",   href="/assets/import"),
+                    dbc.DropdownMenuItem("Importar activos",   href="/assets-import"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Activos sintéticos", href="/admin/synthetic"),
                     dbc.DropdownMenuItem("Activos en Divisa",  href="/admin/ars-conversion"),
