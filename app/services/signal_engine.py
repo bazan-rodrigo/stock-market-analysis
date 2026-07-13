@@ -8,8 +8,9 @@ Tipos de fórmula soportados:
                   Evaluación: primer límite donde valor > limit → score; null = default
   range         — {"min": x, "max": y, "clamp": true/false}
                   Mapea valor numérico a -100..100 de forma lineal
-  composite     — {"components": [{"signal_key": "k", "weight": w}, ...]}
-                  Promedio ponderado de scores de otras señales (resuelto externamente)
+
+(La fórmula "composite" —promedio ponderado de otras señales— se removió: la
+combinación de señales se hace en la estrategia, con componentes ponderados.)
 """
 import json
 import logging
@@ -70,29 +71,6 @@ def evaluate_range(params: dict, value: float | None) -> float | None:
     return float(normalized)
 
 
-def evaluate_composite(params: dict, scores_by_key: dict[str, float | None]) -> float | None:
-    """
-    Promedio ponderado de scores de otras señales.
-    Ignora componentes cuyo score sea None.
-    Devuelve None si todos los componentes son None.
-    """
-    components: list = params.get("components", [])
-    total_weight = 0.0
-    weighted_sum = 0.0
-
-    for comp in components:
-        key    = comp.get("signal_key")
-        weight = float(comp.get("weight", 1.0))
-        score  = scores_by_key.get(key)
-        if score is not None:
-            weighted_sum  += score * weight
-            total_weight  += weight
-
-    if total_weight == 0:
-        return None
-    return float(weighted_sum / total_weight)
-
-
 def _is_number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
@@ -136,18 +114,6 @@ def validate_params(formula_type: str, params: dict) -> str | None:
             return "range: min y max no pueden ser iguales"
         return None
 
-    if formula_type == "composite":
-        comps = params.get("components")
-        if not isinstance(comps, list) or not comps:
-            return "composite requiere 'components' (lista no vacía)"
-        for i, c in enumerate(comps):
-            if not isinstance(c, dict) or not c.get("signal_key"):
-                return f"components[{i}] requiere 'signal_key'"
-            w = c.get("weight", 1.0)
-            if not _is_number(w):
-                return f"components[{i}]: weight no numérico: {w!r}"
-        return None
-
     return f"formula_type desconocido: {formula_type!r}"
 
 
@@ -155,18 +121,15 @@ def evaluate(
     formula_type: str,
     params_json: str,
     value,
-    scores_by_key: dict[str, float | None] | None = None,
     params: dict | None = None,
 ) -> float | None:
     """
     Punto de entrada unificado.
 
     Args:
-        formula_type:   "discrete_map" | "threshold" | "range" | "composite"
+        formula_type:   "discrete_map" | "threshold" | "range"
         params_json:    JSON serializado de los parámetros
-        value:          valor del indicador (str para discrete_map, float para el resto,
-                        ignorado en composite)
-        scores_by_key:  dict {signal_key: score} requerido para composite
+        value:          valor del indicador (str para discrete_map, float para el resto)
         params:         parámetros ya parseados; evita re-parsear params_json en
                         llamadas repetidas con la misma señal
     Returns:
@@ -185,8 +148,6 @@ def evaluate(
         return evaluate_threshold(params, value)
     if formula_type == "range":
         return evaluate_range(params, value)
-    if formula_type == "composite":
-        return evaluate_composite(params, scores_by_key or {})
 
     logger.warning("signal_engine: formula_type desconocido: %r", formula_type)
     return None

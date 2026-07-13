@@ -1,68 +1,26 @@
-"""Resolución de señales composite por dependencias y score de estrategias."""
-import json
+"""Score de estrategias (componentes ponderados) y fechas del backfill.
+
+La fórmula "composite" de señales se removió (la combinación se hace en la
+estrategia): acá se verifica que quede rechazada, y se cubren el scoring
+ponderado de estrategias y la selección de fechas del delta/rebuild.
+"""
 from types import SimpleNamespace
 
-from app.services.signal_service import _build_composite_scores, _composite_refs
 from app.services.strategy_service import _compute_asset_score
 
 
-def _sig(id_, key, components=None, formula_type="composite"):
-    params = json.dumps({"components": components or []})
-    return SimpleNamespace(id=id_, key=key, formula_type=formula_type, params=params)
+# ── composite rechazada ───────────────────────────────────────────────────────
+
+def test_validate_params_rechaza_composite():
+    from app.services import signal_engine
+    err = signal_engine.validate_params("composite", {"components": []})
+    assert err and "composite" in err
 
 
-# ── _composite_refs ───────────────────────────────────────────────────────────
-
-def test_composite_refs_extrae_keys():
-    sig = _sig(1, "a", [{"signal_key": "x", "weight": 1}, {"signal_key": "y"}])
-    assert _composite_refs(sig) == {"x", "y"}
-
-def test_composite_refs_json_roto():
-    sig = SimpleNamespace(id=1, key="a", formula_type="composite", params="{roto")
-    assert _composite_refs(sig) == set()
-
-
-# ── _build_composite_scores: orden de dependencias ────────────────────────────
-
-def test_composite_anidada_espera_a_su_dependencia():
-    # b (base) = 100, c (base) = 0
-    # B = composite(c)          → 0
-    # A = composite(B, b)       → (0 + 100) / 2 = 50  SOLO si B se resolvió antes
-    signals = [
-        _sig(10, "B", [{"signal_key": "c", "weight": 1}]),
-        _sig(11, "A", [{"signal_key": "B", "weight": 1},
-                       {"signal_key": "b", "weight": 1}]),
-    ]
-    scores = {"b": 100.0, "c": 0.0}
-    _build_composite_scores(signals, scores)
-    assert scores["B"] == 0.0
-    assert scores["A"] == 50.0
-
-def test_composite_anidada_orden_de_definicion_no_importa():
-    # A definida ANTES que B en la lista: igual debe esperar a B
-    signals = [
-        _sig(11, "A", [{"signal_key": "B", "weight": 1},
-                       {"signal_key": "b", "weight": 1}]),
-        _sig(10, "B", [{"signal_key": "c", "weight": 1}]),
-    ]
-    scores = {"b": 100.0, "c": 0.0}
-    _build_composite_scores(signals, scores)
-    assert scores["A"] == 50.0
-
-def test_composite_ciclo_no_cuelga_y_resuelve_con_lo_disponible():
-    signals = [
-        _sig(1, "A", [{"signal_key": "B", "weight": 1}, {"signal_key": "b", "weight": 1}]),
-        _sig(2, "B", [{"signal_key": "A", "weight": 1}, {"signal_key": "b", "weight": 1}]),
-    ]
-    scores = {"b": 100.0}
-    _build_composite_scores(signals, scores)
-    assert scores["A"] is not None and scores["B"] is not None
-
-def test_composite_sin_componentes_resolubles_es_none():
-    signals = [_sig(1, "A", [{"signal_key": "inexistente", "weight": 1}])]
-    scores = {}
-    _build_composite_scores(signals, scores)
-    assert scores["A"] is None
+def test_evaluate_composite_devuelve_none():
+    from app.services import signal_engine
+    # ya no es un tipo válido: evaluate no lo computa
+    assert signal_engine.evaluate("composite", "{}", None) is None
 
 
 # ── _compute_asset_score (estrategias) ────────────────────────────────────────
@@ -140,23 +98,3 @@ def test_dates_to_compute_vacio():
     from app.services.signal_service import _dates_to_compute
     assert _dates_to_compute([], set(), force=False) == []
     assert _dates_to_compute([], set(), force=True) == []
-
-def test_closure_composites_recursivo():
-    import json
-    from types import SimpleNamespace
-    from app.services.signal_service import _closure_composites
-    def _sig2(id_, key, ftype="threshold", comps=None):
-        return SimpleNamespace(id=id_, key=key, formula_type=ftype,
-                               params=json.dumps({"components": comps or []}))
-    signals = [
-        _sig2(1, "a"),
-        _sig2(2, "b"),
-        _sig2(3, "AB", "composite", [{"signal_key": "a"}, {"signal_key": "b"}]),
-        _sig2(4, "ABC", "composite", [{"signal_key": "AB"}, {"signal_key": "c"}]),
-        _sig2(5, "c"),
-        _sig2(6, "suelta"),
-    ]
-    # partir de la composite anidada arrastra toda la cadena, no lo suelto
-    assert _closure_composites({4}, signals) == {1, 2, 3, 4, 5}
-    # una hoja no arrastra nada
-    assert _closure_composites({1}, signals) == {1}

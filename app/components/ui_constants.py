@@ -7,7 +7,7 @@ COLOR_NEUTRAL  = "#94a3b8"   # gris    — sin tendencia clara
 COLOR_WARNING  = "#facc15"   # amarillo — advertencia
 COLOR_INFO     = "#38bdf8"   # azul    — discrete_map, info
 COLOR_RANGE    = "#fb923c"   # naranja — fórmula range
-COLOR_PURPLE   = "#c084fc"   # violeta — fórmula composite
+COLOR_PURPLE   = "#c084fc"   # violeta
 
 # ── Fondos y bordes ───────────────────────────────────────────────────────────
 BG_CARD      = "#1f2937"    # fondo de cards de filtros / contenedores principales
@@ -109,23 +109,6 @@ FORMULA_HELP = {
             "«recortar» activado, valores fuera del rango quedan en ±100."
         ),
         "example": '{"min": -3.0, "max": 3.0, "clamp": true}',
-    },
-    "composite": {
-        "color": COLOR_PURPLE,
-        "title": "Compuesta",
-        "desc": (
-            "No lee ningún indicador: combina los scores de otras señales ya "
-            "existentes en un promedio ponderado. P.ej. tendencia diaria "
-            "(peso 2) + tendencia semanal (peso 1) → una señal de tendencia "
-            "global que pesa más lo diario. Si a un activo le falta alguna "
-            "señal componente ese día, se promedia con las restantes."
-        ),
-        "example": (
-            '{"components": [\n'
-            '  {"signal_key": "tendencia_d", "weight": 1},\n'
-            '  {"signal_key": "tendencia_w", "weight": 1}\n'
-            ']}'
-        ),
     },
 }
 

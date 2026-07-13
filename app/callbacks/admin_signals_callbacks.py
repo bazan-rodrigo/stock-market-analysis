@@ -32,7 +32,6 @@ _FT_LABEL = {
     "discrete_map": "Mapa",
     "threshold":    "Umbrales",
     "range":        "Rango",
-    "composite":    "Compuesta",
 }
 
 @callback(
@@ -145,9 +144,9 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
         # representable (editado a mano, forma inesperada), modo avanzado
         pb_store = builder_from_params(sig.formula_type, sig.params)
         advanced = pb_store is None
-        # key bloqueada al editar (para TODAS las señales): las composites y
-        # los componentes de estrategia referencian por key — renombrarla
-        # rompería esas referencias en silencio
+        # key bloqueada al editar (para TODAS las señales): los componentes de
+        # estrategia y los operandos señal del filtro referencian por key —
+        # renombrarla rompería esas referencias en silencio
         return (
             True, "Editar señal",
             sig.key, True,
@@ -281,8 +280,8 @@ def save(_, key, name, source, group_type, indicator_key,
         # Una edición cambia una definición ya calculada: un delta solo toca la
         # última fecha, así que para aplicar el cambio a TODA la historia hace
         # falta "Recalcular completo". Se listan la señal y todo lo que depende
-        # de ella (composites que la referencian + estrategias que la usan), que
-        # también quedan desactualizados. En un alta alcanza el delta.
+        # de ella (las estrategias que la usan), que también quedan
+        # desactualizadas. En un alta alcanza el delta.
         clave = key.strip()
         if editing_id:
             afectados = [f"la señal «{clave}»"] + svc.affected_by_signal_change(editing_id)

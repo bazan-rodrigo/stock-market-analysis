@@ -7,7 +7,6 @@ Un editor por tipo de fórmula:
                 valores del indicador elegido, ver indicator_catalog)
   threshold     filas ordenadas "si valor > X → score" + "en otro caso"
   range         Min / Max / recortar a ±100
-  composite     filas señal × peso
 
 Estado en dcc.Store (sig-pb-store), una sección por tipo — se conservan
 todas al cambiar de tipo, así no se pierde lo cargado si el usuario va y
@@ -15,8 +14,9 @@ vuelve:
   {"map":        {"uids": [...], "counter": N, "rows": {uid: {"cat", "score"}}},
    "thresholds": {"uids": [...], "counter": N, "rows": {uid: {"limit", "score"}},
                   "default": score|None},
-   "range":      {"min": ..., "max": ..., "clamp": bool},
-   "components": {"uids": [...], "counter": N, "rows": {uid: {"signal_key", "weight"}}}}
+   "range":      {"min": ..., "max": ..., "clamp": bool}}
+(La sección "components" del store y sus controles sigpb-comp-* quedaron
+vestigiales tras remover la fórmula compuesta; no se renderizan.)
 
 Mismo patrón que strategy_filter_ui: render declarativo desde el store,
 captura de todos los estados antes de mutar, y no_update si nada cambió
@@ -94,24 +94,6 @@ def params_from_builder(ftype: str, store: dict) -> tuple[str | None, str | None
         return json.dumps({"min": vmin, "max": vmax,
                            "clamp": bool(sec.get("clamp", True))}), None
 
-    if ftype == "composite":
-        sec = store.get("components", {})
-        rows = [sec["rows"][str(u)] for u in sec.get("uids", [])
-                if str(u) in sec.get("rows", {})]
-        comps, seen = [], set()
-        for r in rows:
-            key = r.get("signal_key")
-            if not key:
-                return None, "Hay un componente sin señal elegida."
-            if key in seen:
-                return None, f"La señal '{key}' está repetida."
-            seen.add(key)
-            comps.append({"signal_key": key,
-                          "weight": r.get("weight") if r.get("weight") is not None else 1.0})
-        if not comps:
-            return None, "Agregá al menos una señal componente."
-        return json.dumps({"components": comps}), None
-
     return None, f"Tipo de fórmula desconocido: {ftype!r}"
 
 
@@ -161,18 +143,6 @@ def builder_from_params(ftype: str, params_json: str | None) -> dict | None:
         if ftype == "range":
             store["range"] = {"min": float(params["min"]), "max": float(params["max"]),
                               "clamp": bool(params.get("clamp", True))}
-            return store
-
-        if ftype == "composite":
-            comps = params.get("components", [])
-            sec = store["components"]
-            for i, c in enumerate(comps):
-                sec["rows"][str(i)] = {
-                    "signal_key": c.get("signal_key"),
-                    "weight": float(c.get("weight", 1.0)),
-                }
-                sec["uids"].append(i)
-            sec["counter"] = len(comps)
             return store
     except (KeyError, TypeError, ValueError):
         return None
@@ -326,35 +296,6 @@ def _render_range(store):
     ])
 
 
-def _render_components(store, opts):
-    sec = store.get("components", {})
-    signal_opts = (opts or {}).get("signal_opts", [])
-    rows = []
-    for uid in sec.get("uids", []):
-        r = sec.get("rows", {}).get(str(uid), {})
-        rows.append(dbc.Row([
-            dbc.Col(dcc.Dropdown(id={"type": "sigpb-comp-signal", "index": uid},
-                                 options=signal_opts, value=r.get("signal_key"),
-                                 placeholder="Señal...", style=_FS), md=7),
-            dbc.Col(dbc.Input(id={"type": "sigpb-comp-weight", "index": uid},
-                              type="number", value=r.get("weight", 1.0),
-                              min=0, step=0.01, placeholder="peso", style=_FS), md=3),
-            dbc.Col(_del_btn("sigpb-comp-del", uid), style={"width": "32px"}),
-        ], className="g-1 mb-1 align-items-center"))
-
-    return html.Div([
-        dbc.Row([
-            dbc.Col(html.Small("Señal", className="text-muted"), md=7),
-            dbc.Col(html.Small("Peso", className="text-muted"), md=3),
-            dbc.Col(style={"width": "32px"}),
-        ], className="g-1"),
-        html.Div(rows),
-        dbc.Button("+ señal componente", id={"type": "sigpb-comp-add", "index": 0},
-                   color="link", size="sm",
-                   style={"fontSize": "0.78rem", "paddingLeft": 0}),
-    ])
-
-
 @callback(
     Output("sig-params-builder",  "children"),
     Output("sig-params-json-wrap", "style"),
@@ -377,8 +318,6 @@ def render_builder(store, opts, ftype, indicator_key, advanced):
         body = _render_thresholds(store)
     elif ftype == "range":
         body = _render_range(store)
-    elif ftype == "composite":
-        body = _render_components(store, opts)
     else:
         return html.Div(), {}
     return body, {"display": "none"}
@@ -588,7 +527,7 @@ def preview_figure(ftype: str, store: dict):
     cargados (aunque estén incompletos: muestra lo que se pueda)."""
     import plotly.graph_objects as go
     from app.components.ui_constants import (
-        COLOR_NEGATIVE, COLOR_NEUTRAL, COLOR_POSITIVE, COLOR_PURPLE, COLOR_RANGE,
+        COLOR_NEGATIVE, COLOR_NEUTRAL, COLOR_POSITIVE, COLOR_RANGE,
     )
 
     store = store or empty_params_store()
@@ -676,29 +615,6 @@ def preview_figure(ftype: str, store: dict):
                             hovertemplate="%{x} → score 0<extra></extra>")
         _score_axis(fig)
         fig.update_xaxes(tickfont=dict(size=9), tickangle=-30)
-        return fig
-
-    if ftype == "composite":
-        sec = store.get("components", {})
-        rows = [sec["rows"][str(u)] for u in sec.get("uids", [])
-                if str(u) in sec.get("rows", {})]
-        rows = [r for r in rows if r.get("signal_key")]
-        total = sum((r.get("weight") if r.get("weight") is not None else 1.0)
-                    for r in rows)
-        if not rows or not total:
-            return _preview_note("Agregá señales componentes para ver el "
-                                 "peso relativo de cada una.")
-        keys = [r["signal_key"] for r in rows]
-        shares = [
-            (r.get("weight") if r.get("weight") is not None else 1.0) / total * 100
-            for r in rows
-        ]
-        fig = _preview_base_figure("Peso relativo en el promedio (%)")
-        fig.add_bar(y=keys, x=shares, orientation="h",
-                    marker=dict(color=COLOR_PURPLE),
-                    hovertemplate="%{y}: %{x:.1f}%<extra></extra>")
-        fig.update_xaxes(range=[0, max(shares) * 1.15], ticksuffix="%")
-        fig.update_yaxes(tickfont=dict(size=9), autorange="reversed")
         return fig
 
     return _preview_note("Elegí el tipo de fórmula para ver la vista previa.")

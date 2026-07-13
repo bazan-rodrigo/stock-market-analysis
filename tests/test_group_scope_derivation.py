@@ -10,10 +10,7 @@ Dos piezas puras (sin BD):
 from types import SimpleNamespace
 
 from app.services import strategy_filter
-from app.services.signal_backfill_range import (
-    _derive_needed_groups,
-    _signal_group_types,
-)
+from app.services.signal_backfill_range import _derive_needed_groups
 
 
 def _leaf(attr, op, value):
@@ -78,17 +75,6 @@ def test_restricted_or_con_rama_abierta_es_todos():
         _leaf("sector", "=", 3),          # esta rama deja pasar cualquier país
     ]}
     assert strategy_filter.restricted_attribute_ids(tree, "country") is None
-
-
-# ── _signal_group_types ─────────────────────────────────────────────────────
-
-def test_signal_group_types_directo_y_composite():
-    direct = {"pais_trend": {"country"}, "rsi": set(), "combo": set()}
-    refs = {"combo": {"pais_trend", "rsi"}}       # composite que las combina
-    out = _signal_group_types(direct, refs)
-    assert out["pais_trend"] == {"country"}
-    assert out["rsi"] == set()
-    assert out["combo"] == {"country"}            # la composite hereda el tipo
 
 
 # ── _derive_needed_groups ───────────────────────────────────────────────────

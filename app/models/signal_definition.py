@@ -18,7 +18,6 @@ class SignalDefinition(Base):
       discrete_map — mapea un string indicator a score via dict (params.map)
       threshold    — aplica umbrales ordenados desc sobre valor numérico (params.thresholds)
       range        — normaliza valor numérico entre min/max a [-100,100] (params.min/max/clamp)
-      composite    — promedio ponderado de otras señales (params.components)
 
     source:
       asset  — la señal lee de indicator_values del activo
@@ -34,7 +33,7 @@ class SignalDefinition(Base):
     source        = Column(String(10),  nullable=False)  # asset | group
     group_type    = Column(String(30))                   # sector|market|industry|... (solo si source=group)
     indicator_key = Column(String(50))                   # campo en indicator/group_scores
-    formula_type  = Column(String(20),  nullable=False)  # discrete_map|threshold|range|composite
+    formula_type  = Column(String(20),  nullable=False)  # discrete_map|threshold|range
     params        = Column(Text,        nullable=False)  # JSON
     owner_id      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     is_public     = Column(Boolean,     nullable=False, default=False)

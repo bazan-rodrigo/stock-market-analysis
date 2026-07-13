@@ -9,10 +9,9 @@ Políticas:
   inicial y el concepto de señal/estrategia "de sistema" se eliminaron
   (migración 0064); todo se gestiona por estos Excel.
 - **Cada pack es autosuficiente**: su `<pack>_senales.xlsx` incluye TODAS
-  las señales que su estrategia usa (componentes + dependencias de
-  composites). Una señal compartida por varios packs aparece duplicada en
-  cada uno — el import upsertea por key, así que no genera conflicto y el
-  orden entre packs no importa.
+  las señales que su estrategia usa (los componentes). Una señal compartida
+  por varios packs aparece duplicada en cada uno — el import upsertea por
+  key, así que no genera conflicto y el orden entre packs no importa.
 
 Cada pack trae dos archivos:
 
@@ -71,7 +70,7 @@ atribuible 100% al ranking — ideal para comparar filosofías.
 |---|---|
 | `retorno_52w` (range −20%→−100 ... +80%→+100) | 3 |
 | `fuerza_relativa_52w` | 2 |
-| `alineacion_timeframes` (composite de `tendencia_d/w/m`, incluidas) | 2 |
+| `tendencia_d` / `tendencia_w` / `tendencia_m` (régimen por timeframe) | ⅔ c/u |
 | `dist_sma_d` (premia extensión sobre la SMA óptima, sin invertir) | 1 |
 
 ## garp_calidad_precio

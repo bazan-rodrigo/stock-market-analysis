@@ -18,7 +18,6 @@ _FORMULA_OPTS = [
     {"label": "Mapa discreto (discrete_map)", "value": "discrete_map"},
     {"label": "Umbrales (threshold)",         "value": "threshold"},
     {"label": "Rango (range)",                "value": "range"},
-    {"label": "Compuesta (composite)",        "value": "composite"},
 ]
 
 

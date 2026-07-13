@@ -67,7 +67,7 @@ class TestCanEdit:
         assert not can_edit(None,   None, False)
 
 
-# ── can_reference (composites, componentes, operandos del filtro) ─────────────
+# ── can_reference (componentes de estrategia, operandos del filtro) ───────────
 
 class TestCanReference:
     def test_publica_referencia_publica(self):

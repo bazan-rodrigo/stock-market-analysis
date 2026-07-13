@@ -64,26 +64,6 @@ def test_range_valor_none():
     assert se.evaluate_range({"min": 0, "max": 10}, None) is None
 
 
-# ── composite ─────────────────────────────────────────────────────────────────
-
-def test_composite_promedio_ponderado():
-    params = {"components": [{"signal_key": "a", "weight": 1},
-                             {"signal_key": "b", "weight": 3}]}
-    assert se.evaluate_composite(params, {"a": 100, "b": 0}) == 25.0
-
-def test_composite_ignora_none():
-    params = {"components": [{"signal_key": "a", "weight": 1},
-                             {"signal_key": "b", "weight": 9}]}
-    assert se.evaluate_composite(params, {"a": 80, "b": None}) == 80.0
-
-def test_composite_todos_none():
-    params = {"components": [{"signal_key": "a"}]}
-    assert se.evaluate_composite(params, {"a": None}) is None
-
-def test_composite_sin_componentes():
-    assert se.evaluate_composite({"components": []}, {}) is None
-
-
 # ── evaluate (dispatch) ───────────────────────────────────────────────────────
 
 def test_evaluate_dispatch_threshold():
@@ -108,8 +88,10 @@ def test_validate_params_formas_correctas():
     assert se.validate_params("threshold",
                               {"thresholds": [[70, 100], [None, -50]]}) is None
     assert se.validate_params("range", {"min": -3, "max": 3}) is None
-    assert se.validate_params("composite",
-                              {"components": [{"signal_key": "a"}]}) is None
+
+def test_validate_params_composite_removido():
+    # la fórmula compuesta ya no existe: se rechaza como tipo desconocido
+    assert se.validate_params("composite", {"components": [{"signal_key": "a"}]})
 
 def test_validate_params_forma_de_otra_formula():
     # params json-valido pero de OTRA formula: sin esta validacion la senal
@@ -126,9 +108,6 @@ def test_validate_params_valores_invalidos():
     assert se.validate_params("threshold", {"thresholds": [[70, None]]})
     assert se.validate_params("range", {"min": 1, "max": 1})
     assert se.validate_params("range", {"min": "a", "max": 3})
-    assert se.validate_params("composite", {"components": [{"weight": 1}]})
-    assert se.validate_params("composite",
-                              {"components": [{"signal_key": "a", "weight": "x"}]})
 
 def test_validate_params_formula_desconocida():
     assert se.validate_params("magica", {})

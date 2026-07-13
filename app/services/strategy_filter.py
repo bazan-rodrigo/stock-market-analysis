@@ -388,46 +388,19 @@ def non_history_indicator_codes(session) -> set[str]:
 
 
 def non_history_signal_keys(session) -> set[str]:
-    """Keys de señales cuya cadena de indicadores incluye alguno sin
-    historia (composites resueltas recursivamente).
+    """Keys de señales cuyo indicador subyacente no tiene historia.
 
     Nota: el score de una señal se historiza en signal_value aunque el
     indicador subyacente no tenga historia — para fechas en que la señal ya
     corría, el filtro usa esa foto. El aviso es porque NO se puede
     reconstruir el score de fechas anteriores a la creación de la señal."""
-    import json
     from app.models import SignalDefinition
 
     no_hist = non_history_indicator_codes(session)
     signals = session.query(
         SignalDefinition.key, SignalDefinition.indicator_key,
-        SignalDefinition.formula_type, SignalDefinition.params,
     ).all()
-
-    direct: set[str] = set()
-    composite_refs: dict[str, set[str]] = {}
-    for key, ind_key, ftype, params in signals:
-        if ftype == "composite":
-            try:
-                comps = json.loads(params).get("components", [])
-            except (json.JSONDecodeError, TypeError):
-                comps = []
-            composite_refs[key] = {
-                c.get("signal_key") for c in comps if c.get("signal_key")
-            }
-        elif ind_key in no_hist:
-            direct.add(key)
-
-    # Propagar por las composites hasta el punto fijo
-    tainted = set(direct)
-    changed = True
-    while changed:
-        changed = False
-        for key, refs in composite_refs.items():
-            if key not in tainted and refs & tainted:
-                tainted.add(key)
-                changed = True
-    return tainted
+    return {key for key, ind_key in signals if ind_key in no_hist}
 
 
 # ── Compatibilidad: asset_filter legacy → árbol ──────────────────────────────

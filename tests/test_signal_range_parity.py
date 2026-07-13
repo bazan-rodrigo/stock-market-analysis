@@ -8,7 +8,7 @@ mismo dataset sintético en el sqlite stub y exige igualdad exacta de
 signal_value, group_signal_value, group_scores y strategy_result.
 
 Cubre: as-of con huecos (tendencias semanales), tope de 45 días, valores
-NULL, threshold/discrete_map/range/composite, señal de grupo, indicador
+NULL, threshold/discrete_map/range, señal de grupo, indicador
 virtual last_close, y estrategia con filtro (indicador as-of + operando
 señal) — los caminos por donde ya hubo bugs reales de semántica.
 """
@@ -114,11 +114,6 @@ def _seed(dates):
         dict(key="par_close", name="Close par", source="asset",
              indicator_key="last_close", formula_type="range",
              params={"min": 10, "max": 35}),
-        # composite de las dos primeras
-        dict(key="par_combo", name="Combo par", source="asset",
-             formula_type="composite",
-             params={"components": [{"signal_key": "par_rsi", "weight": 2},
-                                    {"signal_key": "par_trend", "weight": 1}]}),
         # señal de grupo sobre el score sectorial diario
         dict(key="par_sector", name="Sector par", source="group",
              group_type="sector", indicator_key="regime_score_d",
@@ -150,7 +145,7 @@ def _seed(dates):
                      filter_conditions=json.dumps(tree))
     s.add(strat)
     s.flush()
-    s.add(StrategyComponent(strategy_id=strat.id, signal_id=ids["par_combo"],
+    s.add(StrategyComponent(strategy_id=strat.id, signal_id=ids["par_trend"],
                             weight=2.0))
     s.add(StrategyComponent(strategy_id=strat.id, signal_id=ids["par_sector"],
                             weight=1.0, scope="own_group", group_type="sector"))

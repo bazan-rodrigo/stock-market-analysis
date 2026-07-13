@@ -107,30 +107,6 @@ def test_range_incompleto_o_degenerado_da_error():
     assert params_from_builder("range", _store_with("range", min=1.0, max=1.0))[1]
 
 
-# ── composite ─────────────────────────────────────────────────────────────────
-
-def test_composite_basico_y_peso_default():
-    store = _store_with("components", **_rows_section([
-        {"signal_key": "tendencia_d", "weight": 2},
-        {"signal_key": "tendencia_w", "weight": None},
-    ]))
-    params, error = params_from_builder("composite", store)
-    assert error is None
-    assert json.loads(params) == {"components": [
-        {"signal_key": "tendencia_d", "weight": 2},
-        {"signal_key": "tendencia_w", "weight": 1.0},
-    ]}
-
-def test_composite_sin_senal_da_error():
-    store = _store_with("components", **_rows_section([{"signal_key": None, "weight": 1}]))
-    assert params_from_builder("composite", store)[1]
-
-def test_composite_repetida_da_error():
-    store = _store_with("components", **_rows_section([
-        {"signal_key": "a", "weight": 1}, {"signal_key": "a", "weight": 2}]))
-    assert "repetida" in params_from_builder("composite", store)[1]
-
-
 # ── builder_from_params (editar) ─────────────────────────────────────────────
 
 def test_ida_y_vuelta_todos_los_tipos():
@@ -138,9 +114,6 @@ def test_ida_y_vuelta_todos_los_tipos():
         ("discrete_map", {"map": {"bullish": 100.0, "lateral": 0.0}}),
         ("threshold",    {"thresholds": [[70.0, 100.0], [30.0, 0.0], [None, -50.0]]}),
         ("range",        {"min": -3.0, "max": 3.0, "clamp": True}),
-        ("composite",    {"components": [
-            {"signal_key": "a", "weight": 2.0},
-            {"signal_key": "b", "weight": 1.0}]}),
     ]
     for ftype, params in cases:
         store = builder_from_params(ftype, json.dumps(params))

@@ -44,65 +44,6 @@ def _get_group_indicator_value(gscore: GroupScore, key: str):
     return getattr(gscore, key)
 
 
-def _composite_refs(sig: SignalDefinition) -> set[str]:
-    """Keys de señales referenciadas por una composite."""
-    import json
-    try:
-        components = json.loads(sig.params).get("components", [])
-    except (json.JSONDecodeError, TypeError):
-        return set()
-    return {c.get("signal_key") for c in components if c.get("signal_key")}
-
-
-def _build_composite_scores(
-    signals: list[SignalDefinition],
-    asset_scores: dict[str, float | None],
-    *,
-    refs_by_key: dict[str, set] | None = None,
-    params_by_id: dict[int, dict | None] | None = None,
-) -> dict[str, float | None]:
-    composite      = [s for s in signals if s.formula_type == "composite"]
-    composite_keys = {s.key for s in composite}
-    pending        = {s.key: s for s in composite if s.key not in asset_scores}
-
-    def _params(sig):
-        return params_by_id.get(sig.id) if params_by_id is not None else None
-
-    # Resolver en orden de dependencias: una composite espera a que las
-    # composites que referencia ya estén evaluadas.
-    while pending:
-        progressed = False
-        for key, sig in list(pending.items()):
-            refs = (refs_by_key.get(key) if refs_by_key is not None
-                    else _composite_refs(sig))
-            if refs is None:
-                refs = _composite_refs(sig)
-            if any(r in composite_keys and r not in asset_scores for r in refs):
-                continue
-            asset_scores[key] = signal_engine.evaluate(
-                sig.formula_type, sig.params, None, asset_scores,
-                params=_params(sig),
-            )
-            del pending[key]
-            progressed = True
-        if not progressed:
-            break
-
-    # Ciclos entre composites: evaluar con los scores disponibles
-    if pending:
-        logger.warning(
-            "signal_service: referencias circulares entre composites: %s",
-            sorted(pending),
-        )
-        for key, sig in pending.items():
-            asset_scores[key] = signal_engine.evaluate(
-                sig.formula_type, sig.params, None, asset_scores,
-                params=_params(sig),
-            )
-
-    return asset_scores
-
-
 def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
     """Contexto invariante de una corrida: señales parseadas y clasificadas
     + códigos de indicador que necesitan. Compartido por el camino por-fecha
@@ -135,14 +76,6 @@ def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
             params_by_id[sig.id] = _json.loads(sig.params)
         except (TypeError, ValueError):
             params_by_id[sig.id] = None
-    refs_by_key = {
-        sig.key: {
-            c.get("signal_key")
-            for c in (params_by_id.get(sig.id) or {}).get("components", [])
-            if c.get("signal_key")
-        }
-        for sig in signals if sig.formula_type == "composite"
-    }
 
     asset_signals  = [sg for sg in signals if sg.source == "asset"]
     group_signals  = [sg for sg in signals if sg.source == "group"]
@@ -151,8 +84,7 @@ def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
     # group_scores): descartarlas UNA vez acá — evaluarlas warnearía por cada
     # (grupo × fecha), inundando el log en un backfill
     bad_group = [sg for sg in group_signals
-                 if sg.formula_type != "composite"
-                 and sg.indicator_key not in _VALID_GROUP_INDICATOR_KEYS]
+                 if sg.indicator_key not in _VALID_GROUP_INDICATOR_KEYS]
     if bad_group:
         logger.warning(
             "signal_service: señales de grupo ignoradas por indicator_key "
@@ -172,7 +104,6 @@ def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
     return {
         "signals":        signals,
         "params_by_id":   params_by_id,
-        "refs_by_key":    refs_by_key,
         "asset_signals":  asset_signals,
         "group_signals":  group_signals,
         "hist_codes":     {c for c in needed_codes - _VIRTUAL_CODES
@@ -191,8 +122,7 @@ def compute_signal_values(target_date: date_type,
     Lee valores desde cada tabla ind_{code} por separado.
 
     only_signal_ids acota el cálculo a un subconjunto (alcance por señal o
-    estrategia del backfill) — el llamador es responsable de que incluya las
-    dependencias de las composites (ver _scope_signal_ids).
+    estrategia del backfill).
 
     latest_price_date evita re-consultar MAX(prices.date) (caro sin índice
     por fecha) cuando el llamador itera muchas fechas (backfill).
@@ -204,7 +134,6 @@ def compute_signal_values(target_date: date_type,
         return 0
     signals        = prep["signals"]
     params_by_id   = prep["params_by_id"]
-    refs_by_key    = prep["refs_by_key"]
     asset_signals  = prep["asset_signals"]
     group_signals  = prep["group_signals"]
     hist_codes     = prep["hist_codes"]
@@ -287,8 +216,7 @@ def compute_signal_values(target_date: date_type,
     scores = _evaluate_asset_signal_scores(
         signals=signals, asset_signals=asset_signals,
         group_signals=group_signals, params_by_id=params_by_id,
-        refs_by_key=refs_by_key, isnaps=isnaps,
-        asset_groups=asset_groups, gscores=gscores)
+        isnaps=isnaps, asset_groups=asset_groups, gscores=gscores)
 
     written = 0
     for (sig_id, asset_id), score in scores.items():
@@ -307,7 +235,7 @@ def compute_signal_values(target_date: date_type,
 
 
 def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
-                                  params_by_id, refs_by_key, isnaps,
+                                  params_by_id, isnaps,
                                   asset_groups, gscores) -> dict[tuple, float]:
     """{(signal_id, asset_id): score} de una fecha — LÓGICA PURA, sin BD,
     compartida por el camino por-fecha y el modo rango (la paridad entre
@@ -326,8 +254,6 @@ def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
         asset_scores: dict[str, float | None] = {}
 
         for sig in asset_signals:
-            if sig.formula_type == "composite":
-                continue
             value = isnap.get(sig.indicator_key) if sig.indicator_key else None
             score = signal_engine.evaluate(sig.formula_type, sig.params, value,
                                            params=params_by_id.get(sig.id))
@@ -335,8 +261,6 @@ def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
 
         groups = asset_groups.get(asset_id, {})
         for sig in group_signals:
-            if sig.formula_type == "composite":
-                continue
             group_id = groups.get(sig.group_type)
             if group_id is None:
                 asset_scores[sig.key] = None
@@ -355,9 +279,6 @@ def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
                                            params=params_by_id.get(sig.id))
             group_score_memo[memo_key] = score
             asset_scores[sig.key] = score
-
-        _build_composite_scores(signals, asset_scores,
-                                refs_by_key=refs_by_key, params_by_id=params_by_id)
 
         for key, score in asset_scores.items():
             if score is None:
@@ -380,8 +301,7 @@ def compute_group_signal_values(target_date: date_type,
         group_signals = [sg for sg in group_signals if sg.id in only_signal_ids]
     # Mal configuradas (ver compute_signal_values): un solo warning, no por grupo
     bad_group = [sg for sg in group_signals
-                 if sg.formula_type != "composite"
-                 and sg.indicator_key not in _VALID_GROUP_INDICATOR_KEYS]
+                 if sg.indicator_key not in _VALID_GROUP_INDICATOR_KEYS]
     if bad_group:
         logger.warning(
             "signal_service: señales de grupo ignoradas por indicator_key "
@@ -481,26 +401,12 @@ def get_visible_signals(user_id: int | None, is_admin: bool) -> list:
 
 
 def _signal_dependents(s, sig: SignalDefinition) -> list[tuple]:
-    """[(descripción, owner_id, is_public)] de TODO lo que referencia a sig:
-    señales composite (por key en params) y estrategias (componentes u
-    operandos señal del filtro de elegibilidad)."""
-    import json as _json
+    """[(descripción, owner_id, is_public)] de las estrategias que referencian a
+    sig (componentes u operandos señal del filtro de elegibilidad)."""
     from app.models import Strategy
     from app.services import strategy_filter
 
     deps: list[tuple] = []
-
-    for other in s.query(SignalDefinition).filter(
-            SignalDefinition.formula_type == "composite",
-            SignalDefinition.id != sig.id).all():
-        try:
-            refs = {c.get("signal_key")
-                    for c in _json.loads(other.params).get("components", [])}
-        except (TypeError, ValueError):
-            continue
-        if sig.key in refs:
-            deps.append((f"señal composite '{other.key}'",
-                         other.owner_id, other.is_public))
 
     for strat in s.query(Strategy).all():
         in_components = any(c.signal_id == sig.id for c in strat.components)
@@ -518,9 +424,9 @@ def _signal_dependents(s, sig: SignalDefinition) -> list[tuple]:
 
 def affected_by_signal_change(signal_id: int) -> list[str]:
     """Descripciones de lo que queda desactualizado al EDITAR una señal: las
-    señales composite que la referencian y las estrategias que la usan
-    (componentes o filtro). Para el aviso de "Recalcular completo" — no incluye
-    la propia señal, el llamador la antepone."""
+    estrategias que la usan (componentes o filtro). Para el aviso de
+    "Recalcular completo" — no incluye la propia señal, el llamador la
+    antepone."""
     s = get_session()
     sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
     if sig is None:
@@ -535,30 +441,6 @@ def signal_dependents_of_others(s, sig: SignalDefinition,
     dejaría apuntando a algo que sus dueños ya no ven."""
     return [desc for desc, dep_owner, dep_public in _signal_dependents(s, sig)
             if dep_public or dep_owner != owner_id]
-
-
-def _validate_composite_refs_visibility(s, *, owner_id, is_public,
-                                        params_json: str) -> None:
-    """Una composite pública solo referencia públicas; privada, públicas +
-    del mismo dueño (ver visibility.can_reference)."""
-    import json as _json
-    from app.services.visibility import can_reference
-
-    refs = {c.get("signal_key")
-            for c in _json.loads(params_json).get("components", [])
-            if c.get("signal_key")}
-    if not refs:
-        return
-    for ref in s.query(SignalDefinition).filter(
-            SignalDefinition.key.in_(refs)).all():
-        if not can_reference(owner_id, is_public, ref.owner_id, ref.is_public):
-            if is_public:
-                raise ValueError(
-                    f"Una señal pública no puede referenciar la señal "
-                    f"privada '{ref.key}' — publicala primero.")
-            raise ValueError(
-                f"No podés referenciar la señal privada '{ref.key}' "
-                f"de otro usuario.")
 
 
 def save_signal(
@@ -582,6 +464,11 @@ def save_signal(
     import json as _json
     from app.services.visibility import can_edit
 
+    if formula_type == "composite":
+        raise ValueError(
+            "La fórmula compuesta se removió: combiná señales en la estrategia, "
+            "con componentes ponderados.")
+
     params = _json.loads(params_json)
     shape_error = signal_engine.validate_params(
         formula_type, params if isinstance(params, dict) else {})
@@ -593,21 +480,20 @@ def save_signal(
     # Validar referencias (mismos chequeos que el import): una señal que
     # apunta a un indicador inexistente o inválido para su fuente guarda
     # bien y después nunca puntúa, silenciosamente
-    if formula_type != "composite":
-        if source == "group":
-            if not group_type:
-                raise ValueError("Una señal de grupo requiere tipo de grupo.")
-            if indicator_key not in _VALID_GROUP_INDICATOR_KEYS:
-                raise ValueError(
-                    f"indicator_key '{indicator_key}' no es un campo de "
-                    f"group_scores (válidos: "
-                    f"{sorted(_VALID_GROUP_INDICATOR_KEYS)}).")
-        elif indicator_key and indicator_key not in _VIRTUAL_CODES:
-            from app.models.indicator_definition import IndicatorDefinition
-            known = s.query(IndicatorDefinition.id).filter(
-                IndicatorDefinition.code == indicator_key).first()
-            if known is None:
-                raise ValueError(f"Indicador desconocido: '{indicator_key}'.")
+    if source == "group":
+        if not group_type:
+            raise ValueError("Una señal de grupo requiere tipo de grupo.")
+        if indicator_key not in _VALID_GROUP_INDICATOR_KEYS:
+            raise ValueError(
+                f"indicator_key '{indicator_key}' no es un campo de "
+                f"group_scores (válidos: "
+                f"{sorted(_VALID_GROUP_INDICATOR_KEYS)}).")
+    elif indicator_key and indicator_key not in _VIRTUAL_CODES:
+        from app.models.indicator_definition import IndicatorDefinition
+        known = s.query(IndicatorDefinition.id).filter(
+            IndicatorDefinition.code == indicator_key).first()
+        if known is None:
+            raise ValueError(f"Indicador desconocido: '{indicator_key}'.")
     if signal_id:
         sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
         if sig is None:
@@ -630,11 +516,6 @@ def save_signal(
         sig.owner_id = acting_user_id
         s.add(sig)
         new_public = bool(is_public)
-
-    if formula_type == "composite":
-        _validate_composite_refs_visibility(
-            s, owner_id=sig.owner_id, is_public=new_public,
-            params_json=params_json)
 
     sig.key           = key
     sig.name          = name
@@ -719,7 +600,7 @@ def import_signals_excel(file_bytes: bytes,
     import openpyxl
     import json as _json
     from io import BytesIO
-    from app.services.visibility import can_reference, parse_publica
+    from app.services.visibility import parse_publica
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes))
     ws = wb.active
@@ -729,7 +610,7 @@ def import_signals_excel(file_bytes: bytes,
 
     headers = [str(h).strip().lower() for h in rows[0]]
 
-    _FORMULA_TYPES = ("discrete_map", "threshold", "range", "composite")
+    _FORMULA_TYPES = ("discrete_map", "threshold", "range")
     _SOURCES       = ("asset", "group")
 
     # Catálogos para validar referencias (indicadores, señales existentes)
@@ -739,7 +620,6 @@ def import_signals_excel(file_bytes: bytes,
         d.code for d in s.query(IndicatorDefinition.code).all()
     } | set(_VIRTUAL_CODES)
     db_signals = {sig.key: sig for sig in s.query(SignalDefinition).all()}
-    known_signal_keys = set(db_signals)
 
     # ── Pasada 1: validación completa sin escribir ────────────────────────────
     parsed: list[dict] = []
@@ -775,7 +655,7 @@ def import_signals_excel(file_bytes: bytes,
             # puntuaría, silenciosamente. Mejor rechazar acá.
             error = signal_engine.validate_params(
                 formula_type, params if isinstance(params, dict) else {})
-        if error is None and formula_type != "composite":
+        if error is None:
             if source == "group":
                 if not group_type:
                     error = "source=group requiere group_type"
@@ -789,40 +669,6 @@ def import_signals_excel(file_bytes: bytes,
         parsed.append({"key": key, "data": data, "params": params_str,
                        "formula_type": formula_type, "source": source,
                        "is_public": is_public, "error": error})
-
-    # (owner, is_public) resultante por key tras el import: filas del
-    # archivo (dueño: el existente si actualiza, el importador si es nueva)
-    # pisan a la base — para validar visibilidad de refs contra el estado
-    # que quedaría, no el actual
-    resulting: dict[str, tuple] = {
-        k: (sig.owner_id, sig.is_public) for k, sig in db_signals.items()
-    }
-    for p in parsed:
-        existing = db_signals.get(p["key"])
-        p["owner_id"] = existing.owner_id if existing else owner_id
-        resulting[p["key"]] = (p["owner_id"], p["is_public"])
-
-    # Refs de composites: existencia (archivo + base) y visibilidad
-    file_keys = {p["key"] for p in parsed}
-    for p in parsed:
-        if p["error"] is None and p["formula_type"] == "composite":
-            refs = {
-                c.get("signal_key")
-                for c in _json.loads(p["params"]).get("components", [])
-            }
-            missing = refs - file_keys - known_signal_keys
-            if missing:
-                p["error"] = f"composite referencia señales inexistentes: {sorted(missing)}"
-                invalid = True
-                continue
-            bad = sorted(
-                ref for ref in refs
-                if not can_reference(p["owner_id"], p["is_public"],
-                                     *resulting[ref]))
-            if bad:
-                p["error"] = (f"composite {'pública' if p['is_public'] else 'privada'} "
-                              f"referencia señales privadas de otro dueño: {bad}")
-                invalid = True
 
     # Despublicar vía import: mismo chequeo de dependientes que en el ABM
     for p in parsed:
@@ -914,38 +760,13 @@ def _dates_to_compute(trading_dates: list, computed_dates: set,
     return [d for d in trading_dates if d not in computed_dates or d == last]
 
 
-def _closure_composites(seed_ids: set[int], signals: list) -> set[int]:
-    """Cierra el subconjunto sumando las señales referenciadas por las
-    composites incluidas, recursivo."""
-    import json as _json
-    by_key = {sg.key: sg for sg in signals}
-    by_id  = {sg.id: sg for sg in signals}
-    closed, frontier = set(seed_ids), list(seed_ids)
-    while frontier:
-        sig = by_id.get(frontier.pop())
-        if sig is None or sig.formula_type != "composite":
-            continue
-        try:
-            refs = {c.get("signal_key")
-                    for c in _json.loads(sig.params).get("components", [])}
-        except (TypeError, ValueError):
-            refs = set()
-        for k in refs:
-            ref = by_key.get(k)
-            if ref is not None and ref.id not in closed:
-                closed.add(ref.id)
-                frontier.append(ref.id)
-    return closed
-
-
 def _scope_signal_ids(s, scope: str | None):
     """Resuelve el alcance del backfill.
 
     scope: None (todo) | "strategy:<id>" | "signal:<key>".
     Devuelve (only_signal_ids | None, strategy_id | None, scope_kind).
     Para una estrategia incluye: señales de sus componentes + señales usadas
-    como operando en su filtro de elegibilidad + composites referenciadas
-    (recursivo)."""
+    como operando en su filtro de elegibilidad."""
     if not scope:
         return None, None, None
     kind, _, val = scope.partition(":")
@@ -965,13 +786,13 @@ def _scope_signal_ids(s, scope: str | None):
             for t, key, _res in strategy_filter.collect_operands(tree):
                 if t == "signal" and key in by_key:
                     seed.add(by_key[key].id)
-        return _closure_composites(seed, signals), strategy_id, "strategy"
+        return seed, strategy_id, "strategy"
 
     if kind == "signal":
         sig = by_key.get(val)
         if sig is None:
             raise ValueError(f"Señal '{val}' no encontrada.")
-        return _closure_composites({sig.id}, signals), None, "signal"
+        return {sig.id}, None, "signal"
 
     raise ValueError(f"Alcance desconocido: {scope!r}")
 

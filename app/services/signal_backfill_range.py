@@ -73,30 +73,6 @@ logger = logging.getLogger(__name__)
 _CHUNK_DATES = 250   # ~1 año de ruedas por chunk (unidad de carga del barrido)
 
 
-def _signal_group_types(direct: dict, refs_by_key: dict) -> dict:
-    """{signal_key: set[group_type]} que cada señal lee, transitivo por las
-    composites (una composite hereda los tipos de las señales que combina).
-    direct: {key: set(group_type)} propio de cada señal (vacío si no es de
-    grupo). refs_by_key: {key: set(keys referenciadas)} solo de composites."""
-    out: dict = {}
-
-    def _resolve(key, seen):
-        if key in out:
-            return out[key]
-        if key in seen:                       # corta ciclos entre composites
-            return set()
-        seen.add(key)
-        acc = set(direct.get(key, set()))
-        for ref in refs_by_key.get(key, ()):
-            acc |= _resolve(ref, seen)
-        out[key] = acc
-        return acc
-
-    for k in direct:
-        _resolve(k, set())
-    return out
-
-
 def _load_derivation_inputs(s):
     """Insumos (desde la BD) para derivar qué grupos calcular: se miran TODAS
     las estrategias y TODAS las señales, no solo las del alcance de esta
@@ -105,25 +81,15 @@ def _load_derivation_inputs(s):
     recalcular la estrategia de Argentina borraría los grupos que necesita la
     de Brasil sobre la misma señal). Devuelve (strategies, gtypes_by_id,
     gtypes_by_key)."""
-    import json as _json
     from app.models import SignalDefinition, Strategy
 
-    direct, refs, key_by_id = {}, {}, {}
+    # {signal_key: set(group_type)} — cada señal de grupo aporta su propio tipo
+    gtypes_by_key, gtypes_by_id = {}, {}
     for sig in s.query(SignalDefinition).all():
-        key_by_id[sig.id] = sig.key
-        direct[sig.key] = ({sig.group_type}
-                           if sig.source == "group" and sig.group_type else set())
-        if sig.formula_type == "composite":
-            try:
-                refs[sig.key] = {c.get("signal_key")
-                                 for c in _json.loads(sig.params).get("components", [])
-                                 if c.get("signal_key")}
-            except (TypeError, ValueError):
-                refs[sig.key] = set()
-
-    gtypes_by_key = _signal_group_types(direct, refs)
-    gtypes_by_id = {sid: gtypes_by_key.get(key, set())
-                    for sid, key in key_by_id.items()}
+        gtypes = ({sig.group_type}
+                  if sig.source == "group" and sig.group_type else set())
+        gtypes_by_key[sig.key] = gtypes
+        gtypes_by_id[sig.id] = gtypes
 
     strategies = []
     for st in s.query(Strategy).all():
@@ -179,8 +145,7 @@ def _derive_needed_groups(types_with_signals, strategies,
                       strategy_filter.restricted_attribute_ids(tree, comp.group_type))
             else:
                 # scope directo: lee el valor por-activo de la señal; si es de
-                # grupo (o composite que la referencia) necesita el grupo de
-                # cada activo que pase el filtro
+                # grupo necesita el grupo de cada activo que pase el filtro
                 for t in gtypes_by_id.get(comp.signal_id, ()):
                     _mark(t, strategy_filter.restricted_attribute_ids(tree, t))
         # señales de grupo usadas en el filtro: se evalúan sobre TODOS los
@@ -564,8 +529,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 sv_scores = _evaluate_asset_signal_scores(
                     signals=prep["signals"], asset_signals=prep["asset_signals"],
                     group_signals=prep["group_signals"],
-                    params_by_id=prep["params_by_id"],
-                    refs_by_key=prep["refs_by_key"], isnaps=isnaps,
+                    params_by_id=prep["params_by_id"], isnaps=isnaps,
                     asset_groups=asset_groups, gscores=gscores)
                 sv_rows.extend(
                     (k[0], k[1], d_str, v) for k, v in sv_scores.items())

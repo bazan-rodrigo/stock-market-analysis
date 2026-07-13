@@ -9,8 +9,8 @@ Modelo (migración 0065):
   is_public  — solo VISIBILIDAD: pública la ven todos (incluido quien no
                tiene usuario propio); privada, solo su dueño y el admin.
 
-Regla de referencias (composites, componentes de estrategia, operandos
-señal del filtro de elegibilidad): una definición PÚBLICA solo puede
+Regla de referencias (componentes de estrategia, operandos señal del
+filtro de elegibilidad): una definición PÚBLICA solo puede
 referenciar señales públicas; una PRIVADA puede referenciar públicas +
 las del mismo dueño. Así una señal privada nunca se filtra a otros
 usuarios a través de algo que sí ven.
