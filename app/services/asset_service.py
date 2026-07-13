@@ -5,6 +5,7 @@ Incluye autocompletado desde la fuente de precios y validación de tickers.
 import logging
 from typing import Optional
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_session
@@ -12,6 +13,39 @@ from app.models import Asset, PriceSource
 from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
+
+# Tablas de alto volumen con columna asset_id que se borran por lotes ANTES de
+# eliminar el activo, para no retener locks en una transacción de cascada
+# gigante (contención con backfills concurrentes → lock wait timeout). El resto
+# de las tablas hijas (logs, flags) las limpia el ON DELETE CASCADE al final.
+_HIGH_VOLUME_ASSET_TABLES = (
+    "signal_value", "strategy_result", "current_indicator_values",
+    "fundamental_quarterly", "prices",
+)
+_DELETE_BATCH = 5000
+
+
+def _purge_asset_high_volume(s, asset_id: int) -> None:
+    """Borra por lotes (con commit por lote) las filas de alto volumen del
+    activo. Solo en MySQL/MariaDB: sqlite (tests) no soporta DELETE ... LIMIT
+    ni information_schema, y ahí el cascade simple del ORM alcanza."""
+    if s.get_bind().dialect.name not in ("mysql", "mariadb"):
+        return
+    # ind_{code}/ind_fundamental_{code}/ind_asset_meta: dinámicas por indicador
+    # (ver get_ind_table), descubiertas desde information_schema
+    dyn = [r[0] for r in s.execute(text(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = DATABASE() AND table_name LIKE 'ind\\_%'")).all()]
+    for tbl in (*_HIGH_VOLUME_ASSET_TABLES, *dyn):
+        while True:
+            # _DELETE_BATCH inline (no como parámetro): algunos drivers MySQL
+            # no aceptan placeholder en LIMIT. Es una constante, no hay inyección.
+            res = s.execute(
+                text(f"DELETE FROM `{tbl}` WHERE asset_id = :aid LIMIT {_DELETE_BATCH}"),
+                {"aid": asset_id})
+            s.commit()
+            if res.rowcount < _DELETE_BATCH:
+                break
 
 
 def get_assets() -> list[Asset]:
@@ -137,6 +171,7 @@ def delete_asset(asset_id: int) -> None:
             + " y ".join(dependents) + ". Reasigná el benchmark antes de borrar."
         )
 
+    _purge_asset_high_volume(s, asset_id)
     s.delete(obj)
     s.commit()
 

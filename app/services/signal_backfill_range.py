@@ -33,10 +33,13 @@ Divergencias deliberadas con el camino por-fecha (no son regresiones):
   preserva escribiendo la ÚLTIMA fecha completa y el resto solo lo necesario.
 """
 import logging
+import random
+import time
 from datetime import timedelta
 from types import SimpleNamespace
 
 import sqlalchemy as sa
+from sqlalchemy.exc import OperationalError
 
 from app.database import get_session
 from app.models import (
@@ -71,6 +74,21 @@ from app.services.strategy_service import rank_strategy_assets
 logger = logging.getLogger(__name__)
 
 _CHUNK_DATES = 250   # ~1 año de ruedas por chunk (unidad de carga del barrido)
+
+# Errores InnoDB que la app debe reintentar (escrituras concurrentes contra
+# las mismas tablas — p.ej. una baja de activo que borra en cascada
+# signal_value mientras este backfill inserta; ver _fund_worker en
+# fundamental_service, mismo patrón). Sin esto un lock timeout abandona el
+# chunk entero (un año de fechas), que reaparece como hueco en el próximo delta.
+_DEADLOCK_ERRNO     = 1213  # "Deadlock found when trying to get lock"
+_LOCK_TIMEOUT_ERRNO = 1205  # "Lock wait timeout exceeded"
+_MAX_LOCK_RETRIES   = 3
+
+
+def _is_retryable_lock_error(exc: BaseException) -> bool:
+    orig  = getattr(exc, "orig", None)
+    errno = orig.args[0] if orig and getattr(orig, "args", None) else None
+    return errno in (_DEADLOCK_ERRNO, _LOCK_TIMEOUT_ERRNO)
 
 
 def _load_derivation_inputs(s):
@@ -399,12 +417,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         s.connection().exec_driver_sql(
             f"INSERT INTO {table_name} ({cols}) VALUES ({ph})", rows)
 
-    def _flush(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
-        """DELETE de las fechas del batch (solo en delta; el rebuild ya
-        limpió todo al inicio) + INSERT masivo + commit. Las fechas ya
-        flusheadas quedan persistidas aunque un batch posterior falle."""
-        if not batch_dates:
-            return
+    def _flush_once(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
         if not force:
             if signal_ids_all:
                 s.execute(sa.delete(SignalValue.__table__).where(
@@ -441,8 +454,35 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                      sr_rows)
         _bulk_insert("signal_eval_log",
                      ("scope_kind", "ref_id", "date"), marker_rows)
-        logged.update(batch_dates)
         s.commit()
+
+    def _flush(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
+        """DELETE de las fechas del batch (solo en delta; el rebuild ya
+        limpió todo al inicio) + INSERT masivo + commit. Las fechas ya
+        flusheadas quedan persistidas aunque un batch posterior falle.
+
+        Reintenta ante lock timeout/deadlock (1205/1213): el DELETE+INSERT es
+        idempotente, y la contención con otras escrituras (p.ej. una baja de
+        activo borrando en cascada) suele ser transitoria."""
+        if not batch_dates:
+            return
+        for attempt in range(_MAX_LOCK_RETRIES + 1):
+            try:
+                _flush_once(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows,
+                            marker_rows)
+                break
+            except OperationalError as exc:
+                s.rollback()
+                if attempt < _MAX_LOCK_RETRIES and _is_retryable_lock_error(exc):
+                    logger.warning(
+                        "signal_backfill_range: lock timeout/deadlock en flush "
+                        "%s..%s (intento %d/%d), reintentando...",
+                        batch_dates[0], batch_dates[-1], attempt + 1,
+                        _MAX_LOCK_RETRIES)
+                    time.sleep(0.2 * (attempt + 1) + random.uniform(0, 0.3))
+                    continue
+                raise
+        logged.update(batch_dates)
         logger.info(
             "signal_backfill_range: %s..%s (%d fechas): %d signal_value, "
             "%d group_signal_value, %d group_scores, %d strategy_result",

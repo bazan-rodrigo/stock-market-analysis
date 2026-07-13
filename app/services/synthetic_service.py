@@ -221,7 +221,13 @@ def _bulk_insert_synthetic_prices(session, asset_id: int, results: dict) -> int:
     return len(rows)
 
 
-def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
+def compute_synthetic_prices(asset_id: int, full: bool = False,
+                             price_frame_cache: dict | None = None) -> int:
+    """price_frame_cache: {(asset_id, start_date): DataFrame} de solo lectura —
+    para reusar el frame del divisor entre muchos sintéticos de la misma moneda
+    (ver currency_conversion_service.sync_all), que si no se recarga de la BD
+    una vez por cada base. No se puebla acá (las bases se usan una sola vez;
+    cachearlas inflaría memoria) — el llamador precarga lo compartido."""
     s = get_session()
     formula = get_formula_by_asset(asset_id)
     if formula is None:
@@ -244,7 +250,15 @@ def compute_synthetic_prices(asset_id: int, full: bool = False) -> int:
 
     comps = formula.components
     all_asset_ids = list({c.asset_id for c in comps})
-    price_frames = {aid: _load_price_frame(aid, start_date) for aid in all_asset_ids}
+
+    def _frame(aid):
+        if price_frame_cache is not None:
+            cached = price_frame_cache.get((aid, start_date))
+            if cached is not None:
+                return cached
+        return _load_price_frame(aid, start_date)
+
+    price_frames = {aid: _frame(aid) for aid in all_asset_ids}
 
     base_prices = None
     if formula.formula_type == "index":

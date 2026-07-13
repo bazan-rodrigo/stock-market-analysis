@@ -206,9 +206,13 @@ def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
     if not to_delete:
         return 0
 
-    # Bulk load + bulk delete (1 query en lugar de N)
+    # Cada sintético tiene su propia historia de precios/indicadores; borrarla
+    # por lotes ANTES (con commits) evita retener locks en una cascada gigante
+    # (contención con backfills concurrentes → lock wait timeout).
+    from app.services.asset_service import _purge_asset_high_volume
     synthetics = s.query(Asset).filter(Asset.id.in_(to_delete)).all()
     for syn in synthetics:
+        _purge_asset_high_volume(s, syn.id)
         s.delete(syn)
     s.commit()
     return len(synthetics)
@@ -216,7 +220,7 @@ def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
 
 def sync_for_asset(asset_id: int) -> dict:
     """Crea los sintéticos para un activo base contra todos los divisores de su moneda."""
-    from app.services.synthetic_service import compute_synthetic_prices
+    from app.services.synthetic_service import _load_price_frame, compute_synthetic_prices
 
     s    = get_session()
     base = s.query(Asset).filter(Asset.id == asset_id).first()
@@ -231,6 +235,13 @@ def sync_for_asset(asset_id: int) -> dict:
     if not divisors:
         return {"created": 0, "already_existed": 0, "errors": []}
 
+    # El frame de cada divisor se comparte entre todos sus sintéticos: cargarlo
+    # una vez (full=True → start_date None) en vez de una por base
+    price_frame_cache = {
+        (d.divisor_asset_id, None): _load_price_frame(d.divisor_asset_id, None)
+        for d in divisors
+    }
+
     created = 0
     already_existed = 0
     errors = []
@@ -243,7 +254,8 @@ def sync_for_asset(asset_id: int) -> dict:
             if was_created:
                 created += 1
                 try:
-                    compute_synthetic_prices(syn.id, full=True)
+                    compute_synthetic_prices(syn.id, full=True,
+                                             price_frame_cache=price_frame_cache)
                 except Exception as exc:
                     logger.warning("Error calculando precios %s: %s", syn.ticker, exc)
                     errors.append({"ticker": syn.ticker, "error": str(exc)})
@@ -261,12 +273,20 @@ def sync_all(progress_cb=None) -> dict:
     Para cada par (moneda, divisor) × cada activo en esa moneda: garantiza que
     existe el sintético y calcula sus precios si fue recién creado.
     """
-    from app.services.synthetic_service import compute_synthetic_prices
+    from app.services.synthetic_service import _load_price_frame, compute_synthetic_prices
 
     all_divisors = get_divisors()
     cal_id       = _calculado_source_id()
     if not all_divisors or not cal_id:
         return {"created": 0, "already_existed": 0, "computed": 0, "errors": []}
+
+    # El frame de cada divisor se comparte entre TODOS sus sintéticos (una
+    # moneda tiene muchas bases y un mismo divisor): cargarlo una sola vez, en
+    # vez de recargarlo de la BD por cada base. Ver compute_synthetic_prices.
+    price_frame_cache = {
+        (d.divisor_asset_id, None): _load_price_frame(d.divisor_asset_id, None)
+        for d in all_divisors
+    }
 
     # Agrupar divisores por moneda para evitar consultas repetidas
     by_currency: dict = {}
@@ -294,7 +314,8 @@ def sync_all(progress_cb=None) -> dict:
             if was_created:
                 created += 1
                 try:
-                    compute_synthetic_prices(syn.id, full=True)
+                    compute_synthetic_prices(syn.id, full=True,
+                                             price_frame_cache=price_frame_cache)
                     computed += 1
                 except Exception as exc:
                     logger.warning("Error calculando precios %s: %s", syn.ticker, exc)
