@@ -1,4 +1,5 @@
 import base64
+import logging
 import threading
 
 from dash import ALL, Input, Output, State, callback, ctx, dcc, html, no_update
@@ -7,30 +8,51 @@ import dash_bootstrap_components as dbc
 import app.services.synthetic_service as svc
 from app.pages.admin_synthetic import _help_card, _th, _td
 
+logger = logging.getLogger(__name__)
+
 _syn_state = {"running": False, "current": 0, "total": 0, "msg": "", "has_errors": False}
 
 
 def _start_calc(selected_ids: list[int], *, full: bool):
-    formulas = [x for x in svc.get_all_formulas() if x.id in selected_ids]
-    total = len(formulas)
+    # Resolver TODO lo que el thread necesita ACÁ, en el request: los objetos
+    # ORM quedan detached cuando Flask cierra la sesión al terminar el
+    # request, y un lazy-load (f.asset) desde el thread revienta con
+    # DetachedInstanceError — mataba el thread sin setear running=False y la
+    # pantalla quedaba muda con los botones deshabilitados (mismo patrón que
+    # el fix 074d1b2 en el pool de indicadores)
+    targets = [
+        (f.asset_id, f.asset.ticker if f.asset else str(f.id))
+        for f in svc.get_all_formulas() if f.id in selected_ids
+    ]
+    total = len(targets)
     _syn_state.update({"running": True, "current": 0, "total": total, "msg": "", "has_errors": False})
 
     def _run():
+        from app.database import Session as _ScopedSession
         inserted, errors = 0, []
-        for i, f in enumerate(formulas, 1):
-            _syn_state["current"] = i
-            ticker = f.asset.ticker if f.asset else str(f.id)
-            try:
-                inserted += svc.compute_synthetic_prices(f.asset_id, full=full)
-            except Exception as exc:
-                errors.append(f"{ticker}: {exc}")
-        _syn_state["has_errors"] = bool(errors)
-        label = "Recálculo completo" if full else "Delta calculado"
-        msg = f"{label}: {inserted} precio(s) insertado(s)."
-        if errors:
-            msg += f" {len(errors)} error(es): {'; '.join(errors[:5])}"
-        _syn_state["msg"] = msg
-        _syn_state["running"] = False
+        try:
+            for i, (asset_id, ticker) in enumerate(targets, 1):
+                _syn_state["current"] = i
+                try:
+                    inserted += svc.compute_synthetic_prices(asset_id, full=full)
+                except Exception as exc:
+                    logger.exception("synthetic: cálculo falló para %s", ticker)
+                    errors.append(f"{ticker}: {exc}")
+            _syn_state["has_errors"] = bool(errors)
+            label = "Recálculo completo" if full else "Delta calculado"
+            msg = f"{label}: {inserted} precio(s) insertado(s)."
+            if errors:
+                msg += f" {len(errors)} error(es): {'; '.join(errors[:5])}"
+            _syn_state["msg"] = msg
+        except Exception as exc:
+            logger.exception("synthetic: cálculo abortado")
+            _syn_state["has_errors"] = True
+            _syn_state["msg"] = f"Cálculo abortado: {exc}"
+        finally:
+            # Pase lo que pase, running vuelve a False (si quedara en True,
+            # la UI queda congelada hasta reiniciar la app)
+            _syn_state["running"] = False
+            _ScopedSession.remove()
 
     threading.Thread(target=_run, daemon=True).start()
 
