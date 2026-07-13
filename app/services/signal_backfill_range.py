@@ -64,7 +64,13 @@ from app.services.strategy_service import rank_strategy_assets
 
 logger = logging.getLogger(__name__)
 
-_CHUNK_DATES = 250   # ~1 año de ruedas por chunk (acota memoria y transacción)
+_CHUNK_DATES = 250   # ~1 año de ruedas por chunk (unidad de carga del barrido)
+
+# Tope de filas acumuladas antes de escribir: un chunk de la era densa
+# (500 activos × 16 señales × 250 fechas ≈ 2M filas) en una sola
+# transacción infla memoria (dicts + GC) y el commit de InnoDB — el flush
+# intermedio mantiene ambos acotados sin cambiar el resultado
+_MAX_ROWS_PER_FLUSH = 150_000
 
 
 class _Sweep:
@@ -210,6 +216,45 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     errors: list[dict] = []
     done = 0
 
+    def _flush(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
+        """DELETE de las fechas del batch (acotado al alcance) + INSERT
+        masivo + commit. Las fechas ya flusheadas quedan persistidas aunque
+        un batch posterior falle."""
+        if not batch_dates:
+            return
+        if signal_ids_all:
+            s.execute(sa.delete(SignalValue.__table__).where(
+                SignalValue.date.in_(batch_dates),
+                SignalValue.signal_id.in_(signal_ids_all)))
+        if group_sig_ids:
+            s.execute(sa.delete(GroupSignalValue.__table__).where(
+                GroupSignalValue.date.in_(batch_dates),
+                GroupSignalValue.signal_id.in_(group_sig_ids)))
+        s.execute(sa.delete(GroupScore.__table__).where(
+            GroupScore.date.in_(batch_dates)))
+        if strat_ids:
+            s.execute(sa.delete(StrategyResult.__table__).where(
+                StrategyResult.date.in_(batch_dates),
+                StrategyResult.strategy_id.in_(strat_ids)))
+
+        if gs_rows:
+            s.execute(sa.insert(GroupScore.__table__), gs_rows)
+        if sv_rows:
+            s.execute(sa.insert(SignalValue.__table__), sv_rows)
+        if gsv_rows:
+            s.execute(sa.insert(GroupSignalValue.__table__), gsv_rows)
+        if sr_rows:
+            s.execute(sa.insert(StrategyResult.__table__), sr_rows)
+        if marker_rows:
+            s.execute(sa.insert(SignalEvalLog.__table__), marker_rows)
+            logged.update(m["date"] for m in marker_rows)
+        s.commit()
+        logger.info(
+            "signal_backfill_range: %s..%s (%d fechas): %d signal_value, "
+            "%d group_signal_value, %d group_scores, %d strategy_result",
+            batch_dates[0], batch_dates[-1], len(batch_dates),
+            len(sv_rows), len(gsv_rows), len(gs_rows), len(sr_rows))
+
     # ── Chunks ────────────────────────────────────────────────────────────
     for start in range(0, total, _CHUNK_DATES):
         chunk = dates[start:start + _CHUNK_DATES]
@@ -229,6 +274,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                         closes_by_date.setdefault(dt, {})[aid] = float(close)
 
             sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows = [], [], [], [], []
+            batch_dates: list = []
 
             for d in chunk:
                 done += 1
@@ -289,11 +335,19 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                      "date": d, "score": v}
                     for k, v in gsv_scores.items())
 
+                # Índice por señal, UNA pasada por fecha: sin esto cada
+                # estrategia rebarre los ~8000 scores del día y el costo
+                # crece cuadrático con la densidad (lento en la era moderna)
+                sv_by_signal: dict[int, dict] = {}
+                for (sig_id, aid), sc in sv_scores.items():
+                    sv_by_signal.setdefault(sig_id, {})[aid] = sc
+
                 # Estrategias: mismos insumos que el camino por-fecha, pero
                 # desde memoria (señales recién calculadas + as-of del barrido)
                 for ctx in strat_ctx:
-                    aids = {aid for (sig_id, aid) in sv_scores
-                            if sig_id in ctx["signal_ids"]}
+                    aids = set()
+                    for sig_id in ctx["signal_ids"]:
+                        aids.update(sv_by_signal.get(sig_id, ()))
                     groups_sub = {aid: asset_groups[aid] for aid in aids
                                   if aid in asset_groups}
                     operand_values: dict[tuple, dict] = {}
@@ -304,10 +358,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                             operand_values[(t, key, res)] = snap.get(key, {})
                         elif t == "signal":
                             op_id = sig_id_by_key.get(key)
-                            operand_values[(t, key, res)] = {
-                                aid: sc for (sig_id, aid), sc in sv_scores.items()
-                                if sig_id == op_id
-                            } if op_id is not None else {}
+                            operand_values[(t, key, res)] = (
+                                sv_by_signal.get(op_id, {})
+                                if op_id is not None else {})
                     scored = rank_strategy_assets(
                         components=ctx["components"], asset_groups=groups_sub,
                         signal_scores=sv_scores, group_scores=gsv_scores,
@@ -320,43 +373,21 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 if d not in logged:
                     marker_rows.append(
                         {"scope_kind": eval_kind, "ref_id": eval_ref, "date": d})
+                batch_dates.append(d)
 
-            # ── Flush del chunk: DELETE de lo procesado + INSERT masivo ────
-            if signal_ids_all:
-                s.execute(sa.delete(SignalValue.__table__).where(
-                    SignalValue.date.in_(chunk),
-                    SignalValue.signal_id.in_(signal_ids_all)))
-            if group_sig_ids:
-                s.execute(sa.delete(GroupSignalValue.__table__).where(
-                    GroupSignalValue.date.in_(chunk),
-                    GroupSignalValue.signal_id.in_(group_sig_ids)))
-            s.execute(sa.delete(GroupScore.__table__).where(
-                GroupScore.date.in_(chunk)))
-            if strat_ids:
-                s.execute(sa.delete(StrategyResult.__table__).where(
-                    StrategyResult.date.in_(chunk),
-                    StrategyResult.strategy_id.in_(strat_ids)))
+                # Flush intermedio por volumen: en la era densa un chunk
+                # entero acumularía ~2M filas (memoria + transacción gigante)
+                if (len(sv_rows) + len(gsv_rows) + len(gs_rows)
+                        + len(sr_rows)) >= _MAX_ROWS_PER_FLUSH:
+                    _flush(batch_dates, sv_rows, gsv_rows, gs_rows,
+                           sr_rows, marker_rows)
+                    ok += len(batch_dates)
+                    sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows = \
+                        [], [], [], [], []
+                    batch_dates = []
 
-            if gs_rows:
-                s.execute(sa.insert(GroupScore.__table__), gs_rows)
-            if sv_rows:
-                s.execute(sa.insert(SignalValue.__table__), sv_rows)
-            if gsv_rows:
-                s.execute(sa.insert(GroupSignalValue.__table__), gsv_rows)
-            if sr_rows:
-                s.execute(sa.insert(StrategyResult.__table__), sr_rows)
-            if marker_rows:
-                s.execute(sa.insert(SignalEvalLog.__table__), marker_rows)
-                logged.update(m["date"] for m in marker_rows)
-            s.commit()
-
-            ok += len(chunk)
-            logger.info(
-                "signal_backfill_range: chunk %s..%s (%d fechas): "
-                "%d signal_value, %d group_signal_value, %d group_scores, "
-                "%d strategy_result",
-                chunk[0], chunk[-1], len(chunk),
-                len(sv_rows), len(gsv_rows), len(gs_rows), len(sr_rows))
+            _flush(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows)
+            ok += len(batch_dates)
 
         except Exception as exc:
             s.rollback()

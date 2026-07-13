@@ -283,6 +283,9 @@ def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
 
     _wipe_derived()
     monkeypatch.setattr(signal_backfill_range, "_CHUNK_DATES", 7)
+    # Flush intermedio cada pocas filas: el corte por volumen dentro del
+    # chunk tampoco puede cambiar el resultado
+    monkeypatch.setattr(signal_backfill_range, "_MAX_ROWS_PER_FLUSH", 40)
     result = signal_backfill_range.run_range(
         dates, only_ids=None, strategy_id=None, scope_kind=None,
         latest_price_date=last, eval_kind="all", eval_ref=0, logged=set())
