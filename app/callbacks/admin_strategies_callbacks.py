@@ -361,7 +361,16 @@ def save(_, name, description, is_public, uid_store,
             acting_user_id=user_id,
             acting_is_admin=is_admin,
         )
-        return "Estrategia guardada.", True, "success", False, "", False, []
+        msg = "Estrategia guardada."
+        # Los group_scores de las señales de grupo se calculan solo para los
+        # grupos que las estrategias consumen (own_group acotado por el filtro,
+        # specific_group puntual). Si cambió el alcance o el filtro, la historia
+        # existente puede quedar corta hasta recalcularla.
+        if any(c["scope"] in ("own_group", "specific_group") for c in components):
+            msg += (" Usa señales de grupo: si cambiaste el filtro o el alcance "
+                    "de grupo, corré «Calcular historia» para poblar los "
+                    "group_scores de los grupos afectados.")
+        return msg, True, "success", False, "", False, []
     except Exception as exc:
         return err(str(exc))
 

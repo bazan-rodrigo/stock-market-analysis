@@ -22,9 +22,15 @@ La MATEMÁTICA no vive acá: los evaluadores compartidos
 aggregate_group_scores, rank_strategy_assets) son los mismos que usa el
 camino por-fecha — ver tests/test_signal_range_parity.py.
 
-Divergencia deliberada con el camino por-fecha: el DELETE por fecha
-elimina filas obsoletas (señales/grupos que ya no puntúan ese día) que el
-upsert por-fecha dejaría zombies. Es una mejora, no una regresión.
+Divergencias deliberadas con el camino por-fecha (no son regresiones):
+- El DELETE por fecha elimina filas obsoletas (señales/grupos que ya no
+  puntúan ese día) que el upsert por-fecha dejaría zombies.
+- group_scores/group_signal_value se escriben SOLO para los grupos que
+  alguna estrategia consume (_derive_needed_groups): sin señales de grupo
+  no se escribe historia, y una señal acotada a un país solo calcula ese
+  país. El camino por-fecha (compute_group_scores) escribe todos los grupos
+  todas las fechas porque alimenta el mapa de mercado; en modo rango eso se
+  preserva escribiendo la ÚLTIMA fecha completa y el resto solo lo necesario.
 """
 import logging
 from datetime import timedelta
@@ -65,6 +71,129 @@ from app.services.strategy_service import rank_strategy_assets
 logger = logging.getLogger(__name__)
 
 _CHUNK_DATES = 250   # ~1 año de ruedas por chunk (unidad de carga del barrido)
+
+
+def _signal_group_types(direct: dict, refs_by_key: dict) -> dict:
+    """{signal_key: set[group_type]} que cada señal lee, transitivo por las
+    composites (una composite hereda los tipos de las señales que combina).
+    direct: {key: set(group_type)} propio de cada señal (vacío si no es de
+    grupo). refs_by_key: {key: set(keys referenciadas)} solo de composites."""
+    out: dict = {}
+
+    def _resolve(key, seen):
+        if key in out:
+            return out[key]
+        if key in seen:                       # corta ciclos entre composites
+            return set()
+        seen.add(key)
+        acc = set(direct.get(key, set()))
+        for ref in refs_by_key.get(key, ()):
+            acc |= _resolve(ref, seen)
+        out[key] = acc
+        return acc
+
+    for k in direct:
+        _resolve(k, set())
+    return out
+
+
+def _load_derivation_inputs(s):
+    """Insumos (desde la BD) para derivar qué grupos calcular: se miran TODAS
+    las estrategias y TODAS las señales, no solo las del alcance de esta
+    corrida — el conjunto de grupos de una señal es propiedad de la señal y de
+    todos sus consumidores, no del alcance con que se la recalcula (si no,
+    recalcular la estrategia de Argentina borraría los grupos que necesita la
+    de Brasil sobre la misma señal). Devuelve (strategies, gtypes_by_id,
+    gtypes_by_key)."""
+    import json as _json
+    from app.models import SignalDefinition, Strategy
+
+    direct, refs, key_by_id = {}, {}, {}
+    for sig in s.query(SignalDefinition).all():
+        key_by_id[sig.id] = sig.key
+        direct[sig.key] = ({sig.group_type}
+                           if sig.source == "group" and sig.group_type else set())
+        if sig.formula_type == "composite":
+            try:
+                refs[sig.key] = {c.get("signal_key")
+                                 for c in _json.loads(sig.params).get("components", [])
+                                 if c.get("signal_key")}
+            except (TypeError, ValueError):
+                refs[sig.key] = set()
+
+    gtypes_by_key = _signal_group_types(direct, refs)
+    gtypes_by_id = {sid: gtypes_by_key.get(key, set())
+                    for sid, key in key_by_id.items()}
+
+    strategies = []
+    for st in s.query(Strategy).all():
+        tree = strategy_filter.parse_tree(st.filter_conditions)
+        sig_ops = ({key for t, key, _r in strategy_filter.collect_operands(tree)
+                    if t == "signal"} if tree is not None else set())
+        comps = [SimpleNamespace(signal_id=c.signal_id, scope=c.scope,
+                                 group_type=c.group_type, group_id=c.group_id)
+                 for c in st.components]
+        strategies.append({"tree": tree, "components": comps,
+                           "signal_operands": sig_ops})
+    return strategies, gtypes_by_id, gtypes_by_key
+
+
+def _derive_needed_groups(types_with_signals, strategies,
+                          gtypes_by_id, gtypes_by_key) -> dict:
+    """{group_type: set[int] | None}. None = todos los ids de ese tipo;
+    group_type AUSENTE = ninguna estrategia lo consume → no se escribe su
+    historia en modo rango (el mapa de mercado lo mantiene el camino diario,
+    que siempre escribe la última fecha completa).
+
+    Una señal de grupo de tipo T se calcula solo para los group_id que alguna
+    estrategia realmente usa: specific_group puntual, own_group acotado por el
+    filtro de esa estrategia (ver strategy_filter.restricted_attribute_ids).
+    Se toma la UNIÓN sobre todas las estrategias que la consumen — así el
+    conjunto no depende del alcance de la corrida. Si ninguna estrategia la
+    restringe (o la usa sin filtrar ese atributo) → todos los grupos del tipo,
+    default seguro (una señal creada para verse suelta se calcula entera)."""
+    if not types_with_signals:
+        return {}
+
+    needed: dict = {}
+    constrained: set = set()
+
+    def _mark(t, ids):
+        if t not in types_with_signals:
+            return
+        constrained.add(t)
+        if t in needed and needed[t] is None:       # ya abierto a todos
+            return
+        if ids is None:
+            needed[t] = None
+        else:
+            needed[t] = (needed.get(t) or set()) | ids
+
+    for st in strategies:
+        tree = st["tree"]
+        for comp in st["components"]:
+            if comp.scope == "specific_group" and comp.group_id is not None:
+                _mark(comp.group_type, {comp.group_id})
+            elif comp.scope == "own_group" and comp.group_type:
+                _mark(comp.group_type,
+                      strategy_filter.restricted_attribute_ids(tree, comp.group_type))
+            else:
+                # scope directo: lee el valor por-activo de la señal; si es de
+                # grupo (o composite que la referencia) necesita el grupo de
+                # cada activo que pase el filtro
+                for t in gtypes_by_id.get(comp.signal_id, ()):
+                    _mark(t, strategy_filter.restricted_attribute_ids(tree, t))
+        # señales de grupo usadas en el filtro: se evalúan sobre TODOS los
+        # candidatos antes de filtrar → hacen falta todos los grupos del tipo
+        for key in st["signal_operands"]:
+            for t in gtypes_by_key.get(key, ()):
+                _mark(t, None)
+
+    # tipos con señal que ninguna estrategia restringe → todos
+    for t in types_with_signals:
+        if t not in constrained:
+            needed[t] = None
+    return needed
 
 # Tope de filas acumuladas antes de escribir: un chunk de la era densa
 # (500 activos × 16 señales × 250 fechas ≈ 2M filas) en una sola
@@ -226,6 +355,28 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     group_sig_ids   = [sig.id for sig in prep["group_signals"]]
     strat_ids       = [c["id"] for c in strat_ctx]
 
+    # Grupos realmente consumidos: sin señales de grupo esto queda vacío y no
+    # se escribe NADA de historia en group_scores/group_signal_value (antes se
+    # escribía la agregación de ~200 grupos por fecha aunque nadie la leyera).
+    # La derivación mira TODAS las estrategias (no solo las del alcance): el
+    # conjunto de grupos de una señal es propiedad de sus consumidores.
+    types_with_signals = {sig.group_type for sig in prep["group_signals"]
+                          if sig.group_type}
+    if types_with_signals:
+        _deriv_strats, _gtypes_by_id, _gtypes_by_key = _load_derivation_inputs(s)
+        needed_groups = _derive_needed_groups(
+            types_with_signals, _deriv_strats, _gtypes_by_id, _gtypes_by_key)
+    else:
+        needed_groups = {}
+
+    needed_group_types = set(needed_groups)
+
+    def _group_needed(group_type, group_id) -> bool:
+        if group_type not in needed_groups:
+            return False
+        ids = needed_groups[group_type]
+        return ids is None or group_id in ids
+
     total, ok = len(dates), 0
     errors: list[dict] = []
     done = 0
@@ -251,8 +402,17 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 s.execute(sa.delete(GroupSignalValue.__table__).where(
                     GroupSignalValue.date.between(d0, d1),
                     GroupSignalValue.signal_id.in_(group_sig_ids)))
-            s.execute(sa.delete(GroupScore.__table__).where(
-                GroupScore.date.between(d0, d1)))
+            # group_scores: solo los tipos que ESTA corrida reescribe (los
+            # demás pueden pertenecer a otras señales de grupo) + la última
+            # fecha completa para el mapa de mercado. Un rebuild acotado no
+            # debe borrar la historia de tipos que no le corresponden.
+            if needed_group_types:
+                s.execute(sa.delete(GroupScore.__table__).where(
+                    GroupScore.date.between(d0, d1),
+                    GroupScore.group_type.in_(needed_group_types)))
+            if latest_price_date is not None and d0 <= latest_price_date <= d1:
+                s.execute(sa.delete(GroupScore.__table__).where(
+                    GroupScore.date == latest_price_date))
             if strat_ids:
                 s.execute(sa.delete(StrategyResult.__table__).where(
                     StrategyResult.date.between(d0, d1),
@@ -289,8 +449,15 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 s.execute(sa.delete(GroupSignalValue.__table__).where(
                     GroupSignalValue.date.in_(batch_dates),
                     GroupSignalValue.signal_id.in_(group_sig_ids)))
-            s.execute(sa.delete(GroupScore.__table__).where(
-                GroupScore.date.in_(batch_dates)))
+            # group_scores: solo los tipos reescritos (los demás pueden ser de
+            # otras señales) + la última fecha completa (mapa de mercado)
+            if needed_group_types:
+                s.execute(sa.delete(GroupScore.__table__).where(
+                    GroupScore.date.in_(batch_dates),
+                    GroupScore.group_type.in_(needed_group_types)))
+            if latest_price_date in batch_dates:
+                s.execute(sa.delete(GroupScore.__table__).where(
+                    GroupScore.date == latest_price_date))
             if strat_ids:
                 s.execute(sa.delete(StrategyResult.__table__).where(
                     StrategyResult.date.in_(batch_dates),
@@ -354,15 +521,28 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     for aid, val in sweeps[code].exact(d).items():
                         asset_trends.setdefault(aid, {})[tf] = val
                 aggregated = aggregate_group_scores(asset_trends, asset_meta)
+
+                # gscores para los EVALUADORES: solo los grupos que alguna
+                # estrategia consume — controla group_signal_value y el valor
+                # por-activo de las señales de grupo. Sin señales de grupo o
+                # sin consumo → queda vacío y no se evalúa ninguno.
                 gscores = {
                     key: SimpleNamespace(group_type=key[0], group_id=key[1], **vals)
                     for key, vals in aggregated.items()
+                    if _group_needed(key[0], key[1])
                 }
+                # group_scores a ESCRIBIR: la ÚLTIMA fecha va completa (la lee
+                # el mapa de mercado, que muestra todos los grupos); el resto
+                # solo los grupos consumidos (la historia que leen las señales
+                # de grupo). Divergencia deliberada con el camino por-fecha,
+                # que escribe todos los grupos todas las fechas para el mapa.
+                write_all_groups = (d == latest_price_date)
                 gs_rows.extend(
                     (gt, gid, d_str, vals["regime_score_d"],
                      vals["regime_score_w"], vals["regime_score_m"],
                      vals["n_assets"])
                     for (gt, gid), vals in aggregated.items()
+                    if write_all_groups or _group_needed(gt, gid)
                 )
 
                 # Snapshots as-of de todos los códigos barridos

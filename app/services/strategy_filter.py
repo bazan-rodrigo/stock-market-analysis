@@ -116,6 +116,67 @@ def uses_current_resolution(tree: dict | None) -> bool:
                if t == "indicator")
 
 
+def _leaf_attribute_ids(cond: dict, attribute: str) -> set | None:
+    """Set de group_id que el atributo puede tomar para pasar ESTA hoja, o
+    None si la hoja no lo restringe finitamente (no lo menciona, o usa un
+    operador que no acota a un conjunto: !=, not_in). Los atributos son FK
+    (ids enteros); la constante es un id (=) o una lista de ids (in)."""
+    left = cond.get("left") or {}
+    right = cond.get("right") or {}
+    if (left.get("type") != "attribute" or left.get("key") != attribute
+            or right.get("type") != "const"):
+        return None
+    op = cond.get("operator")
+    val = right.get("value")
+    if op == "=" and isinstance(val, int) and not isinstance(val, bool):
+        return {val}
+    if op == "in" and isinstance(val, (list, tuple)):
+        ids = {v for v in val if isinstance(v, int) and not isinstance(v, bool)}
+        # Si algún elemento no es un id entero no podemos acotar con confianza
+        return ids if len(ids) == len(val) else None
+    return None
+
+
+def restricted_attribute_ids(tree: dict | None, attribute: str) -> set | None:
+    """Conjunto de valores (group_id) que un activo puede tener en `attribute`
+    (sector/market/industry/country/instrument_type) y AÚN pasar el filtro, si
+    el árbol lo restringe estáticamente a un conjunto finito; None = sin
+    restringir (cualquier valor podría pasar).
+
+    Se usa para derivar qué grupos necesita calcular una señal de grupo: si la
+    estrategia que la consume filtra `country in [Argentina]`, no hace falta el
+    group_score de los demás países. CONSERVADOR: ante cualquier ambigüedad
+    devuelve None (calcular todos) — nunca acota de menos, que daría scores
+    faltantes silenciosos.
+
+    AND = intersección (un hijo que restringe gana); OR = unión (si un brazo no
+    restringe, el resultado no restringe); != / not_in / operandos no-atributo
+    no acotan."""
+    if not tree:
+        return None
+    if "cond" in tree:
+        return _leaf_attribute_ids(tree["cond"], attribute)
+
+    children = tree.get("children", [])
+    child_sets = [restricted_attribute_ids(c, attribute) for c in children]
+
+    if tree.get("op") == "AND":
+        result: set | None = None
+        for cs in child_sets:
+            if cs is None:
+                continue
+            result = cs if result is None else (result & cs)
+        return result
+    if tree.get("op") == "OR":
+        result = set()
+        for cs in child_sets:
+            if cs is None:
+                return None          # un brazo sin restricción abre todo
+            result |= cs
+        return result or None
+    return None
+
+
 # ── Carga batch de valores ────────────────────────────────────────────────────
 
 def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
