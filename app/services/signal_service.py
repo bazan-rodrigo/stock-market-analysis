@@ -443,6 +443,50 @@ def signal_dependents_of_others(s, sig: SignalDefinition,
             if dep_public or dep_owner != owner_id]
 
 
+_GROUP_TYPE_COLUMNS = {
+    "sector": "sector_id", "market": "market_id", "industry": "industry_id",
+    "country": "country_id", "instrument_type": "instrument_type_id",
+}
+
+
+def signals_and_strategies_affected_by_new_assets(asset_ids) -> list[str]:
+    """Al AGREGAR activos (p.ej. sintéticos de conversión de moneda), sus
+    señales/estrategias PROPIAS entran solas en la próxima corrida, pero los
+    activos nuevos también pasan a integrar los AGREGADOS de sus grupos
+    (sector/mercado/país/...): eso desactualiza en la historia las señales de
+    grupo de esos tipos y las estrategias que las usan (su score/ranking
+    histórico se calculó sin estos activos). Devuelve descripciones para el
+    aviso de 'Recalcular completo'. Lista vacía = nada que recalcular (típico
+    si no hay señales de grupo). No es transversal por activo: solo mira los
+    grupos que los nuevos activos tocan."""
+    if not asset_ids:
+        return []
+    s = get_session()
+
+    types: set[str] = set()
+    for a in s.query(Asset).filter(Asset.id.in_(list(asset_ids))).all():
+        for gt, col in _GROUP_TYPE_COLUMNS.items():
+            if getattr(a, col) is not None:
+                types.add(gt)
+    if not types:
+        return []
+
+    group_sigs = s.query(SignalDefinition).filter(
+        SignalDefinition.source == "group",
+        SignalDefinition.group_type.in_(types)).all()
+    if not group_sigs:
+        return []
+
+    # Sets: una estrategia que usa dos señales de grupo afectadas se lista una
+    # sola vez; los nombres de señal son únicos por key
+    signal_descs = {f"señal de grupo «{sig.key}»" for sig in group_sigs}
+    strat_descs: set[str] = set()
+    for sig in group_sigs:
+        for desc, _o, _p in _signal_dependents(s, sig):
+            strat_descs.add(desc)
+    return sorted(signal_descs) + sorted(strat_descs)
+
+
 def save_signal(
     key: str,
     name: str,

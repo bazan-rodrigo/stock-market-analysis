@@ -193,12 +193,31 @@ def handle_remove_divisor(n_cancel, n_confirm, divisor_id):
     Output("ars-progress",   "style"),
     Output("ars-btn-sync",   "disabled"),
     Output("ars-sync-alert", "is_open"),
+    Output("ars-sync-alert", "children"),
+    Output("ars-sync-alert", "color"),
     Input("ars-btn-sync",    "n_clicks"),
     prevent_initial_call=True,
 )
 def start_sync(_):
+    # ANTES de arrancar (el sync puede tardar): avisar qué señales/estrategias
+    # van a quedar desactualizadas en la historia. Los sintéticos nuevos entran
+    # a los agregados de sus grupos; sus señales/estrategias propias entran
+    # solas en la próxima corrida, lo transversal (grupo) no. Se deriva de las
+    # bases pendientes (heredan los grupos de sus sintéticos).
+    from app.services.signal_service import (
+        signals_and_strategies_affected_by_new_assets)
+    afectados = signals_and_strategies_affected_by_new_assets(
+        svc.pending_sync_base_asset_ids())
     _sync_state.update({"running": True, "current": 0, "total": 0,
                         "msg": "", "error": None, "color": "success"})
+
+    if afectados:
+        pre_msg = ("Sincronizando… Al terminar corré «Recalcular completo» de "
+                   "Señales y Estrategias — se desactualizarán en la historia: "
+                   + ", ".join(afectados) + ".")
+        pre_color = "warning"
+    else:
+        pre_msg, pre_color = "Sincronizando…", "info"
 
     def _run():
         def _progress(cur, tot):
@@ -207,12 +226,17 @@ def start_sync(_):
         try:
             result = svc.sync_all(progress_cb=_progress)
             n_err  = len(result["errors"])
-            _sync_state["color"] = "warning" if n_err else "success"
-            _sync_state["msg"]   = (
+            _sync_state["color"] = "warning" if (n_err or afectados) else "success"
+            msg = (
                 f"Sincronización completa: {result['created']} creados, "
                 f"{result['already_existed']} ya existían"
                 + (f", {n_err} errores." if n_err else ".")
             )
+            if afectados:
+                # Recordatorio corto: el detalle ya se listó al iniciar.
+                msg += (" Recordá «Recalcular completo» de Señales y Estrategias "
+                        "para incluir los sintéticos nuevos en la historia.")
+            _sync_state["msg"] = msg
         except Exception as exc:
             _sync_state["error"] = str(exc)
             _sync_state["color"] = "danger"
@@ -220,7 +244,8 @@ def start_sync(_):
             _sync_state["running"] = False
 
     threading.Thread(target=_run, daemon=True).start()
-    return False, {"display": "block", "height": "16px", "fontSize": "0.72rem"}, True, False
+    return (False, {"display": "block", "height": "16px", "fontSize": "0.72rem"},
+            True, True, pre_msg, pre_color)
 
 
 # ── Polling de progreso ───────────────────────────────────────────────────────
@@ -246,7 +271,8 @@ def poll_sync(_):
         total = _sync_state["total"] or 1
         pct   = int(cur / total * 100)
         label = f"{cur} / {_sync_state['total']}" if _sync_state["total"] else "Iniciando..."
-        return pct, label, _shown, False, True, no_update, False, "info", no_update
+        # Mantener abierto el aviso pre-sync (children/color los fijó start_sync)
+        return pct, label, _shown, False, True, no_update, True, no_update, no_update
 
     if _sync_state["error"]:
         return 0, "", _hidden, True, False, f"Error: {_sync_state['error']}", True, "danger", no_update

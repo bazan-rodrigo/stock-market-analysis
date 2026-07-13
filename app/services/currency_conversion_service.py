@@ -91,6 +91,36 @@ def get_stats() -> list[dict]:
     return result
 
 
+def pending_sync_base_asset_ids() -> list[int]:
+    """Ids de activos BASE que tienen al menos un sintético de conversión por
+    crear. Sirve para avisar, ANTES de sincronizar, qué señales/estrategias se
+    van a desactualizar (los sintéticos heredan los grupos de su base, así que
+    los ids de las bases pendientes alcanzan para el detector). Una sola query
+    de existencia en bloque."""
+    all_divisors = get_divisors()
+    cal_id       = _calculado_source_id()
+    if not all_divisors or not cal_id:
+        return []
+
+    by_currency: dict = {}
+    for d in all_divisors:
+        by_currency.setdefault(d.currency_id, []).append(d)
+
+    s = get_session()
+    expected: dict[str, int] = {}   # ticker sintético esperado → base_id
+    for currency_id, divisors in by_currency.items():
+        for base in get_base_assets_for_currency(currency_id, cal_id=cal_id):
+            for div in divisors:
+                if base.id != div.divisor_asset_id:
+                    expected[_syn_ticker(base.ticker, div.divisor_asset.ticker)] = base.id
+    if not expected:
+        return []
+
+    existing = {r[0] for r in s.query(Asset.ticker)
+                .filter(Asset.ticker.in_(list(expected))).all()}
+    return list({bid for tk, bid in expected.items() if tk not in existing})
+
+
 # ── CRUD divisores ────────────────────────────────────────────────────────────
 
 def add_divisor(currency_id: int, divisor_asset_id: int) -> CurrencyConversionDivisor:
