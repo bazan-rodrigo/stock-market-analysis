@@ -139,9 +139,16 @@ def _load_current_values(s, codes) -> dict[str, dict]:
 
 def run_range(dates, *, only_ids, strategy_id, scope_kind,
               latest_price_date, eval_kind, eval_ref, logged,
-              progress_cb=None) -> dict:
+              progress_cb=None, force=False, full_wipe=False) -> dict:
     """Equivalente en rango del loop por-fecha de _signal_history_run.
-    dates: lista ordenada de fechas a procesar (huecos + última)."""
+    dates: lista ordenada de fechas a procesar (huecos + última).
+
+    force: rebuild — limpieza ÚNICA al inicio y batches solo-INSERT.
+    Borrar por batch sobre una tabla de decenas de millones de filas
+    degrada progresivamente (el purge de InnoDB arrastra las filas muertas
+    acumuladas toda la corrida: se midió 10s→32s por chunk con conteos
+    iguales). full_wipe: force sin horizonte ni alcance — las tablas
+    derivadas se vacían enteras (TRUNCATE en MySQL)."""
     s = get_session()
 
     # ── Contexto invariante de la corrida ─────────────────────────────────
@@ -223,6 +230,37 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     errors: list[dict] = []
     done = 0
 
+    # ── Rebuild: limpieza única al inicio (después solo INSERTs) ──────────
+    if force:
+        is_mysql = s.get_bind().dialect.name in ("mysql", "mariadb")
+        if full_wipe and is_mysql:
+            # TRUNCATE: instantáneo y sin filas muertas que purgar.
+            # signal_eval_log NO se toca: las fechas siguen evaluadas
+            # (se están recalculando ahora mismo) y guarda markers de
+            # otros alcances.
+            for t in ("signal_value", "group_signal_value", "group_scores",
+                      "strategy_result"):
+                s.execute(sa.text(f"TRUNCATE TABLE {t}"))
+        else:
+            d0, d1 = dates[0], dates[-1]
+            if signal_ids_all:
+                s.execute(sa.delete(SignalValue.__table__).where(
+                    SignalValue.date.between(d0, d1),
+                    SignalValue.signal_id.in_(signal_ids_all)))
+            if group_sig_ids:
+                s.execute(sa.delete(GroupSignalValue.__table__).where(
+                    GroupSignalValue.date.between(d0, d1),
+                    GroupSignalValue.signal_id.in_(group_sig_ids)))
+            s.execute(sa.delete(GroupScore.__table__).where(
+                GroupScore.date.between(d0, d1)))
+            if strat_ids:
+                s.execute(sa.delete(StrategyResult.__table__).where(
+                    StrategyResult.date.between(d0, d1),
+                    StrategyResult.strategy_id.in_(strat_ids)))
+        s.commit()
+        logger.info("signal_backfill_range: limpieza inicial de rebuild "
+                    "completada (%s)", "truncate" if full_wipe else "delete por rango")
+
     # Placeholder del driver: el INSERT masivo va por exec_driver_sql
     # (executemany del DBAPI) — la compilación de SQLAlchemy por fila
     # (construct_params + type processing) pesaba ~15% de la corrida
@@ -237,25 +275,26 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             f"INSERT INTO {table_name} ({cols}) VALUES ({ph})", rows)
 
     def _flush(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
-        """DELETE de las fechas del batch (acotado al alcance) + INSERT
-        masivo + commit. Las fechas ya flusheadas quedan persistidas aunque
-        un batch posterior falle."""
+        """DELETE de las fechas del batch (solo en delta; el rebuild ya
+        limpió todo al inicio) + INSERT masivo + commit. Las fechas ya
+        flusheadas quedan persistidas aunque un batch posterior falle."""
         if not batch_dates:
             return
-        if signal_ids_all:
-            s.execute(sa.delete(SignalValue.__table__).where(
-                SignalValue.date.in_(batch_dates),
-                SignalValue.signal_id.in_(signal_ids_all)))
-        if group_sig_ids:
-            s.execute(sa.delete(GroupSignalValue.__table__).where(
-                GroupSignalValue.date.in_(batch_dates),
-                GroupSignalValue.signal_id.in_(group_sig_ids)))
-        s.execute(sa.delete(GroupScore.__table__).where(
-            GroupScore.date.in_(batch_dates)))
-        if strat_ids:
-            s.execute(sa.delete(StrategyResult.__table__).where(
-                StrategyResult.date.in_(batch_dates),
-                StrategyResult.strategy_id.in_(strat_ids)))
+        if not force:
+            if signal_ids_all:
+                s.execute(sa.delete(SignalValue.__table__).where(
+                    SignalValue.date.in_(batch_dates),
+                    SignalValue.signal_id.in_(signal_ids_all)))
+            if group_sig_ids:
+                s.execute(sa.delete(GroupSignalValue.__table__).where(
+                    GroupSignalValue.date.in_(batch_dates),
+                    GroupSignalValue.signal_id.in_(group_sig_ids)))
+            s.execute(sa.delete(GroupScore.__table__).where(
+                GroupScore.date.in_(batch_dates)))
+            if strat_ids:
+                s.execute(sa.delete(StrategyResult.__table__).where(
+                    StrategyResult.date.in_(batch_dates),
+                    StrategyResult.strategy_id.in_(strat_ids)))
 
         _bulk_insert("group_scores",
                      ("group_type", "group_id", "date", "regime_score_d",

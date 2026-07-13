@@ -292,3 +292,14 @@ def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
 
     assert result["errors"] == []
     assert _snapshot() == reference
+
+    # Rebuild (force + full_wipe) SOBRE tablas ya pobladas — el caso real:
+    # la limpieza única al inicio + batches solo-INSERT deben reproducir
+    # exactamente el mismo estado, sin duplicados
+    result = signal_backfill_range.run_range(
+        dates, only_ids=None, strategy_id=None, scope_kind=None,
+        latest_price_date=last, eval_kind="all", eval_ref=0,
+        logged={d for d in dates}, force=True, full_wipe=True)
+
+    assert result["errors"] == []
+    assert _snapshot() == reference

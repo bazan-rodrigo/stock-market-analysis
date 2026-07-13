@@ -1051,7 +1051,8 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             only_ids=only_ids, strategy_id=strategy_id,
             scope_kind=scope_kind, latest_price_date=last,
             eval_kind=eval_kind, eval_ref=eval_ref, logged=logged,
-            progress_cb=progress_cb)
+            progress_cb=progress_cb, force=force,
+            full_wipe=(force and horizon is None and scope_kind is None))
 
     total, ok, errors = len(dates), 0, []
     for i, d in enumerate(dates, start=1):
