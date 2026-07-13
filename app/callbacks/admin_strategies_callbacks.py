@@ -361,15 +361,19 @@ def save(_, name, description, is_public, uid_store,
             acting_user_id=user_id,
             acting_is_admin=is_admin,
         )
-        msg = "Estrategia guardada."
-        # Los group_scores de las señales de grupo se calculan solo para los
-        # grupos que las estrategias consumen (own_group acotado por el filtro,
-        # specific_group puntual). Si cambió el alcance o el filtro, la historia
-        # existente puede quedar corta hasta recalcularla.
-        if any(c["scope"] in ("own_group", "specific_group") for c in components):
-            msg += (" Usa señales de grupo: si cambiaste el filtro o el alcance "
-                    "de grupo, corré «Calcular historia» para poblar los "
-                    "group_scores de los grupos afectados.")
+        # Una edición cambia una definición ya calculada: un delta solo toca la
+        # última fecha, así que para aplicar el cambio a TODA la historia hace
+        # falta "Recalcular completo" (recalcula señales y estrategias). En un
+        # alta no hay historia previa: alcanza con "Calcular historia" (delta).
+        nombre = name.strip()
+        if editing_id:
+            msg = (f"Estrategia «{nombre}» guardada. Cambió una definición ya "
+                   f"calculada: corré «Recalcular completo» (Centro de Datos → "
+                   f"Señales y Estrategias) para aplicar el cambio a toda la "
+                   f"historia. A recalcular: la estrategia «{nombre}».")
+        else:
+            msg = (f"Estrategia «{nombre}» guardada. Corré «Calcular historia» "
+                   f"para poblar sus resultados.")
         return msg, True, "success", False, "", False, []
     except Exception as exc:
         return err(str(exc))

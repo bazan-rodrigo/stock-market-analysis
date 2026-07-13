@@ -516,6 +516,18 @@ def _signal_dependents(s, sig: SignalDefinition) -> list[tuple]:
     return deps
 
 
+def affected_by_signal_change(signal_id: int) -> list[str]:
+    """Descripciones de lo que queda desactualizado al EDITAR una señal: las
+    señales composite que la referencian y las estrategias que la usan
+    (componentes o filtro). Para el aviso de "Recalcular completo" — no incluye
+    la propia señal, el llamador la antepone."""
+    s = get_session()
+    sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
+    if sig is None:
+        return []
+    return [desc for desc, _owner, _public in _signal_dependents(s, sig)]
+
+
 def signal_dependents_of_others(s, sig: SignalDefinition,
                                 owner_id: int | None) -> list[str]:
     """Dependientes de sig que NO son privados del mismo dueño (públicos o

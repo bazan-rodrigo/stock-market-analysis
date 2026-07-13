@@ -278,7 +278,24 @@ def save(_, key, name, source, group_type, indicator_key,
             acting_user_id=user_id,
             acting_is_admin=is_admin,
         )
-        return "Señal guardada.", True, "success", False, "", False, []
+        # Una edición cambia una definición ya calculada: un delta solo toca la
+        # última fecha, así que para aplicar el cambio a TODA la historia hace
+        # falta "Recalcular completo". Se listan la señal y todo lo que depende
+        # de ella (composites que la referencian + estrategias que la usan), que
+        # también quedan desactualizados. En un alta alcanza el delta.
+        clave = key.strip()
+        if editing_id:
+            afectados = [f"la señal «{clave}»"] + svc.affected_by_signal_change(editing_id)
+            if len(afectados) > 8:
+                afectados = afectados[:8] + [f"y {len(afectados) - 8} más"]
+            msg = (f"Señal «{clave}» guardada. Cambió una definición ya "
+                   f"calculada: corré «Recalcular completo» (Centro de Datos → "
+                   f"Señales y Estrategias) para aplicar el cambio a toda la "
+                   f"historia. A recalcular: " + ", ".join(afectados) + ".")
+        else:
+            msg = (f"Señal «{clave}» guardada. Corré «Calcular historia» para "
+                   f"poblar su historia.")
+        return msg, True, "success", False, "", False, []
     except Exception as exc:
         return err(str(exc))
 
