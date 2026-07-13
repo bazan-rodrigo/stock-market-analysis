@@ -190,7 +190,14 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 filter_signal_keys.add(key)
         strat_ctx.append({
             "id": strat.id,
-            "components": list(strat.components),
+            # Copias planas: _compute_asset_score accede a estos atributos
+            # por activo × estrategia × fecha (el descriptor ORM pesa)
+            "components": [
+                SimpleNamespace(signal_id=c.signal_id, weight=c.weight,
+                                scope=c.scope, group_type=c.group_type,
+                                group_id=c.group_id)
+                for c in strat.components
+            ],
             "signal_ids": {c.signal_id for c in strat.components},
             "tree": tree,
             "operands": operands,
@@ -216,6 +223,19 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     errors: list[dict] = []
     done = 0
 
+    # Placeholder del driver: el INSERT masivo va por exec_driver_sql
+    # (executemany del DBAPI) — la compilación de SQLAlchemy por fila
+    # (construct_params + type processing) pesaba ~15% de la corrida
+    _PH = "?" if s.get_bind().dialect.paramstyle == "qmark" else "%s"
+
+    def _bulk_insert(table_name: str, columns: tuple, rows: list):
+        if not rows:
+            return
+        cols = ", ".join(columns)
+        ph = ", ".join([_PH] * len(columns))
+        s.connection().exec_driver_sql(
+            f"INSERT INTO {table_name} ({cols}) VALUES ({ph})", rows)
+
     def _flush(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
         """DELETE de las fechas del batch (acotado al alcance) + INSERT
         masivo + commit. Las fechas ya flusheadas quedan persistidas aunque
@@ -237,17 +257,20 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 StrategyResult.date.in_(batch_dates),
                 StrategyResult.strategy_id.in_(strat_ids)))
 
-        if gs_rows:
-            s.execute(sa.insert(GroupScore.__table__), gs_rows)
-        if sv_rows:
-            s.execute(sa.insert(SignalValue.__table__), sv_rows)
-        if gsv_rows:
-            s.execute(sa.insert(GroupSignalValue.__table__), gsv_rows)
-        if sr_rows:
-            s.execute(sa.insert(StrategyResult.__table__), sr_rows)
-        if marker_rows:
-            s.execute(sa.insert(SignalEvalLog.__table__), marker_rows)
-            logged.update(m["date"] for m in marker_rows)
+        _bulk_insert("group_scores",
+                     ("group_type", "group_id", "date", "regime_score_d",
+                      "regime_score_w", "regime_score_m", "n_assets"), gs_rows)
+        _bulk_insert("signal_value",
+                     ("signal_id", "asset_id", "date", "score"), sv_rows)
+        _bulk_insert("group_signal_value",
+                     ("signal_id", "group_type", "group_id", "date", "score"),
+                     gsv_rows)
+        _bulk_insert("strategy_result",
+                     ("strategy_id", "asset_id", "date", "score", "rank"),
+                     sr_rows)
+        _bulk_insert("signal_eval_log",
+                     ("scope_kind", "ref_id", "date"), marker_rows)
+        logged.update(batch_dates)
         s.commit()
         logger.info(
             "signal_backfill_range: %s..%s (%d fechas): %d signal_value, "
@@ -278,8 +301,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
 
             for d in chunk:
                 done += 1
+                d_str = str(d)
                 if progress_cb:
-                    progress_cb(done, total, str(d))
+                    progress_cb(done, total, d_str)
 
                 for sw in sweeps.values():
                     sw.advance(d)
@@ -296,7 +320,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     for key, vals in aggregated.items()
                 }
                 gs_rows.extend(
-                    {"group_type": gt, "group_id": gid, "date": d, **vals}
+                    (gt, gid, d_str, vals["regime_score_d"],
+                     vals["regime_score_w"], vals["regime_score_m"],
+                     vals["n_assets"])
                     for (gt, gid), vals in aggregated.items()
                 )
 
@@ -323,16 +349,14 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     refs_by_key=prep["refs_by_key"], isnaps=isnaps,
                     asset_groups=asset_groups, gscores=gscores)
                 sv_rows.extend(
-                    {"signal_id": k[0], "asset_id": k[1], "date": d, "score": v}
-                    for k, v in sv_scores.items())
+                    (k[0], k[1], d_str, v) for k, v in sv_scores.items())
 
                 gsv_scores = _evaluate_group_signal_scores(
                     group_signals=prep["group_signals"],
                     params_by_id=prep["params_by_id"],
                     gscores=gscores.values())
                 gsv_rows.extend(
-                    {"signal_id": k[0], "group_type": k[1], "group_id": k[2],
-                     "date": d, "score": v}
+                    (k[0], k[1], k[2], d_str, v)
                     for k, v in gsv_scores.items())
 
                 # Índice por señal, UNA pasada por fecha: sin esto cada
@@ -366,13 +390,11 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                         signal_scores=sv_scores, group_scores=gsv_scores,
                         filter_tree=ctx["tree"], operand_values=operand_values)
                     sr_rows.extend(
-                        {"strategy_id": ctx["id"], "asset_id": aid, "date": d,
-                         "score": score, "rank": rank}
+                        (ctx["id"], aid, d_str, score, rank)
                         for rank, (aid, score) in enumerate(scored, start=1))
 
                 if d not in logged:
-                    marker_rows.append(
-                        {"scope_kind": eval_kind, "ref_id": eval_ref, "date": d})
+                    marker_rows.append((eval_kind, eval_ref, d_str))
                 batch_dates.append(d)
 
                 # Flush intermedio por volumen: en la era densa un chunk

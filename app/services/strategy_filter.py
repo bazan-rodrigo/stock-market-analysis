@@ -263,6 +263,54 @@ def evaluate_tree(tree: dict, asset_id: int,
     return any(results) if op == "OR" else all(results)
 
 
+def evaluate_tree_bulk(tree: dict, asset_ids, operand_values: dict[tuple, dict],
+                       asset_groups: dict[int, dict]) -> set:
+    """Set de asset_ids que cumplen el árbol — mismo resultado que llamar
+    evaluate_tree activo por activo (paridad cubierta por tests), pero
+    recorriendo el árbol UNA vez por nodo en vez de una por activo: en un
+    backfill son millones de recorridas recursivas menos.
+
+    Corto circuito equivalente al any/all por activo: AND evalúa cada hijo
+    solo sobre los que vienen pasando; OR solo sobre los que aún no pasaron."""
+    if "cond" in tree:
+        cond = tree["cond"]
+        resolution = cond.get("resolution") or "historic"
+        left  = cond.get("left", {})
+        right = cond.get("right", {})
+        operator = cond.get("operator", "")
+        return {
+            aid for aid in asset_ids
+            if _compare(
+                _resolve(left,  aid, resolution, operand_values,
+                         asset_groups.get(aid, {})),
+                _resolve(right, aid, resolution, operand_values,
+                         asset_groups.get(aid, {})),
+                operator)
+        }
+
+    op = tree.get("op")
+    children = tree.get("children", [])
+    if not children:
+        return set(asset_ids)   # grupo vacío: no filtra nada (ver evaluate_tree)
+
+    if op == "OR":
+        passed: set = set()
+        remaining = set(asset_ids)
+        for c in children:
+            passed |= evaluate_tree_bulk(c, remaining, operand_values, asset_groups)
+            remaining -= passed
+            if not remaining:
+                break
+        return passed
+
+    current = set(asset_ids)
+    for c in children:
+        current = evaluate_tree_bulk(c, current, operand_values, asset_groups)
+        if not current:
+            break
+    return current
+
+
 # ── Detección de operandos sin historia ──────────────────────────────────────
 #
 # Un indicador keep_history=False no tiene tabla ind_* — a fecha pasada solo

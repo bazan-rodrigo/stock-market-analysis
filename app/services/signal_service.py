@@ -109,12 +109,24 @@ def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
     (que lo rearma en cada llamada) y el modo rango (una vez por corrida).
     None si no hay señales que evaluar."""
     import json as _json
+    from types import SimpleNamespace
 
-    signals = s.query(SignalDefinition).all()
+    signals_orm = s.query(SignalDefinition).all()
     if only_signal_ids is not None:
-        signals = [sg for sg in signals if sg.id in only_signal_ids]
-    if not signals:
+        signals_orm = [sg for sg in signals_orm if sg.id in only_signal_ids]
+    if not signals_orm:
         return None
+
+    # Copias planas: los evaluadores acceden a estos atributos millones de
+    # veces por corrida y el descriptor instrumentado del ORM (~230ns por
+    # acceso) pesa de verdad a esa escala
+    signals = [
+        SimpleNamespace(
+            id=sg.id, key=sg.key, source=sg.source, group_type=sg.group_type,
+            indicator_key=sg.indicator_key, formula_type=sg.formula_type,
+            params=sg.params)
+        for sg in signals_orm
+    ]
 
     # Params parseados una sola vez por señal (evita json.loads por activo)
     params_by_id: dict[int, dict | None] = {}

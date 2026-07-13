@@ -76,11 +76,10 @@ def rank_strategy_assets(*, components, asset_groups, signal_scores,
     de elegibilidad + score ponderado + orden."""
     asset_ids = list(asset_groups.keys())
     if filter_tree is not None and asset_ids:
-        asset_ids = [
-            aid for aid in asset_ids
-            if strategy_filter.evaluate_tree(
-                filter_tree, aid, operand_values, asset_groups[aid])
-        ]
+        passing = strategy_filter.evaluate_tree_bulk(
+            filter_tree, asset_ids, operand_values, asset_groups)
+        # Preserva el orden original (desempate estable del sort por score)
+        asset_ids = [aid for aid in asset_ids if aid in passing]
 
     scored: list[tuple[int, float]] = []
     for asset_id in asset_ids:
