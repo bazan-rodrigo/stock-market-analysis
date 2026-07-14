@@ -68,10 +68,6 @@ def layout(**kwargs):
                     dbc.Label("Instrumento"),
                     dcc.Dropdown(id="pv-asset-select", placeholder="Seleccioná un activo..."),
                 ], md=4),
-                dbc.Col([
-                    dbc.Label("\u00a0"),
-                    dbc.Button("Consultar", id="pv-btn-query", color="primary", className="d-block"),
-                ], md=2),
             ], className="mb-3"),
         ]),
 

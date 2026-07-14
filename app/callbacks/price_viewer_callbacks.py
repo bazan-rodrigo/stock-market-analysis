@@ -1,4 +1,4 @@
-from dash import Input, Output, State, callback, no_update
+from dash import Input, Output, callback, no_update
 
 from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df, get_latest_prices_all
@@ -46,11 +46,10 @@ def switch_mode(mode):
     Output("pv-alert", "children"),
     Output("pv-alert", "is_open"),
     Output("pv-result-info", "children", allow_duplicate=True),
-    Input("pv-btn-query", "n_clicks"),
-    State("pv-asset-select", "value"),
+    Input("pv-asset-select", "value"),
     prevent_initial_call=True,
 )
-def query_history(_, asset_id):
+def query_history(asset_id):
     if not asset_id:
         return no_update, "Seleccioná un instrumento.", True, no_update
 
