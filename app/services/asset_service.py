@@ -26,7 +26,7 @@ _HIGH_VOLUME_ASSET_TABLES = (
 _DELETE_BATCH = 5000
 
 
-def purge_assets(s, asset_ids) -> int:
+def purge_assets(s, asset_ids, progress_cb=None) -> int:
     """Borra los activos indicados y TODA su historia. Devuelve cuántos ids se
     pidieron borrar.
 
@@ -37,7 +37,10 @@ def purge_assets(s, asset_ids) -> int:
     los objetos, el ORM dispara un lazy-load de cascada frágil y lento, y tira
     ObjectDeletedError si otra transacción ya borró la fila. Acepta un conjunto
     de ids para borrar muchos sintéticos de una (round-trips = tablas × lotes,
-    no activos × tablas × lotes)."""
+    no activos × tablas × lotes).
+
+    progress_cb(tablas_hechas, tablas_total, tabla_actual): opcional, para que
+    la UI muestre avance (borrar muchos activos puede tardar minutos)."""
     ids = [int(a) for a in asset_ids]
     if not ids:
         return 0
@@ -51,7 +54,11 @@ def purge_assets(s, asset_ids) -> int:
         dyn = [r[0] for r in s.execute(text(
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_schema = DATABASE() AND table_name LIKE 'ind\\_%'")).all()]
-        for tbl in (*_HIGH_VOLUME_ASSET_TABLES, *dyn):
+        tables = (*_HIGH_VOLUME_ASSET_TABLES, *dyn)
+        total  = len(tables) + 1  # +1: el DELETE final de assets (cascade)
+        for i, tbl in enumerate(tables):
+            if progress_cb:
+                progress_cb(i, total, tbl)
             while True:
                 res = s.execute(text(
                     f"DELETE FROM `{tbl}` WHERE asset_id IN ({id_list}) "
@@ -59,8 +66,12 @@ def purge_assets(s, asset_ids) -> int:
                 s.commit()
                 if res.rowcount < _DELETE_BATCH:
                     break
+        if progress_cb:
+            progress_cb(len(tables), total, "assets")
         s.execute(text(f"DELETE FROM assets WHERE id IN ({id_list})"))
         s.commit()
+        if progress_cb:
+            progress_cb(total, total, "")
     else:
         # sqlite/otros (tests): borrado en bloque, sin cascade lazy-load del ORM
         s.query(Asset).filter(Asset.id.in_(ids)).delete(synchronize_session=False)

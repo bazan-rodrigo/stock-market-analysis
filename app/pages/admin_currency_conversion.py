@@ -17,6 +17,7 @@ def layout(**kwargs):
 
     return html.Div([
         dcc.Interval(id="ars-interval", interval=1000, disabled=True),
+        dcc.Interval(id="ars-remove-interval", interval=1000, disabled=True),
         dcc.Store(id="ars-pending-remove-id"),
 
         dbc.Modal([
@@ -79,6 +80,10 @@ def layout(**kwargs):
                 html.Div(id="ars-divisors-table"),
                 type="circle", color="#6c757d",
             ),
+
+            # Progreso/resultado de la baja de un divisor (corre en background)
+            dbc.Alert(id="ars-remove-alert", is_open=False, dismissable=True,
+                      className="mt-2 small py-1"),
         ]), className="mb-3"),
 
         # ── Sincronización ────────────────────────────────────────────────────

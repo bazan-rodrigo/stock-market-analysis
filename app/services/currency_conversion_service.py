@@ -199,7 +199,8 @@ def _ensure_synthetic(base: Asset, div_asset: Asset, calc_src_id: int) -> tuple[
     return syn, True
 
 
-def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
+def delete_synthetics_for_asset(asset_id: int, role: str = "any",
+                                progress_cb=None) -> int:
     """
     Elimina sintéticos ratio donde asset_id aparece como componente.
 
@@ -212,6 +213,7 @@ def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
 
     Debe llamarse ANTES de eliminar el activo (FK RESTRICT en SyntheticComponent).
     Retorna la cantidad de sintéticos eliminados.
+    progress_cb se pasa a purge_assets (avance por tabla, borrado largo).
     """
     s = get_session()
 
@@ -239,7 +241,7 @@ def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
     # Borrado en bloque por lotes (SQL crudo, sin cascade lazy-load del ORM):
     # todos los sintéticos de una, acotando locks. Ver asset_service.purge_assets.
     from app.services.asset_service import purge_assets
-    return purge_assets(s, to_delete)
+    return purge_assets(s, to_delete, progress_cb=progress_cb)
 
 
 def sync_for_asset(asset_id: int) -> dict:

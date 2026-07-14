@@ -12,11 +12,19 @@ _sync_state = {
     "msg": "", "error": None, "color": "success",
 }
 
-# Guarda de re-entrada de la baja de divisor: si el usuario reclickea "Eliminar"
-# mientras un borrado sigue en curso (el request anterior puede tardar y el
-# spinner del cliente cortarse), la segunda invocación se ignora — sin esto
-# corrían dos borrados concurrentes de los mismos activos (ObjectDeletedError).
+# Guarda de re-entrada de la baja de divisor: si el usuario dispara otra baja
+# mientras un borrado sigue en curso, la segunda invocación se ignora — sin
+# esto corrían dos borrados concurrentes de los mismos activos
+# (ObjectDeletedError). El thread del borrado libera el lock al terminar.
 _remove_lock = threading.Lock()
+
+# Estado del borrado en curso (thread daemon + polling con dcc.Interval, mismo
+# patrón que _sync_state): el borrado puede tardar minutos (lotes sobre todas
+# las tablas ind_*/signal_value/prices...), no puede vivir dentro del request.
+_remove_state = {
+    "running": False, "current": 0, "total": 0, "label": "",
+    "base": "", "msg": "", "error": None,
+}
 
 
 def _build_divisors_table() -> html.Div:
@@ -138,6 +146,10 @@ def add_divisor(_, currency_id, asset_id):
 def open_remove_modal(n_clicks_list):
     if not any(n for n in n_clicks_list if n):
         return no_update, no_update, no_update
+    # Con un borrado en curso no se abre otro modal (el alerta de progreso ya
+    # está visible bajo la tabla).
+    if _remove_state["running"]:
+        return no_update, no_update, no_update
     divisor_id = ctx.triggered_id["index"]
 
     from app.database import get_session
@@ -161,29 +173,35 @@ def open_remove_modal(n_clicks_list):
 
 
 # ── Eliminar divisor: cancelar / confirmar ────────────────────────────────────
+# Al confirmar, el modal se cierra en el acto y el borrado corre en un thread
+# daemon (puede tardar minutos; dentro del request el cliente cortaba y el
+# modal quedaba abierto para siempre). El avance se ve en ars-remove-alert
+# vía polling (ars-remove-interval), mismo patrón que la sincronización.
 @callback(
-    Output("ars-remove-modal",       "is_open",   allow_duplicate=True),
-    Output("ars-pending-remove-id",  "data",      allow_duplicate=True),
-    Output("ars-divisors-table",     "children",  allow_duplicate=True),
-    Output("ars-stats",              "children",  allow_duplicate=True),
-    Output("ars-btn-confirm-remove", "disabled",  allow_duplicate=True),
-    Output("ars-btn-confirm-remove", "children",  allow_duplicate=True),
-    Input("ars-btn-cancel-remove",   "n_clicks"),
-    Input("ars-btn-confirm-remove",  "n_clicks"),
-    State("ars-pending-remove-id",   "data"),
+    Output("ars-remove-modal",      "is_open",  allow_duplicate=True),
+    Output("ars-pending-remove-id", "data",     allow_duplicate=True),
+    Output("ars-remove-interval",   "disabled"),
+    Output("ars-remove-alert",      "children"),
+    Output("ars-remove-alert",      "is_open"),
+    Output("ars-remove-alert",      "color"),
+    Input("ars-btn-cancel-remove",  "n_clicks"),
+    Input("ars-btn-confirm-remove", "n_clicks"),
+    State("ars-pending-remove-id",  "data"),
     prevent_initial_call=True,
 )
-@safe_callback(lambda exc: (False, None, no_update, f"Error: {exc}", False, "Eliminar"))
+@safe_callback(lambda exc: (False, None, True, f"Error: {exc}", True, "danger"))
 def handle_remove_divisor(n_cancel, n_confirm, divisor_id):
-    if ctx.triggered_id == "ars-btn-cancel-remove":
-        return False, None, no_update, no_update, False, "Eliminar"
-
-    if not divisor_id:
-        return False, None, no_update, no_update, False, "Eliminar"
+    if ctx.triggered_id == "ars-btn-cancel-remove" or not divisor_id:
+        return False, None, no_update, no_update, no_update, no_update
 
     # Ignorar el re-click si ya hay un borrado en curso (evita doble borrado).
     if not _remove_lock.acquire(blocking=False):
         return (no_update,) * 6
+
+    # Datos del divisor como valores planos ACÁ (sesión del request): los
+    # objetos ORM no se comparten con el thread (misma conexión DBAPI →
+    # "Commands out of sync", ver docs/notes). Si algo falla antes de lanzar
+    # el thread, liberar el lock (si no, quedaría tomado para siempre).
     try:
         from app.database import get_session
         from app.models.currency_conversion import CurrencyConversionDivisor
@@ -191,12 +209,78 @@ def handle_remove_divisor(n_cancel, n_confirm, divisor_id):
         div = s.query(CurrencyConversionDivisor).filter(
             CurrencyConversionDivisor.id == divisor_id
         ).first()
-        if div:
-            svc.delete_synthetics_for_asset(div.divisor_asset_id, role="denominator")
-        svc.remove_divisor(divisor_id)
-        return False, None, _build_divisors_table(), _build_stats(), False, "Eliminar"
-    finally:
+        if not div:
+            svc.remove_divisor(divisor_id)  # ya borrada: idempotente
+        else:
+            divisor_asset_id = div.divisor_asset_id
+            ticker           = div.divisor_asset.ticker
+            n                = svc.count_synthetics_for_divisor(divisor_asset_id)
+    except BaseException:
         _remove_lock.release()
+        raise
+    if not div:
+        _remove_lock.release()
+        return False, None, no_update, no_update, no_update, no_update
+
+    base = (f"Eliminando {n} sintético{'s' if n != 1 else ''} "
+            f"con divisor '{ticker}'…")
+    _remove_state.update({"running": True, "current": 0, "total": 0,
+                          "label": "", "base": base, "msg": "", "error": None})
+
+    def _run():
+        from app.database import Session
+
+        def _progress(done, total, tbl):
+            _remove_state["current"] = done
+            _remove_state["total"]   = total
+            _remove_state["label"]   = tbl
+
+        try:
+            svc.delete_synthetics_for_asset(divisor_asset_id, role="denominator",
+                                            progress_cb=_progress)
+            svc.remove_divisor(divisor_id)
+            _remove_state["msg"] = (
+                f"Divisor '{ticker}' eliminado"
+                + (f" junto con sus {n} sintéticos." if n else "."))
+        except Exception as exc:
+            _remove_state["error"] = str(exc)
+        finally:
+            _remove_state["running"] = False
+            _remove_lock.release()
+            Session.remove()  # libera la sesión/conexión del thread
+
+    threading.Thread(target=_run, daemon=True).start()
+    return False, None, False, base, True, "warning"
+
+
+# ── Polling del borrado ───────────────────────────────────────────────────────
+@callback(
+    Output("ars-remove-alert",    "children", allow_duplicate=True),
+    Output("ars-remove-alert",    "is_open",  allow_duplicate=True),
+    Output("ars-remove-alert",    "color",    allow_duplicate=True),
+    Output("ars-remove-interval", "disabled", allow_duplicate=True),
+    Output("ars-divisors-table",  "children", allow_duplicate=True),
+    Output("ars-stats",           "children", allow_duplicate=True),
+    Input("ars-remove-interval",  "n_intervals"),
+    prevent_initial_call=True,
+)
+def poll_remove(_):
+    if _remove_state["running"]:
+        if _remove_state["total"]:
+            cur   = min(_remove_state["current"] + 1, _remove_state["total"])
+            label = _remove_state["label"] or "finalizando"
+            detail = f" (tabla {cur}/{_remove_state['total']}: {label})"
+        else:
+            detail = ""
+        return (_remove_state["base"] + detail, True, "warning",
+                False, no_update, no_update)
+
+    if _remove_state["error"]:
+        return (f"Error al eliminar: {_remove_state['error']}", True, "danger",
+                True, _build_divisors_table(), _build_stats())
+
+    return (_remove_state["msg"], bool(_remove_state["msg"]), "success",
+            True, _build_divisors_table(), _build_stats())
 
 
 # ── Iniciar sincronización ────────────────────────────────────────────────────
