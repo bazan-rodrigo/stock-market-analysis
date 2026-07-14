@@ -41,8 +41,8 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   `window._lwc.simulateTrades` en `app/callbacks/chart_callbacks.py`
   (interactividad del gráfico sin round-trip). Cualquier cambio de semántica
   se hace en AMBOS archivos en el mismo commit, junto con los casos de
-  `tests/fixtures/trade_simulator_cases.json` (el contrato ejecutable). El
-  futuro módulo de backtesting consume el motor Python.
+  `tests/fixtures/trade_simulator_cases.json` (el contrato ejecutable). La
+  fase 2 del backtest (simulación de cartera) consume el motor Python.
 
 ## Stack
 
@@ -109,8 +109,12 @@ pendiente es ProcessPool (ver `docs/notes/project_processpool_particion_activos.
 
 - **Escalar a ~10.000 activos** (hoy ~500 de prueba); priorizar perf de indicadores
   full_sample (ver `docs/notes/project_scaling_target.md`).
-- Próximo natural: **backtest automático de estrategias** (retorno posterior por
-  decil del ranking).
+- **Backtest de estrategias — MVP hecho** (`/backtest`, jul-2026): análisis por
+  cuantiles con IC/spread, runs persistidos como snapshots (`backtest_run`,
+  migración 0070), gate de lectura (solo fechas con precio propio, ver
+  `backtest_service.py`). Fase 2 pendiente: simulación de cartera con
+  `trade_simulator` + costos + curva de equity; fase 3: comparación de runs
+  lado a lado + walk-forward.
 - Diferido: migración a **PostgreSQL** (`docs/notes/project_postgresql_migracion.md`),
   **ProcessPool** para el pool de indicadores, módulo de creación de indicadores
   por el usuario (plantillas, no fórmula libre).

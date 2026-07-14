@@ -37,6 +37,7 @@ from app.models.strategy_component import StrategyComponent
 from app.models.strategy_result import StrategyResult
 from app.models.asset_verification_flag import AssetVerificationFlag
 from app.models.verification_run_log import VerificationRunLog
+from app.models.backtest import BacktestRun, BacktestQuantileStat, BacktestIcPoint
 
 __all__ = [
     "User",
@@ -80,4 +81,7 @@ __all__ = [
     "StrategyResult",
     "AssetVerificationFlag",
     "VerificationRunLog",
+    "BacktestRun",
+    "BacktestQuantileStat",
+    "BacktestIcPoint",
 ]
