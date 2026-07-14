@@ -83,6 +83,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Limpieza de datos",    href="/admin/cleanup"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Consola SQL",          href="/admin/sql"),
+                    dbc.DropdownMenuItem("Explorador de datos",  href="/admin/data-explorer"),
                     dbc.DropdownMenuItem("Verificación de Datos", href="/admin/verify"),
                 ],
                 nav=True, in_navbar=True,
