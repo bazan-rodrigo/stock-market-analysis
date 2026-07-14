@@ -115,42 +115,6 @@ def layout(**kwargs):
                 _chk("chart-sr-pivot-enabled", "Soportes / Resistencias"),
                 html.Span(id="chart-sr-pivot-label", style={"fontSize": "0.68rem"}),
             ], className="d-flex align-items-center gap-1 ind-group"),
-            html.Div([
-                _chk("chart-strategy-enabled", "Estrategia"),
-                html.Div([
-                    dcc.Dropdown(
-                        id="chart-strategy-sel",
-                        options=[], placeholder="Estrategia...",
-                        clearable=False,
-                        style={"width": "200px", "fontSize": "0.72rem"},
-                    ),
-                    html.Small(["Entrada ≥ ",
-                                html.Span("20", id="chart-strategy-entry-val",
-                                          style={"color": "#4ade80"})],
-                               style={"color": "#aaa", "fontSize": "0.68rem",
-                                      "whiteSpace": "nowrap"}),
-                    html.Div(dcc.Slider(
-                        id="chart-strategy-entry", min=-100, max=100, step=5, value=20,
-                        marks=None,
-                        tooltip={"placement": "bottom"},
-                    ), style={"width": "130px"}),
-                    html.Small(["Salida < ",
-                                html.Span("0", id="chart-strategy-exit-val",
-                                          style={"color": "#ef5350"})],
-                               style={"color": "#aaa", "fontSize": "0.68rem",
-                                      "whiteSpace": "nowrap"}),
-                    html.Div(dcc.Slider(
-                        id="chart-strategy-exit", min=-100, max=100, step=5, value=0,
-                        marks=None,
-                        tooltip={"placement": "bottom"},
-                    ), style={"width": "130px"}),
-                    html.Span(id="chart-strategy-label",
-                              style={"fontSize": "0.68rem", "color": "#aaa",
-                                     "whiteSpace": "nowrap"}),
-                ], id="chart-strategy-params",
-                   className="d-flex align-items-center gap-1",
-                   style={"display": "none"}),
-            ], className="d-flex align-items-center gap-1 ind-group"),
         ], className="d-flex flex-wrap align-items-center mb-1 mt-2 chart-toolbar"),
 
         # ── Stores ───────────────────────────────────────────────────────
@@ -175,6 +139,7 @@ def layout(**kwargs):
         dcc.Store(id="chart-strategy-data"),
         dcc.Store(id="chart-strategy-dummy"),
         dcc.Store(id="chart-strategy-data-dummy"),
+        dcc.Store(id="chart-strategy-drag-dummy"),
 
         # ── Gráfico ──────────────────────────────────────────────────────
         dcc.Loading(
@@ -305,6 +270,42 @@ def layout(**kwargs):
                 label_checked_class_name="active",
                 class_name="btn-group btn-group-sm",
             ), className="ind-group"), width="auto"),
+            dbc.Col(html.Div([
+                _chk("chart-strategy-enabled", "Estrategia"),
+                html.Div([
+                    dcc.Dropdown(
+                        id="chart-strategy-sel",
+                        options=[], placeholder="Estrategia...",
+                        clearable=False,
+                        style={"width": "200px", "fontSize": "0.72rem"},
+                    ),
+                    html.Small(["Entrada ≥ ",
+                                html.Span("20", id="chart-strategy-entry-val",
+                                          style={"color": "#4ade80"})],
+                               style={"color": "#aaa", "fontSize": "0.68rem",
+                                      "whiteSpace": "nowrap"}),
+                    html.Div(dcc.Slider(
+                        id="chart-strategy-entry", min=-100, max=100, step=5, value=20,
+                        marks=None,
+                        tooltip={"placement": "bottom"},
+                    ), style={"width": "130px"}),
+                    html.Small(["Salida < ",
+                                html.Span("0", id="chart-strategy-exit-val",
+                                          style={"color": "#ef5350"})],
+                               style={"color": "#aaa", "fontSize": "0.68rem",
+                                      "whiteSpace": "nowrap"}),
+                    html.Div(dcc.Slider(
+                        id="chart-strategy-exit", min=-100, max=100, step=5, value=0,
+                        marks=None,
+                        tooltip={"placement": "bottom"},
+                    ), style={"width": "130px"}),
+                    html.Span(id="chart-strategy-label",
+                              style={"fontSize": "0.68rem", "color": "#aaa",
+                                     "whiteSpace": "nowrap"}),
+                ], id="chart-strategy-params",
+                   className="d-flex align-items-center gap-1",
+                   style={"display": "none"}),
+            ], className="d-flex align-items-center gap-1 ind-group"), width="auto"),
         ], className="mb-1 g-2 align-items-center chart-toolbar"),
 
         # ── Tabs ──────────────────────────────────────────────────────────

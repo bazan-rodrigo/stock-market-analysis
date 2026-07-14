@@ -1406,6 +1406,27 @@ clientside_callback(
     prevent_initial_call=True,
 )
 
+# Feedback en vivo del valor mientras se arrastra el slider (drag_value se
+# emite en cada paso; value solo al soltar). Solo actualiza los labels — no
+# re-dibuja el gráfico, para no trabar el arrastre.
+clientside_callback(
+    """function(entryDrag, exitDrag) {
+        if (entryDrag !== null && entryDrag !== undefined) {
+            var ev = document.getElementById('chart-strategy-entry-val');
+            if (ev) ev.textContent = String(entryDrag);
+        }
+        if (exitDrag !== null && exitDrag !== undefined) {
+            var xv = document.getElementById('chart-strategy-exit-val');
+            if (xv) xv.textContent = String(exitDrag);
+        }
+        return null;
+    }""",
+    Output("chart-strategy-drag-dummy", "data"),
+    Input("chart-strategy-entry", "drag_value"),
+    Input("chart-strategy-exit", "drag_value"),
+    prevent_initial_call=True,
+)
+
 clientside_callback(
     "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.strategyData=d;window._lwc.fullRender();return null;}",
     Output("chart-strategy-data-dummy", "data"),
