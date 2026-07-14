@@ -7,6 +7,7 @@
 - [Objetivo: soportar 10000 activos](project_scaling_target.md) — Hoy 500 de prueba; priorizar perf de indicadores full_sample con el patrón de profiling aislado
 - [Filtro de estrategias + roadmap indicadores](project_filtro_estrategias.md) — Filtro AND/OR + editor de señales + backfill delta, todo en vivo (12-jul); semántica as-of de indicadores; próximo natural: backtest por deciles; indicadores por plantilla diferido
 - [group_scores solo para grupos consumidos](project_group_scores_scope.md) — 13-jul (f5b396f): group_scores/group_signal_value se calculan solo para los grupos que una estrategia usa (derivado del filtro); pendiente verificar en Codespace
+- [Scores en días sin precio propio — SIN DECIDIR](project_scores_dias_sin_precio.md) — as-of arrastra scores a fechas no cotizadas; 2 alternativas guardadas (gate vs flag preliminar) en docs/notes/design_scores_dias_sin_precio.md, retomar
 - [Servicio de base de datos es MariaDB](feedback_mariadb.md) — En el Codespace usar `sudo service mariadb start`, no mysql
 - [Modal no se cierra si hay error al guardar](feedback_modal_on_error.md) — El modal ABM debe permanecer abierto en error; solo el callback de save cierra el modal (en éxito)
 - [Idioma de comunicación](feedback_language.md) — Responder siempre en español
