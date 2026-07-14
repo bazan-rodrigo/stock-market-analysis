@@ -204,9 +204,11 @@ def _snapshot():
             "SELECT group_type, group_id, date, regime_score_d,"
             " regime_score_w, regime_score_m, n_assets FROM group_scores")))
     out["sr"] = sorted(
-        (r.strategy_id, r.asset_id, str(r.date), round(r.score, 6))
+        (r.strategy_id, r.asset_id, str(r.date), round(r.score, 6),
+         round(r.pct, 6))
         for r in s.execute(sa.text(
-            "SELECT strategy_id, asset_id, date, score FROM strategy_result")))
+            "SELECT strategy_id, asset_id, date, score, pct "
+            "FROM strategy_result")))
     return out
 
 

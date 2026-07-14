@@ -330,35 +330,24 @@ def load_strategy_overlay(enabled, strategy_id, asset_id):
                                      user_id, is_admin):
         return no_update
 
-    from sqlalchemy import text as _sql_text
-
     from app.database import get_session
     db = get_session()
-    rows = (db.query(StrategyResult.date, StrategyResult.score)
+    # score y pct (percentil 0..100 en la cross-section, precalculado por el
+    # pipeline — migración 0071) salen de la misma query indexada. pct puede
+    # ser NULL en historia previa a la migración: el modo percentil del
+    # simulador simplemente no ve esas fechas hasta un "Recalcular completo".
+    rows = (db.query(StrategyResult.date, StrategyResult.score,
+                     StrategyResult.pct)
             .filter(StrategyResult.strategy_id == int(strategy_id),
                     StrategyResult.asset_id == int(asset_id))
             .order_by(StrategyResult.date).all())
-
-    # Percentil del activo dentro del ranking transversal de cada fecha
-    # (0..100, 100 = mejor rankeado). Lo consume el modo de salida
-    # "percentile" del simulador de trades. Window function (MariaDB 10.2+ /
-    # sqlite 3.25+); el filtro por asset_id va afuera para que el ranking se
-    # compute contra TODOS los activos de la fecha.
-    pct_rows = db.execute(_sql_text(
-        "SELECT date, pct FROM ("
-        "  SELECT asset_id, date,"
-        "         PERCENT_RANK() OVER (PARTITION BY date ORDER BY score) * 100 AS pct"
-        "  FROM strategy_result"
-        "  WHERE strategy_id = :sid AND score IS NOT NULL"
-        ") t WHERE asset_id = :aid ORDER BY date"
-    ), {"sid": int(strategy_id), "aid": int(asset_id)}).all()
 
     return {
         "asset_id":    int(asset_id),
         "strategy_id": int(strategy_id),
         "name":        strat.name,
-        "scores":      [[_t(d), float(sc)] for d, sc in rows if sc is not None],
-        "percentiles": [[_t(d), float(p)] for d, p in pct_rows],
+        "scores":      [[_t(d), float(sc)] for d, sc, _ in rows if sc is not None],
+        "percentiles": [[_t(d), float(p)] for d, _, p in rows if p is not None],
     }
 
 

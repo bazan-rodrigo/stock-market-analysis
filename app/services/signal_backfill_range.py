@@ -69,7 +69,7 @@ from app.services.signal_service import (
     _evaluate_group_signal_scores,
     _prepare_signals,
 )
-from app.services.strategy_service import rank_strategy_assets
+from app.services.strategy_service import percent_ranks, rank_strategy_assets
 
 logger = logging.getLogger(__name__)
 
@@ -450,7 +450,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                      ("signal_id", "group_type", "group_id", "date", "score"),
                      gsv_rows)
         _bulk_insert("strategy_result",
-                     ("strategy_id", "asset_id", "date", "score"),
+                     ("strategy_id", "asset_id", "date", "score", "pct"),
                      sr_rows)
         _bulk_insert("signal_eval_log",
                      ("scope_kind", "ref_id", "date"), marker_rows)
@@ -612,8 +612,10 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                         components=ctx["components"], asset_groups=groups_sub,
                         signal_scores=sv_scores, group_scores=gsv_scores,
                         filter_tree=ctx["tree"], operand_values=operand_values)
+                    pcts = percent_ranks([score for _, score in scored])
                     sr_rows.extend(
-                        (ctx["id"], aid, d_str, score) for aid, score in scored)
+                        (ctx["id"], aid, d_str, score, pct)
+                        for (aid, score), pct in zip(scored, pcts))
 
                 if d not in logged:
                     marker_rows.append((eval_kind, eval_ref, d_str))

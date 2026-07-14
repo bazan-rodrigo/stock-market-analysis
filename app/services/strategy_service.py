@@ -68,6 +68,35 @@ def _compute_asset_score(
     return round(weighted_sum / total_weight, 4)
 
 
+def percent_ranks(values: list[float]) -> list[float]:
+    """Percentil 0..100 de cada valor dentro de la lista (100 = mejor),
+    alineado al orden de entrada — LÓGICA PURA compartida por el camino
+    por-fecha y el modo rango (misma fila de strategy_result.pct desde
+    ambos, ver test_signal_range_parity).
+
+    Semántica de SQL PERCENT_RANK(): (rank − 1) / (n − 1) × 100, con
+    RANK() para empates (comparten el rango mínimo). n=1 → 0.0 (igual que
+    SQL). Se persiste porque derivarlo al leer es carísimo (la serie de un
+    activo necesita la cross-section completa de cada fecha), mientras que
+    acá la cross-section ya está en memoria."""
+    n = len(values)
+    if n == 0:
+        return []
+    if n == 1:
+        return [0.0]
+    order = sorted(range(n), key=lambda i: values[i])
+    ranks = [0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = i + 1  # RANK(): empates comparten el mínimo
+        i = j + 1
+    return [(r - 1) / (n - 1) * 100 for r in ranks]
+
+
 def rank_strategy_assets(*, components, asset_groups, signal_scores,
                          group_scores, filter_tree, operand_values,
                          ) -> list[tuple[int, float]]:
@@ -191,7 +220,8 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
             del existing_srs[asset_id]
 
     written = 0
-    for asset_id, score in scored:
+    pcts = percent_ranks([score for _, score in scored])
+    for (asset_id, score), pct in zip(scored, pcts):
         sr = existing_srs.get(asset_id)
         if sr is None:
             sr = StrategyResult(
@@ -202,6 +232,7 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
             s.add(sr)
             existing_srs[asset_id] = sr
         sr.score = score
+        sr.pct = pct
         written += 1
 
     s.commit()

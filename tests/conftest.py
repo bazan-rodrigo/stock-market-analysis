@@ -11,4 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{ROOT / '.pytest-stub.db'}")
+# El stub es descartable: se borra en cada corrida para que create_all lo
+# recree con el esquema ACTUAL de los modelos (create_all no altera tablas
+# existentes — un stub viejo rompería la suite tras agregar una columna).
+_STUB = ROOT / ".pytest-stub.db"
+_STUB.unlink(missing_ok=True)
+
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_STUB}")
