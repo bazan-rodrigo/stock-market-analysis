@@ -44,6 +44,9 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
 echo "=== Instalando dependencias Python ==="
 pip install --upgrade pip -q
 pip install -r requirements.txt -q
+# Deps de dev (pytest, hypothesis): la pantalla /admin/verify corre la suite
+# como subproceso con el mismo Python de la app, así que las necesita acá.
+pip install -r requirements-dev.txt -q
 
 echo "=== Inicializando base de datos (migraciones + datos semilla) ==="
 python scripts/init_db.py

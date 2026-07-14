@@ -72,9 +72,15 @@ def poll_pytest(_):
         return True, {"display": "none"}, False, msg, True, "danger", _pytest_state["output"]
 
     passed = _pytest_state["passed"]
+    output = _pytest_state["output"] or ""
+    if not passed and "No module named pytest" in output:
+        # No es que fallen tests: pytest no está instalado en este entorno.
+        msg = ("pytest no está instalado en este entorno — corré "
+               "`pip install -r requirements-dev.txt` en el Codespace.")
+        return True, {"display": "none"}, False, msg, True, "warning", output
     color  = "success" if passed else "danger"
     msg    = "Suite OK — todos los tests pasaron." if passed else "Hay tests que fallaron — ver detalle abajo."
-    return True, {"display": "none"}, False, msg, True, color, _pytest_state["output"]
+    return True, {"display": "none"}, False, msg, True, color, output
 
 
 # ── Verificación de datos reales ────────────────────────────────────────────
