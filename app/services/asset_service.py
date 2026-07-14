@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 # Tablas de alto volumen con columna asset_id que se borran por lotes ANTES de
 # eliminar el activo, para no retener locks en una transacción de cascada
 # gigante (contención con backfills concurrentes → lock wait timeout). El resto
-# de las tablas hijas (logs, flags) las limpia el ON DELETE CASCADE al final.
+# de las tablas hijas (logs, flags, synthetic_formula...) las limpia el
+# ON DELETE CASCADE de la BD al borrar la fila de `assets`.
 _HIGH_VOLUME_ASSET_TABLES = (
     "signal_value", "strategy_result", "current_indicator_values",
     "fundamental_quarterly", "prices",
@@ -25,27 +26,46 @@ _HIGH_VOLUME_ASSET_TABLES = (
 _DELETE_BATCH = 5000
 
 
-def _purge_asset_high_volume(s, asset_id: int) -> None:
-    """Borra por lotes (con commit por lote) las filas de alto volumen del
-    activo. Solo en MySQL/MariaDB: sqlite (tests) no soporta DELETE ... LIMIT
-    ni information_schema, y ahí el cascade simple del ORM alcanza."""
-    if s.get_bind().dialect.name not in ("mysql", "mariadb"):
-        return
-    # ind_{code}/ind_fundamental_{code}/ind_asset_meta: dinámicas por indicador
-    # (ver get_ind_table), descubiertas desde information_schema
-    dyn = [r[0] for r in s.execute(text(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = DATABASE() AND table_name LIKE 'ind\\_%'")).all()]
-    for tbl in (*_HIGH_VOLUME_ASSET_TABLES, *dyn):
-        while True:
-            # _DELETE_BATCH inline (no como parámetro): algunos drivers MySQL
-            # no aceptan placeholder en LIMIT. Es una constante, no hay inyección.
-            res = s.execute(
-                text(f"DELETE FROM `{tbl}` WHERE asset_id = :aid LIMIT {_DELETE_BATCH}"),
-                {"aid": asset_id})
-            s.commit()
-            if res.rowcount < _DELETE_BATCH:
-                break
+def purge_assets(s, asset_ids) -> int:
+    """Borra los activos indicados y TODA su historia. Devuelve cuántos ids se
+    pidieron borrar.
+
+    En MySQL/MariaDB: SQL crudo por lotes — DELETE por tabla de alto volumen con
+    `asset_id IN (...) LIMIT`, commit por lote (locks acotados), y al final un
+    `DELETE FROM assets WHERE id IN (...)` que deja el resto al ON DELETE CASCADE.
+    NO usa `s.delete()` del ORM a propósito: con commits intermedios que expiran
+    los objetos, el ORM dispara un lazy-load de cascada frágil y lento, y tira
+    ObjectDeletedError si otra transacción ya borró la fila. Acepta un conjunto
+    de ids para borrar muchos sintéticos de una (round-trips = tablas × lotes,
+    no activos × tablas × lotes)."""
+    ids = [int(a) for a in asset_ids]
+    if not ids:
+        return 0
+
+    if s.get_bind().dialect.name in ("mysql", "mariadb"):
+        # ids validados a int → seguro interpolarlos (IN con N valores); LIMIT
+        # inline porque algunos drivers no aceptan placeholder ahí
+        id_list = ", ".join(str(i) for i in ids)
+        # ind_{code}/ind_fundamental_{code}/ind_asset_meta: dinámicas por
+        # indicador (ver get_ind_table), descubiertas desde information_schema
+        dyn = [r[0] for r in s.execute(text(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() AND table_name LIKE 'ind\\_%'")).all()]
+        for tbl in (*_HIGH_VOLUME_ASSET_TABLES, *dyn):
+            while True:
+                res = s.execute(text(
+                    f"DELETE FROM `{tbl}` WHERE asset_id IN ({id_list}) "
+                    f"LIMIT {_DELETE_BATCH}"))
+                s.commit()
+                if res.rowcount < _DELETE_BATCH:
+                    break
+        s.execute(text(f"DELETE FROM assets WHERE id IN ({id_list})"))
+        s.commit()
+    else:
+        # sqlite/otros (tests): borrado en bloque, sin cascade lazy-load del ORM
+        s.query(Asset).filter(Asset.id.in_(ids)).delete(synchronize_session=False)
+        s.commit()
+    return len(ids)
 
 
 def get_assets() -> list[Asset]:
@@ -171,9 +191,7 @@ def delete_asset(asset_id: int) -> None:
             + " y ".join(dependents) + ". Reasigná el benchmark antes de borrar."
         )
 
-    _purge_asset_high_volume(s, asset_id)
-    s.delete(obj)
-    s.commit()
+    purge_assets(s, [asset_id])
 
 
 def bulk_update_assets(asset_ids: list[int], field: str, value) -> int:

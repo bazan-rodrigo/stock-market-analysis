@@ -12,6 +12,12 @@ _sync_state = {
     "msg": "", "error": None, "color": "success",
 }
 
+# Guarda de re-entrada de la baja de divisor: si el usuario reclickea "Eliminar"
+# mientras un borrado sigue en curso (el request anterior puede tardar y el
+# spinner del cliente cortarse), la segunda invocación se ignora — sin esto
+# corrían dos borrados concurrentes de los mismos activos (ObjectDeletedError).
+_remove_lock = threading.Lock()
+
 
 def _build_divisors_table() -> html.Div:
     divisors = svc.get_divisors()
@@ -175,16 +181,22 @@ def handle_remove_divisor(n_cancel, n_confirm, divisor_id):
     if not divisor_id:
         return False, None, no_update, no_update, False, "Eliminar"
 
-    from app.database import get_session
-    from app.models.currency_conversion import CurrencyConversionDivisor
-    s   = get_session()
-    div = s.query(CurrencyConversionDivisor).filter(
-        CurrencyConversionDivisor.id == divisor_id
-    ).first()
-    if div:
-        svc.delete_synthetics_for_asset(div.divisor_asset_id, role="denominator")
-    svc.remove_divisor(divisor_id)
-    return False, None, _build_divisors_table(), _build_stats(), False, "Eliminar"
+    # Ignorar el re-click si ya hay un borrado en curso (evita doble borrado).
+    if not _remove_lock.acquire(blocking=False):
+        return (no_update,) * 6
+    try:
+        from app.database import get_session
+        from app.models.currency_conversion import CurrencyConversionDivisor
+        s   = get_session()
+        div = s.query(CurrencyConversionDivisor).filter(
+            CurrencyConversionDivisor.id == divisor_id
+        ).first()
+        if div:
+            svc.delete_synthetics_for_asset(div.divisor_asset_id, role="denominator")
+        svc.remove_divisor(divisor_id)
+        return False, None, _build_divisors_table(), _build_stats(), False, "Eliminar"
+    finally:
+        _remove_lock.release()
 
 
 # ── Iniciar sincronización ────────────────────────────────────────────────────

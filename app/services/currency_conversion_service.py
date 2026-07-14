@@ -236,16 +236,10 @@ def delete_synthetics_for_asset(asset_id: int, role: str = "any") -> int:
     if not to_delete:
         return 0
 
-    # Cada sintético tiene su propia historia de precios/indicadores; borrarla
-    # por lotes ANTES (con commits) evita retener locks en una cascada gigante
-    # (contención con backfills concurrentes → lock wait timeout).
-    from app.services.asset_service import _purge_asset_high_volume
-    synthetics = s.query(Asset).filter(Asset.id.in_(to_delete)).all()
-    for syn in synthetics:
-        _purge_asset_high_volume(s, syn.id)
-        s.delete(syn)
-    s.commit()
-    return len(synthetics)
+    # Borrado en bloque por lotes (SQL crudo, sin cascade lazy-load del ORM):
+    # todos los sintéticos de una, acotando locks. Ver asset_service.purge_assets.
+    from app.services.asset_service import purge_assets
+    return purge_assets(s, to_delete)
 
 
 def sync_for_asset(asset_id: int) -> dict:
