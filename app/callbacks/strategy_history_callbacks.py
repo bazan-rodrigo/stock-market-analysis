@@ -54,7 +54,7 @@ def load_asset_suggestions(_, strategy_id, date_to_str):
         return [], [], _hidden
 
     opts = [
-        {"label": f"#{r['rank']} {r['ticker']} ({r['score']:+.0f})", "value": r["asset_id"]}
+        {"label": f"{r['ticker']} ({r['score']:+.0f})", "value": r["asset_id"]}
         for r in top_assets
     ]
     # Pre-seleccionar top 10
@@ -72,10 +72,9 @@ def load_asset_suggestions(_, strategy_id, date_to_str):
     State("sth-asset-sel",        "value"),
     State("sth-date-from",        "date"),
     State("sth-date-to",          "date"),
-    State("sth-mode",             "value"),
     prevent_initial_call=True,
 )
-def render_chart(_, strategy_id, asset_ids, date_from_str, date_to_str, mode):
+def render_chart(_, strategy_id, asset_ids, date_from_str, date_to_str):
     if not strategy_id or not asset_ids:
         return html.P("Seleccioná una estrategia y activos.",
                       className="text-muted", style={"fontSize": "0.82rem"})
@@ -102,23 +101,21 @@ def render_chart(_, strategy_id, asset_ids, date_from_str, date_to_str, mode):
                       "en el período indicado.",
                       className="text-muted mt-2", style={"fontSize": "0.82rem"})
 
-    # ── Gráfico ───────────────────────────────────────────────────────────────
+    # ── Gráfico (score en el tiempo) ──────────────────────────────────────────
     fig = go.Figure()
-    is_rank = (mode == "rank")
 
-    if not is_rank:
-        fig.add_hrect(y0=20,   y1=100, fillcolor="#4ade80", opacity=0.04, line_width=0)
-        fig.add_hrect(y0=-100, y1=-20, fillcolor="#f87171", opacity=0.04, line_width=0)
-        fig.add_hline(y=0,  line_dash="dot", line_color="#374151",   line_width=1)
-        # rgba y no hex de 8 dígitos (#RRGGBBAA): el validador de plotly
-        # para shapes no acepta hex con alfa
-        fig.add_hline(y=20, line_dash="dot", line_color="rgba(74, 222, 128, 0.27)", line_width=1)
-        fig.add_hline(y=-20,line_dash="dot", line_color="rgba(248, 113, 113, 0.27)", line_width=1)
+    fig.add_hrect(y0=20,   y1=100, fillcolor="#4ade80", opacity=0.04, line_width=0)
+    fig.add_hrect(y0=-100, y1=-20, fillcolor="#f87171", opacity=0.04, line_width=0)
+    fig.add_hline(y=0,  line_dash="dot", line_color="#374151",   line_width=1)
+    # rgba y no hex de 8 dígitos (#RRGGBBAA): el validador de plotly
+    # para shapes no acepta hex con alfa
+    fig.add_hline(y=20, line_dash="dot", line_color="rgba(74, 222, 128, 0.27)", line_width=1)
+    fig.add_hline(y=-20,line_dash="dot", line_color="rgba(248, 113, 113, 0.27)", line_width=1)
 
     for i, aid in enumerate(assets_with_data):
         pts   = history[aid]
         dates  = [p[0] for p in pts]
-        values = [p[2] if is_rank else p[1] for p in pts]
+        values = [p[1] for p in pts]
         ticker = assets_map.get(aid, str(aid))
         color  = _PALETTE[i % len(_PALETTE)]
 
@@ -129,8 +126,7 @@ def render_chart(_, strategy_id, asset_ids, date_from_str, date_to_str, mode):
             line={"color": color, "width": 1.5},
             marker={"size": 4, "color": color},
             hovertemplate=(
-                f"<b>{ticker}</b><br>%{{x|%Y-%m-%d}}<br>"
-                + ("Rank: %{y}<extra></extra>" if is_rank else "Score: %{y:.1f}<extra></extra>")
+                f"<b>{ticker}</b><br>%{{x|%Y-%m-%d}}<br>Score: %{{y:.1f}}<extra></extra>"
             ),
         ))
 
@@ -138,14 +134,9 @@ def render_chart(_, strategy_id, asset_ids, date_from_str, date_to_str, mode):
         "gridcolor": "#1f2937",
         "linecolor": "#374151",
         "zeroline":  False,
+        "range":     [-110, 110],
+        "tickvals":  [-100, -60, -20, 0, 20, 60, 100],
     }
-    if not is_rank:
-        yaxis_cfg.update({
-            "range":     [-110, 110],
-            "tickvals":  [-100, -60, -20, 0, 20, 60, 100],
-        })
-    else:
-        yaxis_cfg["autorange"] = "reversed"   # rank 1 arriba
 
     fig.update_layout(
         paper_bgcolor="#111827",

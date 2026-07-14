@@ -471,10 +471,6 @@ def calc_results(_, selected_ids, date_str):
             strat_name = strat.name if strat else f"#{selected_ids[0]}"
             rows = [
                 html.Tr([
-                    html.Td(
-                        dbc.Badge(str(r["rank"]), color="secondary"),
-                        style={**_td, "textAlign": "center", "width": "44px"},
-                    ),
                     html.Td(html.Strong(r["ticker"]), style=_td),
                     html.Td(r["name"] or "—",
                             style={**_td, "color": "#9ca3af", "fontSize": "0.76rem"}),
@@ -501,7 +497,6 @@ def calc_results(_, selected_ids, date_str):
                 ], className="mb-2"),
                 html.Table([
                     html.Thead(html.Tr([
-                        html.Th("Rank",   style={**_th, "width": "44px"}),
                         html.Th("Ticker", style=_th),
                         html.Th("Nombre", style=_th),
                         html.Th("Score",  style=_th),

@@ -43,16 +43,6 @@ def layout(**kwargs):
                                         style={"fontSize": "0.82rem"}),
                 ], md=2, className="d-flex flex-column"),
                 dbc.Col([
-                    dbc.Label("Ver por", style={"fontSize": "0.82rem"}),
-                    dcc.Dropdown(id="sth-mode",
-                                 options=[
-                                     {"label": "Score",  "value": "score"},
-                                     {"label": "Rank",   "value": "rank"},
-                                 ],
-                                 value="score", clearable=False,
-                                 style={"fontSize": "0.83rem"}),
-                ], md=2),
-                dbc.Col([
                     dbc.Label(" ", style={"fontSize": "0.82rem"}),
                     dbc.Button("Cargar activos", id="sth-btn-load", color="secondary",
                                size="sm", style={"display": "block"}),

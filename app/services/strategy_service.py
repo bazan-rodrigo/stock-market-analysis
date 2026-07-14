@@ -71,7 +71,7 @@ def _compute_asset_score(
 def rank_strategy_assets(*, components, asset_groups, signal_scores,
                          group_scores, filter_tree, operand_values,
                          ) -> list[tuple[int, float]]:
-    """[(asset_id, score)] ordenado por score desc (rank 1 = primero) —
+    """[(asset_id, score)] ordenado por score desc (el primero es el mejor) —
     LÓGICA PURA compartida por el camino por-fecha y el modo rango: filtro
     de elegibilidad + score ponderado + orden."""
     asset_ids = list(asset_groups.keys())
@@ -89,7 +89,7 @@ def rank_strategy_assets(*, components, asset_groups, signal_scores,
         if score is not None:
             scored.append((asset_id, score))
 
-    # Ranking: mayor score → rank 1
+    # Orden: mayor score primero
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored
 
@@ -183,7 +183,7 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
     }
 
     # Eliminar resultados de un recálculo previo del mismo día cuyos activos
-    # ya no obtienen score (evita ranks duplicados u obsoletos)
+    # ya no obtienen score (filas obsoletas)
     scored_ids = {asset_id for asset_id, _ in scored}
     for asset_id, sr in list(existing_srs.items()):
         if asset_id not in scored_ids:
@@ -191,7 +191,7 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
             del existing_srs[asset_id]
 
     written = 0
-    for rank, (asset_id, score) in enumerate(scored, start=1):
+    for asset_id, score in scored:
         sr = existing_srs.get(asset_id)
         if sr is None:
             sr = StrategyResult(
@@ -202,7 +202,6 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
             s.add(sr)
             existing_srs[asset_id] = sr
         sr.score = score
-        sr.rank = rank
         written += 1
 
     s.commit()
@@ -424,11 +423,11 @@ def get_strategy_results(strategy_id: int, target_date) -> list[dict]:
             StrategyResult.strategy_id == strategy_id,
             StrategyResult.date == target_date,
         )
-        .order_by(StrategyResult.rank)
+        .order_by(StrategyResult.score.desc())
         .all()
     )
     return [
-        {"rank": r.rank, "asset_id": r.asset_id,
+        {"asset_id": r.asset_id,
          "ticker": ticker, "name": name, "score": r.score}
         for r, ticker, name in rows
     ]
@@ -443,8 +442,9 @@ def get_strategy_results_with_breakdown(
 ) -> tuple[list[dict], list[dict]]:
     """
     Devuelve (resultados, componentes) donde:
-    - resultados: [{rank, asset_id, ticker, name, sector_id, market_id, score,
-                    component_scores: {signal_key: score}}]
+    - resultados: [{asset_id, ticker, name, sector_id, market_id, score,
+                    delta_score, component_scores: {signal_key: score}}]
+      ordenados por score desc (el orden ES el ranking).
     - componentes: [{signal_key, signal_name, weight, scope, group_type}]
     """
     from app.models import SignalDefinition, SignalValue, GroupSignalValue
@@ -478,7 +478,7 @@ def get_strategy_results_with_breakdown(
         q = q.filter(Asset.sector_id == sector_id)
     if market_id is not None:
         q = q.filter(Asset.market_id == market_id)
-    q = q.order_by(StrategyResult.rank)
+    q = q.order_by(StrategyResult.score.desc())
     rows = q.all()
 
     if not rows:
@@ -543,10 +543,9 @@ def get_strategy_results_with_breakdown(
     prev_date = prev_date_row[0] if prev_date_row else None
 
     prev_score_map: dict[int, float] = {}
-    prev_rank_map:  dict[int, int]   = {}
     if prev_date:
         prev_rows = (
-            s.query(StrategyResult.asset_id, StrategyResult.score, StrategyResult.rank)
+            s.query(StrategyResult.asset_id, StrategyResult.score)
             .filter(
                 StrategyResult.strategy_id == strategy_id,
                 StrategyResult.date == prev_date,
@@ -555,7 +554,6 @@ def get_strategy_results_with_breakdown(
             .all()
         )
         prev_score_map = {r.asset_id: r.score for r in prev_rows}
-        prev_rank_map  = {r.asset_id: r.rank  for r in prev_rows}
 
     results = []
     for r, ticker, name, s_id, m_id in rows:
@@ -578,12 +576,9 @@ def get_strategy_results_with_breakdown(
             comp_scores[key] = score
 
         prev_sc   = prev_score_map.get(r.asset_id)
-        prev_rk   = prev_rank_map.get(r.asset_id)
         delta_score = round(r.score - prev_sc, 4) if (prev_sc is not None and r.score is not None) else None
-        delta_rank  = (prev_rk - r.rank)          if prev_rk is not None else None
 
         results.append({
-            "rank":        r.rank,
             "asset_id":    r.asset_id,
             "ticker":      ticker,
             "name":        name or "—",
@@ -592,7 +587,6 @@ def get_strategy_results_with_breakdown(
             "score":       r.score,
             "prev_score":  prev_sc,
             "delta_score": delta_score,
-            "delta_rank":  delta_rank,
             "comp_scores": comp_scores,
         })
 
@@ -656,12 +650,12 @@ def get_strategy_score_history(
     date_to=None,
 ) -> dict[int, list[tuple]]:
     """
-    {asset_id: [(date, score, rank), ...]} ordenado por fecha asc.
+    {asset_id: [(date, score), ...]} ordenado por fecha asc.
     """
     s = get_session()
     q = (
         s.query(StrategyResult.asset_id, StrategyResult.date,
-                StrategyResult.score, StrategyResult.rank)
+                StrategyResult.score)
         .filter(
             StrategyResult.strategy_id == strategy_id,
             StrategyResult.asset_id.in_(asset_ids),
@@ -674,8 +668,8 @@ def get_strategy_score_history(
     q = q.order_by(StrategyResult.date)
 
     result: dict[int, list] = {aid: [] for aid in asset_ids}
-    for asset_id, dt, score, rank in q.all():
-        result[asset_id].append((dt, score, rank))
+    for asset_id, dt, score in q.all():
+        result[asset_id].append((dt, score))
     return result
 
 

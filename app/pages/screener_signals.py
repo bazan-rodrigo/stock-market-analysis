@@ -5,10 +5,8 @@ from dash import dcc, html
 from app.components.ui_constants import TH_NOWRAP as _th, TD as _td, CARD_STYLE
 
 _SORT_OPTS = [
-    {"label": "Rank ↑",       "value": "rank"},
     {"label": "Score ↓",      "value": "score"},
     {"label": "Δ Score ↓",    "value": "delta_score"},
-    {"label": "Δ Rank ↑",     "value": "delta_rank"},
     {"label": "Ticker A-Z",   "value": "ticker"},
 ]
 
@@ -73,7 +71,7 @@ def layout(**kwargs):
                 dbc.Col([
                     dbc.Label("Ordenar por", style={"fontSize": "0.82rem"}),
                     dcc.Dropdown(id="ss-sort-col", options=_SORT_OPTS,
-                                 value="rank", clearable=False,
+                                 value="score", clearable=False,
                                  style={"fontSize": "0.83rem"}),
                 ], md=3),
                 dbc.Col([

@@ -450,7 +450,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                      ("signal_id", "group_type", "group_id", "date", "score"),
                      gsv_rows)
         _bulk_insert("strategy_result",
-                     ("strategy_id", "asset_id", "date", "score", "rank"),
+                     ("strategy_id", "asset_id", "date", "score"),
                      sr_rows)
         _bulk_insert("signal_eval_log",
                      ("scope_kind", "ref_id", "date"), marker_rows)
@@ -613,8 +613,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                         signal_scores=sv_scores, group_scores=gsv_scores,
                         filter_tree=ctx["tree"], operand_values=operand_values)
                     sr_rows.extend(
-                        (ctx["id"], aid, d_str, score, rank)
-                        for rank, (aid, score) in enumerate(scored, start=1))
+                        (ctx["id"], aid, d_str, score) for aid, score in scored)
 
                 if d not in logged:
                     marker_rows.append((eval_kind, eval_ref, d_str))

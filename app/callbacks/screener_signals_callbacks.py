@@ -114,29 +114,17 @@ def _score_cell(score: float | None, max_abs: float) -> html.Td:
     )
 
 
-def _delta_cell(delta_score: float | None, delta_rank: int | None) -> html.Td:
-    """Celda compacta de variación: Δscore con flecha de rank."""
+def _delta_cell(delta_score: float | None) -> html.Td:
+    """Celda compacta de variación del score respecto de la fecha anterior."""
     if delta_score is None:
         return html.Td("—", style={**_td, "color": "#4b5563", "textAlign": "center"})
 
     color  = "#4ade80" if delta_score > 0.5 else "#f87171" if delta_score < -0.5 else "#94a3b8"
     prefix = "+" if delta_score > 0 else ""
 
-    rank_part = ""
-    if delta_rank is not None and delta_rank != 0:
-        arrow = "▲" if delta_rank > 0 else "▼"
-        rank_color = "#4ade80" if delta_rank > 0 else "#f87171"
-        rank_part = html.Span(
-            f" {arrow}{abs(delta_rank)}",
-            style={"fontSize": "0.66rem", "color": rank_color, "marginLeft": "2px"},
-        )
-
     return html.Td(
-        html.Span([
-            html.Span(f"{prefix}{delta_score:.1f}",
-                      style={"fontSize": "0.74rem", "color": color, "fontFamily": "monospace"}),
-            rank_part,
-        ]),
+        html.Span(f"{prefix}{delta_score:.1f}",
+                  style={"fontSize": "0.74rem", "color": color, "fontFamily": "monospace"}),
         style={**_td, "textAlign": "center", "whiteSpace": "nowrap"},
     )
 
@@ -154,15 +142,10 @@ def render_table(rows_data, comp_meta, sort_col):
     # Ordenar
     if sort_col == "ticker":
         rows_data = sorted(rows_data, key=lambda r: r["ticker"])
-    elif sort_col == "score":
-        rows_data = sorted(rows_data, key=lambda r: (r["score"] or 0), reverse=True)
     elif sort_col == "delta_score":
         rows_data = sorted(rows_data,
                            key=lambda r: (r.get("delta_score") is None, -(r.get("delta_score") or 0)))
-    elif sort_col == "delta_rank":
-        rows_data = sorted(rows_data,
-                           key=lambda r: (r.get("delta_rank") is None, -(r.get("delta_rank") or 0)))
-    # default "rank": ya viene ordenado
+    # default "score": ya viene ordenado por score desc desde el servicio
 
     # Rango de scores (pasada única para max_abs_total y comp_max)
     max_abs_total = 1
@@ -191,7 +174,6 @@ def render_table(rows_data, comp_meta, sort_col):
         for c in (comp_meta or [])
     ]
     header = html.Thead(html.Tr([
-        html.Th("Rank",   style={**_th, "width": "44px"}),
         html.Th("Ticker", style=_th),
         html.Th("Nombre", style={**_th, "minWidth": "120px"}),
         html.Th("Score",  style={**_th, "minWidth": "110px"}),
@@ -210,10 +192,6 @@ def render_table(rows_data, comp_meta, sort_col):
             for c in (comp_meta or [])
         ]
         rows.append(html.Tr([
-            html.Td(
-                dbc.Badge(str(r["rank"]), color="secondary"),
-                style={**_td, "textAlign": "center"},
-            ),
             html.Td(
                 html.Span([
                     html.A(
@@ -237,7 +215,7 @@ def render_table(rows_data, comp_meta, sort_col):
                            "maxWidth": "180px", "overflow": "hidden",
                            "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
             _score_cell(r["score"], max_abs_total),
-            _delta_cell(r.get("delta_score"), r.get("delta_rank")),
+            _delta_cell(r.get("delta_score")),
             *comp_tds,
         ]))
 
@@ -272,13 +250,12 @@ def export_excel(_, rows_data, comp_meta):
     comp_keys  = [c["signal_key"]  for c in (comp_meta or [])]
     comp_names = [c["signal_name"] for c in (comp_meta or [])]
 
-    ws.append(["Rank", "Ticker", "Nombre", "Score", "Δ Score", "Δ Rank"] + comp_names)
+    ws.append(["Ticker", "Nombre", "Score", "Δ Score"] + comp_names)
 
     for r in rows_data:
         comp_vals = [(r.get("comp_scores") or {}).get(k) for k in comp_keys]
         ws.append([
-            r["rank"], r["ticker"], r["name"], r["score"],
-            r.get("delta_score"), r.get("delta_rank"),
+            r["ticker"], r["name"], r["score"], r.get("delta_score"),
         ] + comp_vals)
 
     buf = io.BytesIO()
