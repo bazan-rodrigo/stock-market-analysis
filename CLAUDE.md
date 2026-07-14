@@ -35,6 +35,14 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   de import en `strategy_packs/` (`<pack>_senales.xlsx` + `<pack>_estrategia.xlsx`),
   no como pasos manuales. Validar offline con `signal_engine.validate_params` y
   `strategy_filter.validate_tree`; documentar en `strategy_packs/README.md`.
+- **HOMOLOGACIÓN del simulador de trades (regla principal del módulo):** la
+  semántica de entrada/salida vive DUPLICADA a propósito —
+  `app/services/trade_simulator.py` (contrato, testeado) y su espejo JS
+  `window._lwc.simulateTrades` en `app/callbacks/chart_callbacks.py`
+  (interactividad del gráfico sin round-trip). Cualquier cambio de semántica
+  se hace en AMBOS archivos en el mismo commit, junto con los casos de
+  `tests/fixtures/trade_simulator_cases.json` (el contrato ejecutable). El
+  futuro módulo de backtesting consume el motor Python.
 
 ## Stack
 

@@ -330,23 +330,97 @@ def load_strategy_overlay(enabled, strategy_id, asset_id):
                                      user_id, is_admin):
         return no_update
 
+    from sqlalchemy import text as _sql_text
+
     from app.database import get_session
     db = get_session()
     rows = (db.query(StrategyResult.date, StrategyResult.score)
             .filter(StrategyResult.strategy_id == int(strategy_id),
                     StrategyResult.asset_id == int(asset_id))
             .order_by(StrategyResult.date).all())
+
+    # Percentil del activo dentro del ranking transversal de cada fecha
+    # (0..100, 100 = mejor rankeado). Lo consume el modo de salida
+    # "percentile" del simulador de trades. Window function (MariaDB 10.2+ /
+    # sqlite 3.25+); el filtro por asset_id va afuera para que el ranking se
+    # compute contra TODOS los activos de la fecha.
+    pct_rows = db.execute(_sql_text(
+        "SELECT date, pct FROM ("
+        "  SELECT asset_id, date,"
+        "         PERCENT_RANK() OVER (PARTITION BY date ORDER BY score) * 100 AS pct"
+        "  FROM strategy_result"
+        "  WHERE strategy_id = :sid AND score IS NOT NULL"
+        ") t WHERE asset_id = :aid ORDER BY date"
+    ), {"sid": int(strategy_id), "aid": int(asset_id)}).all()
+
     return {
         "asset_id":    int(asset_id),
         "strategy_id": int(strategy_id),
         "name":        strat.name,
         "scores":      [[_t(d), float(sc)] for d, sc in rows if sc is not None],
+        "percentiles": [[_t(d), float(p)] for d, p in pct_rows],
     }
+
+
+# El slider de salida es el parámetro del modo elegido: cambia rango/label/
+# default según el modo (puntos de score, k de la media, ruedas, percentil).
+# (label, min, max, step, default)
+_EXIT_MODE_CFG = {
+    "absolute":       ("Salida < ",           -100, 100, 5, 0),
+    "delta_entry":    ("Salida: entrada − ",     0, 100, 5, 20),
+    "trailing_score": ("Salida: máx − ",         0, 100, 5, 20),
+    "score_ma":       ("Salida < media k=",      2,  60, 1, 10),
+    "horizon":        ("Salida a ruedas ",       1, 250, 1, 60),
+    "percentile":     ("Salida pct < ",          0, 100, 5, 70),
+}
+
+_CAP_DEFAULTS = {"max_bars": 60, "stop_loss": 10,
+                 "trailing_stop": 15, "take_profit": 20}
+
+
+@callback(
+    Output("chart-strategy-exit",      "min"),
+    Output("chart-strategy-exit",      "max"),
+    Output("chart-strategy-exit",      "step"),
+    Output("chart-strategy-exit",      "value"),
+    Output("chart-strategy-exit-lbl",  "children"),
+    Output("chart-strategy-entry",     "min"),
+    Output("chart-strategy-entry",     "max"),
+    Output("chart-strategy-entry",     "value"),
+    Output("chart-strategy-entry-lbl", "children"),
+    Input("chart-strategy-exit-mode",  "value"),
+    State("chart-strategy-entry",      "min"),
+    prevent_initial_call=True,
+)
+def reconfigure_exit_mode(mode, entry_min):
+    """En modo percentil la ENTRADA también se compara contra percentil
+    (0..100); al cruzar hacia/desde percentil se resetea el valor de entrada,
+    entre modos de score se conserva lo que puso el usuario."""
+    lbl, mn, mx, stp, val = _EXIT_MODE_CFG[mode or "absolute"]
+    was_pct = (entry_min == 0)
+    if mode == "percentile":
+        entry_out = (0, 100, no_update if was_pct else 90, "Entrada ≥ pct ")
+    else:
+        entry_out = (-100, 100, no_update if not was_pct else 20, "Entrada ≥ ")
+    return (mn, mx, stp, val, lbl, *entry_out)
+
+
+@callback(
+    Output("chart-strategy-cap-val", "value"),
+    Output("chart-strategy-cap-val", "style"),
+    Input("chart-strategy-cap",      "value"),
+    prevent_initial_call=True,
+)
+def reconfigure_cap(cap):
+    base = {"width": "58px", "fontSize": "0.72rem"}
+    if not cap or cap == "none":
+        return no_update, {**base, "display": "none"}
+    return _CAP_DEFAULTS[cap], base
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, strategyEntry, strategyExit, strategyData, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, strategyEntry, strategyExit, strategyExitMode, strategyCap, strategyCapVal, strategyData, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -1022,7 +1096,10 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
        rango LÓGICO (índice de barra), así que si este chart tuviera menos
        barras que el de precio quedaría corrido hacia la izquierda. */
     if (showStrategy && window._lwcPanelCharts.strategy) {{
-      var pc = window._lwcPanelCharts.strategy;
+      /* OJO: NO llamar 'pc' a esta variable — var es function-scoped y
+         pisaría el pc del panel de PRECIO (983), que se sigue usando más
+         abajo (EMA de régimen, zonas de volatilidad). */
+      var stratPc = window._lwcPanelCharts.strategy;
       var scoreByIdx = {{}};
       st.strategyData.scores.forEach(function(p) {{
         scoreByIdx[nearestBarIdx(p[0])] = p[1];  /* W/M: queda el último del período */
@@ -1032,14 +1109,22 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
          índice lógico con el de precio (si arrancara en la primera barra con
          score quedaría corrido) y sostiene las líneas de umbral; sin valores
          no dibuja línea. */
-      window._lwc.addSeries(pc, {{
+      window._lwc.addSeries(stratPc, {{
         type: 'line', name: 'Score ' + (st.strategyData.name || ''),
         color: '#38bdf8', lineWidth: 1.5,
         data: times.map(function(t) {{ return {{time: t}}; }}),
-        priceLines: [
-          {{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}},
-          {{price: (st.strategyExit  == null ?  0 : st.strategyExit),  color: '#ef5350'}},
-        ],
+        /* Líneas de umbral solo cuando viven en unidades de score: la de
+           entrada no aplica en modo percentil (se compara contra percentil),
+           la de salida solo en modo umbral absoluto. */
+        priceLines: (function() {{
+          var _m = st.strategyExitMode || 'absolute';
+          var pls = [];
+          if (_m !== 'percentile')
+            pls.push({{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}});
+          if (_m === 'absolute')
+            pls.push({{price: (st.strategyExit == null ? 0 : st.strategyExit), color: '#ef5350'}});
+          return pls;
+        }})(),
       }});
 
       /* Score en SEGMENTOS: una línea por tramo contiguo de barras con score.
@@ -1049,7 +1134,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
          punto (una recta necesita 2). */
       var seg = [];
       var flushSeg = function() {{
-        if (seg.length) window._lwc.addSeries(pc, {{
+        if (seg.length) window._lwc.addSeries(stratPc, {{
           type: 'line', color: '#38bdf8', lineWidth: 1.5, data: seg,
           pointMarkers: seg.length === 1,
         }});
@@ -1154,45 +1239,91 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }});
     }}
 
-    /* Entradas/salidas de estrategia: máquina de estados con histéresis —
-       entra cuando el score alcanza el umbral de entrada, sale recién
-       cuando cae bajo el umbral de salida (evita señales falsas con el
-       score oscilando pegado a un solo umbral) */
+    /* Entradas/salidas de estrategia: window._lwc.simulateTrades (espejo del
+       contrato Python trade_simulator.py). Acá solo se arma la spec desde los
+       controles, se mapean los scores/percentiles a barras y se dibujan
+       marcadores + métricas. */
     var stratLabel = document.getElementById('chart-strategy-label');
     if (st.strategyEnabled && st.strategyData
         && st.strategyData.asset_id === st.assetId
         && st.strategyData.scores && st.strategyData.scores.length) {{
       var E = st.strategyEntry == null ? 20 : st.strategyEntry;
       var X = st.strategyExit  == null ?  0 : st.strategyExit;
-      var inPos = false, entryClose = null;
-      var nEntries = 0, closedRets = [], openRet = null;
-      st.strategyData.scores.forEach(function(p) {{
-        var idx = nearestBarIdx(p[0]), sc = p[1];
-        if (!inPos && sc >= E) {{
+      var mtype = st.strategyExitMode || 'absolute';
+      var modeSpec = {{type: mtype}};
+      if (mtype === 'score_ma')     modeSpec.k = Math.max(2, Math.round(X));
+      else if (mtype === 'horizon') modeSpec.n = Math.max(1, Math.round(X));
+      else                          modeSpec.x = X;
+      var capSpec = null;
+      var capT = st.strategyCap, capV = Number(st.strategyCapVal);
+      if (capT && capT !== 'none' && !isNaN(capV) && st.strategyCapVal !== null
+          && st.strategyCapVal !== '') {{
+        capSpec = (capT === 'max_bars')
+          ? {{type: 'max_bars', n: Math.max(1, Math.round(capV))}}
+          : {{type: capT, pct: capV}};
+      }}
+
+      /* Scores/percentiles alineados a las barras propias (W/M: queda el
+         último del período, igual que el panel de score). */
+      var simScores = [], simPcts = [];
+      var _sIdx = {{}}, _pIdx = {{}};
+      st.strategyData.scores.forEach(function(p) {{ _sIdx[nearestBarIdx(p[0])] = p[1]; }});
+      (st.strategyData.percentiles || []).forEach(function(p) {{ _pIdx[nearestBarIdx(p[0])] = p[1]; }});
+      for (var bi = 0; bi < times.length; bi++) {{
+        simScores.push(_sIdx.hasOwnProperty(bi) ? _sIdx[bi] : null);
+        simPcts.push(_pIdx.hasOwnProperty(bi) ? _pIdx[bi] : null);
+      }}
+
+      var trades = window._lwc.simulateTrades(
+        close, simScores, {{entry: E, mode: modeSpec, cap: capSpec}}, simPcts);
+
+      var exitTxt = {{horizon: 'S t', max_bars: 'S t', stop_loss: 'S SL',
+                     trailing_stop: 'S TS', take_profit: 'S TP',
+                     filter: 'S filtro'}};
+      trades.forEach(function(t) {{
+        var esc = simScores[t.entry_idx];
+        allMarkers.push({{
+          time: times[t.entry_idx], position: 'belowBar', color: '#4ade80',
+          shape: 'arrowUp',
+          text: 'E' + (esc == null ? '' : ' ' + Math.round(esc)), size: 1,
+        }});
+        if (t.exit_idx !== null) {{
+          var xsc = simScores[t.exit_idx];
+          var txt = exitTxt[t.reason]
+                    || ('S' + (xsc == null ? '' : ' ' + Math.round(xsc)));
           allMarkers.push({{
-            time: times[idx], position: 'belowBar', color: '#4ade80',
-            shape: 'arrowUp', text: 'E ' + Math.round(sc), size: 1,
+            time: times[t.exit_idx], position: 'aboveBar', color: '#ef5350',
+            shape: 'arrowDown', text: txt, size: 1,
           }});
-          inPos = true; entryClose = close[idx]; nEntries++;
-        }} else if (inPos && sc < X) {{
-          allMarkers.push({{
-            time: times[idx], position: 'aboveBar', color: '#ef5350',
-            shape: 'arrowDown', text: 'S ' + Math.round(sc), size: 1,
-          }});
-          inPos = false;
-          if (entryClose > 0) closedRets.push(close[idx] / entryClose - 1);
         }}
       }});
-      if (inPos && entryClose > 0) openRet = close[close.length - 1] / entryClose - 1;
+
+      /* Métricas (espejo de summarize_trades) */
       if (stratLabel) {{
-        var parts = [nEntries + ' entrada' + (nEntries === 1 ? '' : 's')];
-        if (closedRets.length) {{
-          var avg = closedRets.reduce(function(a, b) {{ return a + b; }}, 0) / closedRets.length;
-          parts.push(closedRets.length + ' cerrada' + (closedRets.length === 1 ? '' : 's')
-                     + ' ret.medio ' + (avg * 100).toFixed(1) + '%');
+        var closedT = trades.filter(function(t) {{ return t.exit_idx !== null; }});
+        var rets = closedT.map(function(t) {{ return t.ret; }})
+                          .filter(function(r) {{ return r !== null; }});
+        var openT = trades.length && trades[trades.length - 1].exit_idx === null
+                    ? trades[trades.length - 1] : null;
+        var fmt = function(r) {{ return (r >= 0 ? '+' : '') + (r * 100).toFixed(1) + '%'; }};
+        var parts = [trades.length + ' entrada' + (trades.length === 1 ? '' : 's')];
+        if (rets.length) {{
+          var wins = rets.filter(function(r) {{ return r > 0; }}).length;
+          var avg = rets.reduce(function(a, b) {{ return a + b; }}, 0) / rets.length;
+          var sorted = rets.slice().sort(function(a, b) {{ return a - b; }});
+          var mid = Math.floor(sorted.length / 2);
+          var med = (sorted.length % 2) ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+          var bars = closedT.reduce(function(a, t) {{ return a + (t.exit_idx - t.entry_idx); }}, 0) / closedT.length;
+          parts.push(closedT.length + ' cerrada' + (closedT.length === 1 ? '' : 's')
+                     + ' (' + Math.round(wins / rets.length * 100) + '% pos)');
+          parts.push('media ' + fmt(avg) + ' mediana ' + fmt(med));
+          parts.push(bars.toFixed(1) + ' ruedas');
+          var nFilt = closedT.filter(function(t) {{ return t.reason === 'filter'; }}).length;
+          if (nFilt) parts.push(nFilt + ' x filtro');
         }}
-        if (openRet !== null) parts.push('abierta ' + (openRet >= 0 ? '+' : '') + (openRet * 100).toFixed(1) + '%');
-        stratLabel.textContent = nEntries ? parts.join(' · ') : 'sin entradas con estos umbrales';
+        if (openT && openT.ret !== null) parts.push('abierta ' + fmt(openT.ret));
+        stratLabel.textContent = trades.length ? parts.join(' · ')
+                                               : 'sin entradas con estos parámetros';
       }}
     }} else if (stratLabel) {{
       stratLabel.textContent = '';
@@ -1210,6 +1341,86 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }});
       window._lwcResizeObs.observe(container);
     }}
+  }};
+
+  /* ── Simulador de trades ──
+     ESPEJO de app/services/trade_simulator.py (REGLA DE HOMOLOGACIÓN, ver
+     CLAUDE.md): misma máquina de estados, mismo orden de evaluación
+     (filtro → tope → modo), misma semántica de cola sin score. Cualquier
+     cambio de semántica va en AMBOS archivos en el mismo commit; el contrato
+     ejecutable vive en tests/fixtures/trade_simulator_cases.json. */
+  window._lwc.simulateTrades = function(closes, scores, spec, percentiles) {{
+    var mode = spec.mode, mtype = mode.type, cap = spec.cap || null;
+    var entryTh = spec.entry, usePct = (mtype === 'percentile');
+    var lastScored = -1;
+    for (var j = scores.length - 1; j >= 0; j--) {{
+      if (scores[j] !== null && scores[j] !== undefined) {{ lastScored = j; break; }}
+    }}
+    if (lastScored < 0) return [];
+    var trades = [];
+    var inPos = false, entryIdx = null, entryClose = null, entryScore = null;
+    var maxScore = null, maxClose = null;
+    var maWindow = [], k = mode.k;
+    var closeTrade = function(i, reason) {{
+      var ret = (entryClose > 0) ? closes[i] / entryClose - 1 : null;
+      trades.push({{entry_idx: entryIdx, exit_idx: i, entry_close: entryClose,
+                   exit_close: closes[i], ret: ret, reason: reason}});
+      inPos = false;
+    }};
+    for (var i = 0; i <= lastScored; i++) {{
+      var c = closes[i];
+      var sc = (scores[i] === undefined) ? null : scores[i];
+      var pc = percentiles ? ((percentiles[i] === undefined) ? null : percentiles[i]) : null;
+      /* media móvil del score: propiedad de la serie, no del trade */
+      var ma = null;
+      if (mtype === 'score_ma' && sc !== null) {{
+        maWindow.push(sc);
+        if (maWindow.length > k) maWindow.shift();
+        if (maWindow.length === k) {{
+          ma = maWindow.reduce(function(a, b) {{ return a + b; }}, 0) / k;
+        }}
+      }}
+      if (!inPos) {{
+        var sig = usePct ? pc : sc;
+        if (sig !== null && sig >= entryTh) {{
+          inPos = true; entryIdx = i; entryClose = c;
+          entryScore = sc; maxScore = sc; maxClose = c;
+        }}
+        continue;  /* en la barra de entrada no se evalúan salidas */
+      }}
+      /* 1) elegibilidad */
+      if (sc === null) {{ closeTrade(i, 'filter'); continue; }}
+      /* máximos INCLUYENDO la barra actual */
+      if (maxScore === null || sc > maxScore) maxScore = sc;
+      if (c > maxClose) maxClose = c;
+      /* 2) tope */
+      var reason = null;
+      if (cap) {{
+        if (cap.type === 'max_bars' && i - entryIdx >= cap.n) reason = 'max_bars';
+        else if (cap.type === 'stop_loss' && entryClose > 0
+                 && c <= entryClose * (1 - cap.pct / 100)) reason = 'stop_loss';
+        else if (cap.type === 'trailing_stop' && maxClose > 0
+                 && c <= maxClose * (1 - cap.pct / 100)) reason = 'trailing_stop';
+        else if (cap.type === 'take_profit' && entryClose > 0
+                 && c >= entryClose * (1 + cap.pct / 100)) reason = 'take_profit';
+      }}
+      /* 3) modo principal */
+      if (reason === null) {{
+        if (mtype === 'absolute' && sc < mode.x) reason = 'absolute';
+        else if (mtype === 'delta_entry' && sc < entryScore - mode.x) reason = 'delta_entry';
+        else if (mtype === 'trailing_score' && sc < maxScore - mode.x) reason = 'trailing_score';
+        else if (mtype === 'score_ma' && ma !== null && sc < ma) reason = 'score_ma';
+        else if (mtype === 'horizon' && i - entryIdx >= mode.n) reason = 'horizon';
+        else if (mtype === 'percentile' && pc !== null && pc < mode.x) reason = 'percentile';
+      }}
+      if (reason) closeTrade(i, reason);
+    }}
+    if (inPos) {{
+      var oret = (entryClose > 0) ? closes[closes.length - 1] / entryClose - 1 : null;
+      trades.push({{entry_idx: entryIdx, exit_idx: null, entry_close: entryClose,
+                   exit_close: null, ret: oret, reason: null}});
+    }}
+    return trades;
   }};
 
   /* ── Actualizar estado y renderizar ── */
@@ -1235,6 +1446,9 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     strategyEnabled:   !!(strategyEnabled && strategyEnabled.length),
     strategyEntry:     (strategyEntry == null ? 20 : strategyEntry),
     strategyExit:      (strategyExit  == null ?  0 : strategyExit),
+    strategyExitMode:  strategyExitMode || 'absolute',
+    strategyCap:       strategyCap     || 'none',
+    strategyCapVal:    strategyCapVal,
     strategyData:      strategyData || null,
     indParams:         indParams,
     volumeEnabled:     !!(volumeEnabled  && volumeEnabled.length),
@@ -1274,6 +1488,9 @@ clientside_callback(
     State("chart-strategy-enabled", "value"),
     State("chart-strategy-entry", "value"),
     State("chart-strategy-exit", "value"),
+    State("chart-strategy-exit-mode", "value"),
+    State("chart-strategy-cap", "value"),
+    State("chart-strategy-cap-val", "value"),
     State("chart-strategy-data", "data"),
     *_state_list(State),
     prevent_initial_call=True,
@@ -1386,16 +1603,19 @@ clientside_callback(
 # ─── Estrategia: toggle/sliders y datos lazy, sin round-trip al mover sliders ──
 
 clientside_callback(
-    """function(en, entry, exit) {
+    """function(en, entry, exit, mode, cap, capVal) {
         var ev = document.getElementById('chart-strategy-entry-val');
         if (ev) ev.textContent = String(entry);
         var xv = document.getElementById('chart-strategy-exit-val');
         if (xv) xv.textContent = String(exit);
         if (!window._lwcState || !window._lwc) return null;
         var st = window._lwcState;
-        st.strategyEnabled = !!(en && en.length);
-        st.strategyEntry   = entry;
-        st.strategyExit    = exit;
+        st.strategyEnabled  = !!(en && en.length);
+        st.strategyEntry    = entry;
+        st.strategyExit     = exit;
+        st.strategyExitMode = mode || 'absolute';
+        st.strategyCap      = cap  || 'none';
+        st.strategyCapVal   = capVal;
         window._lwc.fullRender();
         return null;
     }""",
@@ -1403,6 +1623,9 @@ clientside_callback(
     Input("chart-strategy-enabled", "value"),
     Input("chart-strategy-entry", "value"),
     Input("chart-strategy-exit", "value"),
+    Input("chart-strategy-exit-mode", "value"),
+    Input("chart-strategy-cap", "value"),
+    Input("chart-strategy-cap-val", "value"),
     prevent_initial_call=True,
 )
 

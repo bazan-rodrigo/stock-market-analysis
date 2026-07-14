@@ -1,0 +1,198 @@
+{
+  "_comment": "CONTRATO del simulador de trades (app/services/trade_simulator.py y su espejo JS en chart_callbacks.py). Cambiar un caso = cambiar la semantica: requiere tocar AMBAS implementaciones en el mismo commit.",
+  "cases": [
+    {
+      "name": "absolute_basico",
+      "closes": [100, 110, 120, 90, 95],
+      "scores": [10, 25, 30, -5, 15],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "expected": [{"entry_idx": 1, "exit_idx": 3, "reason": "absolute"}]
+    },
+    {
+      "name": "absolute_queda_abierta",
+      "closes": [100, 105, 110],
+      "scores": [25, 30, 40],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
+    },
+    {
+      "name": "absolute_reentrada",
+      "closes": [100, 95, 105, 100],
+      "scores": [25, -5, 30, -10],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 1, "reason": "absolute"},
+        {"entry_idx": 2, "exit_idx": 3, "reason": "absolute"}
+      ]
+    },
+    {
+      "name": "no_sale_en_la_barra_de_entrada",
+      "closes": [100, 101],
+      "scores": [30, 30],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 50}, "cap": null},
+      "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "absolute"}]
+    },
+    {
+      "name": "delta_entry",
+      "closes": [100, 102, 104, 106],
+      "scores": [40, 30, 24, 26],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "delta_entry", "x": 15}, "cap": null},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "delta_entry"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "trailing_score",
+      "closes": [100, 102, 104, 106],
+      "scores": [30, 80, 65, 59],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "trailing_score", "x": 20}, "cap": null},
+      "expected": [{"entry_idx": 0, "exit_idx": 3, "reason": "trailing_score"}]
+    },
+    {
+      "name": "score_ma_cruce",
+      "closes": [100, 101, 102, 103, 104],
+      "scores": [10, 20, 30, 40, 20],
+      "percentiles": null,
+      "spec": {"entry": 15, "mode": {"type": "score_ma", "k": 3}, "cap": null},
+      "expected": [{"entry_idx": 1, "exit_idx": 4, "reason": "score_ma"}]
+    },
+    {
+      "name": "score_ma_insuficientes_observaciones_no_dispara",
+      "closes": [100, 101, 102],
+      "scores": [20, 30, 10],
+      "percentiles": null,
+      "spec": {"entry": 15, "mode": {"type": "score_ma", "k": 5}, "cap": null},
+      "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
+    },
+    {
+      "name": "horizon_y_reentrada",
+      "closes": [100, 101, 102, 103, 104, 105],
+      "scores": [25, 25, 25, 25, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "horizon", "n": 3}, "cap": null},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 3, "reason": "horizon"},
+        {"entry_idx": 4, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "percentile_entrada_y_salida_por_percentil",
+      "closes": [100, 102, 98, 105],
+      "scores": [50, 45, 40, 55],
+      "percentiles": [95, 80, 60, 92],
+      "spec": {"entry": 90, "mode": {"type": "percentile", "x": 70}, "cap": null},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "percentile"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "hueco_interior_cierra_por_filtro",
+      "closes": [100, 90, 95],
+      "scores": [25, null, 30],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 1, "reason": "filter"},
+        {"entry_idx": 2, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "hueco_sin_posicion_no_hace_nada",
+      "closes": [100, 101, 102],
+      "scores": [null, 10, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "expected": [{"entry_idx": 2, "exit_idx": null, "reason": null}]
+    },
+    {
+      "name": "cola_sin_score_no_cierra_por_filtro",
+      "closes": [100, 105, 110, 112],
+      "scores": [25, 30, null, null],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
+    },
+    {
+      "name": "cap_max_bars_gana_al_modo",
+      "closes": [100, 101, 102, 103, 104],
+      "scores": [25, 25, 25, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "horizon", "n": 10},
+               "cap": {"type": "max_bars", "n": 2}},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "max_bars"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "cap_stop_loss",
+      "closes": [100, 95, 89, 100],
+      "scores": [25, 25, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": -100},
+               "cap": {"type": "stop_loss", "pct": 10}},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "stop_loss"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "cap_trailing_stop_desde_el_maximo",
+      "closes": [100, 120, 110, 107],
+      "scores": [25, 25, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": -100},
+               "cap": {"type": "trailing_stop", "pct": 10}},
+      "expected": [{"entry_idx": 0, "exit_idx": 3, "reason": "trailing_stop"}]
+    },
+    {
+      "name": "cap_take_profit",
+      "closes": [100, 110, 116, 117],
+      "scores": [25, 25, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": -100},
+               "cap": {"type": "take_profit", "pct": 15}},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "take_profit"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "precedencia_tope_sobre_modo_en_la_misma_barra",
+      "closes": [100, 94],
+      "scores": [25, -10],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+               "cap": {"type": "stop_loss", "pct": 5}},
+      "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "stop_loss"}]
+    },
+    {
+      "name": "precedencia_filtro_sobre_tope",
+      "closes": [100, 90, 95],
+      "scores": [25, null, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+               "cap": {"type": "stop_loss", "pct": 5}},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 1, "reason": "filter"},
+        {"entry_idx": 2, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "sin_scores_no_hay_trades",
+      "closes": [100, 101, 102],
+      "scores": [null, null, null],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "expected": []
+    }
+  ]
+}

@@ -270,6 +270,11 @@ def layout(**kwargs):
                 label_checked_class_name="active",
                 class_name="btn-group btn-group-sm",
             ), className="ind-group"), width="auto"),
+        ], className="mb-1 g-2 align-items-center chart-toolbar"),
+
+        # ── Estrategia: sección propia (más controles que las opciones de
+        #    vista — dropdown de salida, tope y métricas necesitan su fila) ──
+        dbc.Row([
             dbc.Col(html.Div([
                 _chk("chart-strategy-enabled", "Estrategia"),
                 html.Div([
@@ -279,7 +284,7 @@ def layout(**kwargs):
                         clearable=False,
                         style={"width": "200px", "fontSize": "0.72rem"},
                     ),
-                    html.Small(["Entrada ≥ ",
+                    html.Small([html.Span("Entrada ≥ ", id="chart-strategy-entry-lbl"),
                                 html.Span("20", id="chart-strategy-entry-val",
                                           style={"color": "#4ade80"})],
                                style={"color": "#aaa", "fontSize": "0.68rem",
@@ -289,7 +294,20 @@ def layout(**kwargs):
                         marks=None,
                         tooltip={"placement": "bottom"},
                     ), style={"width": "130px"}),
-                    html.Small(["Salida < ",
+                    dcc.Dropdown(
+                        id="chart-strategy-exit-mode",
+                        options=[
+                            {"label": "Salida: umbral absoluto",   "value": "absolute"},
+                            {"label": "Salida: entrada − Δ",       "value": "delta_entry"},
+                            {"label": "Salida: máx score − Δ",     "value": "trailing_score"},
+                            {"label": "Salida: cruce media score", "value": "score_ma"},
+                            {"label": "Salida: horizonte fijo",    "value": "horizon"},
+                            {"label": "Salida: percentil ranking", "value": "percentile"},
+                        ],
+                        value="absolute", clearable=False,
+                        style={"width": "168px", "fontSize": "0.72rem"},
+                    ),
+                    html.Small([html.Span("Salida < ", id="chart-strategy-exit-lbl"),
                                 html.Span("0", id="chart-strategy-exit-val",
                                           style={"color": "#ef5350"})],
                                style={"color": "#aaa", "fontSize": "0.68rem",
@@ -299,11 +317,28 @@ def layout(**kwargs):
                         marks=None,
                         tooltip={"placement": "bottom"},
                     ), style={"width": "130px"}),
+                    dcc.Dropdown(
+                        id="chart-strategy-cap",
+                        options=[
+                            {"label": "Sin tope",        "value": "none"},
+                            {"label": "Tope: N ruedas",  "value": "max_bars"},
+                            {"label": "Stop loss %",     "value": "stop_loss"},
+                            {"label": "Trailing stop %", "value": "trailing_stop"},
+                            {"label": "Take profit %",   "value": "take_profit"},
+                        ],
+                        value="none", clearable=False,
+                        style={"width": "128px", "fontSize": "0.72rem"},
+                    ),
+                    dcc.Input(
+                        id="chart-strategy-cap-val", type="number", value=10,
+                        style={"width": "58px", "fontSize": "0.72rem",
+                               "display": "none"},
+                    ),
                     html.Span(id="chart-strategy-label",
                               style={"fontSize": "0.68rem", "color": "#aaa",
                                      "whiteSpace": "nowrap"}),
                 ], id="chart-strategy-params",
-                   className="d-flex align-items-center gap-1",
+                   className="d-flex align-items-center gap-1 flex-wrap",
                    style={"display": "none"}),
             ], className="d-flex align-items-center gap-1 ind-group"), width="auto"),
         ], className="mb-1 g-2 align-items-center chart-toolbar"),
