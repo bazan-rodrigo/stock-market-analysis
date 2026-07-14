@@ -5,6 +5,7 @@ import json
 
 from app.callbacks.strategy_filter_ui import (
     empty_filter_store,
+    store_to_text,
     store_to_tree,
     tree_to_store,
 )
@@ -114,3 +115,41 @@ def test_raiz_condicion_suelta_se_envuelve_en_grupo():
     store = tree_to_store(json.dumps(tree))
     root = store["nodes"][str(store["root"])]
     assert root["kind"] == "group" and len(root["children"]) == 1
+
+
+# ── store → texto legible (previsualización) ─────────────────────────────────
+
+def test_texto_sin_filtro():
+    assert store_to_text(empty_filter_store(), {}) == \
+        "(sin filtro: todos los activos)"
+
+def test_texto_condicion_numerica():
+    store = {"nodes": {"0": {"kind": "group", "op": "AND", "children": [1]},
+                       "1": _cond_node("ind:rsi_daily", ">", val=70)},
+             "root": 0, "counter": 2}
+    assert store_to_text(store, {}) == "rsi_daily > 70"
+
+def test_texto_categorico_traduce_ids_y_and_or():
+    # sector in [Tecnología] Y (country = Argentina O market = NYSE)
+    store = {"nodes": {
+        "0": {"kind": "group", "op": "AND", "children": [1, 2]},
+        "1": _cond_node("attr:sector", "in", val=[10]),
+        "2": {"kind": "group", "op": "OR", "children": [3, 4]},
+        "3": _cond_node("attr:country", "=", val=5),
+        "4": _cond_node("attr:market", "=", val=7),
+    }, "root": 0, "counter": 5}
+    opts = {"cat_values": {
+        "attr:sector":  [{"label": "Tecnología", "value": 10}],
+        "attr:country": [{"label": "Argentina",  "value": 5}],
+        "attr:market":  [{"label": "NYSE",       "value": 7}],
+    }}
+    txt = store_to_text(store, opts)
+    assert txt.splitlines()[0] == "Sector in [Tecnología]"
+    assert "Y (País = Argentina" in txt
+    assert "O Mercado = NYSE)" in txt
+
+def test_texto_condicion_incompleta():
+    store = {"nodes": {"0": {"kind": "group", "op": "AND", "children": [1]},
+                       "1": _cond_node(None, None)},
+             "root": 0, "counter": 2}
+    assert store_to_text(store, {}) == "‹condición incompleta›"

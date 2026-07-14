@@ -156,6 +156,101 @@ def store_to_tree(store: dict, no_hist: set[str]) -> tuple[str | None, list[str]
     return (json.dumps(tree) if tree else None), []
 
 
+# ── store → texto legible (previsualización de la fórmula) ───────────────────
+
+_OP_TEXT = {"not_in": "not in"}
+
+
+def _operand_text(encoded: str | None) -> str:
+    """Etiqueta corta del operando para la fórmula. ind/señal → code/key crudo;
+    atributo → nombre en español."""
+    if not encoded or ":" not in encoded:
+        return "‹?›"
+    kind, key = encoded.split(":", 1)
+    if kind == "attr":
+        return _ATTR_LABELS.get(key, key)
+    return key
+
+
+def _value_text(left_enc: str | None, val, opts: dict) -> str:
+    """Valor del lado derecho, traduciendo ids categóricos a su nombre."""
+    cat = {str(o["value"]): o["label"]
+           for o in (opts.get("cat_values", {}) or {}).get(left_enc, [])}
+
+    def _one(v):
+        return cat.get(str(v), str(v))
+
+    if isinstance(val, list):
+        return "[" + ", ".join(_one(v) for v in val) + "]"
+    return _one(val)
+
+
+def _cond_text(node: dict, opts: dict) -> str:
+    left_enc, op = node.get("left"), node.get("op")
+    if not left_enc or not op:
+        return "‹condición incompleta›"
+    left = _operand_text(left_enc)
+    op_txt = _OP_TEXT.get(op, op)
+    vs = node.get("vs")
+    if vs:
+        return f"{left} {op_txt} {_operand_text(vs)}"
+    val = node.get("val")
+    if val is None or (isinstance(val, list) and not val):
+        return f"{left} {op_txt} ‹sin valor›"
+    return f"{left} {op_txt} {_value_text(left_enc, val, opts)}"
+
+
+def _node_lines(uid, nodes: dict, opts: dict, wrap: bool) -> list[str]:
+    node = nodes.get(str(uid))
+    if node is None:
+        return []
+    if node["kind"] == "cond":
+        return [_cond_text(node, opts)]
+
+    conj = "Y " if node.get("op", "AND") == "AND" else "O "
+    blocks = []
+    for cid in node.get("children", []):
+        child = nodes.get(str(cid))
+        cwrap = child is not None and child.get("kind") == "group"
+        block = _node_lines(cid, nodes, opts, cwrap)
+        if block:
+            blocks.append(block)
+    if not blocks:
+        return []
+
+    lines: list[str] = []
+    for i, block in enumerate(blocks):
+        if i == 0:
+            lines.extend(block)
+        else:
+            lines.append(conj + block[0])
+            lines.extend("  " + ln for ln in block[1:])
+
+    if wrap:
+        if len(lines) == 1:
+            lines = ["(" + lines[0] + ")"]
+        else:
+            lines = (["(" + lines[0]]
+                     + ["   " + ln for ln in lines[1:-1]]
+                     + ["   " + lines[-1] + ")"])
+    return lines
+
+
+def store_to_text(store: dict | None, opts: dict | None) -> str:
+    """Serializa el árbol del filtro (tal como está en el store, con los
+    valores vivos ya volcados por _capture_fields) a un texto legible para
+    revalidar la lógica. No valida ni omite grupos vacíos como store_to_tree:
+    refleja lo que el usuario ve."""
+    opts = opts or {}
+    nodes = (store or {}).get("nodes", {})
+    if not nodes:
+        return "(sin filtro: todos los activos)"
+    lines = _node_lines((store or {}).get("root", 0), nodes, opts, wrap=False)
+    if not lines:
+        return "(sin filtro: todos los activos)"
+    return "\n".join(lines)
+
+
 # ── árbol JSON → store (editar) ──────────────────────────────────────────────
 
 def _encode_operand(side: dict) -> str | None:

@@ -7,7 +7,8 @@ import app.services.strategy_service as svc
 import app.services.signal_service as sig_svc
 from app.services.visibility import can_edit, current_viewer, publica_str
 from app.callbacks.strategy_filter_ui import (
-    empty_filter_store, store_to_tree, tree_to_store,
+    empty_filter_store, store_to_tree, store_to_text, tree_to_store,
+    _capture_fields,
 )
 from app.pages.admin_strategies import _SCOPE_OPTS, _GROUP_TYPE_OPTS
 from app.components.ui_constants import TH as _th, TD as _td
@@ -231,6 +232,90 @@ def render_comp_rows(uid_store, signal_opts):
         ], className="g-1 mb-1 align-items-center"))
 
     return rows
+
+
+# ── Previsualización de la fórmula (score + filtro) ───────────────────────────
+
+_SCOPE_TEXT = {"own_group": "grupo propio", "specific_group": "grupo fijo"}
+_GTYPE_TEXT = {o["value"]: o["label"] for o in _GROUP_TYPE_OPTS}
+
+
+def _fmt_w(w) -> str:
+    try:
+        w = float(w)
+    except (TypeError, ValueError):
+        return "1"
+    return str(int(w)) if w.is_integer() else str(w)
+
+
+def _score_text(uids, signals, weights, scopes, group_types) -> str:
+    """SCORE = Σ(peso·señal)/Σpeso, tal como lo calcula _compute_asset_score."""
+    terms, total_w = [], 0.0
+    for i, _uid in enumerate(uids):
+        sig = signals[i] if i < len(signals) else None
+        if not sig:
+            continue
+        w_raw = weights[i] if i < len(weights) else 1.0
+        try:
+            w = float(w_raw) if w_raw is not None else 1.0
+        except (TypeError, ValueError):
+            w = 1.0
+        scope = scopes[i] if i < len(scopes) else ""
+        gtype = group_types[i] if i < len(group_types) else None
+        term = f"{_fmt_w(w)}·{sig}"
+        if scope in _SCOPE_TEXT:
+            gt_lbl = _GTYPE_TEXT.get(gtype, gtype or "?")
+            term += f" [{_SCOPE_TEXT[scope]}: {gt_lbl}]"
+        terms.append(term)
+        total_w += w
+    if not terms:
+        return "SCORE = (sin componentes)"
+    return f"SCORE = ({' + '.join(terms)}) / {_fmt_w(total_w)}"
+
+
+@callback(
+    Output("str-formula-preview", "value"),
+    Input({"type": "str-comp-signal",     "index": ALL}, "value"),
+    Input({"type": "str-comp-weight",     "index": ALL}, "value"),
+    Input({"type": "str-comp-scope",      "index": ALL}, "value"),
+    Input({"type": "str-comp-group-type", "index": ALL}, "value"),
+    Input({"type": "strf-left",    "index": ALL}, "value"),
+    Input({"type": "strf-op",      "index": ALL}, "value"),
+    Input({"type": "strf-val",     "index": ALL}, "value"),
+    Input({"type": "strf-vs",      "index": ALL}, "value"),
+    Input({"type": "strf-groupop", "index": ALL}, "value"),
+    Input("str-filter-store", "data"),
+    State("str-uid-store", "data"),
+    State({"type": "strf-left",    "index": ALL}, "id"),
+    State({"type": "strf-op",      "index": ALL}, "id"),
+    State({"type": "strf-val",     "index": ALL}, "id"),
+    State({"type": "strf-vs",      "index": ALL}, "id"),
+    State({"type": "strf-groupop", "index": ALL}, "id"),
+    State("str-filter-opts", "data"),
+)
+def live_formula(signals, weights, scopes, group_types,
+                 f_lefts, f_ops, f_vals, f_vss, f_groupops, filter_store,
+                 uid_store, ids_left, ids_op, ids_val, ids_vs, ids_groupop, opts):
+    import copy
+
+    uids = (uid_store or {}).get("uids", [])
+    score = _score_text(uids, signals, weights, scopes, group_types)
+
+    filt = "(sin filtro: todos los activos)"
+    if filter_store:
+        # Volcar los valores vivos de los controles al store (los campos de
+        # valor no re-renderizan, igual que en save) antes de serializar
+        store = copy.deepcopy(filter_store)
+        store, _ = _capture_fields(store, ids_left, f_lefts, ids_op, f_ops,
+                                   ids_val, f_vals, ids_vs, f_vss)
+        nodes = store.get("nodes", {})
+        for id_, v in zip(ids_groupop or [], f_groupops or []):
+            node = nodes.get(str(id_["index"]))
+            if node is not None and node.get("kind") == "group" and v:
+                node["op"] = v
+        filt = store_to_text(store, opts)
+
+    return f"{score}\n\nFILTRO\n{filt}"
 
 
 # ── Añadir / quitar componente ────────────────────────────────────────────────

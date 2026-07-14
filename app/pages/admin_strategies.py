@@ -83,6 +83,23 @@ def layout(**kwargs):
             ),
             html.Div(id="str-filter-tree"),
 
+            # ── Previsualización de la fórmula (solo lectura) ───────────────
+            html.Hr(className="my-2"),
+            dbc.Label("Fórmula (previsualización)",
+                      style={"fontSize": "0.82rem", "fontWeight": "bold",
+                             "marginBottom": "2px"}),
+            html.Small(
+                "Cómo queda el score y el filtro según los componentes de "
+                "arriba. Solo para revalidar la lógica.",
+                className="text-muted d-block mb-1",
+            ),
+            dbc.Textarea(
+                id="str-formula-preview", readOnly=True, rows=6,
+                style={"fontSize": "0.78rem", "fontFamily": "monospace",
+                       "resize": "vertical", "backgroundColor": "#1e1e1e",
+                       "color": "#dcdcdc", "whiteSpace": "pre"},
+            ),
+
             dbc.Alert(id="str-modal-error", is_open=False, color="danger",
                       className="mt-2 mb-0 small py-1"),
         ]),
