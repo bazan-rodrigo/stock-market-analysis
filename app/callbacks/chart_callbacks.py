@@ -724,6 +724,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         color: spec.color || '#2196f3', lineWidth: spec.lineWidth || 1.5,
         title: spec.name || '', priceLineVisible: false, lastValueVisible: true,
         lineStyle: spec.dashed ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+        pointMarkersVisible: !!spec.pointMarkers,
       }});
     }} else if (spec.type === 'histogram') {{
       s = chart.addHistogramSeries({{
@@ -1021,22 +1022,44 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
        rango LÓGICO (índice de barra), así que si este chart tuviera menos
        barras que el de precio quedaría corrido hacia la izquierda. */
     if (showStrategy && window._lwcPanelCharts.strategy) {{
+      var pc = window._lwcPanelCharts.strategy;
       var scoreByIdx = {{}};
       st.strategyData.scores.forEach(function(p) {{
         scoreByIdx[nearestBarIdx(p[0])] = p[1];  /* W/M: queda el último del período */
       }});
-      var sd = times.map(function(t, i) {{
-        return scoreByIdx.hasOwnProperty(i) ? {{time: t, value: scoreByIdx[i]}} : {{time: t}};
-      }});
-      window._lwc.addSeries(window._lwcPanelCharts.strategy, {{
-        type: 'line',
-        name: 'Score ' + (st.strategyData.name || ''),
-        color: '#38bdf8', lineWidth: 1.5, data: sd,
+
+      /* Serie base: whitespace sobre TODAS las barras. Alinea el panel por
+         índice lógico con el de precio (si arrancara en la primera barra con
+         score quedaría corrido) y sostiene las líneas de umbral; sin valores
+         no dibuja línea. */
+      window._lwc.addSeries(pc, {{
+        type: 'line', name: 'Score ' + (st.strategyData.name || ''),
+        color: '#38bdf8', lineWidth: 1.5,
+        data: times.map(function(t) {{ return {{time: t}}; }}),
         priceLines: [
           {{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}},
           {{price: (st.strategyExit  == null ?  0 : st.strategyExit),  color: '#ef5350'}},
         ],
       }});
+
+      /* Score en SEGMENTOS: una línea por tramo contiguo de barras con score.
+         Los días sin score (activo no elegible por el filtro) quedan como
+         CORTES, no como una recta que cruza el hueco — en lightweight-charts el
+         whitespace no corta la línea. Un tramo de una sola barra se dibuja como
+         punto (una recta necesita 2). */
+      var seg = [];
+      var flushSeg = function() {{
+        if (seg.length) window._lwc.addSeries(pc, {{
+          type: 'line', color: '#38bdf8', lineWidth: 1.5, data: seg,
+          pointMarkers: seg.length === 1,
+        }});
+        seg = [];
+      }};
+      for (var i = 0; i < times.length; i++) {{
+        if (scoreByIdx.hasOwnProperty(i)) seg.push({{time: times[i], value: scoreByIdx[i]}});
+        else flushSeg();
+      }}
+      flushSeg();
     }}
 
     /* Sync timescales */
