@@ -572,6 +572,17 @@ def layout(**kwargs):
                                          "Take profit % desde el precio de "
                                          "entrada."),
                         ]),
+                        dbc.Button("Optimizar", id="chart-strategy-opt-btn",
+                                   color="primary", outline=True, size="sm",
+                                   style={"fontSize": "0.72rem",
+                                          "padding": "1px 8px"}),
+                        dbc.Tooltip(
+                            "Prueba una grilla de valores para las "
+                            "condiciones ACTIVAS y muestra el top por "
+                            "retorno compuesto, con validación fuera de "
+                            "muestra (train/test).",
+                            target="chart-strategy-opt-btn",
+                            placement="bottom", style=_TIP_STYLE),
                         dbc.Button("?", id="chart-strategy-help-btn",
                                    color="secondary", outline=True, size="sm",
                                    style={"fontSize": "0.7rem",
@@ -614,6 +625,29 @@ def layout(**kwargs):
             id="analysis-tabs",
             active_tab="tab-chart",
         ),
+
+        # ── Modal del optimizador de parámetros ──────────────────────────
+        dcc.Store(id="chart-opt-store"),
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Optimizador de parámetros"),
+                            close_button=False),
+            dbc.ModalBody([
+                html.Div(
+                    "Prueba una grilla gruesa de valores para las "
+                    "condiciones que tenés ACTIVAS en el panel (la "
+                    "estructura no se toca) sobre el activo y la "
+                    "estrategia seleccionados. Rankea por retorno total "
+                    "compuesto en el primer 70% de la historia y valida "
+                    "en el 30% restante. Mínimo 10 trades cerrados.",
+                    className="mb-2", style={"fontSize": "0.8rem"}),
+                dbc.Button("Ejecutar", id="chart-opt-run", color="primary",
+                           size="sm", className="mb-2"),
+                dcc.Loading(html.Div(id="chart-opt-results"),
+                            type="circle", color="#dee2e6"),
+            ]),
+            dbc.ModalFooter(dbc.Button("Cerrar", id="chart-opt-close",
+                                       color="secondary", size="sm")),
+        ], id="chart-opt-modal", is_open=False, size="xl", centered=True),
 
         # Tooltips de todos los controles (targets por id, viven acá abajo)
         *_screen_tips(),
