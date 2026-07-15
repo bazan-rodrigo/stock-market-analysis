@@ -1199,40 +1199,49 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }});
 
       /* Serie base: whitespace sobre TODAS las barras. Alinea el panel por
-         índice lógico con el de precio (si arrancara en la primera barra con
-         score quedaría corrido) y sostiene las líneas de umbral; sin valores
-         no dibuja línea. */
-      /* Línea de entrada: siempre visible (en modo percentil el umbral está
-         en unidades de percentil, no de score — la línea es orientativa).
-         La de salida solo en umbral absoluto (en los demás modos no hay un
-         nivel fijo de score). autoscaleRange fuerza a que los niveles
-         entren en la escala del panel aunque los scores no los crucen. */
+         índice lógico con el de precio (si arrancara en la primera barra
+         con score quedaría corrido). OJO: las price lines NO pueden vivir
+         acá — lightweight-charts no pinta price lines de una serie sin
+         ningún valor (necesita un "primer valor"); por eso van colgadas
+         del PRIMER SEGMENTO con datos (abajo). */
+      window._lwc.addSeries(stratPc, {{
+        type: 'line', name: 'Score ' + (st.strategyData.name || ''),
+        color: '#38bdf8', lineWidth: 1.5,
+        data: times.map(function(t) {{ return {{time: t}}; }}),
+      }});
+
+      /* Líneas de umbral: entrada siempre (en modo percentil el umbral está
+         en unidades de percentil — orientativa); salida solo en umbral
+         absoluto (los demás modos no tienen nivel fijo de score).
+         autoscaleRange fuerza los niveles dentro de la escala del panel
+         aunque los scores no los crucen. */
       var _thrM = st.strategyExitMode || 'none';
       var thrLines = [{{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}}];
       if (_thrM === 'absolute')
         thrLines.push({{price: (st.strategyExit == null ? 0 : st.strategyExit), color: '#ef5350'}});
       var thrVals = thrLines.map(function(p) {{ return p.price; }});
 
-      window._lwc.addSeries(stratPc, {{
-        type: 'line', name: 'Score ' + (st.strategyData.name || ''),
-        color: '#38bdf8', lineWidth: 1.5,
-        data: times.map(function(t) {{ return {{time: t}}; }}),
-        priceLines: thrLines,
-        autoscaleRange: {{min: Math.min.apply(null, thrVals),
-                         max: Math.max.apply(null, thrVals)}},
-      }});
-
       /* Score en SEGMENTOS: una línea por tramo contiguo de barras con score.
          Los días sin score (activo no elegible por el filtro) quedan como
          CORTES, no como una recta que cruza el hueco — en lightweight-charts el
          whitespace no corta la línea. Un tramo de una sola barra se dibuja como
-         punto (una recta necesita 2). */
-      var seg = [];
+         punto (una recta necesita 2). El primer segmento carga las líneas
+         de umbral (tiene datos reales → sí se pintan). */
+      var seg = [], thrAttached = false;
       var flushSeg = function() {{
-        if (seg.length) window._lwc.addSeries(stratPc, {{
-          type: 'line', color: '#38bdf8', lineWidth: 1.5, data: seg,
-          pointMarkers: seg.length === 1,
-        }});
+        if (seg.length) {{
+          var segSpec = {{
+            type: 'line', color: '#38bdf8', lineWidth: 1.5, data: seg,
+            pointMarkers: seg.length === 1,
+          }};
+          if (!thrAttached) {{
+            segSpec.priceLines = thrLines;
+            segSpec.autoscaleRange = {{min: Math.min.apply(null, thrVals),
+                                      max: Math.max.apply(null, thrVals)}};
+            thrAttached = true;
+          }}
+          window._lwc.addSeries(stratPc, segSpec);
+        }}
         seg = [];
       }};
       for (var i = 0; i < times.length; i++) {{
