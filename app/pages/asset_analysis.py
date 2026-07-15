@@ -7,6 +7,83 @@ _EMA_COLORS  = ["#00bcd4", "#9c27b0", "#ffeb3b"]
 _SMA_DEF     = [20, 50, 200]
 _EMA_DEF     = [9,  21,  50]
 
+_TIP_STYLE = {"fontSize": "0.75rem", "maxWidth": "300px",
+              "backgroundColor": "#1f2937", "color": "#dee2e6",
+              "border": "1px solid #374151"}
+
+
+def _tip(target, text):
+    """Tooltip estándar de la pantalla (con delay para no molestar)."""
+    return dbc.Tooltip(text, target=target, placement="bottom",
+                       delay={"show": 400, "hide": 0}, style=_TIP_STYLE)
+
+
+def _screen_tips():
+    """Tooltips de TODOS los controles de la pantalla — es la principal del
+    sistema y debe ser auto-explicativa (pedido del usuario, 15-jul-2026).
+    Los controles del simulador ya traen el suyo en _cap_control."""
+    sma = ("Media móvil simple: promedio de los cierres de las últimas N "
+           "ruedas. La etiqueta muestra la distancia % del precio a la media.")
+    ema = ("Media móvil exponencial: como la SMA pero con más peso a lo "
+           "reciente. La etiqueta muestra la distancia % del precio a la media.")
+    tips = [
+        ("analysis-asset-select", "Activo a analizar."),
+        ("chart-freq", "Frecuencia de las barras: Diaria, Semanal o Mensual."),
+        ("chart-type", "Tipo de gráfico: velas japonesas, línea de cierres, "
+                       "o Punto y Figura (P&F sobre el tiempo / clásico X-O)."),
+        ("chart-yscale", "Escala del eje de precios: aritmética o "
+                         "logarítmica (en log, los mismos % miden lo mismo "
+                         "en cualquier nivel de precio)."),
+        ("chart-volume-enabled", "Volumen operado por rueda."),
+        ("chart-ind-sma-1-enabled", sma),
+        ("chart-ind-sma-2-enabled", sma),
+        ("chart-ind-sma-3-enabled", sma),
+        ("chart-ind-ema-1-enabled", ema),
+        ("chart-ind-ema-2-enabled", ema),
+        ("chart-ind-ema-3-enabled", ema),
+        ("chart-ind-bollinger-1-enabled",
+         "Bandas de Bollinger: media de Per ruedas ± Dev desvíos estándar. "
+         "Mide qué tan lejos está el precio de su media en términos de "
+         "volatilidad."),
+        ("chart-ind-rsi-1-enabled",
+         "RSI: índice de fuerza relativa (0-100). Clásico: >70 sobrecompra, "
+         "<30 sobreventa."),
+        ("chart-ind-macd-1-enabled",
+         "MACD: EMA rápida − EMA lenta, con línea de señal e histograma. "
+         "Mide impulso y sus cruces."),
+        ("chart-ind-stochastic-1-enabled",
+         "Estocástico: posición del cierre dentro del rango de las últimas "
+         "%K ruedas (0-100), suavizado con %D."),
+        ("chart-ind-atr-1-enabled",
+         "ATR: rango medio verdadero — volatilidad absoluta promedio de las "
+         "últimas Per ruedas, en precio."),
+        ("chart-ind-drawdown-1-enabled",
+         "Caída % desde el máximo histórico previo, en panel propio."),
+        ("chart-dd-enabled",
+         "Marca sobre el precio los pisos de los drawdowns detectados, con "
+         "la profundidad % de cada caída."),
+        ("chart-events-enabled",
+         "Eventos de mercado cargados en el sistema (crisis, elecciones, "
+         "anuncios) marcados sobre el gráfico."),
+        ("chart-regime-enabled",
+         "Colorea la EMA de referencia según el régimen de tendencia "
+         "detectado (alcista / lateral / bajista y matices). La etiqueta "
+         "muestra el régimen vigente."),
+        ("chart-vol-enabled",
+         "Sombrea el fondo según el régimen de volatilidad ATR (extrema / "
+         "alta / normal / baja). La etiqueta muestra el vigente."),
+        ("chart-sr-pivot-enabled",
+         "Soportes y resistencias por pivotes: R/S con la cantidad de "
+         "toques; los % indican la distancia al nivel más cercano."),
+        ("chart-strategy-enabled",
+         "Simulación de estrategias: muestra el score de la estrategia en "
+         "un panel propio y simula trades sobre la historia visible con "
+         "las condiciones configuradas."),
+        ("chart-strategy-sel",
+         "Estrategia cuyo score y ranking alimentan la simulación."),
+    ]
+    return [_tip(t, txt) for t, txt in tips]
+
 
 def _strategy_help():
     """Referencia de los modos de salida/topes del simulador de trades
@@ -33,14 +110,14 @@ def _strategy_help():
                  className="mb-1"),
         title("Entrada (deben cumplirse TODAS las activas)"),
         html.Table(html.Tbody([
-            row("Sc ≥", "Score de la estrategia sobre el umbral."),
-            row("Pct ≥", "Percentil del activo en el ranking del día sobre "
+            row("Score ≥", "Score de la estrategia sobre el umbral."),
+            row("Percentil ≥", "Percentil del activo en el ranking del día sobre "
                 "el umbral (100 = mejor). Sc+Pct juntas: \"score alto Y "
                 "entre los mejores\"."),
             row("Cruce", "Freno de re-entrada: tras una salida, la condición "
                 "de entrada debe dejar de cumplirse antes de poder "
                 "re-entrar (evita el whipsaw)."),
-            row("Enfr.", "Freno de re-entrada: espera N ruedas después de "
+            row("Enfriamiento", "Freno de re-entrada: espera N ruedas después de "
                 "cada salida."),
         ])),
         title("Salida por score (dispara la primera que se cumpla)"),
@@ -67,9 +144,9 @@ def _strategy_help():
                  "Sin ninguna salida activa, mantiene mientras sea elegible "
                  "(buy & hold del filtro)."),
         title("¿Cuál uso?"),
-        html.Div(["Para MEDIR la señal: ", html.B("solo Sc ≥ + Ruedas"),
+        html.Div(["Para MEDIR la señal: ", html.B("solo Score ≥ + Ruedas"),
                  " (retorno posterior puro, como el backtest). Para simular "
-                 "operatoria: Pct ≥ en la entrada con Pct < en la salida, o "
+                 "operatoria: Percentil ≥ en la entrada con Pct < en la salida, o "
                  "Máx−Δ, más SL% como red. Para aislar el efecto de una "
                  "condición: activá una sola y compará corridas."]),
     ])
@@ -93,10 +170,7 @@ def _cap_control(key, label, default, tip, id_base="chart-strategy-cap",
             min=min_, step=1, style=input_style,
         ),
         dbc.Tooltip(tip, target=f"{id_base}-{key}-wrap",
-                    placement="bottom",
-                    style={"fontSize": "0.75rem", "maxWidth": "260px",
-                           "backgroundColor": "#1f2937", "color": "#dee2e6",
-                           "border": "1px solid #374151"}),
+                    placement="bottom", style=_TIP_STYLE),
     ], id=f"{id_base}-{key}-wrap",
        className="d-flex align-items-center gap-1")
 
@@ -392,18 +466,20 @@ def layout(**kwargs):
                             clearable=False,
                             style={"width": "200px", "fontSize": "0.72rem"},
                         ),
-                        _sim_group("Entrada", [
-                            _cap_control("entry-sc", "Sc ≥", 20,
+                        _sim_group("Entrada por", [
+                            _cap_control("entry-sc", "Score ≥", 20,
                                          "Entrada: score de la estrategia mayor "
                                          "o igual al umbral.",
                                          id_base="chart-strategy",
                                          min_=-100, default_on=True),
-                            _cap_control("entry-pct", "Pct ≥", 90,
+                            _cap_control("entry-pct", "Percentil ≥", 90,
                                          "Entrada: percentil del activo en el "
                                          "ranking del día (100 = mejor) mayor o "
                                          "igual al umbral. Con varias activas, "
                                          "deben cumplirse TODAS.",
                                          id_base="chart-strategy", min_=0),
+                        ]),
+                        _sim_group("Condiciones de re-entrada", [
                             html.Div(_chk("chart-strategy-rearm", "Cruce"),
                                      id="chart-strategy-rearm-wrap"),
                             dbc.Tooltip(
@@ -412,12 +488,8 @@ def layout(**kwargs):
                                 "antes de poder volver a entrar (evita "
                                 "re-entradas inmediatas).",
                                 target="chart-strategy-rearm-wrap",
-                                placement="bottom",
-                                style={"fontSize": "0.75rem", "maxWidth": "260px",
-                                       "backgroundColor": "#1f2937",
-                                       "color": "#dee2e6",
-                                       "border": "1px solid #374151"}),
-                            _cap_control("cooldown", "Enfr.", 5,
+                                placement="bottom", style=_TIP_STYLE),
+                            _cap_control("cooldown", "Enfriamiento", 5,
                                          "Enfriamiento: tras una salida, espera "
                                          "N ruedas antes de permitir otra "
                                          "entrada.",
@@ -482,17 +554,18 @@ def layout(**kwargs):
                     ], id="chart-strategy-params",
                        className="d-flex align-items-center gap-2 flex-wrap",
                        style={"display": "none"}),
-                ], className="d-flex align-items-center gap-1 ind-group flex-wrap"),
-                # Resultado SIEMPRE en su propia línea, con rótulo fijo
+                ], className="d-flex align-items-center gap-1 flex-wrap"),
+                # Resultado SIEMPRE en su propia línea, dentro del mismo
+                # borde (ind-group) que engloba todo el simulador
                 html.Div([
                     html.Small("Resultado de la simulación: ",
                                style={"color": "#6c757d", "fontWeight": "600",
-                                      "fontSize": "0.7rem"}),
+                                      "fontSize": "0.82rem"}),
                     html.Span(id="chart-strategy-label",
-                              style={"fontSize": "0.68rem", "color": "#aaa"}),
+                              style={"fontSize": "0.82rem", "color": "#ccc"}),
                 ], id="chart-strategy-result",
                    className="mt-1", style={"display": "none"}),
-            ]), width=12),
+            ], className="ind-group"), width=12),
         ], className="mb-1 g-2 align-items-center chart-toolbar"),
 
         # ── Tabs ──────────────────────────────────────────────────────────
@@ -501,6 +574,9 @@ def layout(**kwargs):
             id="analysis-tabs",
             active_tab="tab-chart",
         ),
+
+        # Tooltips de todos los controles (targets por id, viven acá abajo)
+        *_screen_tips(),
     ], style={"padding": "0 8px"})
 
 
