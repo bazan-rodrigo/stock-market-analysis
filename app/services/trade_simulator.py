@@ -230,6 +230,8 @@ def summarize_trades(trades) -> dict:
         "win_rate": (sum(1 for r in rets if r > 0) / len(rets)) if rets else None,
         "avg_ret":    (sum(rets) / len(rets)) if rets else None,
         "median_ret": median(rets) if rets else None,
+        "min_ret":    min(rets) if rets else None,
+        "max_ret":    max(rets) if rets else None,
         "avg_bars": (sum(t["exit_idx"] - t["entry_idx"] for t in closed)
                      / len(closed)) if closed else None,
         "n_filter": sum(1 for t in closed if t["reason"] == "filter"),

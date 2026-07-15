@@ -406,8 +406,8 @@ def reconfigure_exit_mode(mode, entry_min):
     """En modo percentil la ENTRADA también se compara contra percentil
     (0..100); al cruzar hacia/desde percentil se resetea el valor de entrada,
     entre modos de score se conserva lo que puso el usuario. El modo "none"
-    (sin salida por score) oculta el slider de salida."""
-    mode = mode or "absolute"
+    (sin salida por score, el default) oculta el slider de salida."""
+    mode = mode or "none"
     was_pct = (entry_min == 0)
     if mode == "percentile":
         entry_out = (0, 100, no_update if was_pct else 90, "Entrada ≥ pct ")
@@ -1143,14 +1143,13 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         type: 'line', name: 'Score ' + (st.strategyData.name || ''),
         color: '#38bdf8', lineWidth: 1.5,
         data: times.map(function(t) {{ return {{time: t}}; }}),
-        /* Líneas de umbral solo cuando viven en unidades de score: la de
-           entrada no aplica en modo percentil (se compara contra percentil),
-           la de salida solo en modo umbral absoluto. */
+        /* Línea de entrada: siempre visible (a pedido del usuario; en modo
+           percentil el umbral está en unidades de percentil, no de score —
+           la línea es orientativa). La de salida solo en umbral absoluto
+           (en los demás modos no hay un nivel fijo de score). */
         priceLines: (function() {{
-          var _m = st.strategyExitMode || 'absolute';
-          var pls = [];
-          if (_m !== 'percentile')
-            pls.push({{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}});
+          var _m = st.strategyExitMode || 'none';
+          var pls = [{{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}}];
           if (_m === 'absolute')
             pls.push({{price: (st.strategyExit == null ? 0 : st.strategyExit), color: '#ef5350'}});
           return pls;
@@ -1279,7 +1278,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         && st.strategyData.scores && st.strategyData.scores.length) {{
       var E = st.strategyEntry == null ? 20 : st.strategyEntry;
       var X = st.strategyExit  == null ?  0 : st.strategyExit;
-      var mtype = st.strategyExitMode || 'absolute';
+      var mtype = st.strategyExitMode || 'none';
       var modeSpec = null;  /* 'none' = sin salida por score */
       if (mtype !== 'none') {{
         modeSpec = {{type: mtype}};
@@ -1325,14 +1324,20 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         }}
       }});
 
-      /* Métricas (espejo de summarize_trades) */
+      /* Métricas (espejo de summarize_trades). Retornos coloreados:
+         verde >= 0, rojo < 0 — por eso innerHTML (solo números propios,
+         sin datos externos). */
       if (stratLabel) {{
         var closedT = trades.filter(function(t) {{ return t.exit_idx !== null; }});
         var rets = closedT.map(function(t) {{ return t.ret; }})
                           .filter(function(r) {{ return r !== null; }});
         var openT = trades.length && trades[trades.length - 1].exit_idx === null
                     ? trades[trades.length - 1] : null;
-        var fmt = function(r) {{ return (r >= 0 ? '+' : '') + (r * 100).toFixed(1) + '%'; }};
+        var fmt = function(r) {{
+          var txt = (r >= 0 ? '+' : '') + (r * 100).toFixed(1) + '%';
+          var col = r >= 0 ? '#4ade80' : '#ef5350';
+          return '<span style="color:' + col + '">' + txt + '</span>';
+        }};
         var parts = [trades.length + ' entrada' + (trades.length === 1 ? '' : 's')];
         if (rets.length) {{
           var wins = rets.filter(function(r) {{ return r > 0; }}).length;
@@ -1341,16 +1346,17 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
           var mid = Math.floor(sorted.length / 2);
           var med = (sorted.length % 2) ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
           var bars = closedT.reduce(function(a, t) {{ return a + (t.exit_idx - t.entry_idx); }}, 0) / closedT.length;
-          parts.push(closedT.length + ' cerrada' + (closedT.length === 1 ? '' : 's')
-                     + ' (' + Math.round(wins / rets.length * 100) + '% pos)');
+          parts.push(closedT.length + ' cerrada' + (closedT.length === 1 ? '' : 's'));
+          parts.push(Math.round(wins / rets.length * 100) + '% ganadoras');
           parts.push('media ' + fmt(avg) + ' mediana ' + fmt(med));
+          parts.push('mín ' + fmt(sorted[0]) + ' máx ' + fmt(sorted[sorted.length - 1]));
           parts.push(bars.toFixed(1) + ' ruedas');
           var nFilt = closedT.filter(function(t) {{ return t.reason === 'filter'; }}).length;
-          if (nFilt) parts.push(nFilt + ' x filtro');
+          if (nFilt) parts.push(nFilt + ' cierre' + (nFilt === 1 ? '' : 's') + ' por filtro');
         }}
         if (openT && openT.ret !== null) parts.push('abierta ' + fmt(openT.ret));
-        stratLabel.textContent = trades.length ? parts.join(' · ')
-                                               : 'sin entradas con estos parámetros';
+        stratLabel.innerHTML = trades.length ? parts.join(' · ')
+                                             : 'sin entradas con estos parámetros';
       }}
     }} else if (stratLabel) {{
       stratLabel.textContent = '';
@@ -1513,7 +1519,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     strategyEnabled:   !!(strategyEnabled && strategyEnabled.length),
     strategyEntry:     (strategyEntry == null ? 20 : strategyEntry),
     strategyExit:      (strategyExit  == null ?  0 : strategyExit),
-    strategyExitMode:  strategyExitMode || 'absolute',
+    strategyExitMode:  strategyExitMode || 'none',
     strategyCaps:      window._lwc.buildCaps(capBarsOn, capBars, capSlOn,
                                              capSl, capTsOn, capTs,
                                              capTpOn, capTp),
@@ -1691,7 +1697,7 @@ clientside_callback(
         st.strategyEnabled  = !!(en && en.length);
         st.strategyEntry    = entry;
         st.strategyExit     = exit;
-        st.strategyExitMode = mode || 'absolute';
+        st.strategyExitMode = mode || 'none';
         st.strategyCaps     = window._lwc.buildCaps(barsOn, bars, slOn, sl,
                                                     tsOn, ts, tpOn, tp);
         st.strategyReentry  = window._lwc.reentrySpec(rearmOn, coolOn, cool);

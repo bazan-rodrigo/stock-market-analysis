@@ -394,11 +394,12 @@ def layout(**kwargs):
                             {"label": "Salida: cruce media score", "value": "score_ma"},
                             {"label": "Salida: percentil ranking", "value": "percentile"},
                         ],
-                        value="absolute", clearable=False,
+                        value="none", clearable=False,
                         style={"width": "168px", "fontSize": "0.72rem"},
                     ), id="chart-strategy-exit-mode-wrap"),
                     dbc.Tooltip(
-                        "Sale cuando el score cae bajo un nivel fijo.",
+                        "Sin salida por score: sale solo por tope y/o al "
+                        "perder elegibilidad (filtro).",
                         id="chart-strategy-exit-mode-tip",
                         target="chart-strategy-exit-mode-wrap",
                         placement="bottom",
@@ -406,17 +407,19 @@ def layout(**kwargs):
                                "backgroundColor": "#1f2937", "color": "#dee2e6",
                                "border": "1px solid #374151"},
                     ),
+                    # Ocultos de arranque: el default es "Sin salida por
+                    # score" (sin parámetro); reconfigure_exit_mode los
+                    # muestra al elegir un modo con parámetro.
                     html.Small([html.Span("Salida < ", id="chart-strategy-exit-lbl"),
                                 html.Span("0", id="chart-strategy-exit-val",
                                           style={"color": "#ef5350"})],
                                id="chart-strategy-exit-small",
-                               style={"color": "#aaa", "fontSize": "0.68rem",
-                                      "whiteSpace": "nowrap"}),
+                               style={"display": "none"}),
                     html.Div(dcc.Slider(
                         id="chart-strategy-exit", min=-100, max=100, step=5, value=0,
                         marks=None,
                         tooltip={"placement": "bottom"},
-                    ), id="chart-strategy-exit-wrap", style={"width": "130px"}),
+                    ), id="chart-strategy-exit-wrap", style={"display": "none"}),
                     _cap_control("bars", "Ruedas", 60,
                                  "Tope: duración máxima del trade en ruedas"),
                     _cap_control("sl", "SL%", 10,
@@ -455,8 +458,7 @@ def layout(**kwargs):
                                "border": "1px solid #374151"},
                     ),
                     html.Span(id="chart-strategy-label",
-                              style={"fontSize": "0.68rem", "color": "#aaa",
-                                     "whiteSpace": "nowrap"}),
+                              style={"fontSize": "0.68rem", "color": "#aaa"}),
                 ], id="chart-strategy-params",
                    className="d-flex align-items-center gap-1 flex-wrap",
                    style={"display": "none"}),
