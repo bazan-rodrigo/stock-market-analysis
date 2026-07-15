@@ -8,6 +8,59 @@ _SMA_DEF     = [20, 50, 200]
 _EMA_DEF     = [9,  21,  50]
 
 
+def _strategy_help():
+    """Referencia de los modos de salida/topes del simulador de trades
+    (popover del botón '?'). La semántica real vive en trade_simulator.py."""
+    def row(name, desc):
+        return html.Tr([
+            html.Td(name, style={"fontWeight": "bold", "whiteSpace": "nowrap",
+                                 "padding": "2px 10px 2px 0",
+                                 "verticalAlign": "top", "color": "#38bdf8"}),
+            html.Td(desc, style={"padding": "2px 0"}),
+        ])
+
+    def title(text):
+        return html.Div(text, className="fw-semibold mt-2 mb-1",
+                        style={"color": "#dee2e6"})
+
+    return html.Div([
+        html.Div("El trade ENTRA cuando el score alcanza el umbral de "
+                 "entrada. El modo de salida define cuándo se cierra; el "
+                 "slider es su parámetro.", className="mb-1"),
+        title("Modos de salida"),
+        html.Table(html.Tbody([
+            row("Umbral absoluto",
+                "Sale cuando el score cae bajo un nivel fijo. Tiene sentido "
+                "si tus señales cruzan el 0 (0 = la estrategia lo ve "
+                "negativo)."),
+            row("Entrada − Δ",
+                "Sale cuando el score cae Δ puntos por debajo del score que "
+                "tenía al entrar."),
+            row("Máx score − Δ",
+                "Sale cuando el score cae Δ puntos desde el MÁXIMO que tocó "
+                "durante el trade (trailing sobre el score)."),
+            row("Cruce media score",
+                "Sale cuando el score cae bajo su propia media móvil de k "
+                "ruedas (el impulso del score se dio vuelta)."),
+            row("Horizonte fijo",
+                "Sale a las N ruedas de la entrada, pase lo que pase. Mide "
+                "el retorno posterior puro de la señal."),
+            row("Percentil ranking",
+                "Entrada Y salida por posición en el ranking del día (100 = "
+                "mejor): entra al alcanzar el percentil de entrada, sale al "
+                "caer bajo el de salida."),
+        ])),
+        title("Tope (opcional, uno a la vez)"),
+        html.Div("Se evalúa además del modo — cierra el primero que se "
+                 "cumpla: N ruedas (duración máxima), Stop loss % (caída "
+                 "desde la entrada), Trailing stop % (caída desde el máximo "
+                 "del precio), Take profit % (ganancia objetivo)."),
+        title("Siempre activo"),
+        html.Div("Si el activo deja de ser elegible para la estrategia (no "
+                 "pasa el filtro), el trade se cierra — marcador «S filtro»."),
+    ])
+
+
 def _chk(id_, label, default_on=False, color=None):
     return dbc.Checklist(
         id=id_,
@@ -294,7 +347,7 @@ def layout(**kwargs):
                         marks=None,
                         tooltip={"placement": "bottom"},
                     ), style={"width": "130px"}),
-                    dcc.Dropdown(
+                    html.Div(dcc.Dropdown(
                         id="chart-strategy-exit-mode",
                         options=[
                             {"label": "Salida: umbral absoluto",   "value": "absolute"},
@@ -306,6 +359,15 @@ def layout(**kwargs):
                         ],
                         value="absolute", clearable=False,
                         style={"width": "168px", "fontSize": "0.72rem"},
+                    ), id="chart-strategy-exit-mode-wrap"),
+                    dbc.Tooltip(
+                        "Sale cuando el score cae bajo un nivel fijo.",
+                        id="chart-strategy-exit-mode-tip",
+                        target="chart-strategy-exit-mode-wrap",
+                        placement="bottom",
+                        style={"maxWidth": "300px", "fontSize": "0.75rem",
+                               "backgroundColor": "#1f2937", "color": "#dee2e6",
+                               "border": "1px solid #374151"},
                     ),
                     html.Small([html.Span("Salida < ", id="chart-strategy-exit-lbl"),
                                 html.Span("0", id="chart-strategy-exit-val",
@@ -333,6 +395,21 @@ def layout(**kwargs):
                         id="chart-strategy-cap-val", type="number", value=10,
                         style={"width": "58px", "fontSize": "0.72rem",
                                "display": "none"},
+                    ),
+                    dbc.Button("?", id="chart-strategy-help-btn",
+                               color="secondary", outline=True, size="sm",
+                               style={"fontSize": "0.7rem", "padding": "0 7px",
+                                      "borderRadius": "50%", "lineHeight": "1.4"}),
+                    dbc.Popover(
+                        dbc.PopoverBody(_strategy_help(), style={
+                            "fontSize": "0.75rem", "color": "#dee2e6",
+                            "backgroundColor": "#1f2937",
+                        }),
+                        target="chart-strategy-help-btn", trigger="legacy",
+                        placement="bottom",
+                        style={"maxWidth": "480px",
+                               "backgroundColor": "#1f2937",
+                               "border": "1px solid #374151"},
                     ),
                     html.Span(id="chart-strategy-label",
                               style={"fontSize": "0.68rem", "color": "#aaa",

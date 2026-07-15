@@ -366,32 +366,49 @@ _EXIT_MODE_CFG = {
 _CAP_DEFAULTS = {"max_bars": 60, "stop_loss": 10,
                  "trailing_stop": 15, "take_profit": 20}
 
+# Explicación de una línea del modo seleccionado (tooltip del dropdown);
+# la referencia completa vive en el popover "?" (asset_analysis._strategy_help)
+_EXIT_MODE_DESC = {
+    "absolute":       "Sale cuando el score cae bajo un nivel fijo.",
+    "delta_entry":    "Sale cuando el score cae Δ puntos bajo el score "
+                      "que tenía al entrar.",
+    "trailing_score": "Sale cuando el score cae Δ puntos desde el máximo "
+                      "que tocó durante el trade.",
+    "score_ma":       "Sale cuando el score cae bajo su media móvil de "
+                      "k ruedas.",
+    "horizon":        "Sale a las N ruedas de la entrada, pase lo que pase.",
+    "percentile":     "Entrada y salida por percentil del ranking del día "
+                      "(100 = mejor).",
+}
+
 
 @callback(
-    Output("chart-strategy-exit",      "min"),
-    Output("chart-strategy-exit",      "max"),
-    Output("chart-strategy-exit",      "step"),
-    Output("chart-strategy-exit",      "value"),
-    Output("chart-strategy-exit-lbl",  "children"),
-    Output("chart-strategy-entry",     "min"),
-    Output("chart-strategy-entry",     "max"),
-    Output("chart-strategy-entry",     "value"),
-    Output("chart-strategy-entry-lbl", "children"),
-    Input("chart-strategy-exit-mode",  "value"),
-    State("chart-strategy-entry",      "min"),
+    Output("chart-strategy-exit",          "min"),
+    Output("chart-strategy-exit",          "max"),
+    Output("chart-strategy-exit",          "step"),
+    Output("chart-strategy-exit",          "value"),
+    Output("chart-strategy-exit-lbl",      "children"),
+    Output("chart-strategy-entry",         "min"),
+    Output("chart-strategy-entry",         "max"),
+    Output("chart-strategy-entry",         "value"),
+    Output("chart-strategy-entry-lbl",     "children"),
+    Output("chart-strategy-exit-mode-tip", "children"),
+    Input("chart-strategy-exit-mode",      "value"),
+    State("chart-strategy-entry",          "min"),
     prevent_initial_call=True,
 )
 def reconfigure_exit_mode(mode, entry_min):
     """En modo percentil la ENTRADA también se compara contra percentil
     (0..100); al cruzar hacia/desde percentil se resetea el valor de entrada,
     entre modos de score se conserva lo que puso el usuario."""
-    lbl, mn, mx, stp, val = _EXIT_MODE_CFG[mode or "absolute"]
+    mode = mode or "absolute"
+    lbl, mn, mx, stp, val = _EXIT_MODE_CFG[mode]
     was_pct = (entry_min == 0)
     if mode == "percentile":
         entry_out = (0, 100, no_update if was_pct else 90, "Entrada ≥ pct ")
     else:
         entry_out = (-100, 100, no_update if not was_pct else 20, "Entrada ≥ ")
-    return (mn, mx, stp, val, lbl, *entry_out)
+    return (mn, mx, stp, val, lbl, *entry_out, _EXIT_MODE_DESC[mode])
 
 
 @callback(
