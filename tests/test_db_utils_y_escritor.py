@@ -1,6 +1,6 @@
-"""delete_in_batches (convención de DELETE masivo) + mecánica del escritor
-asíncrono del backfill (_consume_writes): orden FIFO, sentinel, y drenado
-tras error para no dejar bloqueado al productor.
+"""delete_by_ranges (convención de DELETE masivo por ventanas) + mecánica del
+escritor asíncrono del backfill (_consume_writes): orden FIFO, sentinel, y
+drenado tras error para no dejar bloqueado al productor.
 """
 import queue
 
@@ -8,7 +8,7 @@ import pytest
 import sqlalchemy as sa
 
 from app.database import Base, engine, get_session
-from app.services.db_utils import delete_in_batches
+from app.services.db_utils import delete_by_ranges
 from app.services.signal_backfill_range import _consume_writes
 
 
@@ -26,7 +26,7 @@ def sv_db():
     get_session().rollback()
 
 
-def test_delete_in_batches_borra_y_cuenta(sv_db):
+def test_delete_by_ranges_borra_por_ventanas_y_respeta_filtro(sv_db):
     s = get_session()
     for i in range(10):
         s.execute(sa.text(
@@ -34,10 +34,16 @@ def test_delete_in_batches_borra_y_cuenta(sv_db):
             "VALUES (:sig, 1, :d, 0)"),
             {"sig": 1 if i < 7 else 2, "d": f"2026-01-{i + 1:02d}"})
     s.commit()
-    n = delete_in_batches(s, "signal_value", "signal_id = :sig", {"sig": 1})
-    assert n == 7
-    left = s.execute(sa.text("SELECT COUNT(*) FROM signal_value")).scalar()
-    assert left == 3
+    # dos ventanas que juntas cubren 01..06; señal 2 queda intacta aunque
+    # sus fechas caigan dentro (where_extra)
+    n = delete_by_ranges(s, "signal_value", "date",
+                         [("2026-01-01", "2026-01-03"),
+                          ("2026-01-04", "2026-01-06")],
+                         "signal_id IN (1)")
+    assert n == 6
+    left = [r[0] for r in s.execute(sa.text(
+        "SELECT date FROM signal_value ORDER BY date")).all()]
+    assert left == ["2026-01-07", "2026-01-08", "2026-01-09", "2026-01-10"]
 
 
 # ── _consume_writes ───────────────────────────────────────────────────────────

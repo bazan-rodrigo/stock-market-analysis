@@ -97,9 +97,12 @@ por cada activo en una moneda; heredan los grupos de su base.
 **Concurrencia/BD:** escrituras concurrentes contra las mismas tablas pueden dar
 lock timeout (1205) / deadlock (1213) de InnoDB — reintentar la transacción
 (patrón en `fundamental_service._fund_worker` y `signal_backfill_range._flush`).
-**DELETE masivo = SIEMPRE por lotes** (`db_utils.delete_in_batches`, o el patrón
-equivalente de `purge_assets`): una sentencia única sobre millones de filas
-retiene locks/undo por minutos (medido 400s+ en `signal_value`).
+**DELETE masivo = SIEMPRE por ventanas que avanzan** (`db_utils.delete_by_ranges`):
+una sentencia única sobre millones de filas retiene locks/undo por minutos
+(medido 400s+ en `signal_value`), y el loop `DELETE ... LIMIT` sobre el rango
+completo es PEOR — cada lote re-escanea desde el inicio los tombstones de los
+lotes anteriores (O(n²), medido 17min+ sin terminar). El patrón LIMIT de
+`purge_assets` solo es tolerable para conjuntos chicos por asset_id.
 El GIL limita paralelizar cómputo con threads (medido); el escalado grande
 pendiente es ProcessPool (ver `docs/notes/project_processpool_particion_activos.md`).
 

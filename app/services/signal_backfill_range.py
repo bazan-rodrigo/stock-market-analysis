@@ -45,7 +45,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.database import Session as _DbSession
 from app.database import get_session
-from app.services.db_utils import delete_in_batches
+from app.services.db_utils import delete_by_ranges
 from app.models import (
     Asset,
     GroupScore,
@@ -390,9 +390,21 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
 
     # ── Rebuild: limpieza única (después solo INSERTs) ────────────────────
     # Corre en el thread ESCRITOR cuando el modo asíncrono está activo, con
-    # la sesión de ese thread (ws). Los DELETE por rango van POR LOTES
-    # (db_utils.delete_in_batches, convención CLAUDE.md): la sentencia única
-    # sobre la historia completa se midió corriendo 400s+ reteniendo locks.
+    # la sesión de ese thread (ws). Los DELETE van por VENTANAS DE FECHAS
+    # QUE AVANZAN (db_utils.delete_by_ranges, convención CLAUDE.md):
+    # - la sentencia única sobre la historia completa corrió 400s+
+    #   reteniendo locks/undo;
+    # - el loop `DELETE ... LIMIT` sobre el rango completo fue PEOR (17min+
+    #   sin terminar): cada lote re-escanea desde el inicio del rango los
+    #   tombstones de los lotes anteriores — O(n²).
+    # Cada ventana ataca un tramo virgen del índice (signal_id, date).
+    _CLEANUP_WINDOW_DATES = 100
+
+    def _cleanup_windows():
+        slices = (dates[i:i + _CLEANUP_WINDOW_DATES]
+                  for i in range(0, len(dates), _CLEANUP_WINDOW_DATES))
+        return [(str(w[0]), str(w[-1])) for w in slices]
+
     def _initial_cleanup(ws):
         if not force:
             return
@@ -406,26 +418,23 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 ws.execute(sa.text(f"TRUNCATE TABLE {t}"))
             ws.commit()
         else:
-            rng = {"d0": str(dates[0]), "d1": str(dates[-1])}
+            windows = _cleanup_windows()
             if signal_ids_all:
                 ids = ", ".join(str(int(i)) for i in signal_ids_all)
-                delete_in_batches(
-                    ws, "signal_value",
-                    f"date BETWEEN :d0 AND :d1 AND signal_id IN ({ids})", rng)
+                delete_by_ranges(ws, "signal_value", "date", windows,
+                                 f"signal_id IN ({ids})")
             if group_sig_ids:
                 ids = ", ".join(str(int(i)) for i in group_sig_ids)
-                delete_in_batches(
-                    ws, "group_signal_value",
-                    f"date BETWEEN :d0 AND :d1 AND signal_id IN ({ids})", rng)
+                delete_by_ranges(ws, "group_signal_value", "date", windows,
+                                 f"signal_id IN ({ids})")
             # group_scores: solo los tipos que ESTA corrida reescribe (los
             # demás pueden pertenecer a otras señales de grupo) + la última
             # fecha completa para el mapa de mercado. Un rebuild acotado no
             # debe borrar la historia de tipos que no le corresponden.
             if needed_group_types:
                 gts = ", ".join(f"'{t}'" for t in sorted(needed_group_types))
-                delete_in_batches(
-                    ws, "group_scores",
-                    f"date BETWEEN :d0 AND :d1 AND group_type IN ({gts})", rng)
+                delete_by_ranges(ws, "group_scores", "date", windows,
+                                 f"group_type IN ({gts})")
             if (latest_price_date is not None
                     and dates[0] <= latest_price_date <= dates[-1]):
                 ws.execute(sa.delete(GroupScore.__table__).where(
@@ -433,12 +442,11 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 ws.commit()
             if strat_ids:
                 ids = ", ".join(str(int(i)) for i in strat_ids)
-                delete_in_batches(
-                    ws, "strategy_result",
-                    f"date BETWEEN :d0 AND :d1 AND strategy_id IN ({ids})", rng)
+                delete_by_ranges(ws, "strategy_result", "date", windows,
+                                 f"strategy_id IN ({ids})")
         logger.info("signal_backfill_range: limpieza inicial de rebuild "
                     "completada (%s)",
-                    "truncate" if full_wipe else "delete por lotes")
+                    "truncate" if full_wipe else "delete por ventanas")
 
     # Placeholder del driver: el INSERT masivo va por exec_driver_sql
     # (executemany del DBAPI) — la compilación de SQLAlchemy por fila

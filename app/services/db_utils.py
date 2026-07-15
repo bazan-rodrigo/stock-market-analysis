@@ -1,12 +1,13 @@
 """
 Utilidades de mantenimiento de BD compartidas.
 
-CONVENCIÓN (ver CLAUDE.md): todo DELETE masivo (miles de filas o más) va por
-lotes con esta función — nunca una sentencia única. Un DELETE por rango sobre
-millones de filas retiene locks y genera undo durante minutos (medido: 400s+
-una sola sentencia sobre signal_value, bloqueando backfills concurrentes con
-1205); por lotes, cada transacción es corta y el purge de InnoDB avanza
-incremental.
+CONVENCIÓN (ver CLAUDE.md): todo DELETE masivo sobre un rango grande va por
+VENTANAS QUE AVANZAN (delete_by_ranges) — nunca una sentencia única (retiene
+locks/undo por minutos; medido 400s+ sobre signal_value) y NUNCA un loop
+`DELETE ... LIMIT N` sobre el rango completo: cada lote re-escanea desde el
+inicio del rango los tombstones que dejaron los lotes anteriores (el purge
+de InnoDB no alcanza) — O(n²), medido en vivo 17min+ sin terminar para lo
+que las ventanas hacen en decenas de segundos.
 """
 import logging
 
@@ -14,36 +15,31 @@ import sqlalchemy as sa
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BATCH = 5000
 
+def delete_by_ranges(session, table: str, range_col: str, windows,
+                     where_extra: str = "", params: dict | None = None) -> int:
+    """DELETE masivo por ventanas consecutivas sobre range_col: una sentencia
+    `DELETE FROM {table} WHERE {range_col} BETWEEN :lo AND :hi [AND extra]`
+    por ventana, con commit por ventana. Cada sentencia ataca un tramo
+    VIRGEN del índice (nunca re-escanea filas ya borradas) y su transacción
+    queda acotada al tamaño de la ventana. Devuelve filas borradas.
 
-def delete_in_batches(session, table: str, where_sql: str,
-                      params: dict | None = None,
-                      batch: int = _DEFAULT_BATCH) -> int:
-    """DELETE FROM {table} WHERE {where_sql}, por lotes de `batch` con commit
-    por lote (MySQL/MariaDB via LIMIT; en otros dialectos —sqlite en tests—
-    una sola sentencia, no soportan DELETE..LIMIT). Devuelve filas borradas.
-
-    table y where_sql se interpolan en el SQL: SOLO strings construidos por
-    el caller (nombres de tabla/columna propios, ids numéricos validados) —
-    nunca input del usuario. Los valores variables van en params.
+    windows: iterable de pares (lo, hi) inclusive, en orden.
+    table/range_col/where_extra se interpolan: SOLO strings construidos por
+    el caller (nombres propios, ids numéricos validados) — nunca input del
+    usuario. Valores variables adicionales van en params.
     """
-    params = params or {}
-    total = 0
-    if session.get_bind().dialect.name in ("mysql", "mariadb"):
-        stmt = sa.text(f"DELETE FROM {table} WHERE {where_sql} "
-                       f"LIMIT {int(batch)}")
-        while True:
-            res = session.execute(stmt, params)
-            session.commit()
-            total += res.rowcount
-            if res.rowcount < batch:
-                break
-    else:
-        res = session.execute(
-            sa.text(f"DELETE FROM {table} WHERE {where_sql}"), params)
+    extra = f" AND {where_extra}" if where_extra else ""
+    stmt = sa.text(
+        f"DELETE FROM {table} WHERE {range_col} BETWEEN :lo AND :hi{extra}")
+    base = dict(params or {})
+    total = n_win = 0
+    for lo, hi in windows:
+        res = session.execute(stmt, {**base, "lo": lo, "hi": hi})
         session.commit()
         total += res.rowcount
+        n_win += 1
     if total:
-        logger.info("delete_in_batches: %s filas borradas de %s", total, table)
+        logger.info("delete_by_ranges: %s filas borradas de %s (%s ventanas)",
+                    total, table, n_win)
     return total
