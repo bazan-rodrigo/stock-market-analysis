@@ -7,6 +7,142 @@ metadata:
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
 ---
 
+**Sesión 14-jul-2026 (4, commits `b7b0ad2` `4bcd715` `bb2ab7e`, pusheados):
+iteración del simulador tras uso real del usuario.** (1) Ayudas en pantalla:
+popover "?" con referencia completa + tooltip por modo. (2) Rediseño de
+taxonomía a pedido del usuario: modo OPCIONAL ("Sin salida por score"),
+"horizonte fijo" eliminado como modo (era el tope N ruedas duplicado —
+modo=señal, tope=precio/tiempo), topes COMBINABLES (spec.caps lista, gana
+el primero en orden de lista; UI con 4 checkbox+valor). (3) Frenos de
+re-entrada anti-whipsaw: rearm por cruce (desarmado tras salida, re-arma
+al caer bajo el umbral) + cooldown N ruedas — opcionales, apagados por
+default. Contrato homologado en cada paso (31 casos en fixtures).
+**IMPORTANTE (el usuario lo marcó por 3ª vez): NO editar sin proponer y
+esperar el "sí" — ni ante pedidos directos ni reportes de bugs.**
+
+**Continuación 15-jul-2026 (4, commits `b3c1ed8` `f96db8e` `1b52ff5`,
+pusheados):** BUG RAÍZ del colapso encontrado con captura del usuario:
+Bootstrap genera `d-flex` con !important y PISABA el display inline de los
+callbacks de colapso (nunca funcionó desde 039f7eb) — fix: sacar d-flex de
+los 3 contenedores toggleados, display exclusivo del callback (comentarios
+de advertencia). "Cruce" default ON. Dropdowns: menú 300px + opciones
+compactas (CSS global). **OPTIMIZADOR de parámetros** (`1b52ff5`):
+trade_optimizer.py puro (grillas gruesas solo sobre condiciones activas,
+poda de incoherentes, objetivo retorno compuesto con mín. 10 trades,
+train/test 70/30) + botón "Optimizar" con modal top-10 Train/Test y
+"Aplicar" por fila. TERCER espejo del armado de spec:
+optimizer_callbacks._spec_from_controls (junto a buildSpec JS y
+_SIM_CONTROL_IDS — sincronizar los 3). Tras primera corrida real del
+usuario (Percentil≥80/Percentil<30/Cruce: train +292% / test +21%, los
+trades cuadraron 122+15=137 con el gráfico): `b595217` agrega "total"
+compuesto al label del gráfico (campo total_ret en summarize_trades +
+espejo JS) — regla de lectura: el optimizador reporta train/test POR
+SEPARADO, el gráfico corre la historia entera. 489 tests. Pendiente de diseño
+aceptado: la versión robusta del optimizador (sobre el universo) es parte
+de la fase 2 del backtest. También pendiente: 2 edits de texto en
+/backtest (equivalencia de vocabulario con el simulador + matiz pct vs
+cuantiles) — propuestos y aceptados conceptualmente, sin aplicar.
+
+**Continuación 15-jul-2026 (3, commits `8973b66` `c45304a`, pusheados):**
+iteración de UX del simulador: rótulos sin acrónimos ("Entrada por (todas)",
+"Score ≥"/"Percentil ≥"/"Enfriamiento"/"Percentil <"), grupo propio
+"Condiciones de re-entrada", resultado dentro del borde ind-group con
+fuente 0.82rem, tooltips en TODOS los controles de la pantalla (helper
+_tip/_screen_tips), AND/OR explícito en rótulos+tooltips. Salida nueva
+`absolute_above` ("Abs >"): take profit del score, lógica contrarian, con
+acople inverso (piso = entrada Sc). HALLAZGO CLAVE del "bug" de colapso:
+los 11 callbacks están registrados y los divs arrancan ocultos (verificado
+importando el módulo con yfinance stubbeado) — el problema real era que el
+estado ACTIVO de los toggles (gris .active de bootstrap) era invisible en
+dark; fix CSS: activos en celeste #38bdf8. **PENDIENTE CODESPACE: el
+usuario debe re-verificar MACD/ATR con los colores nuevos** (si ve params
+con botón gris apagado, ahí sí hay bug real). 477 tests.
+
+**Continuación 15-jul-2026 (2, commits `09bdcc1`..`d295be0`, pusheados):**
+fix 404 de /backtest (página sin registrar en _PAGES — sin auto-discovery;
+red nueva: tests/test_module_registration.py ata filesystem a las listas,
+convención en CLAUDE.md). Bug perseguido en vivo: las líneas de umbral del
+panel de score NUNCA se pintaban desde el refactor de segmentos (5351a2d) —
+createPriceLine no renderiza (ni en serie whitespace ni colgado de un
+segmento con datos); solución final `a598cc3`: umbrales como SERIES
+horizontales punteadas (mismo camino de render que los segmentos).
+**REDISEÑO GRANDE (`d295be0`): spec de tres listas** — entries (AND:
+Sc≥/Pct≥), score_exits (OR combinables: Abs</Ent−Δ/Máx−Δ/Media k/Pct<),
+caps (OR); precedencia filtro>precio>score; UI unificada checkbox+valor
+con título "Simulación de estrategias", grupos rotulados y "Resultado de
+la simulación:" en línea propia; sliders eliminados; acople vía max
+dinámico; buildSpec único en JS (orden posicional en _SIM_CONTROL_IDS).
+44 tests del simulador, 476 total. **PENDIENTE CODESPACE: pull +
+REINICIAR PROCESO + hard refresh; probar el panel nuevo completo.**
+
+**Continuación 15-jul-2026 (commits `a632933` `38ebc8b`, pusheados):**
+ajustes tras más uso real: default "Sin salida por score", min/max en las
+métricas del label (con retornos coloreados verde/rojo, innerHTML),
+renombres claros ("% ganadoras", "cierres por filtro"). `entry_pct` nuevo
+en el contrato (toggle Sc|Pct: la entrada y el re-armado pueden ser por
+percentil, independiente del modo de salida — el modo percentil ya no
+convierte la entrada). Acople de sliders: salida ≤ entrada cuando
+comparten unidad (Sc+absoluto, Pct+percentil), techo dinámico del slider.
+Fix clave del panel de score: las price lines NO participan del
+auto-escalado en lightweight-charts — la línea de entrada existía pero
+quedaba fuera del rango visible si los scores no la cruzaban; `addSeries`
+ganó `autoscaleRange` (autoscaleInfoProvider) para forzar los niveles
+dentro de la escala. 35 casos en fixtures, 468 tests.
+
+**Sesión 14-jul-2026 (3, commit `9ad0cba`, pusheado): percentil
+precalculado en strategy_result (migración 0071).** El usuario reportó 62s
+en la ventana PERCENT_RANK del overlay (materializaba TODA la estrategia
+para filtrar un activo, y se pagaba en cada selección aunque no se usara
+el modo percentil). Fix estructural: columna `pct` escrita por AMBOS
+caminos del pipeline vía `strategy_service.percent_ranks` (helper puro,
+semántica SQL PERCENT_RANK, paridad extendida a pct); el overlay lee
+`date, score, pct` de una sola query indexada. De paso: conftest borra el
+stub sqlite en cada corrida (create_all no altera tablas existentes — el
+primer cambio ADITIVO de esquema rompió la suite con el stub viejo).
+**PENDIENTE CODESPACE: `alembic upgrade head` (0070+0071) + "Recalcular
+completo" de Señales y Estrategias — la historia previa queda pct=NULL y
+el modo percentil no ve esas fechas hasta recalcular.**
+
+**Sesión 14-jul-2026 (2, commit `4106525`, pusheado): simulador de trades
+con modos de salida configurables.** Incluye además: controles de
+estrategia movidos a fila propia del toolbar, y fix del pisado de `var pc`
+en el JS del gráfico (la EMA de régimen y las zonas ATR se dibujaban en el
+panel de score cuando la estrategia estaba activa — `var` es
+function-scoped; la variable del panel de score ahora es `stratPc`, con
+comentario de advertencia). El fix del régimen/ATR y el layout NO son
+testeables por pytest (JS/Dash puro, verificar en vivo). El usuario pidió
+reemplazar la salida por umbral absoluto del overlay de estrategia por un
+menú de alternativas, pensado como semilla del módulo de backtesting.
+Diseño acordado: motor Python puro `app/services/trade_simulator.py` =
+CONTRATO (fixtures JSON en tests/fixtures/trade_simulator_cases.json, 24
+tests) + espejo JS `window._lwc.simulateTrades` en chart_callbacks.py.
+**REGLA NUEVA DEL SISTEMA (pedida explícitamente): mantener HOMOLOGADAS
+ambas implementaciones — todo cambio de semántica toca los dos archivos +
+fixtures en el mismo commit (documentado en CLAUDE.md).**
+6 modos: absolute / delta_entry / trailing_score / score_ma / horizon /
+percentile (percentil entra Y sale por percentil; serie de percentiles
+server-side con PERCENT_RANK). Tope opcional ÚNICO (a elección: max_bars /
+stop_loss / trailing_stop / take_profit) — uno solo a la vez, para poder
+medir cuál rinde mejor. Precedencia: filtro > tope > modo. Elegibilidad
+perdida (barra propia sin score interior) = cierre forzado SIEMPRE; cola
+sin score (señales aún no corridas hoy) NO cierra. Métricas nuevas en el
+label: cerradas, % positivas, media, mediana, ruedas, cierres por filtro.
+**PENDIENTE CODESPACE: probar los 6 modos + topes en el gráfico** (dropdown
+reconfigura el slider por modo; percentil re-rangea también la entrada).
+
+**Sesión 14-jul-2026 (commit `57f6883`, pusheado): baja de divisor de
+divisas en background.** El usuario reportó que eliminar un conversor
+tardaba minutos con el modal de confirmación colgado (el request HTTP se
+cortaba; el `_remove_lock` sí evitó el doble borrado en el re-click).
+Fix: modal se cierra al confirmar, borrado en thread daemon + polling
+(`ars-remove-interval`/`ars-remove-alert`), `progress_cb` nuevo en
+`purge_assets` (avance por tabla), tabla/stats se refrescan al terminar.
+**PENDIENTE CODESPACE: probar la baja real de un divisor** (flujo
+modal→alerta→progreso solo se ve con la app viva). Anotado sin tocar:
+query lenta de `strategy_result` (overlay del visualizador,
+"Creating sort index") vista durante el DELETE masivo — hacer `EXPLAIN`
+con la base tranquila antes de decidir si amerita índice.
+
 **Sesión 9-jul-2026 — auditoría de correctness del sistema tail-mode +
 performance de fundamentales, 4 commits locales sin pushear (`8aff073`,
 `a75585d`, `d1474cb`, `f1f3544`):**
