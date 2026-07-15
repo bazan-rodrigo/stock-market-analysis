@@ -33,7 +33,9 @@ Divergencias deliberadas con el camino por-fecha (no son regresiones):
   preserva escribiendo la ÚLTIMA fecha completa y el resto solo lo necesario.
 """
 import logging
+import queue
 import random
+import threading
 import time
 from datetime import timedelta
 from types import SimpleNamespace
@@ -41,7 +43,9 @@ from types import SimpleNamespace
 import sqlalchemy as sa
 from sqlalchemy.exc import OperationalError
 
+from app.database import Session as _DbSession
 from app.database import get_session
+from app.services.db_utils import delete_in_batches
 from app.models import (
     Asset,
     GroupScore,
@@ -249,6 +253,24 @@ def _load_current_values(s, codes) -> dict[str, dict]:
     return out
 
 
+def _consume_writes(q: "queue.Queue", flush_fn, errors_out: list):
+    """Loop del thread escritor asíncrono: consume lotes en orden FIFO hasta
+    el sentinel None. Tras un error registra la excepción y sigue DRENANDO
+    (sin escribir) para no dejar bloqueado al productor en la cola acotada.
+    A nivel módulo para testearlo con un flush falso."""
+    while True:
+        item = q.get()
+        if item is None:
+            return
+        if errors_out:
+            continue  # drenando: ya hubo un error, no se escribe más
+        try:
+            flush_fn(*item)
+        except Exception as exc:
+            logger.exception("signal_backfill_range: flush asíncrono falló")
+            errors_out.append(exc)
+
+
 def run_range(dates, *, only_ids, strategy_id, scope_kind,
               latest_price_date, eval_kind, eval_ref, logged,
               progress_cb=None, force=False, full_wipe=False) -> dict:
@@ -360,13 +382,20 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         ids = needed_groups[group_type]
         return ids is None or group_id in ids
 
-    total, ok = len(dates), 0
+    total = len(dates)
     errors: list[dict] = []
     done = 0
 
-    # ── Rebuild: limpieza única al inicio (después solo INSERTs) ──────────
-    if force:
-        is_mysql = s.get_bind().dialect.name in ("mysql", "mariadb")
+    is_mysql = s.get_bind().dialect.name in ("mysql", "mariadb")
+
+    # ── Rebuild: limpieza única (después solo INSERTs) ────────────────────
+    # Corre en el thread ESCRITOR cuando el modo asíncrono está activo, con
+    # la sesión de ese thread (ws). Los DELETE por rango van POR LOTES
+    # (db_utils.delete_in_batches, convención CLAUDE.md): la sentencia única
+    # sobre la historia completa se midió corriendo 400s+ reteniendo locks.
+    def _initial_cleanup(ws):
+        if not force:
+            return
         if full_wipe and is_mysql:
             # TRUNCATE: instantáneo y sin filas muertas que purgar.
             # signal_eval_log NO se toca: las fechas siguen evaluadas
@@ -374,89 +403,98 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             # otros alcances.
             for t in ("signal_value", "group_signal_value", "group_scores",
                       "strategy_result"):
-                s.execute(sa.text(f"TRUNCATE TABLE {t}"))
+                ws.execute(sa.text(f"TRUNCATE TABLE {t}"))
+            ws.commit()
         else:
-            d0, d1 = dates[0], dates[-1]
+            rng = {"d0": str(dates[0]), "d1": str(dates[-1])}
             if signal_ids_all:
-                s.execute(sa.delete(SignalValue.__table__).where(
-                    SignalValue.date.between(d0, d1),
-                    SignalValue.signal_id.in_(signal_ids_all)))
+                ids = ", ".join(str(int(i)) for i in signal_ids_all)
+                delete_in_batches(
+                    ws, "signal_value",
+                    f"date BETWEEN :d0 AND :d1 AND signal_id IN ({ids})", rng)
             if group_sig_ids:
-                s.execute(sa.delete(GroupSignalValue.__table__).where(
-                    GroupSignalValue.date.between(d0, d1),
-                    GroupSignalValue.signal_id.in_(group_sig_ids)))
+                ids = ", ".join(str(int(i)) for i in group_sig_ids)
+                delete_in_batches(
+                    ws, "group_signal_value",
+                    f"date BETWEEN :d0 AND :d1 AND signal_id IN ({ids})", rng)
             # group_scores: solo los tipos que ESTA corrida reescribe (los
             # demás pueden pertenecer a otras señales de grupo) + la última
             # fecha completa para el mapa de mercado. Un rebuild acotado no
             # debe borrar la historia de tipos que no le corresponden.
             if needed_group_types:
-                s.execute(sa.delete(GroupScore.__table__).where(
-                    GroupScore.date.between(d0, d1),
-                    GroupScore.group_type.in_(needed_group_types)))
-            if latest_price_date is not None and d0 <= latest_price_date <= d1:
-                s.execute(sa.delete(GroupScore.__table__).where(
+                gts = ", ".join(f"'{t}'" for t in sorted(needed_group_types))
+                delete_in_batches(
+                    ws, "group_scores",
+                    f"date BETWEEN :d0 AND :d1 AND group_type IN ({gts})", rng)
+            if (latest_price_date is not None
+                    and dates[0] <= latest_price_date <= dates[-1]):
+                ws.execute(sa.delete(GroupScore.__table__).where(
                     GroupScore.date == latest_price_date))
+                ws.commit()
             if strat_ids:
-                s.execute(sa.delete(StrategyResult.__table__).where(
-                    StrategyResult.date.between(d0, d1),
-                    StrategyResult.strategy_id.in_(strat_ids)))
-        s.commit()
+                ids = ", ".join(str(int(i)) for i in strat_ids)
+                delete_in_batches(
+                    ws, "strategy_result",
+                    f"date BETWEEN :d0 AND :d1 AND strategy_id IN ({ids})", rng)
         logger.info("signal_backfill_range: limpieza inicial de rebuild "
-                    "completada (%s)", "truncate" if full_wipe else "delete por rango")
+                    "completada (%s)",
+                    "truncate" if full_wipe else "delete por lotes")
 
     # Placeholder del driver: el INSERT masivo va por exec_driver_sql
     # (executemany del DBAPI) — la compilación de SQLAlchemy por fila
     # (construct_params + type processing) pesaba ~15% de la corrida
     _PH = "?" if s.get_bind().dialect.paramstyle == "qmark" else "%s"
 
-    def _bulk_insert(table_name: str, columns: tuple, rows: list):
+    def _bulk_insert(ws, table_name: str, columns: tuple, rows: list):
         if not rows:
             return
         cols = ", ".join(columns)
         ph = ", ".join([_PH] * len(columns))
-        s.connection().exec_driver_sql(
+        ws.connection().exec_driver_sql(
             f"INSERT INTO {table_name} ({cols}) VALUES ({ph})", rows)
 
-    def _flush_once(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
+    def _flush_once(ws, batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows,
+                    marker_rows):
         if not force:
             if signal_ids_all:
-                s.execute(sa.delete(SignalValue.__table__).where(
+                ws.execute(sa.delete(SignalValue.__table__).where(
                     SignalValue.date.in_(batch_dates),
                     SignalValue.signal_id.in_(signal_ids_all)))
             if group_sig_ids:
-                s.execute(sa.delete(GroupSignalValue.__table__).where(
+                ws.execute(sa.delete(GroupSignalValue.__table__).where(
                     GroupSignalValue.date.in_(batch_dates),
                     GroupSignalValue.signal_id.in_(group_sig_ids)))
             # group_scores: solo los tipos reescritos (los demás pueden ser de
             # otras señales) + la última fecha completa (mapa de mercado)
             if needed_group_types:
-                s.execute(sa.delete(GroupScore.__table__).where(
+                ws.execute(sa.delete(GroupScore.__table__).where(
                     GroupScore.date.in_(batch_dates),
                     GroupScore.group_type.in_(needed_group_types)))
             if latest_price_date in batch_dates:
-                s.execute(sa.delete(GroupScore.__table__).where(
+                ws.execute(sa.delete(GroupScore.__table__).where(
                     GroupScore.date == latest_price_date))
             if strat_ids:
-                s.execute(sa.delete(StrategyResult.__table__).where(
+                ws.execute(sa.delete(StrategyResult.__table__).where(
                     StrategyResult.date.in_(batch_dates),
                     StrategyResult.strategy_id.in_(strat_ids)))
 
-        _bulk_insert("group_scores",
+        _bulk_insert(ws, "group_scores",
                      ("group_type", "group_id", "date", "regime_score_d",
                       "regime_score_w", "regime_score_m", "n_assets"), gs_rows)
-        _bulk_insert("signal_value",
+        _bulk_insert(ws, "signal_value",
                      ("signal_id", "asset_id", "date", "score"), sv_rows)
-        _bulk_insert("group_signal_value",
+        _bulk_insert(ws, "group_signal_value",
                      ("signal_id", "group_type", "group_id", "date", "score"),
                      gsv_rows)
-        _bulk_insert("strategy_result",
+        _bulk_insert(ws, "strategy_result",
                      ("strategy_id", "asset_id", "date", "score", "pct"),
                      sr_rows)
-        _bulk_insert("signal_eval_log",
+        _bulk_insert(ws, "signal_eval_log",
                      ("scope_kind", "ref_id", "date"), marker_rows)
-        s.commit()
+        ws.commit()
 
-    def _flush(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
+    def _flush(ws, batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows,
+               marker_rows):
         """DELETE de las fechas del batch (solo en delta; el rebuild ya
         limpió todo al inicio) + INSERT masivo + commit. Las fechas ya
         flusheadas quedan persistidas aunque un batch posterior falle.
@@ -468,11 +506,11 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             return
         for attempt in range(_MAX_LOCK_RETRIES + 1):
             try:
-                _flush_once(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows,
-                            marker_rows)
+                _flush_once(ws, batch_dates, sv_rows, gsv_rows, gs_rows,
+                            sr_rows, marker_rows)
                 break
             except OperationalError as exc:
-                s.rollback()
+                ws.rollback()
                 if attempt < _MAX_LOCK_RETRIES and _is_retryable_lock_error(exc):
                     logger.warning(
                         "signal_backfill_range: lock timeout/deadlock en flush "
@@ -483,14 +521,65 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     continue
                 raise
         logged.update(batch_dates)
+        _ok_box[0] += len(batch_dates)
         logger.info(
             "signal_backfill_range: %s..%s (%d fechas): %d signal_value, "
             "%d group_signal_value, %d group_scores, %d strategy_result",
             batch_dates[0], batch_dates[-1], len(batch_dates),
             len(sv_rows), len(gsv_rows), len(gs_rows), len(sr_rows))
 
+    # ── Escritor asíncrono (solo MySQL/MariaDB) ───────────────────────────
+    # El borrado/inserción es I/O de MariaDB (libera el GIL): corre en un
+    # thread propio con SU sesión mientras el productor computa el chunk
+    # siguiente en memoria (el barrido as-of no depende del estado de la BD).
+    # Cola acotada (1): a lo sumo un lote en espera además del que se computa
+    # — memoria acotada por backpressure. La barrera borrar-antes-de-insertar
+    # es estructural: limpieza inicial y flushes viven en el MISMO thread, en
+    # orden FIFO. sqlite (tests) va sincrónico: misma semántica, sin
+    # concurrencia (la paridad cubre el resultado final).
+    use_async = is_mysql
+    _ok_box = [0]
+    _werrors: list = []
+    _wq: queue.Queue = queue.Queue(maxsize=1)
+
+    def _writer_main():
+        ws = get_session()
+        try:
+            try:
+                _initial_cleanup(ws)
+            except Exception as exc:
+                logger.exception(
+                    "signal_backfill_range: limpieza inicial falló")
+                _werrors.append(exc)
+            _consume_writes(_wq, lambda *item: _flush(ws, *item), _werrors)
+        finally:
+            _DbSession.remove()
+
+    _writer = None
+    if use_async:
+        _writer = threading.Thread(target=_writer_main, daemon=True)
+        _writer.start()
+    else:
+        _initial_cleanup(s)
+
+    def _emit(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows):
+        """Entrega un lote al escritor (asíncrono) o flushea inline (sync).
+        Si el escritor ya falló, descarta el lote — el error se reporta al
+        cerrar la corrida."""
+        if not batch_dates:
+            return
+        if use_async:
+            if not _werrors:
+                _wq.put((batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows,
+                         marker_rows))
+        else:
+            _flush(s, batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows,
+                   marker_rows)
+
     # ── Chunks ────────────────────────────────────────────────────────────
     for start in range(0, total, _CHUNK_DATES):
+        if _werrors:
+            break  # el escritor murió: computar más lotes sería tirarlos
         chunk = dates[start:start + _CHUNK_DATES]
         window_start = chunk[0] - timedelta(days=ASOF_MAX_LOOKBACK_DAYS)
         window_end   = chunk[-1]
@@ -626,15 +715,13 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 # entero acumularía ~2M filas (memoria + transacción gigante)
                 if (len(sv_rows) + len(gsv_rows) + len(gs_rows)
                         + len(sr_rows)) >= _MAX_ROWS_PER_FLUSH:
-                    _flush(batch_dates, sv_rows, gsv_rows, gs_rows,
-                           sr_rows, marker_rows)
-                    ok += len(batch_dates)
+                    _emit(batch_dates, sv_rows, gsv_rows, gs_rows,
+                          sr_rows, marker_rows)
                     sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows = \
                         [], [], [], [], []
                     batch_dates = []
 
-            _flush(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows)
-            ok += len(batch_dates)
+            _emit(batch_dates, sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows)
 
         except Exception as exc:
             s.rollback()
@@ -643,4 +730,15 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             errors.append({"date": f"{chunk[0]}..{chunk[-1]}",
                            "error": f"chunk {chunk[0]}..{chunk[-1]}: {exc}"})
 
-    return {"total": total, "success": ok, "errors": errors}
+    # Cierre del escritor: sentinel + join. Recién acá se sabe cuántas
+    # fechas quedaron realmente persistidas (_ok_box lo suma el flush).
+    if use_async and _writer is not None:
+        if progress_cb:
+            progress_cb(total, total, "guardando…")
+        _wq.put(None)
+        _writer.join()
+    if _werrors:
+        errors.append({"date": f"{dates[0]}..{dates[-1]}",
+                       "error": f"escritor asíncrono: {_werrors[0]}"})
+
+    return {"total": total, "success": _ok_box[0], "errors": errors}
