@@ -24,11 +24,17 @@ def _strategy_help():
                         style={"color": "#dee2e6"})
 
     return html.Div([
-        html.Div("El trade ENTRA cuando el score alcanza el umbral de "
-                 "entrada. El modo de salida define cuándo se cierra; el "
-                 "slider es su parámetro.", className="mb-1"),
-        title("Modos de salida"),
+        html.Div(["El trade ENTRA cuando el score alcanza el umbral de "
+                  "entrada. La salida combina hasta dos reglas "
+                  "independientes — cierra la primera que se cumpla: el ",
+                  html.B("modo"), " mira la SEÑAL (score/ranking) y el ",
+                  html.B("tope"), " mira el PRECIO o el TIEMPO."],
+                 className="mb-1"),
+        title("Modo (salida por señal — opcional)"),
         html.Table(html.Tbody([
+            row("Sin salida por score",
+                "No sale por señal: solo por tope y/o filtro. Sin tope, "
+                "mantiene mientras el activo siga siendo elegible."),
             row("Umbral absoluto",
                 "Sale cuando el score cae bajo un nivel fijo. Tiene sentido "
                 "si tus señales cruzan el 0 (0 = la estrategia lo ve "
@@ -42,23 +48,47 @@ def _strategy_help():
             row("Cruce media score",
                 "Sale cuando el score cae bajo su propia media móvil de k "
                 "ruedas (el impulso del score se dio vuelta)."),
-            row("Horizonte fijo",
-                "Sale a las N ruedas de la entrada, pase lo que pase. Mide "
-                "el retorno posterior puro de la señal."),
             row("Percentil ranking",
                 "Entrada Y salida por posición en el ranking del día (100 = "
                 "mejor): entra al alcanzar el percentil de entrada, sale al "
                 "caer bajo el de salida."),
         ])),
-        title("Tope (opcional, uno a la vez)"),
-        html.Div("Se evalúa además del modo — cierra el primero que se "
-                 "cumpla: N ruedas (duración máxima), Stop loss % (caída "
-                 "desde la entrada), Trailing stop % (caída desde el máximo "
-                 "del precio), Take profit % (ganancia objetivo)."),
+        title("Topes (salida por precio/tiempo — combinables)"),
+        html.Div("Activá los que quieras; cierra el primero que se cumpla: "
+                 "Ruedas (duración máxima), SL% (stop loss desde la "
+                 "entrada), TS% (trailing stop desde el máximo del precio), "
+                 "TP% (take profit)."),
         title("Siempre activo"),
         html.Div("Si el activo deja de ser elegible para la estrategia (no "
                  "pasa el filtro), el trade se cierra — marcador «S filtro»."),
+        title("¿Cuál uso?"),
+        html.Div(["Para MEDIR la señal: ", html.B("sin salida por score + "
+                 "tope Ruedas"), " (retorno posterior puro, como el "
+                 "backtest). Para simular operatoria: percentil ranking o "
+                 "máx − Δ, con SL% (y TP% si operás a objetivo). Para "
+                 "aislar el efecto de un tope: activá uno solo y compará "
+                 "corridas."]),
     ])
+
+
+def _cap_control(key, label, default, tip):
+    """Un tope del simulador: checkbox (participa o no) + valor. Los topes
+    son combinables — cierra el primero que se cumpla (ver trade_simulator)."""
+    return html.Div([
+        _chk(f"chart-strategy-cap-{key}-on", label),
+        dbc.Input(
+            id=f"chart-strategy-cap-{key}", type="number", value=default,
+            min=1, step=1,
+            style={"width": "58px", "fontSize": "0.72rem",
+                   "padding": "1px 4px", "height": "22px", "display": "none"},
+        ),
+        dbc.Tooltip(tip, target=f"chart-strategy-cap-{key}-wrap",
+                    placement="bottom",
+                    style={"fontSize": "0.75rem", "maxWidth": "260px",
+                           "backgroundColor": "#1f2937", "color": "#dee2e6",
+                           "border": "1px solid #374151"}),
+    ], id=f"chart-strategy-cap-{key}-wrap",
+       className="d-flex align-items-center gap-1")
 
 
 def _chk(id_, label, default_on=False, color=None):
@@ -350,11 +380,11 @@ def layout(**kwargs):
                     html.Div(dcc.Dropdown(
                         id="chart-strategy-exit-mode",
                         options=[
+                            {"label": "Sin salida por score",      "value": "none"},
                             {"label": "Salida: umbral absoluto",   "value": "absolute"},
                             {"label": "Salida: entrada − Δ",       "value": "delta_entry"},
                             {"label": "Salida: máx score − Δ",     "value": "trailing_score"},
                             {"label": "Salida: cruce media score", "value": "score_ma"},
-                            {"label": "Salida: horizonte fijo",    "value": "horizon"},
                             {"label": "Salida: percentil ranking", "value": "percentile"},
                         ],
                         value="absolute", clearable=False,
@@ -372,30 +402,22 @@ def layout(**kwargs):
                     html.Small([html.Span("Salida < ", id="chart-strategy-exit-lbl"),
                                 html.Span("0", id="chart-strategy-exit-val",
                                           style={"color": "#ef5350"})],
+                               id="chart-strategy-exit-small",
                                style={"color": "#aaa", "fontSize": "0.68rem",
                                       "whiteSpace": "nowrap"}),
                     html.Div(dcc.Slider(
                         id="chart-strategy-exit", min=-100, max=100, step=5, value=0,
                         marks=None,
                         tooltip={"placement": "bottom"},
-                    ), style={"width": "130px"}),
-                    dcc.Dropdown(
-                        id="chart-strategy-cap",
-                        options=[
-                            {"label": "Sin tope",        "value": "none"},
-                            {"label": "Tope: N ruedas",  "value": "max_bars"},
-                            {"label": "Stop loss %",     "value": "stop_loss"},
-                            {"label": "Trailing stop %", "value": "trailing_stop"},
-                            {"label": "Take profit %",   "value": "take_profit"},
-                        ],
-                        value="none", clearable=False,
-                        style={"width": "128px", "fontSize": "0.72rem"},
-                    ),
-                    dcc.Input(
-                        id="chart-strategy-cap-val", type="number", value=10,
-                        style={"width": "58px", "fontSize": "0.72rem",
-                               "display": "none"},
-                    ),
+                    ), id="chart-strategy-exit-wrap", style={"width": "130px"}),
+                    _cap_control("bars", "Ruedas", 60,
+                                 "Tope: duración máxima del trade en ruedas"),
+                    _cap_control("sl", "SL%", 10,
+                                 "Tope: stop loss % desde el precio de entrada"),
+                    _cap_control("ts", "TS%", 15,
+                                 "Tope: trailing stop % desde el máximo del precio"),
+                    _cap_control("tp", "TP%", 20,
+                                 "Tope: take profit % desde el precio de entrada"),
                     dbc.Button("?", id="chart-strategy-help-btn",
                                color="secondary", outline=True, size="sm",
                                style={"fontSize": "0.7rem", "padding": "0 7px",

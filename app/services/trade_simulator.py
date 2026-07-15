@@ -15,6 +15,12 @@ backtesting.
 ║ casos de tests/fixtures/trade_simulator_cases.json deben acompañarlo.    ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 
+Taxonomía: el MODO sale por SEÑAL (score/percentil), los TOPES salen por
+PRECIO o TIEMPO, y el filtro de elegibilidad cierra siempre. El modo es
+opcional (None) y los topes combinables (lista, cada tipo a lo sumo una
+vez); sin modo ni topes, el trade se mantiene mientras el activo siga
+siendo elegible (buy & hold del filtro).
+
 Semántica (fijada por los fixtures — cambiarla es cambiar el contrato):
 
 - `closes[i]` / `scores[i]` / `percentiles[i]`: barra i del PROPIO activo.
@@ -26,10 +32,14 @@ Semántica (fijada por los fixtures — cambiarla es cambiar el contrato):
   En la barra de entrada NO se evalúa ninguna salida.
 - En posición, por barra, gana el primero que se cumpla (en este orden):
     1. filtro   — barra sin score → cierre forzado (reason "filter").
-    2. tope     — spec["cap"], a lo sumo UNO: max_bars / stop_loss /
-                  trailing_stop / take_profit.
-    3. modo     — spec["mode"]: absolute / delta_entry / trailing_score /
-                  score_ma / horizon / percentile.
+    2. topes    — spec["caps"], None o LISTA de topes (max_bars / stop_loss /
+                  trailing_stop / take_profit), evaluados EN EL ORDEN DE LA
+                  LISTA: si varios se cumplen en la misma barra, el reason es
+                  el primero de la lista (la UI los arma en orden canónico:
+                  max_bars, stop_loss, trailing_stop, take_profit).
+    3. modo     — spec["mode"], None ("sin salida por score") o UNO:
+                  absolute / delta_entry / trailing_score / score_ma /
+                  percentile.
 - Cola sin score: las barras DESPUÉS de la última barra con score no cierran
   por filtro (típico: el precio de hoy ya bajó pero las señales aún no
   corrieron — "no sabemos si es elegible" no es "dejó de ser elegible").
@@ -37,7 +47,7 @@ Semántica (fijada por los fixtures — cambiarla es cambiar el contrato):
 - Trade abierto al final: exit_idx/exit_close None, reason None, ret contra
   closes[-1].
 
-Modos (spec["mode"] = {"type": ..., parámetros}):
+Modos (spec["mode"] = None | {"type": ..., parámetros}):
 - absolute       {"x"}: score < x (nivel absoluto; útil si las señales son
                   simétricas y 0 significa "se dio vuelta").
 - delta_entry    {"x"}: score < score_de_entrada − x.
@@ -46,11 +56,14 @@ Modos (spec["mode"] = {"type": ..., parámetros}):
 - score_ma       {"k"}: score < media simple de los últimos k scores
                   observados (sobre toda la serie, no desde la entrada;
                   incluye el actual; con menos de k observados no dispara).
-- horizon        {"n"}: a las n barras de la entrada (i − entry_idx >= n).
 - percentile     {"x"}: percentil < x. En este modo la ENTRADA también es
                   por percentil (spec["entry"] se compara contra percentil).
 
-Topes (spec["cap"] = None | {"type": ..., parámetros}):
+El horizonte fijo ("salir a las N ruedas") NO es un modo: es tiempo, no
+señal — se expresa como tope max_bars (antes existía duplicado como modo
+"horizon"; se eliminó al volverse opcional el modo).
+
+Topes (spec["caps"] = None | [{"type": ..., parámetros}, ...]):
 - max_bars      {"n"}:   i − entry_idx >= n.
 - stop_loss     {"pct"}: close <= entry_close × (1 − pct/100).
 - trailing_stop {"pct"}: close <= máximo close desde la entrada (incluida la
@@ -61,7 +74,7 @@ Topes (spec["cap"] = None | {"type": ..., parámetros}):
 from statistics import median
 
 EXIT_MODES = ("absolute", "delta_entry", "trailing_score",
-              "score_ma", "horizon", "percentile")
+              "score_ma", "percentile")
 CAP_TYPES = ("max_bars", "stop_loss", "trailing_stop", "take_profit")
 
 
@@ -72,16 +85,17 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
     "exit_close" (None=abierto), "ret" (None si entry_close<=0), "reason"
     (tipo de modo/tope, "filter", o None=abierto)}.
     """
-    mode  = spec["mode"]
-    mtype = mode["type"]
-    cap   = spec.get("cap") or None
+    mode  = spec.get("mode") or None
+    mtype = mode["type"] if mode else None
+    caps  = spec.get("caps") or []
     entry_th = spec["entry"]
     use_pct  = (mtype == "percentile")
 
-    if mtype not in EXIT_MODES:
+    if mtype is not None and mtype not in EXIT_MODES:
         raise ValueError(f"Modo de salida desconocido: {mtype!r}")
-    if cap and cap["type"] not in CAP_TYPES:
-        raise ValueError(f"Tope desconocido: {cap['type']!r}")
+    for cap in caps:
+        if cap["type"] not in CAP_TYPES:
+            raise ValueError(f"Tope desconocido: {cap['type']!r}")
 
     # Última barra con score: más allá no hay veredicto de elegibilidad.
     last_scored = None
@@ -97,7 +111,7 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
     entry_idx = entry_close = entry_score = None
     max_score = max_close = None
     ma_window = []          # últimos k scores observados (modo score_ma)
-    k = mode.get("k")
+    k = mode.get("k") if mode else None
 
     def _close_trade(i, reason):
         nonlocal in_pos
@@ -141,9 +155,9 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
         if c > max_close:
             max_close = c
 
-        # 2) Tope (a lo sumo uno).
+        # 2) Topes (en el orden de la lista; gana el primero que se cumpla).
         reason = None
-        if cap:
+        for cap in caps:
             ct = cap["type"]
             if ct == "max_bars" and i - entry_idx >= cap["n"]:
                 reason = "max_bars"
@@ -156,9 +170,11 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
             elif (ct == "take_profit" and entry_close > 0
                     and c >= entry_close * (1 + cap["pct"] / 100)):
                 reason = "take_profit"
+            if reason:
+                break
 
-        # 3) Modo principal.
-        if reason is None:
+        # 3) Modo principal (None = sin salida por score).
+        if reason is None and mtype is not None:
             if mtype == "absolute" and sc < mode["x"]:
                 reason = "absolute"
             elif mtype == "delta_entry" and sc < entry_score - mode["x"]:
@@ -167,8 +183,6 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
                 reason = "trailing_score"
             elif mtype == "score_ma" and ma is not None and sc < ma:
                 reason = "score_ma"
-            elif mtype == "horizon" and i - entry_idx >= mode["n"]:
-                reason = "horizon"
             elif mtype == "percentile" and pc is not None and pc < mode["x"]:
                 reason = "percentile"
 

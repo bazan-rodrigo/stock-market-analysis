@@ -6,7 +6,7 @@
       "closes": [100, 110, 120, 90, 95],
       "scores": [10, 25, 30, -5, 15],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
       "expected": [{"entry_idx": 1, "exit_idx": 3, "reason": "absolute"}]
     },
     {
@@ -14,7 +14,7 @@
       "closes": [100, 105, 110],
       "scores": [25, 30, 40],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
     },
     {
@@ -22,7 +22,7 @@
       "closes": [100, 95, 105, 100],
       "scores": [25, -5, 30, -10],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "absolute"},
         {"entry_idx": 2, "exit_idx": 3, "reason": "absolute"}
@@ -33,7 +33,7 @@
       "closes": [100, 101],
       "scores": [30, 30],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 50}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 50}, "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "absolute"}]
     },
     {
@@ -41,7 +41,7 @@
       "closes": [100, 102, 104, 106],
       "scores": [40, 30, 24, 26],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "delta_entry", "x": 15}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "delta_entry", "x": 15}, "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "delta_entry"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
@@ -52,7 +52,7 @@
       "closes": [100, 102, 104, 106],
       "scores": [30, 80, 65, 59],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "trailing_score", "x": 20}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "trailing_score", "x": 20}, "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": 3, "reason": "trailing_score"}]
     },
     {
@@ -60,7 +60,7 @@
       "closes": [100, 101, 102, 103, 104],
       "scores": [10, 20, 30, 40, 20],
       "percentiles": null,
-      "spec": {"entry": 15, "mode": {"type": "score_ma", "k": 3}, "cap": null},
+      "spec": {"entry": 15, "mode": {"type": "score_ma", "k": 3}, "caps": null},
       "expected": [{"entry_idx": 1, "exit_idx": 4, "reason": "score_ma"}]
     },
     {
@@ -68,18 +68,30 @@
       "closes": [100, 101, 102],
       "scores": [20, 30, 10],
       "percentiles": null,
-      "spec": {"entry": 15, "mode": {"type": "score_ma", "k": 5}, "cap": null},
+      "spec": {"entry": 15, "mode": {"type": "score_ma", "k": 5}, "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
     },
     {
-      "name": "horizon_y_reentrada",
+      "name": "sin_modo_tope_max_bars_y_reentrada",
       "closes": [100, 101, 102, 103, 104, 105],
       "scores": [25, 25, 25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "horizon", "n": 3}, "cap": null},
+      "spec": {"entry": 20, "mode": null,
+               "caps": [{"type": "max_bars", "n": 3}]},
       "expected": [
-        {"entry_idx": 0, "exit_idx": 3, "reason": "horizon"},
+        {"entry_idx": 0, "exit_idx": 3, "reason": "max_bars"},
         {"entry_idx": 4, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "sin_modo_sin_tope_mantiene_hasta_filtro",
+      "closes": [100, 105, 110, 108],
+      "scores": [25, 30, null, 20],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": null, "caps": null},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "filter"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
       ]
     },
     {
@@ -87,7 +99,7 @@
       "closes": [100, 102, 98, 105],
       "scores": [50, 45, 40, 55],
       "percentiles": [95, 80, 60, 92],
-      "spec": {"entry": 90, "mode": {"type": "percentile", "x": 70}, "cap": null},
+      "spec": {"entry": 90, "mode": {"type": "percentile", "x": 70}, "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "percentile"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
@@ -98,7 +110,7 @@
       "closes": [100, 90, 95],
       "scores": [25, null, 30],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "filter"},
         {"entry_idx": 2, "exit_idx": null, "reason": null}
@@ -109,7 +121,7 @@
       "closes": [100, 101, 102],
       "scores": [null, 10, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
       "expected": [{"entry_idx": 2, "exit_idx": null, "reason": null}]
     },
     {
@@ -117,28 +129,16 @@
       "closes": [100, 105, 110, 112],
       "scores": [25, 30, null, null],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
     },
     {
-      "name": "cap_max_bars_gana_al_modo",
-      "closes": [100, 101, 102, 103, 104],
-      "scores": [25, 25, 25, 25, 25],
-      "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "horizon", "n": 10},
-               "cap": {"type": "max_bars", "n": 2}},
-      "expected": [
-        {"entry_idx": 0, "exit_idx": 2, "reason": "max_bars"},
-        {"entry_idx": 3, "exit_idx": null, "reason": null}
-      ]
-    },
-    {
-      "name": "cap_stop_loss",
+      "name": "sin_modo_solo_stop_loss",
       "closes": [100, 95, 89, 100],
       "scores": [25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": -100},
-               "cap": {"type": "stop_loss", "pct": 10}},
+      "spec": {"entry": 20, "mode": null,
+               "caps": [{"type": "stop_loss", "pct": 10}]},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "stop_loss"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
@@ -149,8 +149,8 @@
       "closes": [100, 120, 110, 107],
       "scores": [25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": -100},
-               "cap": {"type": "trailing_stop", "pct": 10}},
+      "spec": {"entry": 20, "mode": null,
+               "caps": [{"type": "trailing_stop", "pct": 10}]},
       "expected": [{"entry_idx": 0, "exit_idx": 3, "reason": "trailing_stop"}]
     },
     {
@@ -158,8 +158,8 @@
       "closes": [100, 110, 116, 117],
       "scores": [25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": -100},
-               "cap": {"type": "take_profit", "pct": 15}},
+      "spec": {"entry": 20, "mode": null,
+               "caps": [{"type": "take_profit", "pct": 15}]},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "take_profit"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
@@ -171,7 +171,7 @@
       "scores": [25, -10],
       "percentiles": null,
       "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
-               "cap": {"type": "stop_loss", "pct": 5}},
+               "caps": [{"type": "stop_loss", "pct": 5}]},
       "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "stop_loss"}]
     },
     {
@@ -180,18 +180,42 @@
       "scores": [25, null, 25],
       "percentiles": null,
       "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
-               "cap": {"type": "stop_loss", "pct": 5}},
+               "caps": [{"type": "stop_loss", "pct": 5}]},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "filter"},
         {"entry_idx": 2, "exit_idx": null, "reason": null}
       ]
     },
     {
+      "name": "topes_combinados_stop_loss_y_take_profit",
+      "closes": [100, 112, 116, 100, 89, 95],
+      "scores": [25, 25, 25, 25, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": null,
+               "caps": [{"type": "stop_loss", "pct": 10},
+                        {"type": "take_profit", "pct": 15}]},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "take_profit"},
+        {"entry_idx": 3, "exit_idx": 4, "reason": "stop_loss"},
+        {"entry_idx": 5, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "topes_misma_barra_gana_el_primero_de_la_lista",
+      "closes": [100, 98, 94],
+      "scores": [25, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": null,
+               "caps": [{"type": "max_bars", "n": 2},
+                        {"type": "stop_loss", "pct": 5}]},
+      "expected": [{"entry_idx": 0, "exit_idx": 2, "reason": "max_bars"}]
+    },
+    {
       "name": "sin_scores_no_hay_trades",
       "closes": [100, 101, 102],
       "scores": [null, null, null],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "cap": null},
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
       "expected": []
     }
   ]

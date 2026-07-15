@@ -54,7 +54,7 @@ def test_tope_desconocido_falla():
     with pytest.raises(ValueError):
         simulate_trades([100], [25],
                         {"entry": 20, "mode": {"type": "absolute", "x": 0},
-                         "cap": {"type": "zaraza"}})
+                         "caps": [{"type": "zaraza"}]})
 
 
 def test_summarize_basico():
