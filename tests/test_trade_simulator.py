@@ -44,16 +44,26 @@ def test_contrato(case):
         assert all(t["exit_idx"] is not None for t in trades[:-1])
 
 
-def test_modo_desconocido_falla():
+_ENTRY_SC = [{"type": "score", "th": 20}]
+
+
+def test_entrada_desconocida_falla():
     with pytest.raises(ValueError):
         simulate_trades([100], [25],
-                        {"entry": 20, "mode": {"type": "zaraza"}, "cap": None})
+                        {"entries": [{"type": "zaraza", "th": 1}]})
+
+
+def test_salida_por_score_desconocida_falla():
+    with pytest.raises(ValueError):
+        simulate_trades([100], [25],
+                        {"entries": _ENTRY_SC,
+                         "score_exits": [{"type": "zaraza"}]})
 
 
 def test_tope_desconocido_falla():
     with pytest.raises(ValueError):
         simulate_trades([100], [25],
-                        {"entry": 20, "mode": {"type": "absolute", "x": 0},
+                        {"entries": _ENTRY_SC,
                          "caps": [{"type": "zaraza"}]})
 
 

@@ -1,12 +1,13 @@
 {
-  "_comment": "CONTRATO del simulador de trades (app/services/trade_simulator.py y su espejo JS en chart_callbacks.py). Cambiar un caso = cambiar la semantica: requiere tocar AMBAS implementaciones en el mismo commit.",
+  "_comment": "CONTRATO del simulador de trades (app/services/trade_simulator.py y su espejo JS en chart_callbacks.py). Cambiar un caso = cambiar la semantica: requiere tocar AMBAS implementaciones en el mismo commit. entries = AND (todas las activas); score_exits/caps = OR (gana la primera de la lista); precedencia filtro > caps > score_exits.",
   "cases": [
     {
       "name": "absolute_basico",
       "closes": [100, 110, 120, 90, 95],
       "scores": [10, 25, 30, -5, 15],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}], "caps": null},
       "expected": [{"entry_idx": 1, "exit_idx": 3, "reason": "absolute"}]
     },
     {
@@ -14,7 +15,8 @@
       "closes": [100, 105, 110],
       "scores": [25, 30, 40],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}], "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
     },
     {
@@ -22,7 +24,8 @@
       "closes": [100, 95, 105, 100],
       "scores": [25, -5, 30, -10],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}], "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "absolute"},
         {"entry_idx": 2, "exit_idx": 3, "reason": "absolute"}
@@ -33,7 +36,8 @@
       "closes": [100, 101],
       "scores": [30, 30],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 50}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 50}], "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "absolute"}]
     },
     {
@@ -41,7 +45,8 @@
       "closes": [100, 102, 104, 106],
       "scores": [40, 30, 24, 26],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "delta_entry", "x": 15}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "delta_entry", "x": 15}], "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "delta_entry"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
@@ -52,7 +57,8 @@
       "closes": [100, 102, 104, 106],
       "scores": [30, 80, 65, 59],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "trailing_score", "x": 20}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "trailing_score", "x": 20}], "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": 3, "reason": "trailing_score"}]
     },
     {
@@ -60,7 +66,8 @@
       "closes": [100, 101, 102, 103, 104],
       "scores": [10, 20, 30, 40, 20],
       "percentiles": null,
-      "spec": {"entry": 15, "mode": {"type": "score_ma", "k": 3}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 15}],
+               "score_exits": [{"type": "score_ma", "k": 3}], "caps": null},
       "expected": [{"entry_idx": 1, "exit_idx": 4, "reason": "score_ma"}]
     },
     {
@@ -68,15 +75,16 @@
       "closes": [100, 101, 102],
       "scores": [20, 30, 10],
       "percentiles": null,
-      "spec": {"entry": 15, "mode": {"type": "score_ma", "k": 5}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 15}],
+               "score_exits": [{"type": "score_ma", "k": 5}], "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
     },
     {
-      "name": "sin_modo_tope_max_bars_y_reentrada",
+      "name": "solo_tope_max_bars_y_reentrada",
       "closes": [100, 101, 102, 103, 104, 105],
       "scores": [25, 25, 25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": null,
+      "spec": {"entries": [{"type": "score", "th": 20}], "score_exits": null,
                "caps": [{"type": "max_bars", "n": 3}]},
       "expected": [
         {"entry_idx": 0, "exit_idx": 3, "reason": "max_bars"},
@@ -84,11 +92,12 @@
       ]
     },
     {
-      "name": "sin_modo_sin_tope_mantiene_hasta_filtro",
+      "name": "sin_salidas_mantiene_hasta_filtro",
       "closes": [100, 105, 110, 108],
       "scores": [25, 30, null, 20],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": null, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": null, "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "filter"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
@@ -99,8 +108,8 @@
       "closes": [100, 102, 98, 105],
       "scores": [50, 45, 40, 55],
       "percentiles": [95, 80, 60, 92],
-      "spec": {"entry": 90, "entry_pct": true,
-               "mode": {"type": "percentile", "x": 70}, "caps": null},
+      "spec": {"entries": [{"type": "pct", "th": 90}],
+               "score_exits": [{"type": "percentile", "x": 70}], "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "percentile"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
@@ -111,8 +120,8 @@
       "closes": [100, 102, 104, 106],
       "scores": [30, 80, 65, 59],
       "percentiles": [95, 91, 92, 93],
-      "spec": {"entry": 90, "entry_pct": true,
-               "mode": {"type": "trailing_score", "x": 20}, "caps": null},
+      "spec": {"entries": [{"type": "pct", "th": 90}],
+               "score_exits": [{"type": "trailing_score", "x": 20}], "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": 3, "reason": "trailing_score"}]
     },
     {
@@ -120,8 +129,8 @@
       "closes": [100, 102, 104],
       "scores": [25, 25, 25],
       "percentiles": [50, 95, 60],
-      "spec": {"entry": 20, "mode": {"type": "percentile", "x": 70},
-               "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "percentile", "x": 70}], "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": 2, "reason": "percentile"}]
     },
     {
@@ -129,7 +138,8 @@
       "closes": [100, 90, 95],
       "scores": [25, null, 30],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}], "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "filter"},
         {"entry_idx": 2, "exit_idx": null, "reason": null}
@@ -140,7 +150,8 @@
       "closes": [100, 101, 102],
       "scores": [null, 10, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}], "caps": null},
       "expected": [{"entry_idx": 2, "exit_idx": null, "reason": null}]
     },
     {
@@ -148,15 +159,16 @@
       "closes": [100, 105, 110, 112],
       "scores": [25, 30, null, null],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}], "caps": null},
       "expected": [{"entry_idx": 0, "exit_idx": null, "reason": null}]
     },
     {
-      "name": "sin_modo_solo_stop_loss",
+      "name": "solo_stop_loss",
       "closes": [100, 95, 89, 100],
       "scores": [25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": null,
+      "spec": {"entries": [{"type": "score", "th": 20}], "score_exits": null,
                "caps": [{"type": "stop_loss", "pct": 10}]},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "stop_loss"},
@@ -168,7 +180,7 @@
       "closes": [100, 120, 110, 107],
       "scores": [25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": null,
+      "spec": {"entries": [{"type": "score", "th": 20}], "score_exits": null,
                "caps": [{"type": "trailing_stop", "pct": 10}]},
       "expected": [{"entry_idx": 0, "exit_idx": 3, "reason": "trailing_stop"}]
     },
@@ -177,7 +189,7 @@
       "closes": [100, 110, 116, 117],
       "scores": [25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": null,
+      "spec": {"entries": [{"type": "score", "th": 20}], "score_exits": null,
                "caps": [{"type": "take_profit", "pct": 15}]},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "take_profit"},
@@ -185,20 +197,22 @@
       ]
     },
     {
-      "name": "precedencia_tope_sobre_modo_en_la_misma_barra",
+      "name": "precedencia_cap_sobre_salida_por_score_en_la_misma_barra",
       "closes": [100, 94],
       "scores": [25, -10],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}],
                "caps": [{"type": "stop_loss", "pct": 5}]},
       "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "stop_loss"}]
     },
     {
-      "name": "precedencia_filtro_sobre_tope",
+      "name": "precedencia_filtro_sobre_cap",
       "closes": [100, 90, 95],
       "scores": [25, null, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}],
                "caps": [{"type": "stop_loss", "pct": 5}]},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "filter"},
@@ -210,7 +224,7 @@
       "closes": [100, 112, 116, 100, 89, 95],
       "scores": [25, 25, 25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": null,
+      "spec": {"entries": [{"type": "score", "th": 20}], "score_exits": null,
                "caps": [{"type": "stop_loss", "pct": 10},
                         {"type": "take_profit", "pct": 15}]},
       "expected": [
@@ -224,17 +238,60 @@
       "closes": [100, 98, 94],
       "scores": [25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": null,
+      "spec": {"entries": [{"type": "score", "th": 20}], "score_exits": null,
                "caps": [{"type": "max_bars", "n": 2},
                         {"type": "stop_loss", "pct": 5}]},
       "expected": [{"entry_idx": 0, "exit_idx": 2, "reason": "max_bars"}]
+    },
+    {
+      "name": "salidas_score_combinadas_absolute_y_trailing",
+      "closes": [100, 101, 102, 103, 104],
+      "scores": [40, 80, 45, 30, -5],
+      "percentiles": null,
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0},
+                               {"type": "trailing_score", "x": 30}],
+               "caps": null},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "trailing_score"},
+        {"entry_idx": 3, "exit_idx": 4, "reason": "absolute"}
+      ]
+    },
+    {
+      "name": "salidas_score_misma_barra_gana_la_primera_de_la_lista",
+      "closes": [100, 99],
+      "scores": [30, -5],
+      "percentiles": null,
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "delta_entry", "x": 10},
+                               {"type": "absolute", "x": 0}],
+               "caps": null},
+      "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "delta_entry"}]
+    },
+    {
+      "name": "entrada_combinada_score_y_pct_exige_ambas",
+      "closes": [100, 101, 102],
+      "scores": [25, 25, 25],
+      "percentiles": [80, 95, 95],
+      "spec": {"entries": [{"type": "score", "th": 20},
+                           {"type": "pct", "th": 90}],
+               "score_exits": null, "caps": null},
+      "expected": [{"entry_idx": 1, "exit_idx": null, "reason": null}]
+    },
+    {
+      "name": "sin_condiciones_de_entrada_no_hay_trades",
+      "closes": [100, 101],
+      "scores": [25, 25],
+      "percentiles": null,
+      "spec": {"entries": null, "score_exits": null, "caps": null},
+      "expected": []
     },
     {
       "name": "rearm_tras_stop_loss_exige_cruce",
       "closes": [100, 89, 95, 100, 105],
       "scores": [25, 25, 25, 10, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": null,
+      "spec": {"entries": [{"type": "score", "th": 20}], "score_exits": null,
                "caps": [{"type": "stop_loss", "pct": 10}], "rearm": true},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "stop_loss"},
@@ -246,7 +303,8 @@
       "closes": [100, 95, 100, 105],
       "scores": [25, -5, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}],
                "caps": null, "rearm": true},
       "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "absolute"}]
     },
@@ -255,7 +313,8 @@
       "closes": [100, 95, 100, 102, 104, 106],
       "scores": [25, -5, 25, 25, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}],
                "caps": null, "cooldown": 2},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "absolute"},
@@ -267,7 +326,8 @@
       "closes": [100, 95, 96, 100, 102],
       "scores": [25, -5, -5, 25, 25],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}],
                "caps": null, "rearm": true, "cooldown": 1},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "absolute"},
@@ -279,11 +339,25 @@
       "closes": [100, 98, 100, 103],
       "scores": [50, 45, 48, 52],
       "percentiles": [95, 60, 85, 95],
-      "spec": {"entry": 90, "entry_pct": true,
-               "mode": {"type": "percentile", "x": 70},
+      "spec": {"entries": [{"type": "pct", "th": 90}],
+               "score_exits": [{"type": "percentile", "x": 70}],
                "caps": null, "rearm": true},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "percentile"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "rearm_con_entrada_combinada_rearma_cuando_una_falla",
+      "closes": [100, 99, 101, 103],
+      "scores": [25, -5, 25, 25],
+      "percentiles": [95, 95, 80, 95],
+      "spec": {"entries": [{"type": "score", "th": 20},
+                           {"type": "pct", "th": 90}],
+               "score_exits": [{"type": "absolute", "x": 0}],
+               "caps": null, "rearm": true},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 1, "reason": "absolute"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
       ]
     },
@@ -292,7 +366,8 @@
       "closes": [100, 101, 102],
       "scores": [null, null, null],
       "percentiles": null,
-      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0}, "caps": null},
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute", "x": 0}], "caps": null},
       "expected": []
     }
   ]

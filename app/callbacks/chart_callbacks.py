@@ -301,10 +301,13 @@ def load_strategy_opts(_):
 
 @callback(
     Output("chart-strategy-params", "style"),
+    Output("chart-strategy-result", "style"),
     Input("chart-strategy-enabled", "value"),
 )
 def toggle_strategy_params(enabled):
-    return {"display": "flex"} if enabled else {"display": "none"}
+    if enabled:
+        return {"display": "flex"}, {"display": "block"}
+    return {"display": "none"}, {"display": "none"}
 
 
 @callback(
@@ -351,147 +354,90 @@ def load_strategy_overlay(enabled, strategy_id, asset_id):
     }
 
 
-# El slider de salida es el parámetro del modo elegido: cambia rango/label/
-# default según el modo (puntos de score, k de la media, percentil). El modo
-# "none" no tiene parámetro: el slider y su label se ocultan.
-# (label, min, max, step, default)
-_EXIT_MODE_CFG = {
-    "absolute":       ("Salida < ",           -100, 100, 5, 0),
-    "delta_entry":    ("Salida: entrada − ",     0, 100, 5, 20),
-    "trailing_score": ("Salida: máx − ",         0, 100, 5, 20),
-    "score_ma":       ("Salida < media k=",      2,  60, 1, 10),
-    "percentile":     ("Salida pct < ",          0, 100, 5, 70),
-}
-
-# Explicación de una línea del modo seleccionado (tooltip del dropdown);
-# la referencia completa vive en el popover "?" (asset_analysis._strategy_help)
-_EXIT_MODE_DESC = {
-    "none":           "Sin salida por score: sale solo por tope y/o al "
-                      "perder elegibilidad (filtro).",
-    "absolute":       "Sale cuando el score cae bajo un nivel fijo.",
-    "delta_entry":    "Sale cuando el score cae Δ puntos bajo el score "
-                      "que tenía al entrar.",
-    "trailing_score": "Sale cuando el score cae Δ puntos desde el máximo "
-                      "que tocó durante el trade.",
-    "score_ma":       "Sale cuando el score cae bajo su media móvil de "
-                      "k ruedas.",
-    "percentile":     "Sale cuando el percentil del activo en el ranking "
-                      "del día cae bajo X (100 = mejor).",
-}
-
-_EXIT_SMALL_STYLE = {"color": "#aaa", "fontSize": "0.68rem",
-                     "whiteSpace": "nowrap"}
-_EXIT_WRAP_STYLE = {"width": "130px"}
-_HIDDEN = {"display": "none"}
+# Controles del simulador, en el ORDEN POSICIONAL de window._lwc.buildSpec
+# (los tres lugares — esta lista, la firma de buildSpec y los dos callbacks
+# clientside que lo llaman — deben mantenerse sincronizados).
+_SIM_CONTROL_IDS = [
+    "chart-strategy-entry-sc-on", "chart-strategy-entry-sc",
+    "chart-strategy-entry-pct-on", "chart-strategy-entry-pct",
+    "chart-strategy-xs-abs-on", "chart-strategy-xs-abs",
+    "chart-strategy-xs-dent-on", "chart-strategy-xs-dent",
+    "chart-strategy-xs-dmax-on", "chart-strategy-xs-dmax",
+    "chart-strategy-xs-mak-on", "chart-strategy-xs-mak",
+    "chart-strategy-xs-pct-on", "chart-strategy-xs-pct",
+    "chart-strategy-cap-bars-on", "chart-strategy-cap-bars",
+    "chart-strategy-cap-sl-on", "chart-strategy-cap-sl",
+    "chart-strategy-cap-ts-on", "chart-strategy-cap-ts",
+    "chart-strategy-cap-tp-on", "chart-strategy-cap-tp",
+    "chart-strategy-rearm",
+    "chart-strategy-cooldown-on", "chart-strategy-cooldown",
+]
 
 
-def _same_units(mode, entry_sig):
-    """Entrada y salida hablan la misma unidad → aplica la regla dura
-    salida <= entrada (histéresis; salida > entrada = entrar y salir en la
-    barra siguiente). Score/score en modo absoluto, pct/pct en percentil;
-    en los modos delta/k no hay relación (el parámetro es relativo)."""
-    return ((mode == "absolute" and entry_sig != "pct")
-            or (mode == "percentile" and entry_sig == "pct"))
+def _sim_control_deps(cls):
+    """Inputs/States de los controles del simulador, en orden posicional."""
+    return [cls(i, "value") for i in _SIM_CONTROL_IDS]
 
 
 @callback(
-    Output("chart-strategy-exit",          "min"),
-    Output("chart-strategy-exit",          "max"),
-    Output("chart-strategy-exit",          "step"),
-    Output("chart-strategy-exit",          "value"),
-    Output("chart-strategy-exit-lbl",      "children"),
-    Output("chart-strategy-exit-small",    "style"),
-    Output("chart-strategy-exit-wrap",     "style"),
-    Output("chart-strategy-exit-mode-tip", "children"),
-    Input("chart-strategy-exit-mode",      "value"),
-    State("chart-strategy-entry-sig",      "value"),
-    State("chart-strategy-entry",          "value"),
+    Output("chart-strategy-xs-abs", "max"),
+    Output("chart-strategy-xs-abs", "value"),
+    Output("chart-strategy-xs-pct", "max"),
+    Output("chart-strategy-xs-pct", "value"),
+    Input("chart-strategy-entry-sc-on",  "value"),
+    Input("chart-strategy-entry-sc",     "value"),
+    Input("chart-strategy-entry-pct-on", "value"),
+    Input("chart-strategy-entry-pct",    "value"),
+    State("chart-strategy-xs-abs", "value"),
+    State("chart-strategy-xs-pct", "value"),
     prevent_initial_call=True,
 )
-def reconfigure_exit_mode(mode, entry_sig, entry_val):
-    """El slider de salida es el parámetro del modo. "none" (default) lo
-    oculta. La entrada no se toca acá: tiene su propio selector Sc/Pct."""
-    mode = mode or "none"
-    tip = _EXIT_MODE_DESC[mode]
-    if mode == "none":
-        return (no_update, no_update, no_update, no_update, no_update,
-                _HIDDEN, _HIDDEN, tip)
-    lbl, mn, mx, stp, val = _EXIT_MODE_CFG[mode]
-    if _same_units(mode, entry_sig) and entry_val is not None:
-        mx = min(mx, entry_val)
-        val = min(val, mx)
-    return (mn, mx, stp, val, lbl, _EXIT_SMALL_STYLE, _EXIT_WRAP_STYLE, tip)
-
-
-@callback(
-    Output("chart-strategy-entry",     "min"),
-    Output("chart-strategy-entry",     "max"),
-    Output("chart-strategy-entry",     "value"),
-    Output("chart-strategy-entry-lbl", "children"),
-    Input("chart-strategy-entry-sig",  "value"),
-    prevent_initial_call=True,
-)
-def reconfigure_entry_sig(sig):
-    """Señal de entrada Sc/Pct: re-rangea el slider (el cambio de value
-    dispara couple_exit_to_entry, que re-acopla el techo de salida)."""
-    if sig == "pct":
-        return 0, 100, 90, "Entrada ≥ pct "
-    return -100, 100, 20, "Entrada ≥ "
-
-
-@callback(
-    Output("chart-strategy-exit", "max",   allow_duplicate=True),
-    Output("chart-strategy-exit", "value", allow_duplicate=True),
-    Input("chart-strategy-entry",     "value"),
-    State("chart-strategy-entry-sig", "value"),
-    State("chart-strategy-exit-mode", "value"),
-    State("chart-strategy-exit",      "value"),
-    prevent_initial_call=True,
-)
-def couple_exit_to_entry(entry_val, entry_sig, mode, exit_val):
-    """Acople salida<=entrada cuando comparten unidad: el techo del slider
-    de salida sigue al valor de entrada (imposible configurar salida >
-    entrada) y, si la entrada baja por debajo de la salida, la salida se
-    ajusta. En unidades distintas restaura el techo del modo."""
-    mode = mode or "none"
-    if mode not in _EXIT_MODE_CFG:
-        return no_update, no_update
-    if not _same_units(mode, entry_sig) or entry_val is None:
-        return _EXIT_MODE_CFG[mode][2], no_update
-    new_val = exit_val if (exit_val is not None and exit_val <= entry_val) \
-        else entry_val
-    return entry_val, (no_update if new_val == exit_val else new_val)
+def couple_score_exits_to_entries(sc_on, sc_val, pct_on, pct_val,
+                                  abs_val, xpct_val):
+    """Acople salida <= entrada cuando comparten unidad (histéresis; una
+    salida por encima de la entrada = entrar y salir en la barra siguiente):
+    Abs< topeado por Sc≥ y Pct< topeado por Pct≥, cuando la condición de
+    entrada correspondiente está activa. El techo del input sigue al valor
+    de entrada; si la entrada baja por debajo de la salida, la salida se
+    ajusta. Entrada inactiva → techo default (100)."""
+    def clamp(on, entry_v, exit_v):
+        if on and len(on) and entry_v is not None:
+            new_v = exit_v if (exit_v is None or exit_v <= entry_v) else entry_v
+            return entry_v, (no_update if new_v == exit_v else new_v)
+        return 100, no_update
+    mx1, v1 = clamp(sc_on, sc_val, abs_val)
+    mx2, v2 = clamp(pct_on, pct_val, xpct_val)
+    return mx1, v1, mx2, v2
 
 
 _CAP_INPUT_STYLE = {"width": "58px", "fontSize": "0.72rem",
                     "padding": "1px 4px", "height": "22px"}
 
 
+# Controles con input de valor (todos los checkbox+valor del simulador):
+# el input solo se ve con el control activo.
+_SIM_TOGGLE_KEYS = [
+    "entry-sc", "entry-pct",
+    "xs-abs", "xs-dent", "xs-dmax", "xs-mak", "xs-pct",
+    "cap-bars", "cap-sl", "cap-ts", "cap-tp", "cooldown",
+]
+
+
 @callback(
-    Output("chart-strategy-cap-bars", "style"),
-    Output("chart-strategy-cap-sl",   "style"),
-    Output("chart-strategy-cap-ts",   "style"),
-    Output("chart-strategy-cap-tp",   "style"),
-    Output("chart-strategy-cooldown", "style"),
-    Input("chart-strategy-cap-bars-on", "value"),
-    Input("chart-strategy-cap-sl-on",   "value"),
-    Input("chart-strategy-cap-ts-on",   "value"),
-    Input("chart-strategy-cap-tp-on",   "value"),
-    Input("chart-strategy-cooldown-on", "value"),
+    *[Output(f"chart-strategy-{k}", "style") for k in _SIM_TOGGLE_KEYS],
+    *[Input(f"chart-strategy-{k}-on", "value") for k in _SIM_TOGGLE_KEYS],
     prevent_initial_call=True,
 )
-def toggle_cap_inputs(bars_on, sl_on, ts_on, tp_on, cool_on):
-    """El input de valor de cada tope/enfriamiento solo se ve activo."""
+def toggle_sim_inputs(*ons):
     def style(on):
         return _CAP_INPUT_STYLE if (on and len(on)) else \
             {**_CAP_INPUT_STYLE, "display": "none"}
-    return (style(bars_on), style(sl_on), style(ts_on), style(tp_on),
-            style(cool_on))
+    return tuple(style(on) for on in ons)
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, strategyEntry, strategyExit, strategyExitMode, strategyEntrySig, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, entScOn, entSc, entPctOn, entPct, xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax, xsMakOn, xsMak, xsPctOn, xsPct, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -1189,10 +1135,14 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
          siempre (en modo percentil es orientativa — unidades de
          percentil); salida: solo en umbral absoluto (los demás modos no
          tienen nivel fijo de score). */
-      var _thrM = st.strategyExitMode || 'none';
-      var thrLines = [{{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}}];
-      if (_thrM === 'absolute')
-        thrLines.push({{price: (st.strategyExit == null ? 0 : st.strategyExit), color: '#ef5350'}});
+      var _spec = st.strategySpec || {{entries: [], score_exits: []}};
+      var thrLines = [];
+      (_spec.entries || []).forEach(function(e) {{
+        if (e.type === 'score') thrLines.push({{price: e.th, color: '#4ade80'}});
+      }});
+      (_spec.score_exits || []).forEach(function(x) {{
+        if (x.type === 'absolute') thrLines.push({{price: x.x, color: '#ef5350'}});
+      }});
       thrLines.forEach(function(pl) {{
         window._lwc.addSeries(stratPc, {{
           type: 'line', color: pl.color, lineWidth: 1, dashed: true,
@@ -1322,16 +1272,6 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     if (st.strategyEnabled && st.strategyData
         && st.strategyData.asset_id === st.assetId
         && st.strategyData.scores && st.strategyData.scores.length) {{
-      var E = st.strategyEntry == null ? 20 : st.strategyEntry;
-      var X = st.strategyExit  == null ?  0 : st.strategyExit;
-      var mtype = st.strategyExitMode || 'none';
-      var modeSpec = null;  /* 'none' = sin salida por score */
-      if (mtype !== 'none') {{
-        modeSpec = {{type: mtype}};
-        if (mtype === 'score_ma') modeSpec.k = Math.max(2, Math.round(X));
-        else                      modeSpec.x = X;
-      }}
-
       /* Scores/percentiles alineados a las barras propias (W/M: queda el
          último del período, igual que el panel de score). */
       var simScores = [], simPcts = [];
@@ -1343,12 +1283,10 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         simPcts.push(_pIdx.hasOwnProperty(bi) ? _pIdx[bi] : null);
       }}
 
-      var reentry = st.strategyReentry || {{rearm: false, cooldown: 0}};
       var trades = window._lwc.simulateTrades(
         close, simScores,
-        {{entry: E, entry_pct: (st.strategyEntrySig === 'pct'),
-         mode: modeSpec, caps: st.strategyCaps || [],
-         rearm: reentry.rearm, cooldown: reentry.cooldown}}, simPcts);
+        st.strategySpec || {{entries: [], score_exits: [], caps: []}},
+        simPcts);
 
       var exitTxt = {{max_bars: 'S t', stop_loss: 'S SL',
                      trailing_stop: 'S TS', take_profit: 'S TP',
@@ -1426,23 +1364,37 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
   /* ── Simulador de trades ──
      ESPEJO de app/services/trade_simulator.py (REGLA DE HOMOLOGACIÓN, ver
      CLAUDE.md): misma máquina de estados, mismo orden de evaluación
-     (filtro → tope → modo), misma semántica de cola sin score. Cualquier
-     cambio de semántica va en AMBOS archivos en el mismo commit; el contrato
-     ejecutable vive en tests/fixtures/trade_simulator_cases.json. */
+     (filtro → caps → score_exits), entries en AND, salidas en OR, misma
+     semántica de cola sin score. Cualquier cambio de semántica va en AMBOS
+     archivos en el mismo commit; el contrato ejecutable vive en
+     tests/fixtures/trade_simulator_cases.json. */
   window._lwc.simulateTrades = function(closes, scores, spec, percentiles) {{
-    var mode = spec.mode || null, caps = spec.caps || [];
-    var mtype = mode ? mode.type : null;  /* null = sin salida por score */
-    var entryTh = spec.entry, entryPct = !!spec.entry_pct;
+    var entries = spec.entries || [], scoreExits = spec.score_exits || [];
+    var caps = spec.caps || [];
     var rearm = !!spec.rearm, cooldown = spec.cooldown || 0;
     var lastScored = -1;
     for (var j = scores.length - 1; j >= 0; j--) {{
       if (scores[j] !== null && scores[j] !== undefined) {{ lastScored = j; break; }}
     }}
     if (lastScored < 0) return [];
+
+    /* AND de todas las condiciones activas; dato faltante = no cumple */
+    var entryOk = function(sc, pc) {{
+      if (!entries.length) return false;
+      for (var e = 0; e < entries.length; e++) {{
+        var v = entries[e].type === 'score' ? sc : pc;
+        if (v === null || v < entries[e].th) return false;
+      }}
+      return true;
+    }};
+
     var trades = [];
     var inPos = false, entryIdx = null, entryClose = null, entryScore = null;
     var maxScore = null, maxClose = null;
-    var maWindow = [], k = mode ? mode.k : null;
+    var maWindow = [], k = null;
+    for (var xk = 0; xk < scoreExits.length; xk++) {{
+      if (scoreExits[xk].type === 'score_ma') {{ k = scoreExits[xk].k; break; }}
+    }}
     var armed = true, lastExit = null;  /* re-armado por cruce + cooldown */
     var closeTrade = function(i, reason) {{
       var ret = (entryClose > 0) ? closes[i] / entryClose - 1 : null;
@@ -1458,7 +1410,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       var pc = percentiles ? ((percentiles[i] === undefined) ? null : percentiles[i]) : null;
       /* media móvil del score: propiedad de la serie, no del trade */
       var ma = null;
-      if (mtype === 'score_ma' && sc !== null) {{
+      if (k !== null && sc !== null) {{
         maWindow.push(sc);
         if (maWindow.length > k) maWindow.shift();
         if (maWindow.length === k) {{
@@ -1466,15 +1418,13 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         }}
       }}
       if (!inPos) {{
-        var sig = entryPct ? pc : sc;
-        if (sig !== null) {{
-          if (sig < entryTh) {{
-            armed = true;  /* la señal se reseteó: re-arma el cruce */
-          }} else if ((!rearm || armed)
-                     && (lastExit === null || i - lastExit > cooldown)) {{
-            inPos = true; entryIdx = i; entryClose = c;
-            entryScore = sc; maxScore = sc; maxClose = c;
-          }}
+        if (sc === null) continue;  /* sin score no hay evaluación ni armado */
+        if (!entryOk(sc, pc)) {{
+          armed = true;  /* la señal se reseteó: re-arma el cruce */
+        }} else if ((!rearm || armed)
+                   && (lastExit === null || i - lastExit > cooldown)) {{
+          inPos = true; entryIdx = i; entryClose = c;
+          entryScore = sc; maxScore = sc; maxClose = c;
         }}
         continue;  /* en la barra de entrada no se evalúan salidas */
       }}
@@ -1483,7 +1433,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       /* máximos INCLUYENDO la barra actual */
       if (maxScore === null || sc > maxScore) maxScore = sc;
       if (c > maxClose) maxClose = c;
-      /* 2) topes (en el orden de la lista; gana el primero que se cumpla) */
+      /* 2) salidas por precio/tiempo (orden de la lista; gana la primera) */
       var reason = null;
       for (var ci = 0; ci < caps.length && reason === null; ci++) {{
         var cap = caps[ci];
@@ -1495,13 +1445,14 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         else if (cap.type === 'take_profit' && entryClose > 0
                  && c >= entryClose * (1 + cap.pct / 100)) reason = 'take_profit';
       }}
-      /* 3) modo principal (null = sin salida por score) */
-      if (reason === null && mtype !== null) {{
-        if (mtype === 'absolute' && sc < mode.x) reason = 'absolute';
-        else if (mtype === 'delta_entry' && sc < entryScore - mode.x) reason = 'delta_entry';
-        else if (mtype === 'trailing_score' && sc < maxScore - mode.x) reason = 'trailing_score';
-        else if (mtype === 'score_ma' && ma !== null && sc < ma) reason = 'score_ma';
-        else if (mtype === 'percentile' && pc !== null && pc < mode.x) reason = 'percentile';
+      /* 3) salidas por score (orden de la lista; gana la primera) */
+      for (var xi = 0; xi < scoreExits.length && reason === null; xi++) {{
+        var x = scoreExits[xi], t = x.type;
+        if (t === 'absolute' && sc < x.x) reason = t;
+        else if (t === 'delta_entry' && sc < entryScore - x.x) reason = t;
+        else if (t === 'trailing_score' && sc < maxScore - x.x) reason = t;
+        else if (t === 'score_ma' && ma !== null && sc < ma) reason = t;
+        else if (t === 'percentile' && pc !== null && pc < x.x) reason = t;
       }}
       if (reason) closeTrade(i, reason);
     }}
@@ -1513,34 +1464,51 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     return trades;
   }};
 
-  /* Topes activos desde los controles, EN ORDEN CANÓNICO (max_bars,
-     stop_loss, trailing_stop, take_profit) — el simulador evalúa la lista
-     en orden y gana el primero. Usado por el callback de estado y el init. */
-  window._lwc.buildCaps = function(barsOn, bars, slOn, sl, tsOn, ts, tpOn, tp) {{
-    var caps = [];
+  /* Spec del simulador desde los controles del panel, en el ORDEN CANÓNICO
+     que el contrato evalúa (listas OR: gana la primera). Compartido por el
+     callback de controles y el init del render — un solo armador, cero
+     divergencia. Firma posicional = orden de los Inputs/States en ambos
+     callbacks (mantener sincronizados los tres lugares). */
+  window._lwc.buildSpec = function(
+      entScOn, entSc, entPctOn, entPct,
+      xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax,
+      xsMakOn, xsMak, xsPctOn, xsPct,
+      capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp,
+      rearmOn, coolOn, cool) {{
     var on = function(v) {{ return !!(v && v.length); }};
     var num = function(v) {{
       var x = Number(v);
       return (v === null || v === undefined || v === '' || isNaN(x)) ? null : x;
     }};
-    var vBars = num(bars), vSl = num(sl), vTs = num(ts), vTp = num(tp);
-    if (on(barsOn) && vBars !== null)
-      caps.push({{type: 'max_bars', n: Math.max(1, Math.round(vBars))}});
-    if (on(slOn) && vSl !== null) caps.push({{type: 'stop_loss', pct: vSl}});
-    if (on(tsOn) && vTs !== null) caps.push({{type: 'trailing_stop', pct: vTs}});
-    if (on(tpOn) && vTp !== null) caps.push({{type: 'take_profit', pct: vTp}});
-    return caps;
-  }};
-
-  /* Frenos de re-entrada desde los controles (cruce + enfriamiento). */
-  window._lwc.reentrySpec = function(rearmOn, coolOn, cool) {{
-    var cd = 0;
-    if (coolOn && coolOn.length && cool !== null && cool !== undefined
-        && cool !== '') {{
-      var x = Number(cool);
-      if (!isNaN(x)) cd = Math.max(0, Math.round(x));
-    }}
-    return {{rearm: !!(rearmOn && rearmOn.length), cooldown: cd}};
+    var entries = [];
+    if (on(entScOn) && num(entSc) !== null)
+      entries.push({{type: 'score', th: num(entSc)}});
+    if (on(entPctOn) && num(entPct) !== null)
+      entries.push({{type: 'pct', th: num(entPct)}});
+    var scoreExits = [];
+    if (on(xsAbsOn) && num(xsAbs) !== null)
+      scoreExits.push({{type: 'absolute', x: num(xsAbs)}});
+    if (on(xsDentOn) && num(xsDent) !== null)
+      scoreExits.push({{type: 'delta_entry', x: num(xsDent)}});
+    if (on(xsDmaxOn) && num(xsDmax) !== null)
+      scoreExits.push({{type: 'trailing_score', x: num(xsDmax)}});
+    if (on(xsMakOn) && num(xsMak) !== null)
+      scoreExits.push({{type: 'score_ma', k: Math.max(2, Math.round(num(xsMak)))}});
+    if (on(xsPctOn) && num(xsPct) !== null)
+      scoreExits.push({{type: 'percentile', x: num(xsPct)}});
+    var caps = [];
+    if (on(capBarsOn) && num(capBars) !== null)
+      caps.push({{type: 'max_bars', n: Math.max(1, Math.round(num(capBars)))}});
+    if (on(capSlOn) && num(capSl) !== null)
+      caps.push({{type: 'stop_loss', pct: num(capSl)}});
+    if (on(capTsOn) && num(capTs) !== null)
+      caps.push({{type: 'trailing_stop', pct: num(capTs)}});
+    if (on(capTpOn) && num(capTp) !== null)
+      caps.push({{type: 'take_profit', pct: num(capTp)}});
+    var cd = (on(coolOn) && num(cool) !== null)
+             ? Math.max(0, Math.round(num(cool))) : 0;
+    return {{entries: entries, score_exits: scoreExits, caps: caps,
+            rearm: on(rearmOn), cooldown: cd}};
   }};
 
   /* ── Actualizar estado y renderizar ── */
@@ -1564,14 +1532,12 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     volEnabled:        !!(volEnabled     && volEnabled.length),
     srPivotEnabled:    !!(srPivotEnabled && srPivotEnabled.length),
     strategyEnabled:   !!(strategyEnabled && strategyEnabled.length),
-    strategyEntry:     (strategyEntry == null ? 20 : strategyEntry),
-    strategyExit:      (strategyExit  == null ?  0 : strategyExit),
-    strategyExitMode:  strategyExitMode || 'none',
-    strategyEntrySig:  strategyEntrySig || 'score',
-    strategyCaps:      window._lwc.buildCaps(capBarsOn, capBars, capSlOn,
-                                             capSl, capTsOn, capTs,
-                                             capTpOn, capTp),
-    strategyReentry:   window._lwc.reentrySpec(rearmOn, coolOn, cool),
+    strategySpec:      window._lwc.buildSpec(
+                         entScOn, entSc, entPctOn, entPct,
+                         xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax,
+                         xsMakOn, xsMak, xsPctOn, xsPct,
+                         capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs,
+                         capTpOn, capTp, rearmOn, coolOn, cool),
     strategyData:      strategyData || null,
     indParams:         indParams,
     volumeEnabled:     !!(volumeEnabled  && volumeEnabled.length),
@@ -1609,21 +1575,7 @@ clientside_callback(
     State("chart-vol-enabled", "value"),
     State("chart-sr-pivot-enabled", "value"),
     State("chart-strategy-enabled", "value"),
-    State("chart-strategy-entry", "value"),
-    State("chart-strategy-exit", "value"),
-    State("chart-strategy-exit-mode", "value"),
-    State("chart-strategy-entry-sig", "value"),
-    State("chart-strategy-cap-bars-on", "value"),
-    State("chart-strategy-cap-bars", "value"),
-    State("chart-strategy-cap-sl-on", "value"),
-    State("chart-strategy-cap-sl", "value"),
-    State("chart-strategy-cap-ts-on", "value"),
-    State("chart-strategy-cap-ts", "value"),
-    State("chart-strategy-cap-tp-on", "value"),
-    State("chart-strategy-cap-tp", "value"),
-    State("chart-strategy-rearm", "value"),
-    State("chart-strategy-cooldown-on", "value"),
-    State("chart-strategy-cooldown", "value"),
+    *_sim_control_deps(State),
     State("chart-strategy-data", "data"),
     *_state_list(State),
     prevent_initial_call=True,
@@ -1733,65 +1685,30 @@ clientside_callback(
     prevent_initial_call=True,
 )
 
-# ─── Estrategia: toggle/sliders y datos lazy, sin round-trip al mover sliders ──
+# ─── Estrategia: toggle/controles y datos lazy, sin round-trip ────────────────
+# El orden posicional de los Inputs replica _SIM_CONTROL_IDS / buildSpec.
 
 clientside_callback(
-    """function(en, entry, exit, mode, entrySig, barsOn, bars, slOn, sl, tsOn, ts, tpOn, tp, rearmOn, coolOn, cool) {
-        var ev = document.getElementById('chart-strategy-entry-val');
-        if (ev) ev.textContent = String(entry);
-        var xv = document.getElementById('chart-strategy-exit-val');
-        if (xv) xv.textContent = String(exit);
+    """function(en, entScOn, entSc, entPctOn, entPct,
+                xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax,
+                xsMakOn, xsMak, xsPctOn, xsPct,
+                capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs,
+                capTpOn, capTp, rearmOn, coolOn, cool) {
         if (!window._lwcState || !window._lwc) return null;
         var st = window._lwcState;
-        st.strategyEnabled  = !!(en && en.length);
-        st.strategyEntry    = entry;
-        st.strategyExit     = exit;
-        st.strategyExitMode = mode || 'none';
-        st.strategyEntrySig = entrySig || 'score';
-        st.strategyCaps     = window._lwc.buildCaps(barsOn, bars, slOn, sl,
-                                                    tsOn, ts, tpOn, tp);
-        st.strategyReentry  = window._lwc.reentrySpec(rearmOn, coolOn, cool);
+        st.strategyEnabled = !!(en && en.length);
+        st.strategySpec = window._lwc.buildSpec(
+            entScOn, entSc, entPctOn, entPct,
+            xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax,
+            xsMakOn, xsMak, xsPctOn, xsPct,
+            capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs,
+            capTpOn, capTp, rearmOn, coolOn, cool);
         window._lwc.fullRender();
         return null;
     }""",
     Output("chart-strategy-dummy", "data"),
     Input("chart-strategy-enabled", "value"),
-    Input("chart-strategy-entry", "value"),
-    Input("chart-strategy-exit", "value"),
-    Input("chart-strategy-exit-mode", "value"),
-    Input("chart-strategy-entry-sig", "value"),
-    Input("chart-strategy-cap-bars-on", "value"),
-    Input("chart-strategy-cap-bars", "value"),
-    Input("chart-strategy-cap-sl-on", "value"),
-    Input("chart-strategy-cap-sl", "value"),
-    Input("chart-strategy-cap-ts-on", "value"),
-    Input("chart-strategy-cap-ts", "value"),
-    Input("chart-strategy-cap-tp-on", "value"),
-    Input("chart-strategy-cap-tp", "value"),
-    Input("chart-strategy-rearm", "value"),
-    Input("chart-strategy-cooldown-on", "value"),
-    Input("chart-strategy-cooldown", "value"),
-    prevent_initial_call=True,
-)
-
-# Feedback en vivo del valor mientras se arrastra el slider (drag_value se
-# emite en cada paso; value solo al soltar). Solo actualiza los labels — no
-# re-dibuja el gráfico, para no trabar el arrastre.
-clientside_callback(
-    """function(entryDrag, exitDrag) {
-        if (entryDrag !== null && entryDrag !== undefined) {
-            var ev = document.getElementById('chart-strategy-entry-val');
-            if (ev) ev.textContent = String(entryDrag);
-        }
-        if (exitDrag !== null && exitDrag !== undefined) {
-            var xv = document.getElementById('chart-strategy-exit-val');
-            if (xv) xv.textContent = String(exitDrag);
-        }
-        return null;
-    }""",
-    Output("chart-strategy-drag-dummy", "data"),
-    Input("chart-strategy-entry", "drag_value"),
-    Input("chart-strategy-exit", "drag_value"),
+    *_sim_control_deps(Input),
     prevent_initial_call=True,
 )
 

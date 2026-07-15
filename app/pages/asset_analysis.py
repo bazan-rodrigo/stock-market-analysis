@@ -24,73 +24,73 @@ def _strategy_help():
                         style={"color": "#dee2e6"})
 
     return html.Div([
-        html.Div(["El trade ENTRA cuando la señal de entrada alcanza el "
-                  "umbral — con el selector ", html.B("Sc/Pct"), " elegís "
-                  "si esa señal es el score absoluto o el percentil del "
-                  "activo en el ranking del día (100 = mejor). La salida "
-                  "combina reglas independientes — cierra la primera que "
-                  "se cumpla: el ", html.B("modo"), " mira la SEÑAL "
-                  "(score/ranking) y los ", html.B("topes"), " miran el "
-                  "PRECIO o el TIEMPO."],
+        html.Div(["Tres grupos de condiciones, todas combinables con el "
+                  "mismo control (tilde + valor). Regla clave: las de ",
+                  html.B("Entrada"), " se exigen TODAS a la vez (Y); las de ",
+                  html.B("Salida"), " disparan con la PRIMERA que se cumpla "
+                  "(O). Precedencia de salidas en la misma barra: filtro → "
+                  "precio/tiempo → score."],
                  className="mb-1"),
-        title("Modo (salida por señal — opcional)"),
+        title("Entrada (deben cumplirse TODAS las activas)"),
         html.Table(html.Tbody([
-            row("Sin salida por score",
-                "No sale por señal: solo por tope y/o filtro. Sin tope, "
-                "mantiene mientras el activo siga siendo elegible."),
-            row("Umbral absoluto",
-                "Sale cuando el score cae bajo un nivel fijo. Tiene sentido "
-                "si tus señales cruzan el 0 (0 = la estrategia lo ve "
-                "negativo)."),
-            row("Entrada − Δ",
-                "Sale cuando el score cae Δ puntos por debajo del score que "
-                "tenía al entrar."),
-            row("Máx score − Δ",
-                "Sale cuando el score cae Δ puntos desde el MÁXIMO que tocó "
-                "durante el trade (trailing sobre el score)."),
-            row("Cruce media score",
-                "Sale cuando el score cae bajo su propia media móvil de k "
-                "ruedas (el impulso del score se dio vuelta)."),
-            row("Percentil ranking",
-                "Sale cuando el activo cae bajo el percentil X del ranking "
-                "del día (100 = mejor). Suele combinarse con entrada Pct "
-                "(top 10% entra, fuera del top 30% sale)."),
+            row("Sc ≥", "Score de la estrategia sobre el umbral."),
+            row("Pct ≥", "Percentil del activo en el ranking del día sobre "
+                "el umbral (100 = mejor). Sc+Pct juntas: \"score alto Y "
+                "entre los mejores\"."),
+            row("Cruce", "Freno de re-entrada: tras una salida, la condición "
+                "de entrada debe dejar de cumplirse antes de poder "
+                "re-entrar (evita el whipsaw)."),
+            row("Enfr.", "Freno de re-entrada: espera N ruedas después de "
+                "cada salida."),
         ])),
-        title("Topes (salida por precio/tiempo — combinables)"),
-        html.Div("Activá los que quieras; cierra el primero que se cumpla: "
-                 "Ruedas (duración máxima), SL% (stop loss desde la "
+        title("Salida por score (dispara la primera que se cumpla)"),
+        html.Table(html.Tbody([
+            row("Abs <", "El score cae bajo un nivel fijo. Tiene sentido si "
+                "tus señales cruzan el 0 (0 = la estrategia lo ve negativo)."),
+            row("Ent−Δ", "El score cae Δ puntos por debajo del score que "
+                "tenía al entrar (stop loss del score)."),
+            row("Máx−Δ", "El score cae Δ puntos desde el MÁXIMO del trade "
+                "(trailing stop del score)."),
+            row("Media k", "El score cae bajo su media móvil de k ruedas "
+                "(el impulso se dio vuelta)."),
+            row("Pct <", "El activo cae bajo ese percentil del ranking del "
+                "día. Clásico de rotación: entra Pct ≥ 90, sale Pct < 70."),
+        ])),
+        title("Salida por precio/tiempo (dispara la primera que se cumpla)"),
+        html.Div("Ruedas (duración máxima), SL% (stop loss desde la "
                  "entrada), TS% (trailing stop desde el máximo del precio), "
-                 "TP% (take profit)."),
-        title("Re-entrada (frenos del whipsaw — opcionales)"),
-        html.Div(["Sin frenos, tras una salida puede re-entrar en la barra "
-                  "siguiente si el score sigue sobre el umbral. ",
-                  html.B("Cruce"), ": tras salir, el score debe caer bajo el "
-                  "umbral de entrada antes de poder re-entrar. ",
-                  html.B("Enfr."), ": espera N ruedas después de cada "
-                  "salida. Se pueden combinar."]),
+                 "TP% (take profit). Miran el PRECIO real del trade — "
+                 "cubren el caso \"score alto pero precio en caída\"."),
         title("Siempre activo"),
         html.Div("Si el activo deja de ser elegible para la estrategia (no "
-                 "pasa el filtro), el trade se cierra — marcador «S filtro»."),
+                 "pasa el filtro), el trade se cierra — marcador «S filtro». "
+                 "Sin ninguna salida activa, mantiene mientras sea elegible "
+                 "(buy & hold del filtro)."),
         title("¿Cuál uso?"),
-        html.Div(["Para MEDIR la señal: ", html.B("sin salida por score + "
-                 "tope Ruedas"), " (retorno posterior puro, como el "
-                 "backtest). Para simular operatoria: percentil ranking o "
-                 "máx − Δ, con SL% (y TP% si operás a objetivo). Para "
-                 "aislar el efecto de un tope: activá uno solo y compará "
-                 "corridas."]),
+        html.Div(["Para MEDIR la señal: ", html.B("solo Sc ≥ + Ruedas"),
+                 " (retorno posterior puro, como el backtest). Para simular "
+                 "operatoria: Pct ≥ en la entrada con Pct < en la salida, o "
+                 "Máx−Δ, más SL% como red. Para aislar el efecto de una "
+                 "condición: activá una sola y compará corridas."]),
     ])
 
 
-def _cap_control(key, label, default, tip, id_base="chart-strategy-cap"):
-    """Control checkbox+valor del simulador (topes combinables, enfriamiento).
-    El valor solo se ve con el control activo (toggle_cap_inputs)."""
+def _cap_control(key, label, default, tip, id_base="chart-strategy-cap",
+                 min_=1, default_on=False):
+    """Control checkbox+valor del simulador — el componente ÚNICO de las tres
+    secciones (entrada / salida por score / salida por precio-tiempo). El
+    valor solo se ve con el control activo (toggle_sim_inputs); default_on
+    también muestra el input de arranque (el callback tiene
+    prevent_initial_call)."""
+    input_style = {"width": "58px", "fontSize": "0.72rem",
+                   "padding": "1px 4px", "height": "22px"}
+    if not default_on:
+        input_style["display"] = "none"
     return html.Div([
-        _chk(f"{id_base}-{key}-on", label),
+        _chk(f"{id_base}-{key}-on", label, default_on=default_on),
         dbc.Input(
             id=f"{id_base}-{key}", type="number", value=default,
-            min=1, step=1,
-            style={"width": "58px", "fontSize": "0.72rem",
-                   "padding": "1px 4px", "height": "22px", "display": "none"},
+            min=min_, step=1, style=input_style,
         ),
         dbc.Tooltip(tip, target=f"{id_base}-{key}-wrap",
                     placement="bottom",
@@ -99,6 +99,19 @@ def _cap_control(key, label, default, tip, id_base="chart-strategy-cap"):
                            "border": "1px solid #374151"}),
     ], id=f"{id_base}-{key}-wrap",
        className="d-flex align-items-center gap-1")
+
+
+def _sim_group(title, children):
+    """Grupo rotulado del panel de simulación (Entrada / Salida por score /
+    Salida por precio-tiempo), con separador visual a la izquierda."""
+    return html.Div(
+        [html.Span(f"{title}:",
+                   style={"fontSize": "0.72rem", "color": "#6c757d",
+                          "fontWeight": "600", "whiteSpace": "nowrap"})]
+        + children,
+        className="d-flex align-items-center gap-1 flex-wrap",
+        style={"borderLeft": "1px solid #374151", "paddingLeft": "8px"},
+    )
 
 
 def _chk(id_, label, default_on=False, color=None):
@@ -232,7 +245,6 @@ def layout(**kwargs):
         dcc.Store(id="chart-strategy-data"),
         dcc.Store(id="chart-strategy-dummy"),
         dcc.Store(id="chart-strategy-data-dummy"),
-        dcc.Store(id="chart-strategy-drag-dummy"),
 
         # ── Gráfico ──────────────────────────────────────────────────────
         dcc.Loading(
@@ -365,127 +377,122 @@ def layout(**kwargs):
             ), className="ind-group"), width="auto"),
         ], className="mb-1 g-2 align-items-center chart-toolbar"),
 
-        # ── Estrategia: sección propia (más controles que las opciones de
-        #    vista — dropdown de salida, tope y métricas necesitan su fila) ──
+        # ── Simulación de estrategias: sección propia. Tres grupos rotulados
+        #    con el mismo componente (checkbox + valor): Entrada (AND),
+        #    Salida por score (OR) y Salida por precio/tiempo (OR). El
+        #    resultado va SIEMPRE en su propia línea debajo. ──
         dbc.Row([
             dbc.Col(html.Div([
-                _chk("chart-strategy-enabled", "Estrategia"),
                 html.Div([
-                    dcc.Dropdown(
-                        id="chart-strategy-sel",
-                        options=[], placeholder="Estrategia...",
-                        clearable=False,
-                        style={"width": "200px", "fontSize": "0.72rem"},
-                    ),
-                    html.Div(dbc.RadioItems(
-                        id="chart-strategy-entry-sig",
-                        options=[{"label": "Sc",  "value": "score"},
-                                 {"label": "Pct", "value": "pct"}],
-                        value="score",
-                        input_class_name="btn-check",
-                        label_class_name="btn btn-outline-secondary btn-sm",
-                        label_checked_class_name="active",
-                        class_name="btn-group btn-group-sm",
-                    ), id="chart-strategy-entry-sig-wrap"),
-                    dbc.Tooltip(
-                        "Señal de ENTRADA: Sc = score absoluto de la "
-                        "estrategia; Pct = percentil del activo en el "
-                        "ranking del día (100 = mejor). Independiente del "
-                        "modo de salida.",
-                        target="chart-strategy-entry-sig-wrap",
-                        placement="bottom",
-                        style={"fontSize": "0.75rem", "maxWidth": "280px",
-                               "backgroundColor": "#1f2937", "color": "#dee2e6",
-                               "border": "1px solid #374151"}),
-                    html.Small([html.Span("Entrada ≥ ", id="chart-strategy-entry-lbl"),
-                                html.Span("20", id="chart-strategy-entry-val",
-                                          style={"color": "#4ade80"})],
-                               style={"color": "#aaa", "fontSize": "0.68rem",
-                                      "whiteSpace": "nowrap"}),
-                    html.Div(dcc.Slider(
-                        id="chart-strategy-entry", min=-100, max=100, step=5, value=20,
-                        marks=None,
-                        tooltip={"placement": "bottom"},
-                    ), style={"width": "130px"}),
-                    html.Div(dcc.Dropdown(
-                        id="chart-strategy-exit-mode",
-                        options=[
-                            {"label": "Sin salida por score",      "value": "none"},
-                            {"label": "Salida: umbral absoluto",   "value": "absolute"},
-                            {"label": "Salida: entrada − Δ",       "value": "delta_entry"},
-                            {"label": "Salida: máx score − Δ",     "value": "trailing_score"},
-                            {"label": "Salida: cruce media score", "value": "score_ma"},
-                            {"label": "Salida: percentil ranking", "value": "percentile"},
-                        ],
-                        value="none", clearable=False,
-                        style={"width": "168px", "fontSize": "0.72rem"},
-                    ), id="chart-strategy-exit-mode-wrap"),
-                    dbc.Tooltip(
-                        "Sin salida por score: sale solo por tope y/o al "
-                        "perder elegibilidad (filtro).",
-                        id="chart-strategy-exit-mode-tip",
-                        target="chart-strategy-exit-mode-wrap",
-                        placement="bottom",
-                        style={"maxWidth": "300px", "fontSize": "0.75rem",
-                               "backgroundColor": "#1f2937", "color": "#dee2e6",
-                               "border": "1px solid #374151"},
-                    ),
-                    # Ocultos de arranque: el default es "Sin salida por
-                    # score" (sin parámetro); reconfigure_exit_mode los
-                    # muestra al elegir un modo con parámetro.
-                    html.Small([html.Span("Salida < ", id="chart-strategy-exit-lbl"),
-                                html.Span("0", id="chart-strategy-exit-val",
-                                          style={"color": "#ef5350"})],
-                               id="chart-strategy-exit-small",
-                               style={"display": "none"}),
-                    html.Div(dcc.Slider(
-                        id="chart-strategy-exit", min=-100, max=100, step=5, value=0,
-                        marks=None,
-                        tooltip={"placement": "bottom"},
-                    ), id="chart-strategy-exit-wrap", style={"display": "none"}),
-                    _cap_control("bars", "Ruedas", 60,
-                                 "Tope: duración máxima del trade en ruedas"),
-                    _cap_control("sl", "SL%", 10,
-                                 "Tope: stop loss % desde el precio de entrada"),
-                    _cap_control("ts", "TS%", 15,
-                                 "Tope: trailing stop % desde el máximo del precio"),
-                    _cap_control("tp", "TP%", 20,
-                                 "Tope: take profit % desde el precio de entrada"),
-                    html.Div(_chk("chart-strategy-rearm", "Cruce"),
-                             id="chart-strategy-rearm-wrap"),
-                    dbc.Tooltip(
-                        "Re-entrada por cruce: tras una salida, el score debe "
-                        "caer bajo el umbral de entrada antes de poder volver "
-                        "a entrar (evita re-entradas inmediatas).",
-                        target="chart-strategy-rearm-wrap", placement="bottom",
-                        style={"fontSize": "0.75rem", "maxWidth": "260px",
-                               "backgroundColor": "#1f2937", "color": "#dee2e6",
-                               "border": "1px solid #374151"}),
-                    _cap_control("cooldown", "Enfr.", 5,
-                                 "Enfriamiento: tras una salida, espera N "
-                                 "ruedas antes de permitir otra entrada.",
-                                 id_base="chart-strategy"),
-                    dbc.Button("?", id="chart-strategy-help-btn",
-                               color="secondary", outline=True, size="sm",
-                               style={"fontSize": "0.7rem", "padding": "0 7px",
-                                      "borderRadius": "50%", "lineHeight": "1.4"}),
-                    dbc.Popover(
-                        dbc.PopoverBody(_strategy_help(), style={
-                            "fontSize": "0.75rem", "color": "#dee2e6",
-                            "backgroundColor": "#1f2937",
-                        }),
-                        target="chart-strategy-help-btn", trigger="legacy",
-                        placement="bottom",
-                        style={"maxWidth": "480px",
-                               "backgroundColor": "#1f2937",
-                               "border": "1px solid #374151"},
-                    ),
+                    _chk("chart-strategy-enabled", "Simulación de estrategias"),
+                    html.Div([
+                        dcc.Dropdown(
+                            id="chart-strategy-sel",
+                            options=[], placeholder="Estrategia...",
+                            clearable=False,
+                            style={"width": "200px", "fontSize": "0.72rem"},
+                        ),
+                        _sim_group("Entrada", [
+                            _cap_control("entry-sc", "Sc ≥", 20,
+                                         "Entrada: score de la estrategia mayor "
+                                         "o igual al umbral.",
+                                         id_base="chart-strategy",
+                                         min_=-100, default_on=True),
+                            _cap_control("entry-pct", "Pct ≥", 90,
+                                         "Entrada: percentil del activo en el "
+                                         "ranking del día (100 = mejor) mayor o "
+                                         "igual al umbral. Con varias activas, "
+                                         "deben cumplirse TODAS.",
+                                         id_base="chart-strategy", min_=0),
+                            html.Div(_chk("chart-strategy-rearm", "Cruce"),
+                                     id="chart-strategy-rearm-wrap"),
+                            dbc.Tooltip(
+                                "Re-entrada por cruce: tras una salida, la "
+                                "condición de entrada debe dejar de cumplirse "
+                                "antes de poder volver a entrar (evita "
+                                "re-entradas inmediatas).",
+                                target="chart-strategy-rearm-wrap",
+                                placement="bottom",
+                                style={"fontSize": "0.75rem", "maxWidth": "260px",
+                                       "backgroundColor": "#1f2937",
+                                       "color": "#dee2e6",
+                                       "border": "1px solid #374151"}),
+                            _cap_control("cooldown", "Enfr.", 5,
+                                         "Enfriamiento: tras una salida, espera "
+                                         "N ruedas antes de permitir otra "
+                                         "entrada.",
+                                         id_base="chart-strategy", min_=0),
+                        ]),
+                        _sim_group("Salida por score", [
+                            _cap_control("xs-abs", "Abs <", 0,
+                                         "Sale cuando el score cae bajo un "
+                                         "nivel fijo (útil si tus señales "
+                                         "cruzan el 0).",
+                                         id_base="chart-strategy", min_=-100),
+                            _cap_control("xs-dent", "Ent−Δ", 20,
+                                         "Sale cuando el score cae Δ puntos "
+                                         "bajo el score que tenía al entrar.",
+                                         id_base="chart-strategy", min_=1),
+                            _cap_control("xs-dmax", "Máx−Δ", 20,
+                                         "Sale cuando el score cae Δ puntos "
+                                         "desde el máximo del trade (trailing "
+                                         "sobre el score).",
+                                         id_base="chart-strategy", min_=1),
+                            _cap_control("xs-mak", "Media k", 10,
+                                         "Sale cuando el score cae bajo su "
+                                         "media móvil de k ruedas (el impulso "
+                                         "se dio vuelta).",
+                                         id_base="chart-strategy", min_=2),
+                            _cap_control("xs-pct", "Pct <", 70,
+                                         "Sale cuando el percentil del activo "
+                                         "en el ranking del día cae bajo el "
+                                         "umbral (100 = mejor).",
+                                         id_base="chart-strategy", min_=0),
+                        ]),
+                        _sim_group("Salida por precio/tiempo", [
+                            _cap_control("bars", "Ruedas", 60,
+                                         "Duración máxima del trade en ruedas."),
+                            _cap_control("sl", "SL%", 10,
+                                         "Stop loss % desde el precio de "
+                                         "entrada."),
+                            _cap_control("ts", "TS%", 15,
+                                         "Trailing stop % desde el máximo del "
+                                         "precio."),
+                            _cap_control("tp", "TP%", 20,
+                                         "Take profit % desde el precio de "
+                                         "entrada."),
+                        ]),
+                        dbc.Button("?", id="chart-strategy-help-btn",
+                                   color="secondary", outline=True, size="sm",
+                                   style={"fontSize": "0.7rem",
+                                          "padding": "0 7px",
+                                          "borderRadius": "50%",
+                                          "lineHeight": "1.4"}),
+                        dbc.Popover(
+                            dbc.PopoverBody(_strategy_help(), style={
+                                "fontSize": "0.75rem", "color": "#dee2e6",
+                                "backgroundColor": "#1f2937",
+                            }),
+                            target="chart-strategy-help-btn", trigger="legacy",
+                            placement="bottom",
+                            style={"maxWidth": "480px",
+                                   "backgroundColor": "#1f2937",
+                                   "border": "1px solid #374151"},
+                        ),
+                    ], id="chart-strategy-params",
+                       className="d-flex align-items-center gap-2 flex-wrap",
+                       style={"display": "none"}),
+                ], className="d-flex align-items-center gap-1 ind-group flex-wrap"),
+                # Resultado SIEMPRE en su propia línea, con rótulo fijo
+                html.Div([
+                    html.Small("Resultado de la simulación: ",
+                               style={"color": "#6c757d", "fontWeight": "600",
+                                      "fontSize": "0.7rem"}),
                     html.Span(id="chart-strategy-label",
                               style={"fontSize": "0.68rem", "color": "#aaa"}),
-                ], id="chart-strategy-params",
-                   className="d-flex align-items-center gap-1 flex-wrap",
-                   style={"display": "none"}),
-            ], className="d-flex align-items-center gap-1 ind-group"), width="auto"),
+                ], id="chart-strategy-result",
+                   className="mt-1", style={"display": "none"}),
+            ]), width=12),
         ], className="mb-1 g-2 align-items-center chart-toolbar"),
 
         # ── Tabs ──────────────────────────────────────────────────────────
