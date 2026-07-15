@@ -24,11 +24,14 @@ def _strategy_help():
                         style={"color": "#dee2e6"})
 
     return html.Div([
-        html.Div(["El trade ENTRA cuando el score alcanza el umbral de "
-                  "entrada. La salida combina hasta dos reglas "
-                  "independientes — cierra la primera que se cumpla: el ",
-                  html.B("modo"), " mira la SEÑAL (score/ranking) y el ",
-                  html.B("tope"), " mira el PRECIO o el TIEMPO."],
+        html.Div(["El trade ENTRA cuando la señal de entrada alcanza el "
+                  "umbral — con el selector ", html.B("Sc/Pct"), " elegís "
+                  "si esa señal es el score absoluto o el percentil del "
+                  "activo en el ranking del día (100 = mejor). La salida "
+                  "combina reglas independientes — cierra la primera que "
+                  "se cumpla: el ", html.B("modo"), " mira la SEÑAL "
+                  "(score/ranking) y los ", html.B("topes"), " miran el "
+                  "PRECIO o el TIEMPO."],
                  className="mb-1"),
         title("Modo (salida por señal — opcional)"),
         html.Table(html.Tbody([
@@ -49,9 +52,9 @@ def _strategy_help():
                 "Sale cuando el score cae bajo su propia media móvil de k "
                 "ruedas (el impulso del score se dio vuelta)."),
             row("Percentil ranking",
-                "Entrada Y salida por posición en el ranking del día (100 = "
-                "mejor): entra al alcanzar el percentil de entrada, sale al "
-                "caer bajo el de salida."),
+                "Sale cuando el activo cae bajo el percentil X del ranking "
+                "del día (100 = mejor). Suele combinarse con entrada Pct "
+                "(top 10% entra, fuera del top 30% sale)."),
         ])),
         title("Topes (salida por precio/tiempo — combinables)"),
         html.Div("Activá los que quieras; cierra el primero que se cumpla: "
@@ -374,6 +377,26 @@ def layout(**kwargs):
                         clearable=False,
                         style={"width": "200px", "fontSize": "0.72rem"},
                     ),
+                    html.Div(dbc.RadioItems(
+                        id="chart-strategy-entry-sig",
+                        options=[{"label": "Sc",  "value": "score"},
+                                 {"label": "Pct", "value": "pct"}],
+                        value="score",
+                        input_class_name="btn-check",
+                        label_class_name="btn btn-outline-secondary btn-sm",
+                        label_checked_class_name="active",
+                        class_name="btn-group btn-group-sm",
+                    ), id="chart-strategy-entry-sig-wrap"),
+                    dbc.Tooltip(
+                        "Señal de ENTRADA: Sc = score absoluto de la "
+                        "estrategia; Pct = percentil del activo en el "
+                        "ranking del día (100 = mejor). Independiente del "
+                        "modo de salida.",
+                        target="chart-strategy-entry-sig-wrap",
+                        placement="bottom",
+                        style={"fontSize": "0.75rem", "maxWidth": "280px",
+                               "backgroundColor": "#1f2937", "color": "#dee2e6",
+                               "border": "1px solid #374151"}),
                     html.Small([html.Span("Entrada ≥ ", id="chart-strategy-entry-lbl"),
                                 html.Span("20", id="chart-strategy-entry-val",
                                           style={"color": "#4ade80"})],

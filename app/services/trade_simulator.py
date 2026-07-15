@@ -27,8 +27,12 @@ Semántica (fijada por los fixtures — cambiarla es cambiar el contrato):
   `scores[i] is None` = el activo no fue elegible (no pasó el filtro) en esa
   barra. `percentiles` (0..100, 100 = mejor rankeado) solo se usa en el modo
   "percentile".
-- Entrada: sin posición, la barra tiene señal (score, o percentil en modo
-  "percentile") y señal >= spec["entry"] → entra al close de esa barra.
+- Entrada: sin posición, la barra tiene señal de entrada y señal >=
+  spec["entry"] → entra al close de esa barra. La señal de entrada es el
+  score, o el PERCENTIL si spec["entry_pct"] es True (default False) —
+  independiente del modo de salida (se puede entrar por percentil y salir
+  por trailing de score, o entrar por score y salir por percentil).
+  Los percentiles solo existen en barras con score (derivan de él).
   En la barra de entrada NO se evalúa ninguna salida.
 - Re-entrada (control del whipsaw tras una salida), dos frenos opcionales
   e independientes que se exigen ADEMÁS de señal >= entry:
@@ -36,8 +40,8 @@ Semántica (fijada por los fixtures — cambiarla es cambiar el contrato):
     salida el sistema queda desarmado; se re-arma recién cuando una barra
     sin posición muestra señal < entry (la señal "se reseteó"). El estado
     inicial es armado (una serie que arranca sobre el umbral entra).
-    El armado usa la MISMA señal que la entrada (percentil en modo
-    "percentile", score en el resto) y solo se evalúa en barras con señal.
+    El armado usa la MISMA señal que la entrada (percentil si entry_pct,
+    score si no) y solo se evalúa en barras con señal.
   - spec["cooldown"] (int >= 0, default 0) — enfriamiento: tras una salida
     en la barra j, la entrada se permite recién cuando i − j > cooldown
     (0 = barra siguiente, comportamiento sin freno). Cuenta barras propias,
@@ -68,8 +72,9 @@ Modos (spec["mode"] = None | {"type": ..., parámetros}):
 - score_ma       {"k"}: score < media simple de los últimos k scores
                   observados (sobre toda la serie, no desde la entrada;
                   incluye el actual; con menos de k observados no dispara).
-- percentile     {"x"}: percentil < x. En este modo la ENTRADA también es
-                  por percentil (spec["entry"] se compara contra percentil).
+- percentile     {"x"}: percentil < x (100 = mejor rankeado del día). La
+                  entrada NO cambia con este modo — eso lo decide
+                  spec["entry_pct"].
 
 El horizonte fijo ("salir a las N ruedas") NO es un modo: es tiempo, no
 señal — se expresa como tope max_bars (antes existía duplicado como modo
@@ -100,10 +105,10 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
     mode  = spec.get("mode") or None
     mtype = mode["type"] if mode else None
     caps  = spec.get("caps") or []
-    entry_th = spec["entry"]
-    use_pct  = (mtype == "percentile")
-    rearm    = bool(spec.get("rearm"))
-    cooldown = int(spec.get("cooldown") or 0)
+    entry_th  = spec["entry"]
+    entry_pct = bool(spec.get("entry_pct"))
+    rearm     = bool(spec.get("rearm"))
+    cooldown  = int(spec.get("cooldown") or 0)
 
     if mtype is not None and mtype not in EXIT_MODES:
         raise ValueError(f"Modo de salida desconocido: {mtype!r}")
@@ -155,7 +160,7 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
                 ma = sum(ma_window) / k
 
         if not in_pos:
-            sig = pc if use_pct else sc
+            sig = pc if entry_pct else sc
             if sig is not None:
                 if sig < entry_th:
                     armed = True  # la señal se reseteó: re-arma el cruce

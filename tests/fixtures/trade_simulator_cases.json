@@ -99,11 +99,30 @@
       "closes": [100, 102, 98, 105],
       "scores": [50, 45, 40, 55],
       "percentiles": [95, 80, 60, 92],
-      "spec": {"entry": 90, "mode": {"type": "percentile", "x": 70}, "caps": null},
+      "spec": {"entry": 90, "entry_pct": true,
+               "mode": {"type": "percentile", "x": 70}, "caps": null},
       "expected": [
         {"entry_idx": 0, "exit_idx": 2, "reason": "percentile"},
         {"entry_idx": 3, "exit_idx": null, "reason": null}
       ]
+    },
+    {
+      "name": "entrada_percentil_salida_trailing_score",
+      "closes": [100, 102, 104, 106],
+      "scores": [30, 80, 65, 59],
+      "percentiles": [95, 91, 92, 93],
+      "spec": {"entry": 90, "entry_pct": true,
+               "mode": {"type": "trailing_score", "x": 20}, "caps": null},
+      "expected": [{"entry_idx": 0, "exit_idx": 3, "reason": "trailing_score"}]
+    },
+    {
+      "name": "entrada_score_salida_percentil",
+      "closes": [100, 102, 104],
+      "scores": [25, 25, 25],
+      "percentiles": [50, 95, 60],
+      "spec": {"entry": 20, "mode": {"type": "percentile", "x": 70},
+               "caps": null},
+      "expected": [{"entry_idx": 0, "exit_idx": 2, "reason": "percentile"}]
     },
     {
       "name": "hueco_interior_cierra_por_filtro",
@@ -256,11 +275,12 @@
       ]
     },
     {
-      "name": "rearm_en_modo_percentil_usa_percentil",
+      "name": "rearm_con_entrada_percentil_arma_por_percentil",
       "closes": [100, 98, 100, 103],
       "scores": [50, 45, 48, 52],
       "percentiles": [95, 60, 85, 95],
-      "spec": {"entry": 90, "mode": {"type": "percentile", "x": 70},
+      "spec": {"entry": 90, "entry_pct": true,
+               "mode": {"type": "percentile", "x": 70},
                "caps": null, "rearm": true},
       "expected": [
         {"entry_idx": 0, "exit_idx": 1, "reason": "percentile"},
