@@ -236,10 +236,19 @@ def summarize_trades(trades) -> dict:
     closed = [t for t in trades if t["exit_idx"] is not None]
     rets   = [t["ret"] for t in closed if t["ret"] is not None]
     open_t = next((t for t in trades if t["exit_idx"] is None), None)
+    total = None
+    if rets:
+        total = 1.0
+        for r in rets:
+            total *= (1 + r)
+        total -= 1
     return {
         "n_trades": len(trades),
         "n_closed": len(closed),
         "win_rate": (sum(1 for r in rets if r > 0) / len(rets)) if rets else None,
+        # retorno total compuesto de las cerradas — la métrica por la que
+        # rankea el optimizador (comparable con su columna "Total")
+        "total_ret": total,
         "avg_ret":    (sum(rets) / len(rets)) if rets else None,
         "median_ret": median(rets) if rets else None,
         "min_ret":    min(rets) if rets else None,

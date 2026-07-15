@@ -80,6 +80,7 @@ def test_summarize_basico():
     assert s["n_trades"] == 3
     assert s["n_closed"] == 2
     assert s["win_rate"] == pytest.approx(0.5)
+    assert s["total_ret"] == pytest.approx(1.10 * 0.95 - 1)
     assert s["avg_ret"] == pytest.approx(0.025)
     assert s["median_ret"] == pytest.approx(0.025)
     assert s["min_ret"] == pytest.approx(-0.05)
@@ -93,6 +94,7 @@ def test_summarize_vacio():
     s = summarize_trades([])
     assert s["n_trades"] == 0
     assert s["win_rate"] is None
+    assert s["total_ret"] is None
     assert s["avg_ret"] is None
     assert s["min_ret"] is None
     assert s["max_ret"] is None

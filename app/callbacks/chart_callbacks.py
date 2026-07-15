@@ -1339,12 +1339,15 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         if (rets.length) {{
           var wins = rets.filter(function(r) {{ return r > 0; }}).length;
           var avg = rets.reduce(function(a, b) {{ return a + b; }}, 0) / rets.length;
+          var tot = rets.reduce(function(a, b) {{ return a * (1 + b); }}, 1) - 1;
           var sorted = rets.slice().sort(function(a, b) {{ return a - b; }});
           var mid = Math.floor(sorted.length / 2);
           var med = (sorted.length % 2) ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
           var bars = closedT.reduce(function(a, t) {{ return a + (t.exit_idx - t.entry_idx); }}, 0) / closedT.length;
           parts.push(closedT.length + ' cerrada' + (closedT.length === 1 ? '' : 's'));
           parts.push(Math.round(wins / rets.length * 100) + '% ganadoras');
+          /* total compuesto: la métrica del ranking del optimizador */
+          parts.push('total ' + fmt(tot));
           parts.push('media ' + fmt(avg) + ' mediana ' + fmt(med));
           parts.push('mín ' + fmt(sorted[0]) + ' máx ' + fmt(sorted[sorted.length - 1]));
           parts.push(bars.toFixed(1) + ' ruedas');

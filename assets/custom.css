@@ -339,7 +339,7 @@ button.dash-dropdown[aria-expanded="true"] {
 div.dash-dropdown-search-container {
     background-color: #2c2c2c !important;
     border-bottom: 1px solid #555 !important;
-    padding: 4px !important;
+    padding: 3px 4px !important;
 }
 div.dash-dropdown-search-container input,
 [data-radix-popper-content-wrapper] input {
@@ -349,6 +349,9 @@ div.dash-dropdown-search-container input,
     border-radius: 4px !important;
     outline: none !important;
     font-size: 0.82rem !important;
+    /* compacto: el padding default del componente comía altura del menú */
+    padding: 2px 8px !important;
+    height: 26px !important;
 }
 div.dash-dropdown-search-container input::placeholder,
 [data-radix-popper-content-wrapper] input::placeholder {
