@@ -20,6 +20,23 @@ default. Contrato homologado en cada paso (31 casos en fixtures).
 **IMPORTANTE (el usuario lo marcó por 3ª vez): NO editar sin proponer y
 esperar el "sí" — ni ante pedidos directos ni reportes de bugs.**
 
+**Continuación 15-jul-2026 (5, commits `c969212` `dfcbac3`, pusheados):
+profiling a fondo de señales/estrategias (pedido explícito: "lo más
+crítico") + limpieza post-auditoría.** Dos scripts nuevos de cómputo puro
+sin BD (corren en cualquier máquina): profile_signal_pipeline.py y
+profile_trade_optimizer.py. Hallazgos: (1) el optimizador NO necesita
+optimización (0.6 ms/combo; 1600 combos en 0.95s); (2) ~75% del cómputo de
+señales era despacho por llamada de evaluate() → FIX: señales COMPILADAS a
+closures (signal_engine.compile_evaluator, cableado vía _prepare_signals
+["compiled_by_id"]) — evaluadores 1.9×, pipeline 1.6× (8.92→5.71 ms/fecha;
+proyección 10k activos: 7.5→4.8 min de CPU). Red: 4 tests de propiedad
+hypothesis (compilado ≡ evaluate, exacto, con NaN) + paridad intacta.
+Hotspot residual: filtro (_resolve/_compare) — solo vale vectorizar cuando
+los 10k sean reales. Limpieza previa (`c969212`): assets/chart.js (252
+líneas muertas) y dropdown_dark.js eliminados; spec_from_controls y
+load_series movidas a trade_optimizer con tests (el orden posicional de
+_SIM_CONTROL_IDS quedó fijado por test). 497 tests.
+
 **Continuación 15-jul-2026 (4, commits `b3c1ed8` `f96db8e` `1b52ff5`,
 pusheados):** BUG RAÍZ del colapso encontrado con captura del usuario:
 Bootstrap genera `d-flex` con !important y PISABA el display inline de los
