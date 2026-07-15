@@ -31,6 +31,11 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   migraciones, corridas reales) se prueba en el Codespace — dejarlo anotado.
 - **Modales ABM:** no se cierran ante error de guardado (solo el callback de save
   cierra, y solo en éxito) — así el usuario no pierde lo cargado.
+- **Pantalla nueva = registrarla en `app/__init__.py`** (listas `_PAGES` y
+  `_CALLBACKS`) — la app NO auto-descubre páginas (`pages_folder=""`); sin
+  registro la ruta da 404. `tests/test_module_registration.py` lo verifica
+  (falla la suite si un módulo queda sin registrar). Sumar también el link
+  en `app/components/navbar.py`.
 - **Estrategias:** cuando el usuario pide una estrategia, entregarla como archivos
   de import en `strategy_packs/` (`<pack>_senales.xlsx` + `<pack>_estrategia.xlsx`),
   no como pasos manuales. Validar offline con `signal_engine.validate_params` y

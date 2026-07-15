@@ -237,6 +237,7 @@ def create_app():
         "app.pages.admin_fundamental_update",
         "app.pages.admin_data_center",
         "app.pages.admin_verify",
+        "app.pages.backtest",
     ]
 
     import importlib
