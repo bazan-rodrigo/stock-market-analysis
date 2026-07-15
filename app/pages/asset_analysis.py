@@ -58,6 +58,13 @@ def _strategy_help():
                  "Ruedas (duración máxima), SL% (stop loss desde la "
                  "entrada), TS% (trailing stop desde el máximo del precio), "
                  "TP% (take profit)."),
+        title("Re-entrada (frenos del whipsaw — opcionales)"),
+        html.Div(["Sin frenos, tras una salida puede re-entrar en la barra "
+                  "siguiente si el score sigue sobre el umbral. ",
+                  html.B("Cruce"), ": tras salir, el score debe caer bajo el "
+                  "umbral de entrada antes de poder re-entrar. ",
+                  html.B("Enfr."), ": espera N ruedas después de cada "
+                  "salida. Se pueden combinar."]),
         title("Siempre activo"),
         html.Div("Si el activo deja de ser elegible para la estrategia (no "
                  "pasa el filtro), el trade se cierra — marcador «S filtro»."),
@@ -71,23 +78,23 @@ def _strategy_help():
     ])
 
 
-def _cap_control(key, label, default, tip):
-    """Un tope del simulador: checkbox (participa o no) + valor. Los topes
-    son combinables — cierra el primero que se cumpla (ver trade_simulator)."""
+def _cap_control(key, label, default, tip, id_base="chart-strategy-cap"):
+    """Control checkbox+valor del simulador (topes combinables, enfriamiento).
+    El valor solo se ve con el control activo (toggle_cap_inputs)."""
     return html.Div([
-        _chk(f"chart-strategy-cap-{key}-on", label),
+        _chk(f"{id_base}-{key}-on", label),
         dbc.Input(
-            id=f"chart-strategy-cap-{key}", type="number", value=default,
+            id=f"{id_base}-{key}", type="number", value=default,
             min=1, step=1,
             style={"width": "58px", "fontSize": "0.72rem",
                    "padding": "1px 4px", "height": "22px", "display": "none"},
         ),
-        dbc.Tooltip(tip, target=f"chart-strategy-cap-{key}-wrap",
+        dbc.Tooltip(tip, target=f"{id_base}-{key}-wrap",
                     placement="bottom",
                     style={"fontSize": "0.75rem", "maxWidth": "260px",
                            "backgroundColor": "#1f2937", "color": "#dee2e6",
                            "border": "1px solid #374151"}),
-    ], id=f"chart-strategy-cap-{key}-wrap",
+    ], id=f"{id_base}-{key}-wrap",
        className="d-flex align-items-center gap-1")
 
 
@@ -418,6 +425,20 @@ def layout(**kwargs):
                                  "Tope: trailing stop % desde el máximo del precio"),
                     _cap_control("tp", "TP%", 20,
                                  "Tope: take profit % desde el precio de entrada"),
+                    html.Div(_chk("chart-strategy-rearm", "Cruce"),
+                             id="chart-strategy-rearm-wrap"),
+                    dbc.Tooltip(
+                        "Re-entrada por cruce: tras una salida, el score debe "
+                        "caer bajo el umbral de entrada antes de poder volver "
+                        "a entrar (evita re-entradas inmediatas).",
+                        target="chart-strategy-rearm-wrap", placement="bottom",
+                        style={"fontSize": "0.75rem", "maxWidth": "260px",
+                               "backgroundColor": "#1f2937", "color": "#dee2e6",
+                               "border": "1px solid #374151"}),
+                    _cap_control("cooldown", "Enfr.", 5,
+                                 "Enfriamiento: tras una salida, espera N "
+                                 "ruedas antes de permitir otra entrada.",
+                                 id_base="chart-strategy"),
                     dbc.Button("?", id="chart-strategy-help-btn",
                                color="secondary", outline=True, size="sm",
                                style={"fontSize": "0.7rem", "padding": "0 7px",

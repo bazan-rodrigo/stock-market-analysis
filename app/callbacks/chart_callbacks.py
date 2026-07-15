@@ -431,23 +431,26 @@ _CAP_INPUT_STYLE = {"width": "58px", "fontSize": "0.72rem",
     Output("chart-strategy-cap-sl",   "style"),
     Output("chart-strategy-cap-ts",   "style"),
     Output("chart-strategy-cap-tp",   "style"),
+    Output("chart-strategy-cooldown", "style"),
     Input("chart-strategy-cap-bars-on", "value"),
     Input("chart-strategy-cap-sl-on",   "value"),
     Input("chart-strategy-cap-ts-on",   "value"),
     Input("chart-strategy-cap-tp-on",   "value"),
+    Input("chart-strategy-cooldown-on", "value"),
     prevent_initial_call=True,
 )
-def toggle_cap_inputs(bars_on, sl_on, ts_on, tp_on):
-    """El input de valor de cada tope solo se ve con el tope activo."""
+def toggle_cap_inputs(bars_on, sl_on, ts_on, tp_on, cool_on):
+    """El input de valor de cada tope/enfriamiento solo se ve activo."""
     def style(on):
         return _CAP_INPUT_STYLE if (on and len(on)) else \
             {**_CAP_INPUT_STYLE, "display": "none"}
-    return style(bars_on), style(sl_on), style(ts_on), style(tp_on)
+    return (style(bars_on), style(sl_on), style(ts_on), style(tp_on),
+            style(cool_on))
 
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, strategyEntry, strategyExit, strategyExitMode, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, strategyData, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, strategyEntry, strategyExit, strategyExitMode, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -1295,9 +1298,11 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         simPcts.push(_pIdx.hasOwnProperty(bi) ? _pIdx[bi] : null);
       }}
 
+      var reentry = st.strategyReentry || {{rearm: false, cooldown: 0}};
       var trades = window._lwc.simulateTrades(
         close, simScores,
-        {{entry: E, mode: modeSpec, caps: st.strategyCaps || []}}, simPcts);
+        {{entry: E, mode: modeSpec, caps: st.strategyCaps || [],
+         rearm: reentry.rearm, cooldown: reentry.cooldown}}, simPcts);
 
       var exitTxt = {{max_bars: 'S t', stop_loss: 'S SL',
                      trailing_stop: 'S TS', take_profit: 'S TP',
@@ -1375,6 +1380,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     var mode = spec.mode || null, caps = spec.caps || [];
     var mtype = mode ? mode.type : null;  /* null = sin salida por score */
     var entryTh = spec.entry, usePct = (mtype === 'percentile');
+    var rearm = !!spec.rearm, cooldown = spec.cooldown || 0;
     var lastScored = -1;
     for (var j = scores.length - 1; j >= 0; j--) {{
       if (scores[j] !== null && scores[j] !== undefined) {{ lastScored = j; break; }}
@@ -1384,11 +1390,14 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     var inPos = false, entryIdx = null, entryClose = null, entryScore = null;
     var maxScore = null, maxClose = null;
     var maWindow = [], k = mode ? mode.k : null;
+    var armed = true, lastExit = null;  /* re-armado por cruce + cooldown */
     var closeTrade = function(i, reason) {{
       var ret = (entryClose > 0) ? closes[i] / entryClose - 1 : null;
       trades.push({{entry_idx: entryIdx, exit_idx: i, entry_close: entryClose,
                    exit_close: closes[i], ret: ret, reason: reason}});
       inPos = false;
+      armed = false;
+      lastExit = i;
     }};
     for (var i = 0; i <= lastScored; i++) {{
       var c = closes[i];
@@ -1405,9 +1414,14 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }}
       if (!inPos) {{
         var sig = usePct ? pc : sc;
-        if (sig !== null && sig >= entryTh) {{
-          inPos = true; entryIdx = i; entryClose = c;
-          entryScore = sc; maxScore = sc; maxClose = c;
+        if (sig !== null) {{
+          if (sig < entryTh) {{
+            armed = true;  /* la señal se reseteó: re-arma el cruce */
+          }} else if ((!rearm || armed)
+                     && (lastExit === null || i - lastExit > cooldown)) {{
+            inPos = true; entryIdx = i; entryClose = c;
+            entryScore = sc; maxScore = sc; maxClose = c;
+          }}
         }}
         continue;  /* en la barra de entrada no se evalúan salidas */
       }}
@@ -1465,6 +1479,17 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     return caps;
   }};
 
+  /* Frenos de re-entrada desde los controles (cruce + enfriamiento). */
+  window._lwc.reentrySpec = function(rearmOn, coolOn, cool) {{
+    var cd = 0;
+    if (coolOn && coolOn.length && cool !== null && cool !== undefined
+        && cool !== '') {{
+      var x = Number(cool);
+      if (!isNaN(x)) cd = Math.max(0, Math.round(x));
+    }}
+    return {{rearm: !!(rearmOn && rearmOn.length), cooldown: cd}};
+  }};
+
   /* ── Actualizar estado y renderizar ── */
   var indParams = {_js_ind_params()};
 
@@ -1492,6 +1517,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     strategyCaps:      window._lwc.buildCaps(capBarsOn, capBars, capSlOn,
                                              capSl, capTsOn, capTs,
                                              capTpOn, capTp),
+    strategyReentry:   window._lwc.reentrySpec(rearmOn, coolOn, cool),
     strategyData:      strategyData || null,
     indParams:         indParams,
     volumeEnabled:     !!(volumeEnabled  && volumeEnabled.length),
@@ -1540,6 +1566,9 @@ clientside_callback(
     State("chart-strategy-cap-ts", "value"),
     State("chart-strategy-cap-tp-on", "value"),
     State("chart-strategy-cap-tp", "value"),
+    State("chart-strategy-rearm", "value"),
+    State("chart-strategy-cooldown-on", "value"),
+    State("chart-strategy-cooldown", "value"),
     State("chart-strategy-data", "data"),
     *_state_list(State),
     prevent_initial_call=True,
@@ -1652,7 +1681,7 @@ clientside_callback(
 # ─── Estrategia: toggle/sliders y datos lazy, sin round-trip al mover sliders ──
 
 clientside_callback(
-    """function(en, entry, exit, mode, barsOn, bars, slOn, sl, tsOn, ts, tpOn, tp) {
+    """function(en, entry, exit, mode, barsOn, bars, slOn, sl, tsOn, ts, tpOn, tp, rearmOn, coolOn, cool) {
         var ev = document.getElementById('chart-strategy-entry-val');
         if (ev) ev.textContent = String(entry);
         var xv = document.getElementById('chart-strategy-exit-val');
@@ -1665,6 +1694,7 @@ clientside_callback(
         st.strategyExitMode = mode || 'absolute';
         st.strategyCaps     = window._lwc.buildCaps(barsOn, bars, slOn, sl,
                                                     tsOn, ts, tpOn, tp);
+        st.strategyReentry  = window._lwc.reentrySpec(rearmOn, coolOn, cool);
         window._lwc.fullRender();
         return null;
     }""",
@@ -1681,6 +1711,9 @@ clientside_callback(
     Input("chart-strategy-cap-ts", "value"),
     Input("chart-strategy-cap-tp-on", "value"),
     Input("chart-strategy-cap-tp", "value"),
+    Input("chart-strategy-rearm", "value"),
+    Input("chart-strategy-cooldown-on", "value"),
+    Input("chart-strategy-cooldown", "value"),
     prevent_initial_call=True,
 )
 

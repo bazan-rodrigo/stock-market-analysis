@@ -30,6 +30,18 @@ Semántica (fijada por los fixtures — cambiarla es cambiar el contrato):
 - Entrada: sin posición, la barra tiene señal (score, o percentil en modo
   "percentile") y señal >= spec["entry"] → entra al close de esa barra.
   En la barra de entrada NO se evalúa ninguna salida.
+- Re-entrada (control del whipsaw tras una salida), dos frenos opcionales
+  e independientes que se exigen ADEMÁS de señal >= entry:
+  - spec["rearm"] (bool, default False) — re-entrada por CRUCE: tras una
+    salida el sistema queda desarmado; se re-arma recién cuando una barra
+    sin posición muestra señal < entry (la señal "se reseteó"). El estado
+    inicial es armado (una serie que arranca sobre el umbral entra).
+    El armado usa la MISMA señal que la entrada (percentil en modo
+    "percentile", score en el resto) y solo se evalúa en barras con señal.
+  - spec["cooldown"] (int >= 0, default 0) — enfriamiento: tras una salida
+    en la barra j, la entrada se permite recién cuando i − j > cooldown
+    (0 = barra siguiente, comportamiento sin freno). Cuenta barras propias,
+    tengan o no score.
 - En posición, por barra, gana el primero que se cumpla (en este orden):
     1. filtro   — barra sin score → cierre forzado (reason "filter").
     2. topes    — spec["caps"], None o LISTA de topes (max_bars / stop_loss /
@@ -90,6 +102,8 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
     caps  = spec.get("caps") or []
     entry_th = spec["entry"]
     use_pct  = (mtype == "percentile")
+    rearm    = bool(spec.get("rearm"))
+    cooldown = int(spec.get("cooldown") or 0)
 
     if mtype is not None and mtype not in EXIT_MODES:
         raise ValueError(f"Modo de salida desconocido: {mtype!r}")
@@ -112,14 +126,18 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
     max_score = max_close = None
     ma_window = []          # últimos k scores observados (modo score_ma)
     k = mode.get("k") if mode else None
+    armed = True            # re-armado por cruce: armado al inicio
+    last_exit = None        # barra de la última salida (para el cooldown)
 
     def _close_trade(i, reason):
-        nonlocal in_pos
+        nonlocal in_pos, armed, last_exit
         ret = (closes[i] / entry_close - 1) if entry_close and entry_close > 0 else None
         trades.append({"entry_idx": entry_idx, "exit_idx": i,
                        "entry_close": entry_close, "exit_close": closes[i],
                        "ret": ret, "reason": reason})
         in_pos = False
+        armed = False
+        last_exit = i
 
     for i in range(last_scored + 1):
         c  = closes[i]
@@ -138,10 +156,14 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
 
         if not in_pos:
             sig = pc if use_pct else sc
-            if sig is not None and sig >= entry_th:
-                in_pos = True
-                entry_idx, entry_close = i, c
-                entry_score, max_score, max_close = sc, sc, c
+            if sig is not None:
+                if sig < entry_th:
+                    armed = True  # la señal se reseteó: re-arma el cruce
+                elif ((not rearm or armed)
+                        and (last_exit is None or i - last_exit > cooldown)):
+                    in_pos = True
+                    entry_idx, entry_close = i, c
+                    entry_score, max_score, max_close = sc, sc, c
             continue  # en la barra de entrada no se evalúan salidas
 
         # 1) Elegibilidad: barra propia sin score → cierre forzado.

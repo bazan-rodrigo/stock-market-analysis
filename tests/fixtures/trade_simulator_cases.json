@@ -211,6 +211,63 @@
       "expected": [{"entry_idx": 0, "exit_idx": 2, "reason": "max_bars"}]
     },
     {
+      "name": "rearm_tras_stop_loss_exige_cruce",
+      "closes": [100, 89, 95, 100, 105],
+      "scores": [25, 25, 25, 10, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": null,
+               "caps": [{"type": "stop_loss", "pct": 10}], "rearm": true},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 1, "reason": "stop_loss"},
+        {"entry_idx": 4, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "rearm_bloquea_sin_cruce_para_siempre",
+      "closes": [100, 95, 100, 105],
+      "scores": [25, -5, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+               "caps": null, "rearm": true},
+      "expected": [{"entry_idx": 0, "exit_idx": 1, "reason": "absolute"}]
+    },
+    {
+      "name": "cooldown_espera_n_ruedas",
+      "closes": [100, 95, 100, 102, 104, 106],
+      "scores": [25, -5, 25, 25, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+               "caps": null, "cooldown": 2},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 1, "reason": "absolute"},
+        {"entry_idx": 4, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "cooldown_y_rearm_combinados",
+      "closes": [100, 95, 96, 100, 102],
+      "scores": [25, -5, -5, 25, 25],
+      "percentiles": null,
+      "spec": {"entry": 20, "mode": {"type": "absolute", "x": 0},
+               "caps": null, "rearm": true, "cooldown": 1},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 1, "reason": "absolute"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
+      "name": "rearm_en_modo_percentil_usa_percentil",
+      "closes": [100, 98, 100, 103],
+      "scores": [50, 45, 48, 52],
+      "percentiles": [95, 60, 85, 95],
+      "spec": {"entry": 90, "mode": {"type": "percentile", "x": 70},
+               "caps": null, "rearm": true},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 1, "reason": "percentile"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
       "name": "sin_scores_no_hay_trades",
       "closes": [100, 101, 102],
       "scores": [null, null, null],
