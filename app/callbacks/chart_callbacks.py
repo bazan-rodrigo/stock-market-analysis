@@ -880,33 +880,6 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     }}
     if (!s) return null;
     if (spec.data && spec.data.length) s.setData(spec.data);
-    if (spec.priceLines) spec.priceLines.forEach(function(pl) {{
-      s.createPriceLine({{price: pl.price, color: pl.color, lineWidth: 1,
-        lineStyle: LightweightCharts.LineStyle.Dotted,
-        axisLabelVisible: true, title: String(pl.price)}});
-    }});
-    /* Las price lines NO participan del auto-escalado en lightweight-charts:
-       si el nivel queda fuera del rango de los datos, la línea existe pero
-       no se ve. autoscaleRange {min, max} fuerza a incluir ese rango en la
-       escala del panel (unión con el rango de los datos de la serie). */
-    if (spec.autoscaleRange) {{
-      s.applyOptions({{
-        autoscaleInfoProvider: function(original) {{
-          var res = original();
-          var mn = spec.autoscaleRange.min, mx = spec.autoscaleRange.max;
-          if (res && res.priceRange) {{
-            return {{
-              priceRange: {{
-                minValue: Math.min(mn, res.priceRange.minValue),
-                maxValue: Math.max(mx, res.priceRange.maxValue),
-              }},
-              margins: res.margins,
-            }};
-          }}
-          return {{priceRange: {{minValue: mn, maxValue: mx}}}};
-        }},
-      }});
-    }}
     return s;
   }};
 
@@ -1200,47 +1173,45 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
 
       /* Serie base: whitespace sobre TODAS las barras. Alinea el panel por
          índice lógico con el de precio (si arrancara en la primera barra
-         con score quedaría corrido). OJO: las price lines NO pueden vivir
-         acá — lightweight-charts no pinta price lines de una serie sin
-         ningún valor (necesita un "primer valor"); por eso van colgadas
-         del PRIMER SEGMENTO con datos (abajo). */
+         con score quedaría corrido). */
       window._lwc.addSeries(stratPc, {{
         type: 'line', name: 'Score ' + (st.strategyData.name || ''),
         color: '#38bdf8', lineWidth: 1.5,
         data: times.map(function(t) {{ return {{time: t}}; }}),
       }});
 
-      /* Líneas de umbral: entrada siempre (en modo percentil el umbral está
-         en unidades de percentil — orientativa); salida solo en umbral
-         absoluto (los demás modos no tienen nivel fijo de score).
-         autoscaleRange fuerza los niveles dentro de la escala del panel
-         aunque los scores no los crucen. */
+      /* Líneas de umbral como SERIES horizontales (un punto por barra,
+         punteadas) — NO como price lines: createPriceLine sobre las series
+         de este panel demostró no pintarse (bug perseguido en vivo,
+         jul-2026); una serie con datos usa el mismo camino de render que
+         los segmentos de score, que sí se ven, y además participa del
+         auto-escalado (el nivel siempre entra en la escala). Entrada:
+         siempre (en modo percentil es orientativa — unidades de
+         percentil); salida: solo en umbral absoluto (los demás modos no
+         tienen nivel fijo de score). */
       var _thrM = st.strategyExitMode || 'none';
       var thrLines = [{{price: (st.strategyEntry == null ? 20 : st.strategyEntry), color: '#4ade80'}}];
       if (_thrM === 'absolute')
         thrLines.push({{price: (st.strategyExit == null ? 0 : st.strategyExit), color: '#ef5350'}});
-      var thrVals = thrLines.map(function(p) {{ return p.price; }});
+      thrLines.forEach(function(pl) {{
+        window._lwc.addSeries(stratPc, {{
+          type: 'line', color: pl.color, lineWidth: 1, dashed: true,
+          data: times.map(function(t) {{ return {{time: t, value: pl.price}}; }}),
+        }});
+      }});
 
       /* Score en SEGMENTOS: una línea por tramo contiguo de barras con score.
          Los días sin score (activo no elegible por el filtro) quedan como
          CORTES, no como una recta que cruza el hueco — en lightweight-charts el
          whitespace no corta la línea. Un tramo de una sola barra se dibuja como
-         punto (una recta necesita 2). El primer segmento carga las líneas
-         de umbral (tiene datos reales → sí se pintan). */
-      var seg = [], thrAttached = false;
+         punto (una recta necesita 2). */
+      var seg = [];
       var flushSeg = function() {{
         if (seg.length) {{
-          var segSpec = {{
+          window._lwc.addSeries(stratPc, {{
             type: 'line', color: '#38bdf8', lineWidth: 1.5, data: seg,
             pointMarkers: seg.length === 1,
-          }};
-          if (!thrAttached) {{
-            segSpec.priceLines = thrLines;
-            segSpec.autoscaleRange = {{min: Math.min.apply(null, thrVals),
-                                      max: Math.max.apply(null, thrVals)}};
-            thrAttached = true;
-          }}
-          window._lwc.addSeries(stratPc, segSpec);
+          }});
         }}
         seg = [];
       }};
