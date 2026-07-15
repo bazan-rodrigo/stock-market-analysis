@@ -56,6 +56,10 @@ Semántica (fijada por los fixtures — cambiarla es cambiar el contrato):
 Salidas por score ("score_exits", cada tipo a lo sumo una vez):
 - absolute       {"x"}: score < x (nivel absoluto; útil si las señales son
                   simétricas y 0 significa "se dio vuelta").
+- absolute_above {"x"}: score > x — el "take profit del score": salir EN LA
+                  FUERZA bajo la premisa de que un score extremo anticipa
+                  agotamiento (lógica contrarian; validar con el backtest de
+                  deciles si el decil top rinde peor que los intermedios).
 - delta_entry    {"x"}: score < score_de_entrada − x.
 - trailing_score {"x"}: score < máximo score desde la entrada (incluida la
                   barra actual) − x.
@@ -75,8 +79,8 @@ Salidas por precio/tiempo ("caps", cada tipo a lo sumo una vez):
 from statistics import median
 
 ENTRY_TYPES = ("score", "pct")
-SCORE_EXIT_TYPES = ("absolute", "delta_entry", "trailing_score",
-                    "score_ma", "percentile")
+SCORE_EXIT_TYPES = ("absolute", "absolute_above", "delta_entry",
+                    "trailing_score", "score_ma", "percentile")
 CAP_TYPES = ("max_bars", "stop_loss", "trailing_stop", "take_profit")
 
 
@@ -202,6 +206,8 @@ def simulate_trades(closes, scores, spec, percentiles=None) -> list[dict]:
             for x in score_exits:
                 t = x["type"]
                 if t == "absolute" and sc < x["x"]:
+                    reason = t
+                elif t == "absolute_above" and sc > x["x"]:
                     reason = t
                 elif t == "delta_entry" and sc < entry_score - x["x"]:
                     reason = t

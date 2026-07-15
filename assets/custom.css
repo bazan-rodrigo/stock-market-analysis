@@ -592,6 +592,16 @@ td.dash-datepicker-calendar-date-inside[aria-disabled="true"] {
     font-size: 0.72rem !important;
     line-height: 1.45 !important;
 }
+/* Toggle ACTIVO inconfundible: el .active de btn-outline-secondary (gris
+   sobre gris) es invisible en dark — sin esto no se distingue qué indicador
+   está prendido y los parámetros colapsables parecen "no colapsar". */
+.chart-toolbar .btn.active,
+.chart-toolbar .btn-check:checked + .btn {
+    background-color: #38bdf8 !important;
+    border-color: #38bdf8 !important;
+    color: #0b1220 !important;
+    font-weight: 600;
+}
 .chart-toolbar .form-control {
     height: 22px !important;
     font-size: 0.7rem !important;

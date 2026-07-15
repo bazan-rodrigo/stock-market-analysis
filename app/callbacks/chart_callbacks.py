@@ -361,6 +361,7 @@ _SIM_CONTROL_IDS = [
     "chart-strategy-entry-sc-on", "chart-strategy-entry-sc",
     "chart-strategy-entry-pct-on", "chart-strategy-entry-pct",
     "chart-strategy-xs-abs-on", "chart-strategy-xs-abs",
+    "chart-strategy-xs-absup-on", "chart-strategy-xs-absup",
     "chart-strategy-xs-dent-on", "chart-strategy-xs-dent",
     "chart-strategy-xs-dmax-on", "chart-strategy-xs-dmax",
     "chart-strategy-xs-mak-on", "chart-strategy-xs-mak",
@@ -380,34 +381,44 @@ def _sim_control_deps(cls):
 
 
 @callback(
-    Output("chart-strategy-xs-abs", "max"),
-    Output("chart-strategy-xs-abs", "value"),
-    Output("chart-strategy-xs-pct", "max"),
-    Output("chart-strategy-xs-pct", "value"),
+    Output("chart-strategy-xs-abs",   "max"),
+    Output("chart-strategy-xs-abs",   "value"),
+    Output("chart-strategy-xs-absup", "min"),
+    Output("chart-strategy-xs-absup", "value"),
+    Output("chart-strategy-xs-pct",   "max"),
+    Output("chart-strategy-xs-pct",   "value"),
     Input("chart-strategy-entry-sc-on",  "value"),
     Input("chart-strategy-entry-sc",     "value"),
     Input("chart-strategy-entry-pct-on", "value"),
     Input("chart-strategy-entry-pct",    "value"),
-    State("chart-strategy-xs-abs", "value"),
-    State("chart-strategy-xs-pct", "value"),
+    State("chart-strategy-xs-abs",   "value"),
+    State("chart-strategy-xs-absup", "value"),
+    State("chart-strategy-xs-pct",   "value"),
     prevent_initial_call=True,
 )
 def couple_score_exits_to_entries(sc_on, sc_val, pct_on, pct_val,
-                                  abs_val, xpct_val):
-    """Acople salida <= entrada cuando comparten unidad (histéresis; una
-    salida por encima de la entrada = entrar y salir en la barra siguiente):
-    Abs< topeado por Sc≥ y Pct< topeado por Pct≥, cuando la condición de
-    entrada correspondiente está activa. El techo del input sigue al valor
-    de entrada; si la entrada baja por debajo de la salida, la salida se
-    ajusta. Entrada inactiva → techo default (100)."""
-    def clamp(on, entry_v, exit_v):
+                                  abs_val, absup_val, xpct_val):
+    """Acople con la entrada cuando comparten unidad (evita configs que
+    entran y salen en la barra siguiente): Abs< y Pct< topeados por su
+    entrada (salida por debilidad DEBAJO de la entrada); Abs> con PISO en
+    la entrada (salida por fortaleza ENCIMA de la entrada). Entrada
+    inactiva → rango default."""
+    def clamp_upper(on, entry_v, exit_v):
         if on and len(on) and entry_v is not None:
             new_v = exit_v if (exit_v is None or exit_v <= entry_v) else entry_v
             return entry_v, (no_update if new_v == exit_v else new_v)
         return 100, no_update
-    mx1, v1 = clamp(sc_on, sc_val, abs_val)
-    mx2, v2 = clamp(pct_on, pct_val, xpct_val)
-    return mx1, v1, mx2, v2
+
+    def clamp_lower(on, entry_v, exit_v):
+        if on and len(on) and entry_v is not None:
+            new_v = exit_v if (exit_v is None or exit_v >= entry_v) else entry_v
+            return entry_v, (no_update if new_v == exit_v else new_v)
+        return -100, no_update
+
+    mx1, v1 = clamp_upper(sc_on, sc_val, abs_val)
+    mn2, v2 = clamp_lower(sc_on, sc_val, absup_val)
+    mx3, v3 = clamp_upper(pct_on, pct_val, xpct_val)
+    return mx1, v1, mn2, v2, mx3, v3
 
 
 _CAP_INPUT_STYLE = {"width": "58px", "fontSize": "0.72rem",
@@ -418,7 +429,7 @@ _CAP_INPUT_STYLE = {"width": "58px", "fontSize": "0.72rem",
 # el input solo se ve con el control activo.
 _SIM_TOGGLE_KEYS = [
     "entry-sc", "entry-pct",
-    "xs-abs", "xs-dent", "xs-dmax", "xs-mak", "xs-pct",
+    "xs-abs", "xs-absup", "xs-dent", "xs-dmax", "xs-mak", "xs-pct",
     "cap-bars", "cap-sl", "cap-ts", "cap-tp", "cooldown",
 ]
 
@@ -437,7 +448,7 @@ def toggle_sim_inputs(*ons):
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, entScOn, entSc, entPctOn, entPct, xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax, xsMakOn, xsMak, xsPctOn, xsPct, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, entScOn, entSc, entPctOn, entPct, xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp, xsDentOn, xsDent, xsDmaxOn, xsDmax, xsMakOn, xsMak, xsPctOn, xsPct, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -1141,7 +1152,8 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         if (e.type === 'score') thrLines.push({{price: e.th, color: '#4ade80'}});
       }});
       (_spec.score_exits || []).forEach(function(x) {{
-        if (x.type === 'absolute') thrLines.push({{price: x.x, color: '#ef5350'}});
+        if (x.type === 'absolute' || x.type === 'absolute_above')
+          thrLines.push({{price: x.x, color: '#ef5350'}});
       }});
       thrLines.forEach(function(pl) {{
         window._lwc.addSeries(stratPc, {{
@@ -1449,6 +1461,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       for (var xi = 0; xi < scoreExits.length && reason === null; xi++) {{
         var x = scoreExits[xi], t = x.type;
         if (t === 'absolute' && sc < x.x) reason = t;
+        else if (t === 'absolute_above' && sc > x.x) reason = t;
         else if (t === 'delta_entry' && sc < entryScore - x.x) reason = t;
         else if (t === 'trailing_score' && sc < maxScore - x.x) reason = t;
         else if (t === 'score_ma' && ma !== null && sc < ma) reason = t;
@@ -1471,7 +1484,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
      callbacks (mantener sincronizados los tres lugares). */
   window._lwc.buildSpec = function(
       entScOn, entSc, entPctOn, entPct,
-      xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax,
+      xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp, xsDentOn, xsDent, xsDmaxOn, xsDmax,
       xsMakOn, xsMak, xsPctOn, xsPct,
       capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp,
       rearmOn, coolOn, cool) {{
@@ -1488,6 +1501,8 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     var scoreExits = [];
     if (on(xsAbsOn) && num(xsAbs) !== null)
       scoreExits.push({{type: 'absolute', x: num(xsAbs)}});
+    if (on(xsAbsUpOn) && num(xsAbsUp) !== null)
+      scoreExits.push({{type: 'absolute_above', x: num(xsAbsUp)}});
     if (on(xsDentOn) && num(xsDent) !== null)
       scoreExits.push({{type: 'delta_entry', x: num(xsDent)}});
     if (on(xsDmaxOn) && num(xsDmax) !== null)
@@ -1534,7 +1549,8 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     strategyEnabled:   !!(strategyEnabled && strategyEnabled.length),
     strategySpec:      window._lwc.buildSpec(
                          entScOn, entSc, entPctOn, entPct,
-                         xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax,
+                         xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp,
+                         xsDentOn, xsDent, xsDmaxOn, xsDmax,
                          xsMakOn, xsMak, xsPctOn, xsPct,
                          capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs,
                          capTpOn, capTp, rearmOn, coolOn, cool),
@@ -1690,7 +1706,8 @@ clientside_callback(
 
 clientside_callback(
     """function(en, entScOn, entSc, entPctOn, entPct,
-                xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax,
+                xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp,
+                xsDentOn, xsDent, xsDmaxOn, xsDmax,
                 xsMakOn, xsMak, xsPctOn, xsPct,
                 capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs,
                 capTpOn, capTp, rearmOn, coolOn, cool) {
@@ -1699,7 +1716,8 @@ clientside_callback(
         st.strategyEnabled = !!(en && en.length);
         st.strategySpec = window._lwc.buildSpec(
             entScOn, entSc, entPctOn, entPct,
-            xsAbsOn, xsAbs, xsDentOn, xsDent, xsDmaxOn, xsDmax,
+            xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp,
+            xsDentOn, xsDent, xsDmaxOn, xsDmax,
             xsMakOn, xsMak, xsPctOn, xsPct,
             capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs,
             capTpOn, capTp, rearmOn, coolOn, cool);

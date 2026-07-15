@@ -124,14 +124,18 @@ def _strategy_help():
         html.Table(html.Tbody([
             row("Abs <", "El score cae bajo un nivel fijo. Tiene sentido si "
                 "tus señales cruzan el 0 (0 = la estrategia lo ve negativo)."),
+            row("Abs >", "El score SUPERA un nivel — take profit del score, "
+                "lógica contrarian: salir en la euforia. Validar con el "
+                "backtest de deciles antes de usarla."),
             row("Ent−Δ", "El score cae Δ puntos por debajo del score que "
                 "tenía al entrar (stop loss del score)."),
             row("Máx−Δ", "El score cae Δ puntos desde el MÁXIMO del trade "
                 "(trailing stop del score)."),
             row("Media k", "El score cae bajo su media móvil de k ruedas "
                 "(el impulso se dio vuelta)."),
-            row("Pct <", "El activo cae bajo ese percentil del ranking del "
-                "día. Clásico de rotación: entra Pct ≥ 90, sale Pct < 70."),
+            row("Percentil <", "El activo cae bajo ese percentil del ranking "
+                "del día. Clásico de rotación: entra Percentil ≥ 90, sale "
+                "Percentil < 70."),
         ])),
         title("Salida por precio/tiempo (dispara la primera que se cumpla)"),
         html.Div("Ruedas (duración máxima), SL% (stop loss desde la "
@@ -175,14 +179,20 @@ def _cap_control(key, label, default, tip, id_base="chart-strategy-cap",
        className="d-flex align-items-center gap-1")
 
 
-def _sim_group(title, children):
-    """Grupo rotulado del panel de simulación (Entrada / Salida por score /
-    Salida por precio-tiempo), con separador visual a la izquierda."""
+def _sim_group(title, children, key=None, tip=None):
+    """Grupo rotulado del panel de simulación, con separador visual a la
+    izquierda. El rótulo lleva la semántica de combinación —(todas) = AND,
+    (cualquiera) = OR— y un tooltip que la explica."""
+    label = html.Span(
+        f"{title}:",
+        id=f"chart-strategy-grp-{key}" if key else "",
+        style={"fontSize": "0.72rem", "color": "#6c757d",
+               "fontWeight": "600", "whiteSpace": "nowrap"})
+    items = [label] + children
+    if key and tip:
+        items.append(_tip(f"chart-strategy-grp-{key}", tip))
     return html.Div(
-        [html.Span(f"{title}:",
-                   style={"fontSize": "0.72rem", "color": "#6c757d",
-                          "fontWeight": "600", "whiteSpace": "nowrap"})]
-        + children,
+        items,
         className="d-flex align-items-center gap-1 flex-wrap",
         style={"borderLeft": "1px solid #374151", "paddingLeft": "8px"},
     )
@@ -466,7 +476,10 @@ def layout(**kwargs):
                             clearable=False,
                             style={"width": "200px", "fontSize": "0.72rem"},
                         ),
-                        _sim_group("Entrada por", [
+                        _sim_group("Entrada por (todas)", key="entrada", tip=(
+            "Condiciones de ENTRADA: con varias activas, deben "
+            "cumplirse TODAS a la vez para entrar (Y lógico)."),
+            children=[
                             _cap_control("entry-sc", "Score ≥", 20,
                                          "Entrada: score de la estrategia mayor "
                                          "o igual al umbral.",
@@ -479,7 +492,10 @@ def layout(**kwargs):
                                          "deben cumplirse TODAS.",
                                          id_base="chart-strategy", min_=0),
                         ]),
-                        _sim_group("Condiciones de re-entrada", [
+                        _sim_group("Condiciones de re-entrada", key="reentrada", tip=(
+            "Frenos opcionales tras una salida — se exigen ADEMÁS de "
+            "las condiciones de entrada."),
+            children=[
                             html.Div(_chk("chart-strategy-rearm", "Cruce"),
                                      id="chart-strategy-rearm-wrap"),
                             dbc.Tooltip(
@@ -495,11 +511,24 @@ def layout(**kwargs):
                                          "entrada.",
                                          id_base="chart-strategy", min_=0),
                         ]),
-                        _sim_group("Salida por score", [
+                        _sim_group("Salida por score (cualquiera)", key="salida-score", tip=(
+            "Salidas por SEÑAL: cierra la PRIMERA que se cumpla (O "
+            "lógico). En la misma barra, las salidas por precio/tiempo "
+            "tienen prioridad."),
+            children=[
                             _cap_control("xs-abs", "Abs <", 0,
                                          "Sale cuando el score cae bajo un "
                                          "nivel fijo (útil si tus señales "
                                          "cruzan el 0).",
+                                         id_base="chart-strategy", min_=-100),
+                            _cap_control("xs-absup", "Abs >", 90,
+                                         "Take profit del score: sale cuando "
+                                         "el score SUPERA un nivel — lógica "
+                                         "contrarian (score extremo anticipa "
+                                         "agotamiento). Validalo con el "
+                                         "backtest: solo tiene sustento si el "
+                                         "decil top rinde peor que los "
+                                         "intermedios.",
                                          id_base="chart-strategy", min_=-100),
                             _cap_control("xs-dent", "Ent−Δ", 20,
                                          "Sale cuando el score cae Δ puntos "
@@ -515,13 +544,17 @@ def layout(**kwargs):
                                          "media móvil de k ruedas (el impulso "
                                          "se dio vuelta).",
                                          id_base="chart-strategy", min_=2),
-                            _cap_control("xs-pct", "Pct <", 70,
+                            _cap_control("xs-pct", "Percentil <", 70,
                                          "Sale cuando el percentil del activo "
                                          "en el ranking del día cae bajo el "
                                          "umbral (100 = mejor).",
                                          id_base="chart-strategy", min_=0),
                         ]),
-                        _sim_group("Salida por precio/tiempo", [
+                        _sim_group("Salida por precio/tiempo (cualquiera)", key="salida-precio", tip=(
+            "Salidas por PRECIO o TIEMPO: cierra la PRIMERA que se "
+            "cumpla (O lógico). Tienen prioridad sobre las salidas por "
+            "score en la misma barra."),
+            children=[
                             _cap_control("bars", "Ruedas", 60,
                                          "Duración máxima del trade en ruedas."),
                             _cap_control("sl", "SL%", 10,

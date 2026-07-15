@@ -244,6 +244,19 @@
       "expected": [{"entry_idx": 0, "exit_idx": 2, "reason": "max_bars"}]
     },
     {
+      "name": "absolute_above_take_profit_del_score",
+      "closes": [100, 105, 110, 112],
+      "scores": [25, 60, 85, 90],
+      "percentiles": null,
+      "spec": {"entries": [{"type": "score", "th": 20}],
+               "score_exits": [{"type": "absolute_above", "x": 80}],
+               "caps": null},
+      "expected": [
+        {"entry_idx": 0, "exit_idx": 2, "reason": "absolute_above"},
+        {"entry_idx": 3, "exit_idx": null, "reason": null}
+      ]
+    },
+    {
       "name": "salidas_score_combinadas_absolute_y_trailing",
       "closes": [100, 101, 102, 103, 104],
       "scores": [40, 80, 45, 30, -5],
