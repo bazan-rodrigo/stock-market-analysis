@@ -11,96 +11,10 @@ import dash_bootstrap_components as dbc
 from dash import ALL, Input, Output, State, callback, ctx, html, no_update
 
 from app.callbacks.chart_callbacks import _sim_control_deps
+from app.services.trade_optimizer import load_series, spec_from_controls
 from app.utils import safe_callback
 
 _TOP_N = 10
-
-
-def _on(v):
-    return bool(v and len(v))
-
-
-def _num(v):
-    if v is None or v == "":
-        return None
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        return None
-    return x
-
-
-def _spec_from_controls(vals) -> dict:
-    """Espejo PYTHON de window._lwc.buildSpec (chart_callbacks): mismo orden
-    posicional (_SIM_CONTROL_IDS) y misma semántica de armado. Si cambia
-    la spec, cambian los tres lugares en el mismo commit."""
-    (ent_sc_on, ent_sc, ent_pct_on, ent_pct,
-     xs_abs_on, xs_abs, xs_absup_on, xs_absup,
-     xs_dent_on, xs_dent, xs_dmax_on, xs_dmax,
-     xs_mak_on, xs_mak, xs_pct_on, xs_pct,
-     cap_bars_on, cap_bars, cap_sl_on, cap_sl,
-     cap_ts_on, cap_ts, cap_tp_on, cap_tp,
-     rearm_on, cool_on, cool) = vals
-
-    entries = []
-    if _on(ent_sc_on) and _num(ent_sc) is not None:
-        entries.append({"type": "score", "th": _num(ent_sc)})
-    if _on(ent_pct_on) and _num(ent_pct) is not None:
-        entries.append({"type": "pct", "th": _num(ent_pct)})
-    score_exits = []
-    if _on(xs_abs_on) and _num(xs_abs) is not None:
-        score_exits.append({"type": "absolute", "x": _num(xs_abs)})
-    if _on(xs_absup_on) and _num(xs_absup) is not None:
-        score_exits.append({"type": "absolute_above", "x": _num(xs_absup)})
-    if _on(xs_dent_on) and _num(xs_dent) is not None:
-        score_exits.append({"type": "delta_entry", "x": _num(xs_dent)})
-    if _on(xs_dmax_on) and _num(xs_dmax) is not None:
-        score_exits.append({"type": "trailing_score", "x": _num(xs_dmax)})
-    if _on(xs_mak_on) and _num(xs_mak) is not None:
-        score_exits.append({"type": "score_ma",
-                            "k": max(2, round(_num(xs_mak)))})
-    if _on(xs_pct_on) and _num(xs_pct) is not None:
-        score_exits.append({"type": "percentile", "x": _num(xs_pct)})
-    caps = []
-    if _on(cap_bars_on) and _num(cap_bars) is not None:
-        caps.append({"type": "max_bars", "n": max(1, round(_num(cap_bars)))})
-    if _on(cap_sl_on) and _num(cap_sl) is not None:
-        caps.append({"type": "stop_loss", "pct": _num(cap_sl)})
-    if _on(cap_ts_on) and _num(cap_ts) is not None:
-        caps.append({"type": "trailing_stop", "pct": _num(cap_ts)})
-    if _on(cap_tp_on) and _num(cap_tp) is not None:
-        caps.append({"type": "take_profit", "pct": _num(cap_tp)})
-    cooldown = 0
-    if _on(cool_on) and _num(cool) is not None:
-        cooldown = max(0, round(_num(cool)))
-    return {"entries": entries, "score_exits": score_exits, "caps": caps,
-            "rearm": _on(rearm_on), "cooldown": cooldown}
-
-
-def _load_series(asset_id: int, strategy_id: int):
-    """Arrays diarios alineados a las barras PROPIAS del activo (gate
-    natural: solo fechas con precio propio, igual que el backtest)."""
-    from app.database import get_session
-    from app.models import Price, StrategyResult
-
-    db = get_session()
-    prows = (db.query(Price.date, Price.close)
-             .filter(Price.asset_id == asset_id, Price.close.isnot(None))
-             .order_by(Price.date).all())
-    srows = (db.query(StrategyResult.date, StrategyResult.score,
-                      StrategyResult.pct)
-             .filter(StrategyResult.strategy_id == strategy_id,
-                     StrategyResult.asset_id == asset_id).all())
-    sc_by_date = {d: (float(s) if s is not None else None,
-                      float(p) if p is not None else None)
-                  for d, s, p in srows}
-    closes, scores, pcts = [], [], []
-    for d, c in prows:
-        closes.append(float(c))
-        s, p = sc_by_date.get(d, (None, None))
-        scores.append(s)
-        pcts.append(p)
-    return closes, scores, pcts
 
 
 def _fmt_pct(v, colored=True):
@@ -195,8 +109,8 @@ def run_optimizer(_, asset_id, strategy_id, *vals):
     if not asset_id or not strategy_id:
         return dbc.Alert("Elegí un activo y una estrategia primero.",
                          color="warning", className="small py-1"), no_update
-    spec = _spec_from_controls(vals)
-    closes, scores, pcts = _load_series(int(asset_id), int(strategy_id))
+    spec = spec_from_controls(vals)
+    closes, scores, pcts = load_series(int(asset_id), int(strategy_id))
     out = optimize(closes, scores, pcts, spec, top_n=_TOP_N)
     if not out["results"]:
         return dbc.Alert(

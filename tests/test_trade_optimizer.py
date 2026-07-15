@@ -126,3 +126,113 @@ def test_describe_spec():
             "caps": [{"type": "stop_loss", "pct": 10}],
             "rearm": True, "cooldown": 5}
     assert describe_spec(spec) == "Score≥30 · Máx−Δ20 · SL% 10 · Cruce · Enfr.5"
+
+
+# ── spec_from_controls (el TERCER espejo del armado de spec) ──────────────────
+# El orden posicional de vals ES el contrato: debe coincidir con
+# _SIM_CONTROL_IDS (chart_callbacks) y con window._lwc.buildSpec (JS).
+
+def _vals(**overrides):
+    """27 valores de controles, todos apagados; overrides por nombre."""
+    base = {
+        "ent_sc_on": [], "ent_sc": 20, "ent_pct_on": [], "ent_pct": 90,
+        "xs_abs_on": [], "xs_abs": 0, "xs_absup_on": [], "xs_absup": 90,
+        "xs_dent_on": [], "xs_dent": 20, "xs_dmax_on": [], "xs_dmax": 20,
+        "xs_mak_on": [], "xs_mak": 10, "xs_pct_on": [], "xs_pct": 70,
+        "cap_bars_on": [], "cap_bars": 60, "cap_sl_on": [], "cap_sl": 10,
+        "cap_ts_on": [], "cap_ts": 15, "cap_tp_on": [], "cap_tp": 20,
+        "rearm_on": [], "cool_on": [], "cool": 5,
+    }
+    base.update(overrides)
+    return tuple(base.values())
+
+
+def test_spec_from_controls_todo_apagado():
+    from app.services.trade_optimizer import spec_from_controls
+    spec = spec_from_controls(_vals())
+    assert spec == {"entries": [], "score_exits": [], "caps": [],
+                    "rearm": False, "cooldown": 0}
+
+
+def test_spec_from_controls_armado_completo():
+    from app.services.trade_optimizer import spec_from_controls
+    spec = spec_from_controls(_vals(
+        ent_sc_on=[1], ent_pct_on=[1], xs_abs_on=[1], xs_absup_on=[1],
+        xs_dent_on=[1], xs_dmax_on=[1], xs_mak_on=[1], xs_pct_on=[1],
+        cap_bars_on=[1], cap_sl_on=[1], cap_ts_on=[1], cap_tp_on=[1],
+        rearm_on=[1], cool_on=[1]))
+    assert spec["entries"] == [{"type": "score", "th": 20},
+                               {"type": "pct", "th": 90}]
+    assert [x["type"] for x in spec["score_exits"]] == [
+        "absolute", "absolute_above", "delta_entry", "trailing_score",
+        "score_ma", "percentile"]
+    assert [c["type"] for c in spec["caps"]] == [
+        "max_bars", "stop_loss", "trailing_stop", "take_profit"]
+    assert spec["rearm"] is True and spec["cooldown"] == 5
+
+
+def test_spec_from_controls_valores_invalidos_y_redondeos():
+    from app.services.trade_optimizer import spec_from_controls
+    # input vacío/None → la condición tildada se ignora (sin crash)
+    spec = spec_from_controls(_vals(ent_sc_on=[1], ent_sc="",
+                                    xs_mak_on=[1], xs_mak="1.7",
+                                    cap_bars_on=[1], cap_bars=None,
+                                    cool_on=[1], cool="-3"))
+    assert spec["entries"] == []
+    assert spec["score_exits"] == [{"type": "score_ma", "k": 2}]  # piso 2
+    assert spec["caps"] == []
+    assert spec["cooldown"] == 0  # piso 0
+
+
+# ── load_series: gate sobre la BD (sqlite stub) ───────────────────────────────
+
+_LS_TABLES = ("strategy_result", "strategy", "prices", "assets")
+
+
+@pytest.fixture()
+def ls_db():
+    import sqlalchemy as sa
+
+    from app.database import Base, engine, get_session
+    import app.models  # noqa: F401 — registra los modelos
+
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        for t in _LS_TABLES:
+            conn.execute(sa.text(f"DELETE FROM {t}"))
+    yield
+    with engine.begin() as conn:
+        for t in _LS_TABLES:
+            conn.execute(sa.text(f"DELETE FROM {t}"))
+    get_session().rollback()
+
+
+def test_load_series_gate_y_alineacion(ls_db):
+    from datetime import date
+
+    from app.database import get_session
+    from app.models import Asset, Price, Strategy, StrategyResult
+    from app.services.trade_optimizer import load_series
+
+    s = get_session()
+    s.add(Asset(id=1, ticker="T1", name="T1", price_source_id=1))
+    s.add(Strategy(id=1, name="S", is_public=True))
+    d1, d2, d3, d4 = (date(2026, 1, 5), date(2026, 1, 6),
+                      date(2026, 1, 7), date(2026, 1, 8))
+    # precios: d1, d2, d4 (d3 no cotizó); d2 sin score; score en d3
+    # (arrastrado por as-of, SIN precio propio) debe quedar AFUERA (gate)
+    s.add(Price(asset_id=1, date=d1, close=100.0))
+    s.add(Price(asset_id=1, date=d2, close=101.0))
+    s.add(Price(asset_id=1, date=d4, close=103.0))
+    s.add(StrategyResult(strategy_id=1, asset_id=1, date=d1,
+                         score=50.0, pct=80.0))
+    s.add(StrategyResult(strategy_id=1, asset_id=1, date=d3,
+                         score=60.0, pct=90.0))
+    s.add(StrategyResult(strategy_id=1, asset_id=1, date=d4,
+                         score=70.0, pct=None))
+    s.commit()
+
+    closes, scores, pcts = load_series(1, 1)
+    assert closes == [100.0, 101.0, 103.0]   # solo barras propias
+    assert scores == [50.0, None, 70.0]      # d2 sin score; d3 gateado
+    assert pcts == [80.0, None, None]        # pct NULL → None

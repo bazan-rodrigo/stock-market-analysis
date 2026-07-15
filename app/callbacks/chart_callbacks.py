@@ -355,8 +355,9 @@ def load_strategy_overlay(enabled, strategy_id, asset_id):
 
 
 # Controles del simulador, en el ORDEN POSICIONAL de window._lwc.buildSpec
-# (los tres lugares — esta lista, la firma de buildSpec y los dos callbacks
-# clientside que lo llaman — deben mantenerse sincronizados).
+# y de trade_optimizer.spec_from_controls (su espejo Python, con test que
+# fija el orden) — esta lista, la firma de buildSpec, los dos callbacks
+# clientside que lo llaman y spec_from_controls se sincronizan juntos.
 _SIM_CONTROL_IDS = [
     "chart-strategy-entry-sc-on", "chart-strategy-entry-sc",
     "chart-strategy-entry-pct-on", "chart-strategy-entry-pct",

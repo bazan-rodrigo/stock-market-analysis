@@ -170,6 +170,92 @@ def describe_spec(spec) -> str:
     return " · ".join(parts)
 
 
+def spec_from_controls(vals) -> dict:
+    """Espejo PYTHON de window._lwc.buildSpec (chart_callbacks): mismo orden
+    posicional (_SIM_CONTROL_IDS) y misma semántica de armado. Si cambia la
+    spec, cambian LOS TRES lugares en el mismo commit (esta función, el
+    buildSpec JS y la lista de ids) — test que fija el orden en
+    test_trade_optimizer.py."""
+    def on(v):
+        return bool(v and len(v))
+
+    def num(v):
+        if v is None or v == "":
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    (ent_sc_on, ent_sc, ent_pct_on, ent_pct,
+     xs_abs_on, xs_abs, xs_absup_on, xs_absup,
+     xs_dent_on, xs_dent, xs_dmax_on, xs_dmax,
+     xs_mak_on, xs_mak, xs_pct_on, xs_pct,
+     cap_bars_on, cap_bars, cap_sl_on, cap_sl,
+     cap_ts_on, cap_ts, cap_tp_on, cap_tp,
+     rearm_on, cool_on, cool) = vals
+
+    entries = []
+    if on(ent_sc_on) and num(ent_sc) is not None:
+        entries.append({"type": "score", "th": num(ent_sc)})
+    if on(ent_pct_on) and num(ent_pct) is not None:
+        entries.append({"type": "pct", "th": num(ent_pct)})
+    score_exits = []
+    if on(xs_abs_on) and num(xs_abs) is not None:
+        score_exits.append({"type": "absolute", "x": num(xs_abs)})
+    if on(xs_absup_on) and num(xs_absup) is not None:
+        score_exits.append({"type": "absolute_above", "x": num(xs_absup)})
+    if on(xs_dent_on) and num(xs_dent) is not None:
+        score_exits.append({"type": "delta_entry", "x": num(xs_dent)})
+    if on(xs_dmax_on) and num(xs_dmax) is not None:
+        score_exits.append({"type": "trailing_score", "x": num(xs_dmax)})
+    if on(xs_mak_on) and num(xs_mak) is not None:
+        score_exits.append({"type": "score_ma", "k": max(2, round(num(xs_mak)))})
+    if on(xs_pct_on) and num(xs_pct) is not None:
+        score_exits.append({"type": "percentile", "x": num(xs_pct)})
+    caps = []
+    if on(cap_bars_on) and num(cap_bars) is not None:
+        caps.append({"type": "max_bars", "n": max(1, round(num(cap_bars)))})
+    if on(cap_sl_on) and num(cap_sl) is not None:
+        caps.append({"type": "stop_loss", "pct": num(cap_sl)})
+    if on(cap_ts_on) and num(cap_ts) is not None:
+        caps.append({"type": "trailing_stop", "pct": num(cap_ts)})
+    if on(cap_tp_on) and num(cap_tp) is not None:
+        caps.append({"type": "take_profit", "pct": num(cap_tp)})
+    cooldown = 0
+    if on(cool_on) and num(cool) is not None:
+        cooldown = max(0, round(num(cool)))
+    return {"entries": entries, "score_exits": score_exits, "caps": caps,
+            "rearm": on(rearm_on), "cooldown": cooldown}
+
+
+def load_series(asset_id: int, strategy_id: int):
+    """Arrays diarios alineados a las barras PROPIAS del activo (gate
+    natural: solo fechas con precio propio, igual que el backtest). Única
+    función del módulo que toca la BD — el resto es lógica pura."""
+    from app.database import get_session
+    from app.models import Price, StrategyResult
+
+    db = get_session()
+    prows = (db.query(Price.date, Price.close)
+             .filter(Price.asset_id == asset_id, Price.close.isnot(None))
+             .order_by(Price.date).all())
+    srows = (db.query(StrategyResult.date, StrategyResult.score,
+                      StrategyResult.pct)
+             .filter(StrategyResult.strategy_id == strategy_id,
+                     StrategyResult.asset_id == asset_id).all())
+    sc_by_date = {d: (float(s) if s is not None else None,
+                      float(p) if p is not None else None)
+                  for d, s, p in srows}
+    closes, scores, pcts = [], [], []
+    for d, c in prows:
+        closes.append(float(c))
+        s, p = sc_by_date.get(d, (None, None))
+        scores.append(s)
+        pcts.append(p)
+    return closes, scores, pcts
+
+
 def optimize(closes, scores, percentiles, spec, *, min_trades=10,
              train_frac=0.7, top_n=10, max_combos=MAX_COMBOS) -> dict:
     """Grid search sobre la estructura activa de `spec`.
