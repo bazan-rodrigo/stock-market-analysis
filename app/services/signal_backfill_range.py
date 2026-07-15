@@ -569,7 +569,8 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 sv_scores = _evaluate_asset_signal_scores(
                     signals=prep["signals"], asset_signals=prep["asset_signals"],
                     group_signals=prep["group_signals"],
-                    params_by_id=prep["params_by_id"], isnaps=isnaps,
+                    params_by_id=prep["params_by_id"],
+                    compiled_by_id=prep["compiled_by_id"], isnaps=isnaps,
                     asset_groups=asset_groups, gscores=gscores)
                 sv_rows.extend(
                     (k[0], k[1], d_str, v) for k, v in sv_scores.items())

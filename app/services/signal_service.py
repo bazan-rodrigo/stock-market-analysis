@@ -101,9 +101,19 @@ def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
         d.code: d.keep_history for d in s.query(IndicatorDefinition).all()
     }
 
+    # Evaluadores COMPILADOS una vez por corrida (closures con los params
+    # horneados): ver signal_engine.compile_evaluator — el despacho por
+    # llamada de evaluate() era ~75% del cómputo puro del backfill.
+    compiled_by_id = {
+        sig.id: signal_engine.compile_evaluator(
+            sig.formula_type, params_by_id.get(sig.id), sig.params)
+        for sig in signals
+    }
+
     return {
         "signals":        signals,
         "params_by_id":   params_by_id,
+        "compiled_by_id": compiled_by_id,
         "asset_signals":  asset_signals,
         "group_signals":  group_signals,
         "hist_codes":     {c for c in needed_codes - _VIRTUAL_CODES
@@ -214,6 +224,7 @@ def compute_signal_values(target_date: date_type,
     }
 
     scores = _evaluate_asset_signal_scores(
+        compiled_by_id=prep["compiled_by_id"],
         signals=signals, asset_signals=asset_signals,
         group_signals=group_signals, params_by_id=params_by_id,
         isnaps=isnaps, asset_groups=asset_groups, gscores=gscores)
@@ -236,13 +247,24 @@ def compute_signal_values(target_date: date_type,
 
 def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
                                   params_by_id, isnaps,
-                                  asset_groups, gscores) -> dict[tuple, float]:
+                                  asset_groups, gscores,
+                                  compiled_by_id=None) -> dict[tuple, float]:
     """{(signal_id, asset_id): score} de una fecha — LÓGICA PURA, sin BD,
     compartida por el camino por-fecha y el modo rango (la paridad entre
     ambos depende de que este sea el único evaluador).
 
     gscores: {(group_type, group_id): obj} con atributos regime_score_*
-    (ORM GroupScore o SimpleNamespace, indistinto)."""
+    (ORM GroupScore o SimpleNamespace, indistinto).
+
+    compiled_by_id: evaluadores compilados de _prepare_signals; si no viene
+    (llamadores viejos/tests) se compila acá — mismo resultado, solo se
+    paga la compilación (barata) en cada llamada."""
+    if compiled_by_id is None:
+        compiled_by_id = {
+            sig.id: signal_engine.compile_evaluator(
+                sig.formula_type, params_by_id.get(sig.id), sig.params)
+            for sig in signals
+        }
     results: dict[tuple, float] = {}
 
     # Memo de scores de grupo: todos los activos de un mismo grupo comparten
@@ -255,9 +277,7 @@ def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
 
         for sig in asset_signals:
             value = isnap.get(sig.indicator_key) if sig.indicator_key else None
-            score = signal_engine.evaluate(sig.formula_type, sig.params, value,
-                                           params=params_by_id.get(sig.id))
-            asset_scores[sig.key] = score
+            asset_scores[sig.key] = compiled_by_id[sig.id](value)
 
         groups = asset_groups.get(asset_id, {})
         for sig in group_signals:
@@ -275,8 +295,7 @@ def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
                 asset_scores[sig.key] = None
                 continue
             value = _get_group_indicator_value(gscore, sig.indicator_key) if sig.indicator_key else None
-            score = signal_engine.evaluate(sig.formula_type, sig.params, value,
-                                           params=params_by_id.get(sig.id))
+            score = compiled_by_id[sig.id](value)
             group_score_memo[memo_key] = score
             asset_scores[sig.key] = score
 

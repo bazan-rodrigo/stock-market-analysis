@@ -117,6 +117,76 @@ def validate_params(formula_type: str, params: dict) -> str | None:
     return f"formula_type desconocido: {formula_type!r}"
 
 
+def compile_evaluator(formula_type: str, params: dict | None,
+                      params_json: str | None = None):
+    """Compila una señal a un evaluador especializado: una closure con los
+    parámetros ya extraídos y convertidos, con la MISMA semántica exacta que
+    evaluate() (test de propiedad en test_signal_engine_compile.py).
+
+    Motivación (scripts/profile_signal_pipeline.py): en un backfill,
+    evaluate() se llama cientos de miles de veces por corrida y ~75% del
+    cómputo puro era despacho — decidir el formula_type y re-extraer con
+    params.get(...) los mismos parámetros en cada llamada. Compilar toma
+    esa decisión UNA vez por señal (en _prepare_signals) y deja en el loop
+    caliente solo la matemática.
+
+    Ante params ausentes o con forma inesperada devuelve un wrapper de
+    evaluate() (misma conducta, sin la aceleración)."""
+    def _fallback(value):
+        return evaluate(formula_type, params_json, value, params=params)
+
+    if params is None:
+        return _fallback
+
+    try:
+        if formula_type == "discrete_map":
+            mapping = {k: float(v)
+                       for k, v in params.get("map", {}).items()
+                       if v is not None}
+
+            def _compiled_dm(value):
+                if value is None:
+                    return None
+                return mapping.get(value)
+            return _compiled_dm
+
+        if formula_type == "threshold":
+            pairs = [(limit if limit is None else float(limit), float(score))
+                     for limit, score in params.get("thresholds", [])]
+
+            def _compiled_th(value):
+                if value is None:
+                    return None
+                for limit, score in pairs:
+                    if limit is None or value > limit:
+                        return score
+                return None
+            return _compiled_th
+
+        if formula_type == "range":
+            vmin = params.get("min", -100.0)
+            vmax = params.get("max",  100.0)
+            do_clamp = params.get("clamp", True)
+            span = vmax - vmin
+            if span == 0:
+                return lambda value: None if value is None else 0.0
+
+            def _compiled_rg(value):
+                if value is None:
+                    return None
+                # mismas operaciones que evaluate_range (igualdad exacta de
+                # floats — incluso la semántica de max/min ante NaN)
+                normalized = ((value - vmin) / span) * 200.0 - 100.0
+                if do_clamp:
+                    normalized = max(-100.0, min(100.0, normalized))
+                return float(normalized)
+            return _compiled_rg
+    except (TypeError, ValueError):
+        return _fallback
+
+    return _fallback  # formula_type desconocido: evaluate() loguea
+
+
 def evaluate(
     formula_type: str,
     params_json: str,
