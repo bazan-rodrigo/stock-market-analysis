@@ -228,8 +228,11 @@ def _simple_slot(name, slot, color, default_period, dist_label_id=None):
         ))
     return html.Div([
         _chk(f"chart-ind-{name}-{slot}-enabled", name.upper()),
+        # OJO: sin "d-flex" — Bootstrap la genera con !important y PISA el
+        # display inline que setea el callback de colapso (bug real: los
+        # params nunca se ocultaban). El display lo maneja solo el callback.
         html.Div(inner, id=f"chart-ind-{name}-{slot}-params",
-                 className="d-flex align-items-center gap-1",
+                 className="align-items-center gap-1",
                  style={"display": "none"}),
     ], className="d-flex align-items-center gap-1 ind-group",
        style={"--ind-color": color})
@@ -248,10 +251,11 @@ def _ind_toggle(label, name, params):
         ]
     return html.Div([
         _chk(f"chart-ind-{name}-1-enabled", label),
+        # Sin "d-flex" (ver _simple_slot): el display es del callback.
         html.Div(
             param_inputs,
             id=f"chart-ind-{name}-1-params",
-            className="d-flex align-items-center gap-1",
+            className="align-items-center gap-1",
             style={"display": "none"},
         ),
     ], className="d-flex align-items-center gap-1 ind-group")
@@ -496,7 +500,8 @@ def layout(**kwargs):
             "Frenos opcionales tras una salida — se exigen ADEMÁS de "
             "las condiciones de entrada."),
             children=[
-                            html.Div(_chk("chart-strategy-rearm", "Cruce"),
+                            html.Div(_chk("chart-strategy-rearm", "Cruce",
+                                          default_on=True),
                                      id="chart-strategy-rearm-wrap"),
                             dbc.Tooltip(
                                 "Re-entrada por cruce: tras una salida, la "
@@ -584,8 +589,10 @@ def layout(**kwargs):
                                    "backgroundColor": "#1f2937",
                                    "border": "1px solid #374151"},
                         ),
+                    # Sin "d-flex" (ver _simple_slot): el display lo maneja
+                    # toggle_strategy_params (flex/none inline).
                     ], id="chart-strategy-params",
-                       className="d-flex align-items-center gap-2 flex-wrap",
+                       className="align-items-center gap-2 flex-wrap",
                        style={"display": "none"}),
                 ], className="d-flex align-items-center gap-1 flex-wrap"),
                 # Resultado SIEMPRE en su propia línea, dentro del mismo
