@@ -892,11 +892,15 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
     })
 
     # "Ya calculado" según el alcance: los resultados de ESA estrategia, los
-    # scores de ESA señal, o cualquier señal del día (alcance total)
+    # scores de ESA señal, o cualquier señal del día (alcance total).
+    # En force (rebuild) NO se consulta: _dates_to_compute recorre todas las
+    # fechas sin mirar `computed` — el DISTINCT sobre las tablas grandes
+    # (18s por estrategia; minutos sobre signal_value entero en el alcance
+    # total) era arranque 100% tirado.
     if scope_kind == "strategy":
         from app.models import StrategyResult
         eval_kind, eval_ref = "strategy", strategy_id
-        computed = {
+        computed = set() if force else {
             d for (d,) in _within(
                 s.query(StrategyResult.date).distinct().filter(
                     StrategyResult.strategy_id == strategy_id),
@@ -908,7 +912,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             SignalDefinition.key == scope.partition(":")[2]).first()
         eval_kind, eval_ref = "signal", target_sig.id
         table = GroupSignalValue if target_sig.source == "group" else SignalValue
-        computed = {
+        computed = set() if force else {
             d for (d,) in _within(
                 s.query(table.date).distinct().filter(
                     table.signal_id == target_sig.id),
@@ -916,7 +920,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
         }
     else:
         eval_kind, eval_ref = "all", 0
-        computed = {
+        computed = set() if force else {
             d for (d,) in _within(
                 s.query(SignalValue.date).distinct(), SignalValue.date)
         }
