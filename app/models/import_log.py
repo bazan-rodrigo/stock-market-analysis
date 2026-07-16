@@ -12,8 +12,10 @@ class ImportLog(Base):
 
     id = Column(Integer, primary_key=True)
     ticker = Column(String(20), nullable=False, unique=True)
+    # name=: obligatorio para PostgreSQL (CREATE TYPE); MySQL lo ignora
     status = Column(
-        Enum("imported", "skipped", "error"), nullable=False
+        Enum("imported", "skipped", "error", name="import_status"),
+        nullable=False
     )
     detail = Column(Text)
     attempted_at = Column(DateTime, nullable=False, default=datetime.utcnow)

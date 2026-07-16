@@ -20,8 +20,12 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Inyectar la URL desde Config (sobreescribe lo que haya en alembic.ini)
-config.set_main_option("sqlalchemy.url", Config.DATABASE_URL)
+# Inyectar la URL desde Config solo si no viene ya definida (alembic.ini la
+# deja vacía; los tests de portabilidad pasan una URL explícita por dialecto
+# para renderizar migraciones en modo offline — ver
+# tests/test_migration_portability.py)
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", Config.DATABASE_URL)
 
 target_metadata = Base.metadata
 

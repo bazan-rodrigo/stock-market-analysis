@@ -81,9 +81,19 @@ _BUILTIN_ASSETS = [
 ]
 
 
+# Fuentes de fundamentales integradas: histórico las sembraba la migración
+# 0035; acá para que una base nacida por create_all + stamp head (ver
+# scripts/init_db.py) quede igual de poblada.
+_BUILTIN_FUND_SOURCES = [
+    {"name": "Yahoo Finance",
+     "description": "Fundamentales via yfinance (quarterly_financials, "
+                    "balance_sheet, cashflow)"},
+]
+
+
 def ensure_builtin_data() -> None:
     from app.database import get_session
-    from app.models import Asset, PriceSource
+    from app.models import Asset, FundamentalSource, PriceSource
     from app.models.indicator_definition import IndicatorDefinition
 
     s = get_session()
@@ -93,6 +103,15 @@ def ensure_builtin_data() -> None:
         if not exists:
             s.add(PriceSource(name=src["name"], description=src["description"]))
             logger.info("Creada fuente de precio integrada: %s", src["name"])
+
+    for src in _BUILTIN_FUND_SOURCES:
+        exists = s.query(FundamentalSource).filter(
+            FundamentalSource.name == src["name"]).first()
+        if not exists:
+            s.add(FundamentalSource(name=src["name"],
+                                    description=src["description"]))
+            logger.info("Creada fuente de fundamentales integrada: %s",
+                        src["name"])
     s.flush()  # asegura ids de fuentes recién creadas para los activos de abajo
 
     for a in _BUILTIN_ASSETS:
@@ -120,6 +139,18 @@ def ensure_builtin_data() -> None:
                     setattr(exists, field, val)
 
     s.commit()
+
+    # Tablas ind_{code}: no forman parte de Base.metadata (get_ind_table
+    # las refleja), así que en una base nacida por create_all + stamp head
+    # no existen — materializarlas desde las definiciones. En una base
+    # migrada ya existen y esto es una inspección por tabla.
+    from app.models.indicator_store import ensure_ind_table
+    try:
+        for d in s.query(IndicatorDefinition).filter(
+                IndicatorDefinition.keep_history.is_(True)).all():
+            ensure_ind_table(d.code, d.type or "num")
+    except Exception as exc:
+        logger.warning("No se pudieron asegurar las tablas ind_*: %s", exc)
 
     # Tablas dinámicas sig_{id}/strat_res_{id}: reparar en el arranque los
     # dos estados que un crash puede dejar (tabla huérfana / definición sin

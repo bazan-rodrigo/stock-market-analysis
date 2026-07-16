@@ -9,7 +9,8 @@ almacenan en current_indicator_values (un solo valor vigente por activo).
 """
 import threading
 
-from sqlalchemy import Column, Date, Float, ForeignKey, Integer, MetaData, String, Table
+from sqlalchemy import (Column, Date, Float, ForeignKey, Index, Integer,
+                        MetaData, PrimaryKeyConstraint, String, Table)
 
 from app.database import Base, engine
 
@@ -28,6 +29,41 @@ def get_ind_table(code: str) -> Table:
         if name in _meta.tables and len(_meta.tables[name].columns) > 0:
             return _meta.tables[name]
         return Table(name, _meta, autoload_with=engine, extend_existing=True)
+
+
+def ensure_ind_table(code: str, ind_type: str = "num", bind=None) -> None:
+    """Crea ind_{code} si no existe. Las tablas por indicador no forman
+    parte de Base.metadata (get_ind_table las refleja de la BD), así que
+    una base nacida por create_all + stamp head (scripts/init_db.py) no
+    las trae — esta función las materializa desde IndicatorDefinition en
+    el arranque (ensure_builtin_data). En una base con historia (creada
+    por las migraciones 0043/0060) es solo una inspección.
+
+    Esquema idéntico al de la migración 0043 (PK (asset_id, date), FK a
+    assets con CASCADE, value Float o String(50) según ind_type) más el
+    índice por date de la 0062. Se construye en un MetaData efímero para
+    no interferir con el caché de autoload de get_ind_table."""
+    import sqlalchemy as sa
+
+    b = bind or engine
+    name = f"ind_{code}"
+    if sa.inspect(b).has_table(name):
+        return
+    tmp = MetaData()
+    # stub de assets solo para que el FK compile — no se crea (tables=[t])
+    Table("assets", tmp, Column("id", Integer, primary_key=True))
+    vcol = (Column("value", String(50), nullable=True) if ind_type == "str"
+            else Column("value", Float, nullable=True))
+    t = Table(
+        name, tmp,
+        Column("asset_id", Integer,
+               ForeignKey("assets.id", ondelete="CASCADE"), nullable=False),
+        Column("date", Date, nullable=False),
+        vcol,
+        PrimaryKeyConstraint("asset_id", "date"),
+        Index(f"ix_{name}_date", "date"),
+    )
+    tmp.create_all(b, tables=[t])
 
 
 # Lookup "as-of": máxima antigüedad aceptada del último valor. Los

@@ -13,7 +13,10 @@ class User(UserMixin, Base):
     id = Column(Integer, primary_key=True)
     username = Column(String(80), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum("admin", "analyst"), nullable=False, default="analyst")
+    # name=: obligatorio para PostgreSQL (CREATE TYPE); MySQL lo ignora y
+    # sigue rindiendo ENUM('admin','analyst') idéntico al esquema histórico
+    role = Column(Enum("admin", "analyst", name="user_role"),
+                  nullable=False, default="analyst")
     active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 

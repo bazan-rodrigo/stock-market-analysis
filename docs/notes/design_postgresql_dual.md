@@ -106,11 +106,36 @@ PG tiene rama propia — **nunca** cae al camino de sqlite/tests.
 
 ## Plan por fases
 
-1. **db_compat + call sites + tests de paridad** ← esta fase (hecha).
-2. **Bootstrap:** `init_db.py --from-models` (`create_all` + `stamp head`);
-   mover seeds de catálogo de migraciones a `ensure_builtin_data`; validar
-   equivalencia cadena↔modelos con autogenerate-diff vacío (Codespace);
-   `sa.Enum` con `name=`. Regla de migraciones portables + meta-test offline.
+1. **db_compat + call sites + tests de paridad** — HECHA (16-jul, commit 5029d9e).
+2. **Bootstrap** — HECHA (16-jul). Implementación:
+   - `scripts/init_db.py`: base vacía → `create_all` + `alembic stamp head`
+     (único camino válido en PG; recomendado también para MySQL nuevo);
+     base existente → `upgrade head`; `--via-migrations` fuerza el replay
+     de la cadena (solo MySQL, para comparar esquemas).
+   - `sa.Enum` con `name=` en `user.role` (`user_role`) e
+     `import_log.status` (`import_status`) — MySQL sigue rindiendo
+     `ENUM(...)` idéntico; PG ahora puede emitir `CREATE TYPE`.
+   - **Tablas `ind_{code}`**: no están en `Base.metadata` (las creaban las
+     migraciones 0043/0060) → `indicator_store.ensure_ind_table()` las
+     materializa desde `IndicatorDefinition` en `ensure_builtin_data`
+     (esquema fiel a 0043 + índice date de 0062). En bases migradas es
+     solo una inspección.
+   - **Seeds**: el único seed de migración que faltaba en startup era
+     `FundamentalSource` "Yahoo Finance" (0035) → movido a
+     `ensure_builtin_data`. Las configs singleton (regime, drawdown,
+     volatility, scheduler, app_settings) ya hacían get-or-create, y los
+     seeds de señales de la 0033 fueron BORRADOS por la 0064 (una base
+     nueva no debe sembrarlos).
+   - `alembic/env.py` inyecta `Config.DATABASE_URL` solo si la URL no
+     viene definida → permite renders offline con URL explícita.
+   - Meta-test `tests/test_bootstrap_portability.py`: renderiza offline
+     (`--sql`) las migraciones posteriores al freeze 0075 contra mysql y
+     postgresql (verificado manualmente: la 0001 pasa en mysql y falla en
+     PG con "ENUM type requires a name" — la red detecta). Además: guard
+     de Enums sin nombre en modelos y tests de `ensure_ind_table`.
+   - **Pendiente Codespace**: validar equivalencia cadena↔modelos con
+     `alembic revision --autogenerate` (diff vacío) sobre MariaDB, y una
+     corrida real de `init_db.py` en base vacía.
 3. **Semántica:** NULLs del ranking (portable, sin `NULLS LAST`),
    login/aliases case-insensitive, decisión `Float`, aislamiento del
    backfill, rollback de consola SQL, tuning de pool.
