@@ -22,13 +22,23 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   `yfinance`, que no están en esta PC de desarrollo).
 - **Flujo de trabajo:** se edita en la PC local (Windows, **sin base de datos**)
   → `git commit` + `git push` → `git pull` en el GitHub Codespace, donde corre la
-  app con **MariaDB** (`sudo service mariadb start`, no `mysql`). Recordarle al
-  usuario el `git pull` tras cada push.
+  app con **MariaDB** (`sudo service mariadb start`, no `mysql`) — o PostgreSQL
+  con `DB_ENGINE=postgres|both` en el setup (`sudo service postgresql start`).
+  Recordarle al usuario el `git pull` tras cada push.
 - **`git push` actualiza TRES remotes a la vez** (bazan-rodrigo, rodrigoqw33,
   rodrigoba77). Si falla en uno, revisar el PAT de esa cuenta (`git remote -v`).
 - **Verificación:** esta PC no levanta la app (sin MariaDB/yfinance). La red de
   seguridad automatizada es pytest. Todo lo que toca la app viva (callbacks Dash,
   migraciones, corridas reales) se prueba en el Codespace — dejarlo anotado.
+- **Soporte dual MySQL/PostgreSQL:** todo SQL con sabor a motor (upserts,
+  quoting, TRUNCATE vs DELETE, retry de locks, information_schema) va por
+  `app/services/db_compat.py` — nunca ramas por dialecto sueltas en los
+  servicios, y PostgreSQL NUNCA cae al camino de sqlite/tests. La rama MySQL
+  emite el SQL byte-idéntico al histórico (`tests/test_db_compat.py` lo fija).
+  Migraciones desde la 0076: **portables** (la cadena 0001–0075 quedó
+  congelada solo-MySQL; `tests/test_bootstrap_portability.py` renderiza las
+  nuevas offline contra ambos dialectos). Bases nuevas nacen con
+  `scripts/init_db.py` (create_all + stamp head, cualquier motor).
 - **Modales ABM:** no se cierran ante error de guardado (solo el callback de save
   cierra, y solo en éxito) — así el usuario no pierde lo cargado.
 - **Pantalla nueva = registrarla en `app/__init__.py`** (listas `_PAGES` y
@@ -52,7 +62,10 @@ poder retomar el proyecto sin la memoria de sesiones previas.
 ## Stack
 
 - Python + **Dash** (UI) + **Flask-Login** (auth con roles) + SQLAlchemy + **Alembic**.
-- Base: **MariaDB/MySQL** (prod: Linux + Apache2 + mod_wsgi, un solo proceso WSGI).
+- Base: **MariaDB/MySQL** (prod: Linux + Apache2 + mod_wsgi, un solo proceso
+  WSGI) **o PostgreSQL** — soporte dual: el motor lo decide `DATABASE_URL`
+  (`mysql+mysqldb://` / `postgresql+psycopg://`). Estudio y estado por fase
+  en `docs/notes/design_postgresql_dual.md`.
 - **APScheduler** en el proceso principal (sin cron externo) para tareas diarias.
 - Fuente de precios: **Yahoo Finance** (yfinance) — arquitectura extensible.
 - Config: `conf.properties` (INI) con prioridad a variables de entorno.

@@ -164,9 +164,15 @@ PG tiene rama propia — **nunca** cae al camino de sqlite/tests.
      COMMITTED (default de PG) el resultado es el mismo; si la paridad
      de fase 5 muestra drift, fijar REPEATABLE READ en la sesión
      productora solo para PG.
-4. **Entorno:** `DB_ENGINE` en `.devcontainer/setup.sh` +
-   `scripts/codespace_setup.sh` (rama PG vía PGDG), `conf.properties.example`,
-   CLAUDE.md y docs.
+4. **Entorno** — HECHA (16-jul). `DB_ENGINE` (mysql|postgres|both, default
+   mysql) en `.devcontainer/setup.sh`, `scripts/codespace_setup.sh` y
+   `devcontainer.json`; la rama PG instala PostgreSQL 16 desde PGDG, crea
+   usuario/base con `psql`, corre `init_db.py` con `DATABASE_URL` y (modo
+   postgres) la exporta en `~/.bashrc`; el modo `both` deja los dos motores
+   lado a lado para la paridad de fase 5. `conf.properties.example`
+   documenta `database_url` y el pool. CLAUDE.md actualizado (stack, flujo,
+   convención db_compat). Drive-by: el check de admin de
+   `codespace_setup.sh` consultaba la tabla `user` (no existe; es `users`).
 5. **Paridad en Codespace:** ambos motores con el mismo dataset → pipeline
    completo (delta + rebuild + señales + estrategias + backtest) → comparar
    filas/scores/rankings → medir performance (lectura de series `ind_*` — el
