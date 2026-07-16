@@ -7,7 +7,7 @@ import json
 import pytest
 import sqlalchemy as sa
 
-from app.database import Base, engine, get_session
+from app.database import Base, Session, engine, get_session
 from app.models import signal_store
 
 
@@ -18,6 +18,10 @@ def _table_exists(name: str) -> bool:
 @pytest.fixture()
 def db():
     import app.models  # noqa: F401
+    # Sesión limpia al entrar: la scoped session es global al hilo y los
+    # DELETE crudos del teardown la bypasean — un objeto zombie en la
+    # identity map colisiona con los ids que sqlite reutiliza (SAWarning)
+    Session.remove()
     Base.metadata.create_all(engine)
     tables = ("strategy_component", "strategy", "`signal`",
               "signal_eval_log", "indicator_definitions")
@@ -34,7 +38,7 @@ def db():
     for name in list(sig.values()) + list(strat.values()):
         if name in signal_store._meta.tables:
             signal_store._meta.remove(signal_store._meta.tables[name])
-    get_session().rollback()
+    Session.remove()
 
 
 def _mk_signal(key="lc_sig"):
