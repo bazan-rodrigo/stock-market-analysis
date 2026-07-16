@@ -323,7 +323,9 @@ def load_strategy_overlay(enabled, strategy_id, asset_id):
     consultar la base)."""
     if not enabled or not strategy_id or not asset_id:
         return no_update
-    from app.models import StrategyResult
+    import sqlalchemy as sa
+
+    from app.models import signal_store
     from app.services.strategy_service import get_strategy_by_id
     from app.services.visibility import can_view, current_viewer
 
@@ -339,11 +341,12 @@ def load_strategy_overlay(enabled, strategy_id, asset_id):
     # pipeline — migración 0071) salen de la misma query indexada. pct puede
     # ser NULL en historia previa a la migración: el modo percentil del
     # simulador simplemente no ve esas fechas hasta un "Recalcular completo".
-    rows = (db.query(StrategyResult.date, StrategyResult.score,
-                     StrategyResult.pct)
-            .filter(StrategyResult.strategy_id == int(strategy_id),
-                    StrategyResult.asset_id == int(asset_id))
-            .order_by(StrategyResult.date).all())
+    rt = signal_store.ensure_strat_table(int(strategy_id),
+                                         bind=db.connection())
+    rows = db.execute(
+        sa.select(rt.c.date, rt.c.score, rt.c.pct)
+        .where(rt.c.asset_id == int(asset_id))
+        .order_by(rt.c.date)).all()
 
     return {
         "asset_id":    int(asset_id),

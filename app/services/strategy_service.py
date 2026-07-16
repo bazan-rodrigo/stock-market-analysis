@@ -1,20 +1,22 @@
 """
 Servicio de estrategias.
-Combina signal_value ponderados según la configuración de strategy_component
-y persiste el score final + ranking en strategy_result.
+Combina los scores de señal ponderados según la configuración de
+strategy_component y persiste el score final + ranking en strat_res_{id}
+(una tabla por estrategia, ver app.models.signal_store).
 """
 import logging
 from datetime import date as date_type
+
+import sqlalchemy as sa
 
 from app.database import get_session
 from app.models import (
     Asset,
     GroupSignalValue,
-    SignalValue,
     Strategy,
     StrategyComponent,
-    StrategyResult,
 )
+from app.models import signal_store
 from app.services import strategy_filter
 
 logger = logging.getLogger(__name__)
@@ -141,18 +143,14 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
 
     signal_ids = list({c.signal_id for c in components})
 
-    # Cargar todos los signal_value relevantes del día
-    rows = (
-        s.query(SignalValue.signal_id, SignalValue.asset_id, SignalValue.score)
-        .filter(
-            SignalValue.signal_id.in_(signal_ids),
-            SignalValue.date == target_date,
-        )
-        .all()
-    )
-    signal_scores: dict[tuple, float] = {
-        (r.signal_id, r.asset_id): r.score for r in rows
-    }
+    # Cargar los scores de señal relevantes del día (una tabla por señal)
+    signal_scores: dict[tuple, float] = {}
+    for sig_id in signal_ids:
+        t = signal_store.ensure_sig_table(sig_id, bind=s.connection())
+        for aid, score in s.execute(
+                sa.select(t.c.asset_id, t.c.score)
+                .where(t.c.date == target_date)):
+            signal_scores[(sig_id, aid)] = score
 
     # Cargar group_signal_value relevantes del día
     grows = (
@@ -202,38 +200,41 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
         signal_scores=signal_scores, group_scores=group_scores,
         filter_tree=filter_tree, operand_values=operand_values)
 
-    # Pre-cargar StrategyResults del día para esta estrategia
-    existing_srs: dict[int, StrategyResult] = {
-        sr.asset_id: sr
-        for sr in s.query(StrategyResult).filter(
-            StrategyResult.strategy_id == strategy_id,
-            StrategyResult.date == target_date,
-        ).all()
+    # Upsert del día en la tabla propia strat_res_{id}
+    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    existing: dict[int, tuple] = {
+        aid: (score, pct) for aid, score, pct in s.execute(
+            sa.select(rt.c.asset_id, rt.c.score, rt.c.pct)
+            .where(rt.c.date == target_date))
     }
 
     # Eliminar resultados de un recálculo previo del mismo día cuyos activos
     # ya no obtienen score (filas obsoletas)
     scored_ids = {asset_id for asset_id, _ in scored}
-    for asset_id, sr in list(existing_srs.items()):
-        if asset_id not in scored_ids:
-            s.delete(sr)
-            del existing_srs[asset_id]
+    stale = [aid for aid in existing if aid not in scored_ids]
+    if stale:
+        s.execute(rt.delete().where(rt.c.date == target_date,
+                                    rt.c.asset_id.in_(stale)))
 
     written = 0
     pcts = percent_ranks([score for _, score in scored])
+    ins, upd = [], []
     for (asset_id, score), pct in zip(scored, pcts):
-        sr = existing_srs.get(asset_id)
-        if sr is None:
-            sr = StrategyResult(
-                strategy_id=strategy_id,
-                asset_id=asset_id,
-                date=target_date,
-            )
-            s.add(sr)
-            existing_srs[asset_id] = sr
-        sr.score = score
-        sr.pct = pct
+        prev = existing.get(asset_id)
+        if prev is None:
+            ins.append({"asset_id": asset_id, "date": target_date,
+                        "score": score, "pct": pct})
+        elif prev != (score, pct):
+            upd.append({"aid": asset_id, "sc": score, "pc": pct})
         written += 1
+    if ins:
+        s.execute(rt.insert(), ins)
+    if upd:
+        s.execute(
+            rt.update().where(rt.c.date == target_date,
+                              rt.c.asset_id == sa.bindparam("aid"))
+            .values(score=sa.bindparam("sc"), pct=sa.bindparam("pc")),
+            upd)
 
     s.commit()
     logger.info(
@@ -420,6 +421,9 @@ def save_strategy(
     except Exception:
         s.rollback()
         raise
+    # DESPUÉS del commit (ver signal_store: definición sin tabla es el lado
+    # benigno ante crash; el id inmutable es el nombre de la tabla)
+    signal_store.ensure_strat_table(strat.id)
     return strat
 
 
@@ -443,24 +447,23 @@ def delete_strategy(strategy_id: int, *, acting_user_id: int | None = None,
     except Exception:
         s.rollback()
         raise
+    # DROP después del commit: un crash deja tabla huérfana inofensiva
+    # (reconcile_dynamic_tables la barre), nunca definición sin tabla
+    signal_store.drop_strat_table(strategy_id)
 
 
 def get_strategy_results(strategy_id: int, target_date) -> list[dict]:
     s = get_session()
-    rows = (
-        s.query(StrategyResult, Asset.ticker, Asset.name)
-        .join(Asset, Asset.id == StrategyResult.asset_id)
-        .filter(
-            StrategyResult.strategy_id == strategy_id,
-            StrategyResult.date == target_date,
-        )
-        .order_by(StrategyResult.score.desc())
-        .all()
-    )
+    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rows = s.execute(
+        sa.select(rt.c.asset_id, Asset.ticker, Asset.name, rt.c.score)
+        .join_from(rt, Asset, Asset.id == rt.c.asset_id)
+        .where(rt.c.date == target_date)
+        .order_by(rt.c.score.desc())
+    ).all()
     return [
-        {"asset_id": r.asset_id,
-         "ticker": ticker, "name": name, "score": r.score}
-        for r, ticker, name in rows
+        {"asset_id": aid, "ticker": ticker, "name": name, "score": score}
+        for aid, ticker, name, score in rows
     ]
 
 
@@ -478,7 +481,7 @@ def get_strategy_results_with_breakdown(
       ordenados por score desc (el orden ES el ranking).
     - componentes: [{signal_key, signal_name, weight, scope, group_type}]
     """
-    from app.models import SignalDefinition, SignalValue, GroupSignalValue
+    from app.models import SignalDefinition
 
     s = get_session()
     strategy = s.query(Strategy).filter(Strategy.id == strategy_id).first()
@@ -496,37 +499,33 @@ def get_strategy_results_with_breakdown(
     }
 
     # Resultado base
+    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
     q = (
-        s.query(StrategyResult, Asset.ticker, Asset.name,
-                Asset.sector_id, Asset.market_id)
-        .join(Asset, Asset.id == StrategyResult.asset_id)
-        .filter(
-            StrategyResult.strategy_id == strategy_id,
-            StrategyResult.date == target_date,
-        )
+        sa.select(rt.c.asset_id, rt.c.score, Asset.ticker, Asset.name,
+                  Asset.sector_id, Asset.market_id)
+        .join_from(rt, Asset, Asset.id == rt.c.asset_id)
+        .where(rt.c.date == target_date)
     )
     if sector_id is not None:
-        q = q.filter(Asset.sector_id == sector_id)
+        q = q.where(Asset.sector_id == sector_id)
     if market_id is not None:
-        q = q.filter(Asset.market_id == market_id)
-    q = q.order_by(StrategyResult.score.desc())
-    rows = q.all()
+        q = q.where(Asset.market_id == market_id)
+    q = q.order_by(rt.c.score.desc())
+    rows = s.execute(q).all()
 
     if not rows:
         return [], []
 
-    asset_ids = [r.asset_id for r, *_ in rows]
+    asset_ids = [aid for aid, *_ in rows]
 
-    sv_map: dict[tuple, float] = {
-        (sv.signal_id, sv.asset_id): sv.score
-        for sv in s.query(SignalValue.signal_id, SignalValue.asset_id, SignalValue.score)
-        .filter(
-            SignalValue.signal_id.in_(sig_ids),
-            SignalValue.asset_id.in_(asset_ids),
-            SignalValue.date == target_date,
-        )
-        .all()
-    }
+    sv_map: dict[tuple, float] = {}
+    for sig_id in set(sig_ids):
+        t = signal_store.ensure_sig_table(sig_id, bind=s.connection())
+        for aid, score in s.execute(
+                sa.select(t.c.asset_id, t.c.score)
+                .where(t.c.date == target_date,
+                       t.c.asset_id.in_(asset_ids))):
+            sv_map[(sig_id, aid)] = score
 
     gsv_map: dict[tuple, float] = {
         (gsv.signal_id, gsv.group_type, gsv.group_id): gsv.score
@@ -561,34 +560,22 @@ def get_strategy_results_with_breakdown(
     ]
 
     # Fecha anterior con resultados para esta estrategia
-    from sqlalchemy import distinct as _distinct
-    prev_date_row = (
-        s.query(_distinct(StrategyResult.date))
-        .filter(
-            StrategyResult.strategy_id == strategy_id,
-            StrategyResult.date < target_date,
-        )
-        .order_by(StrategyResult.date.desc())
-        .first()
-    )
-    prev_date = prev_date_row[0] if prev_date_row else None
+    prev_date = s.execute(
+        sa.select(sa.func.max(rt.c.date)).where(rt.c.date < target_date)
+    ).scalar()
 
     prev_score_map: dict[int, float] = {}
     if prev_date:
-        prev_rows = (
-            s.query(StrategyResult.asset_id, StrategyResult.score)
-            .filter(
-                StrategyResult.strategy_id == strategy_id,
-                StrategyResult.date == prev_date,
-                StrategyResult.asset_id.in_(asset_ids),
-            )
-            .all()
-        )
-        prev_score_map = {r.asset_id: r.score for r in prev_rows}
+        prev_score_map = {
+            aid: score for aid, score in s.execute(
+                sa.select(rt.c.asset_id, rt.c.score)
+                .where(rt.c.date == prev_date,
+                       rt.c.asset_id.in_(asset_ids)))
+        }
 
     results = []
-    for r, ticker, name, s_id, m_id in rows:
-        groups = asset_group_map.get(r.asset_id, {})
+    for asset_id, r_score, ticker, name, s_id, m_id in rows:
+        groups = asset_group_map.get(asset_id, {})
         comp_scores: dict[str, float | None] = {}
 
         for comp in components:
@@ -597,7 +584,7 @@ def get_strategy_results_with_breakdown(
             scope = comp.scope
 
             if scope is None or scope == "":
-                score = sv_map.get((comp.signal_id, r.asset_id))
+                score = sv_map.get((comp.signal_id, asset_id))
             elif scope == "own_group":
                 grp_id = groups.get(comp.group_type)
                 score = gsv_map.get((comp.signal_id, comp.group_type, grp_id)) if grp_id else None
@@ -606,16 +593,16 @@ def get_strategy_results_with_breakdown(
 
             comp_scores[key] = score
 
-        prev_sc   = prev_score_map.get(r.asset_id)
-        delta_score = round(r.score - prev_sc, 4) if (prev_sc is not None and r.score is not None) else None
+        prev_sc   = prev_score_map.get(asset_id)
+        delta_score = round(r_score - prev_sc, 4) if (prev_sc is not None and r_score is not None) else None
 
         results.append({
-            "asset_id":    r.asset_id,
+            "asset_id":    asset_id,
             "ticker":      ticker,
             "name":        name or "—",
             "sector_id":   s_id,
             "market_id":   m_id,
-            "score":       r.score,
+            "score":       r_score,
             "prev_score":  prev_sc,
             "delta_score": delta_score,
             "comp_scores": comp_scores,
@@ -629,12 +616,10 @@ def get_filter_options(strategy_id: int, target_date) -> dict:
     from app.models import Sector, Market
     s = get_session()
 
+    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
     asset_ids = [
-        r[0]
-        for r in s.query(StrategyResult.asset_id)
-        .filter(StrategyResult.strategy_id == strategy_id,
-                StrategyResult.date == target_date)
-        .all()
+        aid for (aid,) in s.execute(
+            sa.select(rt.c.asset_id).where(rt.c.date == target_date))
     ]
     if not asset_ids:
         return {"sectors": [], "markets": []}
@@ -663,14 +648,11 @@ def get_filter_options(strategy_id: int, target_date) -> dict:
 
 def get_available_dates(strategy_id: int) -> list:
     """Devuelve las fechas con resultados para una estrategia, ordenadas desc."""
-    from sqlalchemy import distinct
     s = get_session()
-    dates = (
-        s.query(distinct(StrategyResult.date))
-        .filter(StrategyResult.strategy_id == strategy_id)
-        .order_by(StrategyResult.date.desc())
-        .all()
-    )
+    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    dates = s.execute(
+        sa.select(rt.c.date).distinct().order_by(rt.c.date.desc())
+    ).all()
     return [r[0] for r in dates]
 
 
@@ -684,22 +666,17 @@ def get_strategy_score_history(
     {asset_id: [(date, score), ...]} ordenado por fecha asc.
     """
     s = get_session()
-    q = (
-        s.query(StrategyResult.asset_id, StrategyResult.date,
-                StrategyResult.score)
-        .filter(
-            StrategyResult.strategy_id == strategy_id,
-            StrategyResult.asset_id.in_(asset_ids),
-        )
-    )
+    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    q = sa.select(rt.c.asset_id, rt.c.date, rt.c.score).where(
+        rt.c.asset_id.in_(asset_ids))
     if date_from:
-        q = q.filter(StrategyResult.date >= date_from)
+        q = q.where(rt.c.date >= date_from)
     if date_to:
-        q = q.filter(StrategyResult.date <= date_to)
-    q = q.order_by(StrategyResult.date)
+        q = q.where(rt.c.date <= date_to)
+    q = q.order_by(rt.c.date)
 
     result: dict[int, list] = {aid: [] for aid in asset_ids}
-    for asset_id, dt, score in q.all():
+    for asset_id, dt, score in s.execute(q):
         result[asset_id].append((dt, score))
     return result
 
@@ -904,7 +881,8 @@ def import_strategies_excel(file_bytes: bytes,
                 ))
 
             db.flush()
-            results.append({"name": name, "status": "ok", "detail": f"id={strat.id}"})
+            results.append({"name": name, "status": "ok",
+                            "detail": f"id={strat.id}", "_strat_id": strat.id})
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -918,4 +896,7 @@ def import_strategies_excel(file_bytes: bytes,
             for n in names
         ]
 
+    # Tablas strat_res_{id} después del commit (mismo orden que save_strategy)
+    for r in results:
+        signal_store.ensure_strat_table(r.pop("_strat_id"))
     return results

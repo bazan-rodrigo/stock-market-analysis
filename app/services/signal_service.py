@@ -1,7 +1,8 @@
 """
 Servicio de señales.
 Evalúa cada SignalDefinition contra indicadores (ind_*) / group_scores
-y persiste los resultados en signal_value / group_signal_value.
+y persiste los resultados en sig_{id} (una tabla por señal, ver
+app.models.signal_store) / group_signal_value.
 """
 import logging
 import sqlalchemy as sa
@@ -13,8 +14,8 @@ from app.models import (
     GroupScore,
     GroupSignalValue,
     SignalDefinition,
-    SignalValue,
 )
+from app.models import signal_store
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import query_values_asof
 from app.models.price import Price
@@ -128,7 +129,8 @@ def compute_signal_values(target_date: date_type,
                           only_signal_ids: set[int] | None = None,
                           latest_price_date: date_type | None = None) -> int:
     """
-    Calcula signal_value para todos los activos para target_date.
+    Calcula los scores de señal de target_date para todos los activos y
+    los upsertea en las tablas sig_{id} (una por señal).
     Lee valores desde cada tabla ind_{code} por separado.
 
     only_signal_ids acota el cálculo a un subconjunto (alcance por señal o
@@ -218,27 +220,37 @@ def compute_signal_values(target_date: date_type,
         ).all()
     }
 
-    existing_svs: dict[tuple, SignalValue] = {
-        (sv.signal_id, sv.asset_id): sv
-        for sv in s.query(SignalValue).filter(SignalValue.date == target_date).all()
-    }
-
     scores = _evaluate_asset_signal_scores(
         compiled_by_id=prep["compiled_by_id"],
         signals=signals, asset_signals=asset_signals,
         group_signals=group_signals, params_by_id=params_by_id,
         isnaps=isnaps, asset_groups=asset_groups, gscores=gscores)
 
-    written = 0
+    # Cada señal escribe en su propia tabla sig_{id} (upsert de la fecha)
+    by_sig: dict[int, dict[int, float]] = {}
     for (sig_id, asset_id), score in scores.items():
-        key = (sig_id, asset_id)
-        sv = existing_svs.get(key)
-        if sv is None:
-            sv = SignalValue(signal_id=sig_id, asset_id=asset_id, date=target_date)
-            s.add(sv)
-            existing_svs[key] = sv
-        sv.score = score
-        written += 1
+        by_sig.setdefault(sig_id, {})[asset_id] = score
+
+    written = 0
+    for sig_id, asset_scores in by_sig.items():
+        t = signal_store.ensure_sig_table(sig_id, bind=s.connection())
+        existing = {
+            aid: sc for aid, sc in s.execute(
+                sa.select(t.c.asset_id, t.c.score).where(t.c.date == target_date))
+        }
+        ins = [{"asset_id": aid, "date": target_date, "score": sc}
+               for aid, sc in asset_scores.items() if aid not in existing]
+        upd = [{"aid": aid, "sc": sc} for aid, sc in asset_scores.items()
+               if aid in existing and existing[aid] != sc]
+        if ins:
+            s.execute(t.insert(), ins)
+        if upd:
+            s.execute(
+                t.update().where(t.c.date == target_date,
+                                 t.c.asset_id == sa.bindparam("aid"))
+                .values(score=sa.bindparam("sc")),
+                upd)
+        written += len(asset_scores)
 
     s.commit()
     logger.info("signal_service: %d signal_value escritos para %s", written, target_date)
@@ -594,6 +606,10 @@ def save_signal(
     except Exception:
         s.rollback()
         raise
+    # DESPUÉS del commit (orden ante crash: definición sin tabla es el lado
+    # benigno — cualquier ensure_* posterior la repara). El id es el nombre
+    # de la tabla, inmutable: renombrar la key no toca el almacenamiento.
+    signal_store.ensure_sig_table(sig.id)
     return sig
 
 
@@ -617,6 +633,7 @@ def delete_signal(signal_id: int, *, acting_user_id: int | None = None,
             + ", ".join(sorted(set(deps)))
             + ". Quitala de ahí primero.")
     from app.models import SignalEvalLog
+    sig_id = sig.id
     try:
         s.query(SignalEvalLog).filter(
             SignalEvalLog.scope_kind == "signal",
@@ -626,6 +643,11 @@ def delete_signal(signal_id: int, *, acting_user_id: int | None = None,
     except Exception:
         s.rollback()
         raise
+    # DROP después del commit: si crashea en el medio queda una tabla
+    # huérfana inofensiva (la barre reconcile_dynamic_tables), nunca una
+    # definición sin tabla. DROP es instantáneo — antes el CASCADE de
+    # signal_value borraba millones de filas reteniendo locks.
+    signal_store.drop_sig_table(sig_id)
 
 
 # ── Export / Import Excel ──────────────────────────────────────────────────────
@@ -787,7 +809,8 @@ def import_signals_excel(file_bytes: bytes,
                 setattr(sig, f, v)
             s.flush()
             results.append({"key": key, "status": "ok",
-                            "detail": f"{outcome} (id={sig.id})"})
+                            "detail": f"{outcome} (id={sig.id})",
+                            "_sig_id": sig.id})
         s.commit()
     except Exception as exc:
         s.rollback()
@@ -800,6 +823,10 @@ def import_signals_excel(file_bytes: bytes,
             for p in parsed
         ]
 
+    # Tablas sig_{id} después del commit (mismo orden ante crash que
+    # save_signal); ensure es idempotente para las ya existentes
+    for r in results:
+        signal_store.ensure_sig_table(r.pop("_sig_id"))
     return results
 
 
@@ -904,33 +931,49 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
     # fechas sin mirar `computed` — el DISTINCT sobre las tablas grandes
     # (18s por estrategia; minutos sobre signal_value entero en el alcance
     # total) era arranque 100% tirado.
+    def _distinct_dates(table_or_col, extra_filter=None) -> set:
+        """DISTINCT date de una tabla dinámica (Table core) dentro del
+        horizonte — sobre el prefijo de la PK (date, asset_id) es un loose
+        index scan barato."""
+        q = sa.select(table_or_col.c.date).distinct()
+        if extra_filter is not None:
+            q = q.where(extra_filter)
+        if horizon is not None:
+            q = q.where(table_or_col.c.date >= horizon)
+        return {d for (d,) in s.execute(q)}
+
     if scope_kind == "strategy":
-        from app.models import StrategyResult
         eval_kind, eval_ref = "strategy", strategy_id
-        computed = set() if force else {
-            d for (d,) in _within(
-                s.query(StrategyResult.date).distinct().filter(
-                    StrategyResult.strategy_id == strategy_id),
-                StrategyResult.date)
-        }
+        t = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+        computed = set() if force else _distinct_dates(t)
     elif scope_kind == "signal":
         # La señal pedida (no sus dependencias) define el "ya calculado"
         target_sig = s.query(SignalDefinition).filter(
             SignalDefinition.key == scope.partition(":")[2]).first()
         eval_kind, eval_ref = "signal", target_sig.id
-        table = GroupSignalValue if target_sig.source == "group" else SignalValue
-        computed = set() if force else {
-            d for (d,) in _within(
-                s.query(table.date).distinct().filter(
-                    table.signal_id == target_sig.id),
-                table.date)
-        }
+        if force:
+            computed = set()
+        elif target_sig.source == "group":
+            computed = {
+                d for (d,) in _within(
+                    s.query(GroupSignalValue.date).distinct().filter(
+                        GroupSignalValue.signal_id == target_sig.id),
+                    GroupSignalValue.date)
+            }
+        else:
+            computed = _distinct_dates(
+                signal_store.ensure_sig_table(target_sig.id,
+                                              bind=s.connection()))
     else:
         eval_kind, eval_ref = "all", 0
-        computed = set() if force else {
-            d for (d,) in _within(
-                s.query(SignalValue.date).distinct(), SignalValue.date)
-        }
+        computed = set()
+        if not force:
+            # Unión de fechas de todas las tablas sig_{id} (pocas señales,
+            # una query barata por tabla)
+            for (sid,) in s.query(SignalDefinition.id).filter(
+                    SignalDefinition.source == "asset"):
+                computed |= _distinct_dates(
+                    signal_store.ensure_sig_table(sid, bind=s.connection()))
 
     # Fechas ya evaluadas que produjeron 0 filas (nadie pasó el filtro, señal
     # sin datos ese día): sin este registro parecen huecos y el delta las
@@ -962,6 +1005,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             eval_kind=eval_kind, eval_ref=eval_ref, logged=logged,
             progress_cb=progress_cb, force=force,
             full_wipe=(force and horizon is None and scope_kind is None),
+            whole_history=(force and horizon is None),
             strategy_only=strategy_only)
 
     total, ok, errors = len(dates), 0, []

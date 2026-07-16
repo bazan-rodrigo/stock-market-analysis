@@ -24,8 +24,10 @@ Elimina:
     mano, se crean una por indicador — ver get_ind_table).
   - metadatos/logs de indicadores y fundamentales: current_indicator_values,
     indicator_update_log, fundamental_quarterly, fundamental_update_log.
-  - señales y resultados de estrategias: signal_value, group_signal_value,
-    group_scores, signal_eval_log, strategy_result.
+  - señales y resultados de estrategias: tablas sig_{id}/strat_res_{id}
+    (dinámicas por señal/estrategia, ver signal_store — se VACÍAN, no se
+    dropean: la definición sigue existiendo), group_signal_value,
+    group_scores, signal_eval_log.
   - screener, eventos de mercado, logs de importación, aliases de catálogo.
 
 Uso:
@@ -53,13 +55,11 @@ _TABLES = [
     "market_event",
     "import_log",
     "catalog_aliases",
-    "signal_value",
     "group_signal_value",
     "group_scores",
-    # crítico limpiarla junto con signal_value: si quedaran markers de
-    # fechas "ya evaluadas", el delta SALTEARÍA las fechas recién limpiadas
+    # crítico limpiarla junto con las tablas de señales: si quedaran markers
+    # de fechas "ya evaluadas", el delta SALTEARÍA las fechas recién limpiadas
     "signal_eval_log",
-    "strategy_result",
     "current_indicator_values",
     "indicator_update_log",
     "fundamental_quarterly",
@@ -67,15 +67,16 @@ _TABLES = [
 ]
 
 
-def _dynamic_ind_tables(conn) -> list[str]:
-    """Tablas ind_{code}/ind_fundamental_{code}: se crean dinámicamente por
-    indicador (ver get_ind_table en app/models/indicator_store.py), sin
-    modelo Python fijo — se listan desde information_schema en vez de
-    mantenerlas a mano acá, para no volver a dejar alguna afuera cuando se
-    agregue un indicador nuevo."""
+def _dynamic_tables(conn) -> list[str]:
+    """Tablas ind_{code}/ind_fundamental_{code} (una por indicador, ver
+    get_ind_table) y sig_{id}/strat_res_{id} (una por señal/estrategia, ver
+    signal_store), sin modelo Python fijo — se listan desde
+    information_schema en vez de mantenerlas a mano acá, para no volver a
+    dejar alguna afuera cuando se agregue una nueva."""
     rows = conn.execute(text(
         "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = DATABASE() AND table_name LIKE 'ind\\_%'"
+        "WHERE table_schema = DATABASE() AND (table_name LIKE 'ind\\_%' "
+        "OR table_name LIKE 'sig\\_%' OR table_name LIKE 'strat\\_res\\_%')"
     )).fetchall()
     return [r[0] for r in rows]
 
@@ -86,7 +87,7 @@ def clean_data() -> None:
     with engine.begin() as conn:
         try:
             conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-            tables = _dynamic_ind_tables(conn) + _TABLES
+            tables = _dynamic_tables(conn) + _TABLES
             total = 0
             for table in tables:
                 result = conn.execute(text(f"DELETE FROM `{table}`"))

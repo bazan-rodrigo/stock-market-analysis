@@ -348,9 +348,9 @@ def recalculate(_, date_str):
     try:
         result = svc.run_recalculate(target_date)
         msg = (f"Pipeline {target_date}: "
-               f"{result['signal_values']} signal_value, "
-               f"{result['group_signal_values']} group_signal_value, "
-               f"{result.get('strategy_results', 0)} strategy_result.")
+               f"{result['signal_values']} scores de señal, "
+               f"{result['group_signal_values']} scores de grupo, "
+               f"{result.get('strategy_results', 0)} resultados de estrategia.")
         return "", msg, True, "success"
     except Exception as exc:
         return "", str(exc), True, "danger"

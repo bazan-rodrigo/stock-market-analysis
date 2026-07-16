@@ -120,3 +120,17 @@ def ensure_builtin_data() -> None:
                     setattr(exists, field, val)
 
     s.commit()
+
+    # Tablas dinámicas sig_{id}/strat_res_{id}: reparar en el arranque los
+    # dos estados que un crash puede dejar (tabla huérfana / definición sin
+    # tabla) — el DDL de MySQL no es transaccional, esta es la red.
+    from app.models import signal_store
+    try:
+        rec = signal_store.reconcile_dynamic_tables(s)
+        if rec["dropped"] or rec["created"]:
+            logger.info("Tablas de señal/estrategia reconciliadas: "
+                        "%d huérfanas dropeadas, %d faltantes creadas",
+                        len(rec["dropped"]), len(rec["created"]))
+    except Exception as exc:
+        # p.ej. base sin migrar todavía (alembic upgrade pendiente)
+        logger.warning("No se pudo reconciliar tablas dinámicas: %s", exc)

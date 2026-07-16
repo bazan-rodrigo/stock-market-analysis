@@ -3,8 +3,11 @@ Historial de señales por activo — queries para la pantalla de evolución.
 """
 from datetime import date as date_type
 
+import sqlalchemy as sa
+
 from app.database import get_session
-from app.models import Asset, SignalDefinition, SignalValue, Strategy, StrategyComponent
+from app.models import (Asset, SignalDefinition, Strategy, StrategyComponent,
+                        signal_store)
 
 
 def get_asset_signal_history(
@@ -15,24 +18,20 @@ def get_asset_signal_history(
 ) -> dict[int, list[tuple]]:
     """
     {signal_id: [(date, score), ...]} ordenado por fecha asc.
+    Una query por señal (cada una tiene su tabla; el índice
+    (asset_id, date) cubre esta lectura).
     """
     s = get_session()
-    q = (
-        s.query(SignalValue.signal_id, SignalValue.date, SignalValue.score)
-        .filter(
-            SignalValue.asset_id == asset_id,
-            SignalValue.signal_id.in_(signal_ids),
-        )
-    )
-    if date_from:
-        q = q.filter(SignalValue.date >= date_from)
-    if date_to:
-        q = q.filter(SignalValue.date <= date_to)
-    q = q.order_by(SignalValue.date)
-
     result: dict[int, list] = {sid: [] for sid in signal_ids}
-    for sig_id, dt, score in q.all():
-        result[sig_id].append((dt, score))
+    for sig_id in signal_ids:
+        t = signal_store.ensure_sig_table(sig_id, bind=s.connection())
+        q = sa.select(t.c.date, t.c.score).where(t.c.asset_id == asset_id)
+        if date_from:
+            q = q.where(t.c.date >= date_from)
+        if date_to:
+            q = q.where(t.c.date <= date_to)
+        for dt, score in s.execute(q.order_by(t.c.date)):
+            result[sig_id].append((dt, score))
     return result
 
 

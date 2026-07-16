@@ -186,7 +186,7 @@ def test_spec_from_controls_valores_invalidos_y_redondeos():
 
 # ── load_series: gate sobre la BD (sqlite stub) ───────────────────────────────
 
-_LS_TABLES = ("strategy_result", "strategy", "prices", "assets")
+_LS_TABLES = ("strategy", "prices", "assets")
 
 
 @pytest.fixture()
@@ -195,14 +195,16 @@ def ls_db():
 
     from app.database import Base, engine, get_session
     import app.models  # noqa: F401 — registra los modelos
+    from app.models import signal_store
 
     Base.metadata.create_all(engine)
+    signal_store.ensure_strat_table(1)
     with engine.begin() as conn:
-        for t in _LS_TABLES:
+        for t in _LS_TABLES + ("strat_res_1",):
             conn.execute(sa.text(f"DELETE FROM {t}"))
     yield
     with engine.begin() as conn:
-        for t in _LS_TABLES:
+        for t in _LS_TABLES + ("strat_res_1",):
             conn.execute(sa.text(f"DELETE FROM {t}"))
     get_session().rollback()
 
@@ -211,7 +213,7 @@ def test_load_series_gate_y_alineacion(ls_db):
     from datetime import date
 
     from app.database import get_session
-    from app.models import Asset, Price, Strategy, StrategyResult
+    from app.models import Asset, Price, Strategy, signal_store
     from app.services.trade_optimizer import load_series
 
     s = get_session()
@@ -224,12 +226,12 @@ def test_load_series_gate_y_alineacion(ls_db):
     s.add(Price(asset_id=1, date=d1, close=100.0))
     s.add(Price(asset_id=1, date=d2, close=101.0))
     s.add(Price(asset_id=1, date=d4, close=103.0))
-    s.add(StrategyResult(strategy_id=1, asset_id=1, date=d1,
-                         score=50.0, pct=80.0))
-    s.add(StrategyResult(strategy_id=1, asset_id=1, date=d3,
-                         score=60.0, pct=90.0))
-    s.add(StrategyResult(strategy_id=1, asset_id=1, date=d4,
-                         score=70.0, pct=None))
+    rt = signal_store.get_strat_table(1)
+    s.execute(rt.insert(), [
+        {"asset_id": 1, "date": d1, "score": 50.0, "pct": 80.0},
+        {"asset_id": 1, "date": d3, "score": 60.0, "pct": 90.0},
+        {"asset_id": 1, "date": d4, "score": 70.0, "pct": None},
+    ])
     s.commit()
 
     closes, scores, pcts = load_series(1, 1)

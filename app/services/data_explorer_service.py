@@ -103,14 +103,16 @@ def fundamentals(asset_id: int):
 # ── Scores (señales, grupos, estrategias) ─────────────────────────────────────
 
 def signal_asset(signal_id: int, asset_id: int):
-    from app.models.signal_value import SignalValue
+    import sqlalchemy as sa
+    from app.models import signal_store
 
     s = get_session()
-    rows = (s.query(SignalValue.date, SignalValue.score)
-            .filter(SignalValue.signal_id == signal_id,
-                    SignalValue.asset_id == asset_id)
-            .order_by(SignalValue.date).limit(MAX_ROWS).all())
-    return "signal_value", ["date", "score"], \
+    t = signal_store.ensure_sig_table(signal_id, bind=s.connection())
+    rows = s.execute(
+        sa.select(t.c.date, t.c.score)
+        .where(t.c.asset_id == asset_id)
+        .order_by(t.c.date).limit(MAX_ROWS)).all()
+    return t.name, ["date", "score"], \
         [{"date": str(d), "score": sc} for d, sc in rows]
 
 
@@ -143,14 +145,16 @@ def group_scores(group_type: str, group_id: int):
 
 
 def strategy_result(strategy_id: int, asset_id: int):
-    from app.models.strategy_result import StrategyResult
+    import sqlalchemy as sa
+    from app.models import signal_store
 
     s = get_session()
-    rows = (s.query(StrategyResult.date, StrategyResult.score)
-            .filter(StrategyResult.strategy_id == strategy_id,
-                    StrategyResult.asset_id == asset_id)
-            .order_by(StrategyResult.date).limit(MAX_ROWS).all())
-    return "strategy_result", ["date", "score"], \
+    t = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rows = s.execute(
+        sa.select(t.c.date, t.c.score)
+        .where(t.c.asset_id == asset_id)
+        .order_by(t.c.date).limit(MAX_ROWS)).all()
+    return t.name, ["date", "score"], \
         [{"date": str(d), "score": sc} for d, sc in rows]
 
 

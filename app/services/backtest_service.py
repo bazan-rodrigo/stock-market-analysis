@@ -18,9 +18,11 @@ import logging
 import time
 from collections import defaultdict
 
+import sqlalchemy as sa
+
 from app.database import get_session
 from app.models import (BacktestIcPoint, BacktestQuantileStat, BacktestRun,
-                        Price, StrategyResult)
+                        Price, signal_store)
 from app.services import backtest_engine as eng
 
 logger = logging.getLogger(__name__)
@@ -92,15 +94,14 @@ def _execute(s, run_id, strategy_id, cfg, progress_cb):
     horizons = cfg["horizons"]
 
     # ── Scores de la estrategia ───────────────────────────────────────────
-    q = (s.query(StrategyResult.date, StrategyResult.asset_id,
-                 StrategyResult.score)
-         .filter(StrategyResult.strategy_id == strategy_id,
-                 StrategyResult.score.isnot(None)))
+    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    q = (sa.select(rt.c.date, rt.c.asset_id, rt.c.score)
+         .where(rt.c.score.isnot(None)))
     if cfg["date_from"]:
-        q = q.filter(StrategyResult.date >= cfg["date_from"])
+        q = q.where(rt.c.date >= cfg["date_from"])
     if cfg["date_to"]:
-        q = q.filter(StrategyResult.date <= cfg["date_to"])
-    score_rows = q.all()
+        q = q.where(rt.c.date <= cfg["date_to"])
+    score_rows = s.execute(q).all()
     if not score_rows:
         raise ValueError(
             "La estrategia no tiene historia calculada en el período. "

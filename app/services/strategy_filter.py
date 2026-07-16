@@ -186,7 +186,7 @@ def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
     se cargan acá: ya vienen resueltos en asset_groups (ver evaluate_tree).
     Una query por operando distinto — nunca por activo.
     """
-    from app.models import SignalDefinition, SignalValue
+    from app.models import SignalDefinition, signal_store
     from app.models.indicator_store import CurrentIndicatorValue
 
     values: dict[tuple, dict] = {}
@@ -229,10 +229,11 @@ def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
                 logger.warning("strategy_filter: señal '%s' no encontrada", key)
                 values[(t, key, resolution)] = {}
                 continue
-            rows = session.query(SignalValue.asset_id, SignalValue.score).filter(
-                SignalValue.signal_id == sig_id,
-                SignalValue.date == target_date,
-            ).all()
+            st = signal_store.ensure_sig_table(sig_id,
+                                               bind=session.connection())
+            rows = session.execute(
+                sa.select(st.c.asset_id, st.c.score)
+                .where(st.c.date == target_date)).all()
             values[(t, key, resolution)] = {aid: score for aid, score in rows}
 
     return values

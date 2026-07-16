@@ -19,10 +19,10 @@ def sv_db():
     import app.models  # noqa: F401
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
-        conn.execute(sa.text("DELETE FROM signal_value"))
+        conn.execute(sa.text("DELETE FROM group_signal_value"))
     yield
     with engine.begin() as conn:
-        conn.execute(sa.text("DELETE FROM signal_value"))
+        conn.execute(sa.text("DELETE FROM group_signal_value"))
     get_session().rollback()
 
 
@@ -30,19 +30,20 @@ def test_delete_by_ranges_borra_por_ventanas_y_respeta_filtro(sv_db):
     s = get_session()
     for i in range(10):
         s.execute(sa.text(
-            "INSERT INTO signal_value (signal_id, asset_id, date, score) "
-            "VALUES (:sig, 1, :d, 0)"),
+            "INSERT INTO group_signal_value "
+            "(signal_id, group_type, group_id, date, score) "
+            "VALUES (:sig, 'sector', 1, :d, 0)"),
             {"sig": 1 if i < 7 else 2, "d": f"2026-01-{i + 1:02d}"})
     s.commit()
     # dos ventanas que juntas cubren 01..06; señal 2 queda intacta aunque
     # sus fechas caigan dentro (where_extra)
-    n = delete_by_ranges(s, "signal_value", "date",
+    n = delete_by_ranges(s, "group_signal_value", "date",
                          [("2026-01-01", "2026-01-03"),
                           ("2026-01-04", "2026-01-06")],
                          "signal_id IN (1)")
     assert n == 6
     left = [r[0] for r in s.execute(sa.text(
-        "SELECT date FROM signal_value ORDER BY date")).all()]
+        "SELECT date FROM group_signal_value ORDER BY date")).all()]
     assert left == ["2026-01-07", "2026-01-08", "2026-01-09", "2026-01-10"]
 
 

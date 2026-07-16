@@ -233,17 +233,19 @@ def load_series(asset_id: int, strategy_id: int):
     """Arrays diarios alineados a las barras PROPIAS del activo (gate
     natural: solo fechas con precio propio, igual que el backtest). Única
     función del módulo que toca la BD — el resto es lógica pura."""
+    import sqlalchemy as sa
+
     from app.database import get_session
-    from app.models import Price, StrategyResult
+    from app.models import Price, signal_store
 
     db = get_session()
     prows = (db.query(Price.date, Price.close)
              .filter(Price.asset_id == asset_id, Price.close.isnot(None))
              .order_by(Price.date).all())
-    srows = (db.query(StrategyResult.date, StrategyResult.score,
-                      StrategyResult.pct)
-             .filter(StrategyResult.strategy_id == strategy_id,
-                     StrategyResult.asset_id == asset_id).all())
+    rt = signal_store.ensure_strat_table(strategy_id, bind=db.connection())
+    srows = db.execute(
+        sa.select(rt.c.date, rt.c.score, rt.c.pct)
+        .where(rt.c.asset_id == asset_id)).all()
     sc_by_date = {d: (float(s) if s is not None else None,
                       float(p) if p is not None else None)
                   for d, s, p in srows}

@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 # de las tablas hijas (logs, flags, synthetic_formula...) las limpia el
 # ON DELETE CASCADE de la BD al borrar la fila de `assets`.
 _HIGH_VOLUME_ASSET_TABLES = (
-    "signal_value", "strategy_result", "current_indicator_values",
-    "fundamental_quarterly", "prices",
+    "current_indicator_values", "fundamental_quarterly", "prices",
 )
 _DELETE_BATCH = 5000
 
@@ -50,10 +49,14 @@ def purge_assets(s, asset_ids, progress_cb=None) -> int:
         # inline porque algunos drivers no aceptan placeholder ahí
         id_list = ", ".join(str(i) for i in ids)
         # ind_{code}/ind_fundamental_{code}/ind_asset_meta: dinámicas por
-        # indicador (ver get_ind_table), descubiertas desde information_schema
+        # indicador (ver get_ind_table); sig_{id}/strat_res_{id}: dinámicas
+        # por señal/estrategia (ver signal_store). Descubiertas desde
+        # information_schema.
         dyn = [r[0] for r in s.execute(text(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = DATABASE() AND table_name LIKE 'ind\\_%'")).all()]
+            "WHERE table_schema = DATABASE() AND (table_name LIKE 'ind\\_%' "
+            "OR table_name LIKE 'sig\\_%' "
+            "OR table_name LIKE 'strat\\_res\\_%')")).all()]
         tables = (*_HIGH_VOLUME_ASSET_TABLES, *dyn)
         total  = len(tables) + 1  # +1: el DELETE final de assets (cascade)
         for i, tbl in enumerate(tables):

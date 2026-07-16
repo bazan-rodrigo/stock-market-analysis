@@ -8,9 +8,9 @@ import pytest
 import sqlalchemy as sa
 
 from app.database import Base, engine, get_session
+from app.models import signal_store
 from app.models.group_scores import GroupScore
 from app.models.indicator_store import CurrentIndicatorValue, get_ind_table
-from app.models.signal_value import SignalValue
 from app.services import data_explorer_service as des
 
 _CODE = "zz_test_explorer"  # prefijo zz: no colisiona con indicadores reales
@@ -86,16 +86,21 @@ def test_current_indicators():
 
 def test_signal_asset():
     s = get_session()
-    s.query(SignalValue).delete()
-    s.add_all([
-        SignalValue(signal_id=1, asset_id=1, date=dt.date(2026, 7, 7), score=0.5),
-        SignalValue(signal_id=1, asset_id=1, date=dt.date(2026, 7, 8), score=0.7),
-        SignalValue(signal_id=1, asset_id=2, date=dt.date(2026, 7, 8), score=9.9),
-        SignalValue(signal_id=2, asset_id=1, date=dt.date(2026, 7, 8), score=1.1),
+    t1 = signal_store.ensure_sig_table(1)
+    t2 = signal_store.ensure_sig_table(2)
+    s.execute(t1.delete())
+    s.execute(t2.delete())
+    s.execute(t1.insert(), [
+        {"asset_id": 1, "date": dt.date(2026, 7, 7), "score": 0.5},
+        {"asset_id": 1, "date": dt.date(2026, 7, 8), "score": 0.7},
+        {"asset_id": 2, "date": dt.date(2026, 7, 8), "score": 9.9},
+    ])
+    s.execute(t2.insert(), [
+        {"asset_id": 1, "date": dt.date(2026, 7, 8), "score": 1.1},
     ])
     s.commit()
     table, cols, recs = des.signal_asset(1, 1)
-    assert table == "signal_value"
+    assert table == "sig_1"
     assert [r["score"] for r in recs] == [0.5, 0.7]
 
 def test_group_scores():

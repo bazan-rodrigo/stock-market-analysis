@@ -29,12 +29,11 @@ from app.models.indicator_store import CurrentIndicatorValue, IndAssetMeta
 from app.models.group_scores import GroupScore
 from app.models.pnf_config import PnfConfig
 from app.models.signal_definition import SignalDefinition
-from app.models.signal_value import SignalValue
 from app.models.group_signal_value import GroupSignalValue
 from app.models.signal_eval_log import SignalEvalLog
+from app.models import signal_store
 from app.models.strategy import Strategy
 from app.models.strategy_component import StrategyComponent
-from app.models.strategy_result import StrategyResult
 from app.models.asset_verification_flag import AssetVerificationFlag
 from app.models.verification_run_log import VerificationRunLog
 from app.models.backtest import BacktestRun, BacktestQuantileStat, BacktestIcPoint
@@ -73,12 +72,11 @@ __all__ = [
     "GroupScore",
     "PnfConfig",
     "SignalDefinition",
-    "SignalValue",
     "GroupSignalValue",
     "SignalEvalLog",
+    "signal_store",
     "Strategy",
     "StrategyComponent",
-    "StrategyResult",
     "AssetVerificationFlag",
     "VerificationRunLog",
     "BacktestRun",

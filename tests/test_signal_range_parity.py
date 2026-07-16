@@ -5,7 +5,7 @@ signal_backfill_range hace el mismo cálculo que el loop por-fecha
 compute_group_signal_values → compute_all_strategies) pero con barrido
 cronológico y escrituras en bloque. Este test corre AMBOS caminos sobre el
 mismo dataset sintético en el sqlite stub y exige igualdad exacta de
-signal_value, group_signal_value, group_scores y strategy_result.
+las tablas sig_{id}, group_signal_value, group_scores y strat_res_{id}.
 
 Cubre: as-of con huecos (tendencias semanales), tope de 45 días, valores
 NULL, threshold/discrete_map/range, señal de grupo, indicador
@@ -19,13 +19,13 @@ import pytest
 import sqlalchemy as sa
 
 from app.database import Base, engine, get_session
+from app.models import signal_store
 
 _TREND_TABLES = ("ind_trend_daily", "ind_trend_weekly", "ind_trend_monthly")
 _NUM_TABLE    = "ind_zz_par_rsi"
 _ALL_IND      = _TREND_TABLES + (_NUM_TABLE,)
 
-_DERIVED = ("signal_value", "group_signal_value", "group_scores",
-            "strategy_result", "signal_eval_log")
+_DERIVED = ("group_signal_value", "group_scores", "signal_eval_log")
 _SEEDED  = ("prices", "strategy_component", "strategy", "`signal`",
             "indicator_definitions", "assets")
 
@@ -42,10 +42,25 @@ def _trading_dates():
     return out
 
 
+def _drop_dynamic():
+    """Dropea TODAS las sig_%/strat_res_% del stub: sqlite reusa ids tras
+    el DELETE de las definiciones, y una tabla remanente de otro test
+    contaminaría los datos del siguiente."""
+    sig, strat = signal_store._list_dynamic_tables()
+    names = list(sig.values()) + list(strat.values())
+    with engine.begin() as conn:
+        for name in names:
+            conn.execute(sa.text(f"DROP TABLE IF EXISTS {name}"))
+    for name in names:
+        if name in signal_store._meta.tables:
+            signal_store._meta.remove(signal_store._meta.tables[name])
+
+
 @pytest.fixture()
 def pipeline_db():
     import app.models  # noqa: F401 — registra todos los modelos en Base.metadata
     Base.metadata.create_all(engine)
+    _drop_dynamic()
     with engine.begin() as conn:
         for t in _ALL_IND:
             conn.execute(sa.text(f"DROP TABLE IF EXISTS {t}"))
@@ -62,6 +77,7 @@ def pipeline_db():
         for t in _DERIVED + _SEEDED:
             conn.execute(sa.text(f"DELETE FROM {t}"))
     yield
+    _drop_dynamic()
     with engine.begin() as conn:
         for t in _ALL_IND:
             conn.execute(sa.text(f"DROP TABLE IF EXISTS {t}"))
@@ -184,11 +200,13 @@ def _seed(dates):
 
 def _snapshot():
     s = get_session()
+    sig_tables, strat_tables = signal_store._list_dynamic_tables()
     out = {}
     out["sv"] = sorted(
-        (r.signal_id, r.asset_id, str(r.date), round(r.score, 6))
+        (sig_id, r.asset_id, str(r.date), round(r.score, 6))
+        for sig_id, name in sig_tables.items()
         for r in s.execute(sa.text(
-            "SELECT signal_id, asset_id, date, score FROM signal_value")))
+            f"SELECT asset_id, date, score FROM {name}")))
     out["gsv"] = sorted(
         (r.signal_id, r.group_type, r.group_id, str(r.date), round(r.score, 6))
         for r in s.execute(sa.text(
@@ -204,18 +222,21 @@ def _snapshot():
             "SELECT group_type, group_id, date, regime_score_d,"
             " regime_score_w, regime_score_m, n_assets FROM group_scores")))
     out["sr"] = sorted(
-        (r.strategy_id, r.asset_id, str(r.date), round(r.score, 6),
+        (st_id, r.asset_id, str(r.date), round(r.score, 6),
          round(r.pct, 6))
+        for st_id, name in strat_tables.items()
         for r in s.execute(sa.text(
-            "SELECT strategy_id, asset_id, date, score, pct "
-            "FROM strategy_result")))
+            f"SELECT asset_id, date, score, pct FROM {name}")))
     return out
 
 
 def _wipe_derived():
+    sig_tables, strat_tables = signal_store._list_dynamic_tables()
     with engine.begin() as conn:
         for t in _DERIVED:
             conn.execute(sa.text(f"DELETE FROM {t}"))
+        for name in list(sig_tables.values()) + list(strat_tables.values()):
+            conn.execute(sa.text(f"DELETE FROM {name}"))
 
 
 def _assert_range_parity(ranged, reference, last_str):
@@ -297,11 +318,13 @@ def test_strategy_only_lee_senales_y_reproduce_strategy_result(pipeline_db):
     s = get_session()
     sid = s.query(Strategy).one().id
 
-    # Se borra SOLO strategy_result; el modo strategy_only debe
-    # reconstruirlo leyendo las señales guardadas (end-to-end real:
-    # rebuild_signal_history resuelve alcance y entra al modo rango)
+    # Se borra SOLO la tabla de resultados de la estrategia; el modo
+    # strategy_only debe reconstruirla leyendo las señales guardadas
+    # (end-to-end real: rebuild_signal_history resuelve alcance y entra
+    # al modo rango)
     with engine.begin() as conn:
-        conn.execute(sa.text("DELETE FROM strategy_result"))
+        conn.execute(sa.text(
+            f"DELETE FROM {signal_store.strat_table_name(sid)}"))
     result = signal_service.rebuild_signal_history(
         scope=f"strategy:{sid}", with_signals=False)
     assert result["errors"] == []

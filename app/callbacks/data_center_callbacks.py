@@ -151,13 +151,12 @@ def _status_signals():
     import sqlalchemy as sa
     try:
         s = get_session()
-        # MAX(date) es instantáneo (cola del índice). El conteo va contra
-        # signal_eval_log (un registro por fecha evaluada, tabla chica):
-        # COUNT(DISTINCT date) sobre signal_value escaneaba 40M de filas
-        # (100s medidos) en cada refresh del panel, compitiendo por I/O
-        # con las corridas.
+        # Ambos van contra signal_eval_log (un registro por fecha evaluada,
+        # tabla chica): COUNT(DISTINCT date) sobre las tablas de señales
+        # escaneaba 40M de filas (100s medidos) en cada refresh del panel,
+        # compitiendo por I/O con las corridas.
         last = s.execute(sa.text(
-            "SELECT MAX(date) FROM signal_value")).scalar()
+            "SELECT MAX(date) FROM signal_eval_log")).scalar()
         n_dates = s.execute(sa.text(
             "SELECT COUNT(DISTINCT date) FROM signal_eval_log")).scalar()
         last_s = str(last) if last else "—"

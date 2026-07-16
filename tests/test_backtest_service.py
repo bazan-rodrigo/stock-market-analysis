@@ -13,19 +13,21 @@ import sqlalchemy as sa
 from app.database import Base, engine, get_session
 
 _TABLES = ("backtest_ic_point", "backtest_quantile_stat", "backtest_run",
-           "strategy_result", "strategy", "prices", "assets")
+           "strategy", "prices", "assets")
 
 
 @pytest.fixture()
 def bt_db():
     import app.models  # noqa: F401 — registra los modelos en Base.metadata
+    from app.models import signal_store
     Base.metadata.create_all(engine)
+    signal_store.ensure_strat_table(1)
     with engine.begin() as conn:
-        for t in _TABLES:
+        for t in _TABLES + ("strat_res_1",):
             conn.execute(sa.text(f"DELETE FROM {t}"))
     yield
     with engine.begin() as conn:
-        for t in _TABLES:
+        for t in _TABLES + ("strat_res_1",):
             conn.execute(sa.text(f"DELETE FROM {t}"))
     get_session().rollback()
 
@@ -42,13 +44,14 @@ def _trading_dates(n, start=date(2026, 1, 5)):
 def _seed(dates):
     """A sube 1%/rueda, B baja 1%/rueda; C tiene score TODAS las fechas pero
     precio solo la primera (simula el score arrastrado por as-of)."""
-    from app.models import Asset, Price, Strategy, StrategyResult
+    from app.models import Asset, Price, Strategy, signal_store
     s = get_session()
     for i, ticker in ((1, "GANA"), (2, "PIERDE"), (3, "ARRASTRADO")):
         s.add(Asset(id=i, ticker=ticker, name=ticker, price_source_id=1))
     s.add(Strategy(id=1, name="BT test", is_public=True))
     s.flush()
 
+    rt = signal_store.get_strat_table(1)
     pa, pb = 100.0, 100.0
     for n, d in enumerate(dates):
         s.add(Price(asset_id=1, date=d, close=pa))
@@ -58,8 +61,8 @@ def _seed(dates):
         pa *= 1.01
         pb *= 0.99
         for aid, score in ((1, 100.0), (2, 0.0), (3, 50.0)):
-            s.add(StrategyResult(strategy_id=1, asset_id=aid, date=d,
-                                 score=score))
+            s.execute(rt.insert(), [{"asset_id": aid, "date": d,
+                                     "score": score}])
     s.commit()
 
 
