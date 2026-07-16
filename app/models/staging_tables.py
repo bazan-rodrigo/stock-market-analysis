@@ -9,6 +9,9 @@ ver signal_backfill_range. La oficial queda intacta hasta el merge: un
 crash a mitad del recálculo no pierde nada.
 
 Sin columna id: la clave natural compuesta es el único índice a mantener.
+La PK arranca con DATE: el merge filtra por ventanas de fechas (prefijo del
+índice — sin esto cada ventana hacía FULL SCAN de staging, medido 20min+) y
+el productor inserta en orden cronológico (B-tree append-only).
 Se vacían al inicio y al final de cada corrida staging.
 """
 from sqlalchemy import Column, Date, Float, Integer, String
@@ -19,28 +22,28 @@ from app.database import Base
 class SignalValueStaging(Base):
     __tablename__ = "signal_value_staging"
 
+    date      = Column(Date,    primary_key=True)
     signal_id = Column(Integer, primary_key=True, autoincrement=False)
     asset_id  = Column(Integer, primary_key=True, autoincrement=False)
-    date      = Column(Date,    primary_key=True)
     score     = Column(Float)
 
 
 class GroupSignalValueStaging(Base):
     __tablename__ = "group_signal_value_staging"
 
+    date       = Column(Date,       primary_key=True)
     signal_id  = Column(Integer,    primary_key=True, autoincrement=False)
     group_type = Column(String(30), primary_key=True)
     group_id   = Column(Integer,    primary_key=True, autoincrement=False)
-    date       = Column(Date,       primary_key=True)
     score      = Column(Float)
 
 
 class GroupScoreStaging(Base):
     __tablename__ = "group_scores_staging"
 
+    date           = Column(Date,       primary_key=True)
     group_type     = Column(String(30), primary_key=True)
     group_id       = Column(Integer,    primary_key=True, autoincrement=False)
-    date           = Column(Date,       primary_key=True)
     regime_score_d = Column(Float)
     regime_score_w = Column(Float)
     regime_score_m = Column(Float)
@@ -50,8 +53,8 @@ class GroupScoreStaging(Base):
 class StrategyResultStaging(Base):
     __tablename__ = "strategy_result_staging"
 
+    date        = Column(Date,    primary_key=True)
     strategy_id = Column(Integer, primary_key=True, autoincrement=False)
     asset_id    = Column(Integer, primary_key=True, autoincrement=False)
-    date        = Column(Date,    primary_key=True)
     score       = Column(Float)
     pct         = Column(Float)
