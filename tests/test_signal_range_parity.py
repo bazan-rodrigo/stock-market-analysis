@@ -376,6 +376,19 @@ def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
     assert result["errors"] == []
     _assert_range_parity(_snapshot(), reference, str(dates[-1]))
 
+    # Rebuild whole_history (force sin horizonte) SOBRE tablas pobladas —
+    # el camino real de "Recalcular completo": la limpieza vacía cada
+    # sig_{id}/strat_res_{id} entera (TRUNCATE en MySQL, DELETE FROM en
+    # sqlite) en vez de ventanas. Mismo estado final exacto.
+    result = signal_backfill_range.run_range(
+        dates, only_ids=None, strategy_id=None, scope_kind=None,
+        latest_price_date=last, eval_kind="all", eval_ref=0,
+        logged={d for d in dates}, force=True, full_wipe=True,
+        whole_history=True)
+
+    assert result["errors"] == []
+    _assert_range_parity(_snapshot(), reference, str(dates[-1]))
+
 
 def _seed_sin_grupo(dates):
     """Igual que _seed pero SIN ninguna señal de grupo ni scope de grupo: es
