@@ -272,6 +272,47 @@ def test_paridad_rango_vs_por_fecha(pipeline_db):
     assert marked == {str(d) for d in dates}
 
 
+def test_strategy_only_lee_senales_y_reproduce_strategy_result(pipeline_db):
+    """with_signals=False (modo strategy_only, elegido por el usuario cuando
+    no cambiaron señales/indicadores): las señales se LEEN de las tablas en
+    vez de re-evaluarse y solo se reconstruye strategy_result — el resultado
+    debe ser IDÉNTICO al pipeline completo, y las tablas de señales/grupos
+    no deben modificarse."""
+    from app.models import Strategy
+    from app.services import (group_score_service, signal_service,
+                              strategy_service)
+
+    dates = _trading_dates()
+    _seed(dates)
+    last = dates[-1]
+
+    for d in dates:
+        group_score_service.run_daily(d)
+        signal_service.compute_signal_values(d, latest_price_date=last)
+        signal_service.compute_group_signal_values(d)
+        strategy_service.compute_all_strategies(d)
+    reference = _snapshot()
+    assert reference["sr"]
+
+    s = get_session()
+    sid = s.query(Strategy).one().id
+
+    # Se borra SOLO strategy_result; el modo strategy_only debe
+    # reconstruirlo leyendo las señales guardadas (end-to-end real:
+    # rebuild_signal_history resuelve alcance y entra al modo rango)
+    with engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM strategy_result"))
+    result = signal_service.rebuild_signal_history(
+        scope=f"strategy:{sid}", with_signals=False)
+    assert result["errors"] == []
+
+    after = _snapshot()
+    assert after["sr"] == reference["sr"]     # idéntico al pipeline completo
+    assert after["sv"] == reference["sv"]     # señales INTACTAS
+    assert after["gsv"] == reference["gsv"]
+    assert after["gs"] == reference["gs"]
+
+
 def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
     """El corte en chunks no puede cambiar el resultado (el as-of de los
     primeros días de un chunk depende de la ventana de 45 días previa)."""

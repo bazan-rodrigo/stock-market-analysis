@@ -45,6 +45,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.database import Session as _DbSession
 from app.database import get_session
+from app.services.db_utils import delete_by_ranges
 from app.models import (
     Asset,
     GroupScore,
@@ -252,46 +253,6 @@ def _load_current_values(s, codes) -> dict[str, dict]:
     return out
 
 
-_STAGING_TABLES = ("signal_value_staging", "group_signal_value_staging",
-                   "group_scores_staging", "strategy_result_staging")
-
-
-def _merge_table(ws, is_mysql: bool, table: str, key_cols: tuple,
-                 val_cols: tuple, stale_scope: str, windows) -> None:
-    """Merge staging → oficial para UNA tabla, por ventanas de fechas:
-    UPDATE in-place de cambiados (score/pct no están indexadas → la
-    escritura más barata), INSERT de claves nuevas, DELETE de obsoletas
-    (dentro del alcance de la corrida). Comparación null-safe y EXACTA:
-    ambos lados son la misma columna FLOAT (sin mismatch float32/float64)."""
-    st = f"{table}_staging"
-    on = " AND ".join(f"o.{k} = st.{k}" for k in key_cols)
-    sets_src = ", ".join(f"o.{c} = st.{c}" for c in val_cols)
-    if is_mysql:
-        diff = " OR ".join(f"NOT (o.{c} <=> st.{c})" for c in val_cols)
-        upd = (f"UPDATE {table} o JOIN {st} st ON {on} SET {sets_src} "
-               f"WHERE st.date BETWEEN :lo AND :hi AND ({diff})")
-    else:
-        diff = " OR ".join(f"o.{c} IS NOT st.{c}" for c in val_cols)
-        sets = ", ".join(f"{c} = st.{c}" for c in val_cols)
-        upd = (f"UPDATE {table} AS o SET {sets} FROM {st} AS st "
-               f"WHERE {on} AND st.date BETWEEN :lo AND :hi AND ({diff})")
-    cols = ", ".join(key_cols + val_cols)
-    scols = ", ".join(f"st.{c}" for c in key_cols + val_cols)
-    ins = (f"INSERT INTO {table} ({cols}) SELECT {scols} FROM {st} st "
-           f"WHERE st.date BETWEEN :lo AND :hi AND NOT EXISTS "
-           f"(SELECT 1 FROM {table} o WHERE {on})")
-    on_del = " AND ".join(f"st.{k} = {table}.{k}" for k in key_cols)
-    dele = (f"DELETE FROM {table} WHERE date BETWEEN :lo AND :hi "
-            f"AND {stale_scope} AND NOT EXISTS "
-            f"(SELECT 1 FROM {st} st WHERE {on_del})")
-    for lo, hi in windows:
-        p = {"lo": lo, "hi": hi}
-        ws.execute(sa.text(upd), p)
-        ws.execute(sa.text(ins), p)
-        ws.execute(sa.text(dele), p)
-        ws.commit()
-
-
 def _consume_writes(q: "queue.Queue", flush_fn, errors_out: list):
     """Loop del thread escritor asíncrono: consume lotes en orden FIFO hasta
     el sentinel None. Tras un error registra la excepción y sigue DRENANDO
@@ -312,7 +273,8 @@ def _consume_writes(q: "queue.Queue", flush_fn, errors_out: list):
 
 def run_range(dates, *, only_ids, strategy_id, scope_kind,
               latest_price_date, eval_kind, eval_ref, logged,
-              progress_cb=None, force=False, full_wipe=False) -> dict:
+              progress_cb=None, force=False, full_wipe=False,
+              strategy_only=False) -> dict:
     """Equivalente en rango del loop por-fecha de _signal_history_run.
     dates: lista ordenada de fechas a procesar (huecos + última).
 
@@ -321,7 +283,15 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     degrada progresivamente (el purge de InnoDB arrastra las filas muertas
     acumuladas toda la corrida: se midió 10s→32s por chunk con conteos
     iguales). full_wipe: force sin horizonte ni alcance — las tablas
-    derivadas se vacían enteras (TRUNCATE en MySQL)."""
+    derivadas se vacían enteras (TRUNCATE en MySQL).
+
+    strategy_only (scope estrategia, elegido por el usuario cuando NO
+    cambiaron señales/indicadores): las señales NO se re-evalúan ni se
+    reescriben — sus scores se LEEN de signal_value/group_signal_value por
+    chunk (la historia de una señal no depende de la estrategia) — y solo
+    se borra/reescribe strategy_result. Los barridos de indicadores quedan
+    reducidos a lo que el FILTRO de la estrategia necesita. Costo ∝ la
+    estrategia, no ∝ la historia de sus señales."""
     s = get_session()
 
     # ── Contexto invariante de la corrida ─────────────────────────────────
@@ -385,13 +355,19 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
 
     sig_id_by_key = {sig.key: sig.id for sig in prep["signals"]}
 
-    # Códigos a barrer: señales + tendencias de grupo + filtro (historic)
-    sweep_codes = (set(prep["hist_codes"]) | set(_TREND_CODES)
-                   | filter_hist_codes)
+    # Códigos a barrer: señales + tendencias de grupo + filtro (historic).
+    # En strategy_only solo el filtro necesita indicadores (las señales se
+    # leen, los group_scores no se recalculan).
+    if strategy_only:
+        sweep_codes = set(filter_hist_codes)
+    else:
+        sweep_codes = (set(prep["hist_codes"]) | set(_TREND_CODES)
+                       | filter_hist_codes)
 
     # Valores current (una vez: son el estado VIGENTE, no dependen de la fecha)
     current_by_code = _load_current_values(
-        s, set(prep["nohist_codes"]) | filter_current_codes)
+        s, filter_current_codes if strategy_only
+        else set(prep["nohist_codes"]) | filter_current_codes)
 
     need_last_close = "last_close" in prep["virtual_codes"]
 
@@ -427,95 +403,61 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
 
     is_mysql = s.get_bind().dialect.name in ("mysql", "mariadb")
 
-    # ── Modo STAGING (rebuild acotado) vs TRUNCATE directo (rebuild total) ─
-    # Un rebuild acotado NO borra ni reescribe las tablas oficiales: inserta
-    # todo en las *_staging (vacías, un solo índice — el costo mínimo de
-    # inserción, la misma ventaja que el TRUNCATE le da al rebuild total) y
-    # al final un merge por ventanas pasa SOLO las diferencias. Historia de
-    # este diseño: la sentencia DELETE única corría 400s+; el loop con LIMIT
-    # fue peor (O(n²) por re-escaneo de tombstones); borrar+reinsertar en
-    # tablas pobladas hacía que recalcular UNA estrategia costara más que
-    # recalcular todo. La oficial queda intacta hasta el merge (crash-safe).
-    staging_mode = force and not (full_wipe and is_mysql)
-    _MERGE_WINDOW_DATES = 100
+    # ── Rebuild: limpieza única al inicio (después solo INSERTs) ──────────
+    # Total (full_wipe, MySQL): TRUNCATE — instantáneo. Acotado: DELETE por
+    # VENTANAS DE FECHAS QUE AVANZAN (delete_by_ranges, convención
+    # CLAUDE.md): la sentencia única corrió 400s+ reteniendo locks, y el
+    # loop DELETE..LIMIT fue peor (O(n²) por re-escaneo de tombstones).
+    # En strategy_only se borra SOLO strategy_result: las señales no se
+    # tocan (no dependen de la estrategia).
+    _WINDOW_DATES = 100
 
     def _date_windows():
-        slices = (dates[i:i + _MERGE_WINDOW_DATES]
-                  for i in range(0, len(dates), _MERGE_WINDOW_DATES))
+        slices = (dates[i:i + _WINDOW_DATES]
+                  for i in range(0, len(dates), _WINDOW_DATES))
         return [(str(w[0]), str(w[-1])) for w in slices]
-
-    def _clear_staging(ws):
-        for t in _STAGING_TABLES:
-            if is_mysql:
-                ws.execute(sa.text(f"TRUNCATE TABLE {t}"))
-            else:
-                ws.execute(sa.text(f"DELETE FROM {t}"))
-        ws.commit()
 
     def _initial_cleanup(ws):
         if not force:
             return
-        if staging_mode:
-            # Defensivo: si una corrida previa murió, staging puede tener
-            # restos — se vacía antes de empezar.
-            _clear_staging(ws)
-            return
-        # Rebuild total en MySQL: TRUNCATE — instantáneo y sin filas
-        # muertas que purgar. signal_eval_log NO se toca: las fechas siguen
-        # evaluadas (se están recalculando ahora mismo) y guarda markers de
-        # otros alcances.
-        for t in ("signal_value", "group_signal_value", "group_scores",
-                  "strategy_result"):
-            ws.execute(sa.text(f"TRUNCATE TABLE {t}"))
-        ws.commit()
-        logger.info("signal_backfill_range: limpieza inicial (truncate) OK")
-
-    def _merge_staging(ws):
-        """Staging → oficiales, por ventanas. El alcance de los DELETE de
-        obsoletos se acota a lo que ESTA corrida reescribe (mismos criterios
-        que tenía la limpieza por rango: señales/estrategias del alcance;
-        group_scores solo tipos consumidos + la última fecha completa)."""
-        windows = _date_windows()
-        if signal_ids_all:
-            ids = ", ".join(str(int(i)) for i in signal_ids_all)
-            _merge_table(ws, is_mysql, "signal_value",
-                         ("signal_id", "asset_id", "date"), ("score",),
-                         f"signal_id IN ({ids})", windows)
-        if group_sig_ids:
-            ids = ", ".join(str(int(i)) for i in group_sig_ids)
-            _merge_table(ws, is_mysql, "group_signal_value",
-                         ("signal_id", "group_type", "group_id", "date"),
-                         ("score",), f"signal_id IN ({ids})", windows)
-        gs_scope = []
-        if needed_group_types:
-            gts = ", ".join(f"'{t}'" for t in sorted(needed_group_types))
-            gs_scope.append(f"group_type IN ({gts})")
-        if latest_price_date is not None:
-            gs_scope.append(f"date = '{latest_price_date}'")
-        if gs_scope:
-            _merge_table(ws, is_mysql, "group_scores",
-                         ("group_type", "group_id", "date"),
-                         ("regime_score_d", "regime_score_w",
-                          "regime_score_m", "n_assets"),
-                         "(" + " OR ".join(gs_scope) + ")", windows)
-        if strat_ids:
-            ids = ", ".join(str(int(i)) for i in strat_ids)
-            _merge_table(ws, is_mysql, "strategy_result",
-                         ("strategy_id", "asset_id", "date"),
-                         ("score", "pct"), f"strategy_id IN ({ids})", windows)
-        _clear_staging(ws)
-        logger.info("signal_backfill_range: merge staging→oficiales OK")
-
-    def _finalize_writes(ws):
-        if staging_mode and not _werrors:
-            try:
-                _merge_staging(ws)
-            except Exception as exc:
-                logger.exception(
-                    "signal_backfill_range: merge staging falló (las tablas "
-                    "oficiales quedan como estaban; staging se limpia en la "
-                    "próxima corrida)")
-                _werrors.append(exc)
+        if full_wipe and is_mysql:
+            # TRUNCATE: instantáneo y sin filas muertas que purgar.
+            # signal_eval_log NO se toca: las fechas siguen evaluadas
+            # (se están recalculando ahora mismo) y guarda markers de
+            # otros alcances.
+            for t in ("signal_value", "group_signal_value", "group_scores",
+                      "strategy_result"):
+                ws.execute(sa.text(f"TRUNCATE TABLE {t}"))
+            ws.commit()
+        else:
+            windows = _date_windows()
+            if signal_ids_all and not strategy_only:
+                ids = ", ".join(str(int(i)) for i in signal_ids_all)
+                delete_by_ranges(ws, "signal_value", "date", windows,
+                                 f"signal_id IN ({ids})")
+            if group_sig_ids and not strategy_only:
+                ids = ", ".join(str(int(i)) for i in group_sig_ids)
+                delete_by_ranges(ws, "group_signal_value", "date", windows,
+                                 f"signal_id IN ({ids})")
+            # group_scores: solo los tipos que ESTA corrida reescribe (los
+            # demás pueden pertenecer a otras señales de grupo) + la última
+            # fecha completa para el mapa de mercado.
+            if needed_group_types and not strategy_only:
+                gts = ", ".join(f"'{t}'" for t in sorted(needed_group_types))
+                delete_by_ranges(ws, "group_scores", "date", windows,
+                                 f"group_type IN ({gts})")
+            if (not strategy_only and latest_price_date is not None
+                    and dates[0] <= latest_price_date <= dates[-1]):
+                ws.execute(sa.delete(GroupScore.__table__).where(
+                    GroupScore.date == latest_price_date))
+                ws.commit()
+            if strat_ids:
+                ids = ", ".join(str(int(i)) for i in strat_ids)
+                delete_by_ranges(ws, "strategy_result", "date", windows,
+                                 f"strategy_id IN ({ids})")
+        logger.info("signal_backfill_range: limpieza inicial de rebuild "
+                    "completada (%s)",
+                    "truncate" if full_wipe else "delete por ventanas")
 
     # Placeholder del driver: el INSERT masivo va por exec_driver_sql
     # (executemany del DBAPI) — la compilación de SQLAlchemy por fila
@@ -555,19 +497,15 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     StrategyResult.date.in_(batch_dates),
                     StrategyResult.strategy_id.in_(strat_ids)))
 
-        # En modo staging los datos van a las *_staging (el merge final los
-        # pasa a las oficiales); los markers de evaluación van directo (son
-        # append-only y chicos, no participan del merge).
-        sfx = "_staging" if staging_mode else ""
-        _bulk_insert(ws, f"group_scores{sfx}",
+        _bulk_insert(ws, "group_scores",
                      ("group_type", "group_id", "date", "regime_score_d",
                       "regime_score_w", "regime_score_m", "n_assets"), gs_rows)
-        _bulk_insert(ws, f"signal_value{sfx}",
+        _bulk_insert(ws, "signal_value",
                      ("signal_id", "asset_id", "date", "score"), sv_rows)
-        _bulk_insert(ws, f"group_signal_value{sfx}",
+        _bulk_insert(ws, "group_signal_value",
                      ("signal_id", "group_type", "group_id", "date", "score"),
                      gsv_rows)
-        _bulk_insert(ws, f"strategy_result{sfx}",
+        _bulk_insert(ws, "strategy_result",
                      ("strategy_id", "asset_id", "date", "score", "pct"),
                      sr_rows)
         _bulk_insert(ws, "signal_eval_log",
@@ -633,7 +571,6 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     "signal_backfill_range: limpieza inicial falló")
                 _werrors.append(exc)
             _consume_writes(_wq, lambda *item: _flush(ws, *item), _werrors)
-            _finalize_writes(ws)
         finally:
             _DbSession.remove()
 
@@ -671,12 +608,42 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                       for code in sweep_codes}
 
             closes_by_date: dict = {}
-            if need_last_close:
+            if need_last_close and not strategy_only:
                 rows = s.query(Price.date, Price.asset_id, Price.close).filter(
                     Price.date >= chunk[0], Price.date <= window_end).all()
                 for dt, aid, close in rows:
                     if close is not None:
                         closes_by_date.setdefault(dt, {})[aid] = float(close)
+
+            # strategy_only: los scores de las señales se LEEN por chunk
+            # (lectura secuencial indexada) en vez de re-evaluarse — la
+            # historia de una señal no depende de la estrategia.
+            stored_sv_by_date: dict = {}
+            stored_gsv_by_date: dict = {}
+            if strategy_only:
+                srows = s.query(
+                    SignalValue.date, SignalValue.signal_id,
+                    SignalValue.asset_id, SignalValue.score).filter(
+                    SignalValue.signal_id.in_(signal_ids_all),
+                    SignalValue.date >= chunk[0],
+                    SignalValue.date <= chunk[-1]).all()
+                for dt, sig_id, aid, sc in srows:
+                    if sc is not None:
+                        stored_sv_by_date.setdefault(
+                            dt, {})[(sig_id, aid)] = float(sc)
+                if group_sig_ids:
+                    grows = s.query(
+                        GroupSignalValue.date, GroupSignalValue.signal_id,
+                        GroupSignalValue.group_type,
+                        GroupSignalValue.group_id,
+                        GroupSignalValue.score).filter(
+                        GroupSignalValue.signal_id.in_(group_sig_ids),
+                        GroupSignalValue.date >= chunk[0],
+                        GroupSignalValue.date <= chunk[-1]).all()
+                    for dt, sig_id, gt, gid, sc in grows:
+                        if sc is not None:
+                            stored_gsv_by_date.setdefault(
+                                dt, {})[(sig_id, gt, gid)] = float(sc)
 
             sv_rows, gsv_rows, gs_rows, sr_rows, marker_rows = [], [], [], [], []
             batch_dates: list = []
@@ -690,13 +657,18 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 for sw in sweeps.values():
                     sw.advance(d)
 
-                # Scores de grupo (tendencias con fecha EXACTA d)
-                asset_trends: dict[int, dict] = {}
-                for code in _TREND_CODES:
-                    tf = _TF_MAP[code]
-                    for aid, val in sweeps[code].exact(d).items():
-                        asset_trends.setdefault(aid, {})[tf] = val
-                aggregated = aggregate_group_scores(asset_trends, asset_meta)
+                # Scores de grupo (tendencias con fecha EXACTA d).
+                # strategy_only no los recalcula: no escribe group_scores y
+                # los scores de señales de grupo se leen de la tabla.
+                if strategy_only:
+                    aggregated = {}
+                else:
+                    asset_trends: dict[int, dict] = {}
+                    for code in _TREND_CODES:
+                        tf = _TF_MAP[code]
+                        for aid, val in sweeps[code].exact(d).items():
+                            asset_trends.setdefault(aid, {})[tf] = val
+                    aggregated = aggregate_group_scores(asset_trends, asset_meta)
 
                 # gscores para los EVALUADORES: solo los grupos que alguna
                 # estrategia consume — controla group_signal_value y el valor
@@ -724,35 +696,43 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 # Snapshots as-of de todos los códigos barridos
                 snap = {code: sw.snapshot_asof(d) for code, sw in sweeps.items()}
 
-                # isnaps para señales de activo (hist + current-si-es-hoy + virtual)
-                isnaps: dict[int, dict] = {}
-                for code in prep["hist_codes"]:
-                    for aid, val in snap.get(code, {}).items():
-                        isnaps.setdefault(aid, {})[code] = val
-                if prep["nohist_codes"] and d == latest_price_date:
-                    for code in prep["nohist_codes"]:
-                        for aid, val in current_by_code.get(code, {}).items():
+                if strategy_only:
+                    # Señales LEÍDAS (no evaluadas, no escritas): misma
+                    # estructura que producen los evaluadores.
+                    sv_scores = stored_sv_by_date.get(d, {})
+                    gsv_scores = stored_gsv_by_date.get(d, {})
+                else:
+                    # isnaps para señales de activo (hist + current-si-es-hoy
+                    # + virtual)
+                    isnaps: dict[int, dict] = {}
+                    for code in prep["hist_codes"]:
+                        for aid, val in snap.get(code, {}).items():
                             isnaps.setdefault(aid, {})[code] = val
-                if need_last_close:
-                    for aid, val in closes_by_date.get(d, {}).items():
-                        isnaps.setdefault(aid, {})["last_close"] = val
+                    if prep["nohist_codes"] and d == latest_price_date:
+                        for code in prep["nohist_codes"]:
+                            for aid, val in current_by_code.get(code, {}).items():
+                                isnaps.setdefault(aid, {})[code] = val
+                    if need_last_close:
+                        for aid, val in closes_by_date.get(d, {}).items():
+                            isnaps.setdefault(aid, {})["last_close"] = val
 
-                sv_scores = _evaluate_asset_signal_scores(
-                    signals=prep["signals"], asset_signals=prep["asset_signals"],
-                    group_signals=prep["group_signals"],
-                    params_by_id=prep["params_by_id"],
-                    compiled_by_id=prep["compiled_by_id"], isnaps=isnaps,
-                    asset_groups=asset_groups, gscores=gscores)
-                sv_rows.extend(
-                    (k[0], k[1], d_str, v) for k, v in sv_scores.items())
+                    sv_scores = _evaluate_asset_signal_scores(
+                        signals=prep["signals"],
+                        asset_signals=prep["asset_signals"],
+                        group_signals=prep["group_signals"],
+                        params_by_id=prep["params_by_id"],
+                        compiled_by_id=prep["compiled_by_id"], isnaps=isnaps,
+                        asset_groups=asset_groups, gscores=gscores)
+                    sv_rows.extend(
+                        (k[0], k[1], d_str, v) for k, v in sv_scores.items())
 
-                gsv_scores = _evaluate_group_signal_scores(
-                    group_signals=prep["group_signals"],
-                    params_by_id=prep["params_by_id"],
-                    gscores=gscores.values())
-                gsv_rows.extend(
-                    (k[0], k[1], k[2], d_str, v)
-                    for k, v in gsv_scores.items())
+                    gsv_scores = _evaluate_group_signal_scores(
+                        group_signals=prep["group_signals"],
+                        params_by_id=prep["params_by_id"],
+                        gscores=gscores.values())
+                    gsv_rows.extend(
+                        (k[0], k[1], k[2], d_str, v)
+                        for k, v in gsv_scores.items())
 
                 # Índice por señal, UNA pasada por fecha: sin esto cada
                 # estrategia rebarre los ~8000 scores del día y el costo
@@ -812,16 +792,13 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             errors.append({"date": f"{chunk[0]}..{chunk[-1]}",
                            "error": f"chunk {chunk[0]}..{chunk[-1]}: {exc}"})
 
-    # Cierre del escritor: sentinel + join (el escritor hace el merge
-    # staging→oficiales antes de morir). Recién acá se sabe cuántas fechas
-    # quedaron realmente persistidas (_ok_box lo suma el flush).
+    # Cierre del escritor: sentinel + join. Recién acá se sabe cuántas
+    # fechas quedaron realmente persistidas (_ok_box lo suma el flush).
     if use_async and _writer is not None:
         if progress_cb:
-            progress_cb(total, total, "aplicando cambios…")
+            progress_cb(total, total, "guardando…")
         _wq.put(None)
         _writer.join()
-    else:
-        _finalize_writes(s)
     if _werrors:
         errors.append({"date": f"{dates[0]}..{dates[-1]}",
                        "error": f"escritor asíncrono: {_werrors[0]}"})

@@ -861,7 +861,8 @@ def _scope_signal_ids(s, scope: str | None):
 
 
 def _signal_history_run(progress_cb=None, days: int | None = None,
-                        force: bool = False, scope: str | None = None) -> dict:
+                        force: bool = False, scope: str | None = None,
+                        with_signals: bool = True) -> dict:
     """Corre el pipeline (scores de grupo → señales → estrategias) para cada
     fecha con precios dentro del horizonte. Delta (force=False): solo fechas
     sin cálculo previo + la última. Rebuild (force=True): todas.
@@ -871,7 +872,13 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
     real es solo sobre los huecos); en rebuild recalcula la historia entera.
 
     scope acota a una estrategia (señales necesarias + sus resultados) o a
-    una señal suelta (sin tocar resultados de estrategias)."""
+    una señal suelta (sin tocar resultados de estrategias).
+
+    with_signals=False (solo con scope de estrategia — decisión del USUARIO
+    cuando no cambiaron señales ni indicadores): las señales no se
+    re-evalúan ni se reescriben — sus scores se leen de signal_value — y
+    solo se reconstruye strategy_result. Si cambió un indicador o una
+    señal, corresponde with_signals=True (el pipeline completo)."""
     from datetime import timedelta
 
     from app.services import group_score_service, strategy_service
@@ -944,6 +951,8 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
     # constantes/incrementales 25.000 veces — el barrido cronológico hace lo
     # mismo con una carga por chunk (ver signal_backfill_range). El camino
     # por-fecha queda para el uso diario (última fecha, pocos huecos).
+    strategy_only = (scope_kind == "strategy" and not with_signals)
+
     if len(dates) >= _RANGE_MODE_MIN_DATES:
         from app.services import signal_backfill_range
         return signal_backfill_range.run_range(
@@ -952,17 +961,21 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             scope_kind=scope_kind, latest_price_date=last,
             eval_kind=eval_kind, eval_ref=eval_ref, logged=logged,
             progress_cb=progress_cb, force=force,
-            full_wipe=(force and horizon is None and scope_kind is None))
+            full_wipe=(force and horizon is None and scope_kind is None),
+            strategy_only=strategy_only)
 
     total, ok, errors = len(dates), 0, []
     for i, d in enumerate(dates, start=1):
         if progress_cb:
             progress_cb(i, total, str(d))
         try:
-            group_score_service.run_daily(d)
-            compute_signal_values(d, only_signal_ids=only_ids,
-                                  latest_price_date=last)
-            compute_group_signal_values(d, only_signal_ids=only_ids)
+            if not strategy_only:
+                group_score_service.run_daily(d)
+                compute_signal_values(d, only_signal_ids=only_ids,
+                                      latest_price_date=last)
+                compute_group_signal_values(d, only_signal_ids=only_ids)
+            # strategy_only: compute_strategy_results lee signal_value/
+            # group_signal_value de la BD — exactamente la semántica pedida
             if scope_kind == "strategy":
                 strategy_service.compute_strategy_results(strategy_id, d)
             elif scope_kind is None:
@@ -984,21 +997,25 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
 
 
 def update_signal_history(progress_cb=None, days: int | None = None,
-                          scope: str | None = None) -> dict:
+                          scope: str | None = None,
+                          with_signals: bool = True) -> dict:
     """Delta: llena huecos (fechas con precios pero sin cálculo) y recalcula
     la última fecha. Default SIN horizonte (toda la historia): un hueco
     viejo nunca queda invisible — el trabajo real es solo sobre los huecos,
     así que el scheduler nocturno lo usa igual. days acota si se pide."""
-    return _signal_history_run(progress_cb, days=days, force=False, scope=scope)
+    return _signal_history_run(progress_cb, days=days, force=False,
+                               scope=scope, with_signals=with_signals)
 
 
 def rebuild_signal_history(progress_cb=None, days: int | None = None,
-                           scope: str | None = None) -> dict:
+                           scope: str | None = None,
+                           with_signals: bool = True) -> dict:
     """Rebuild: recalcula TODAS las fechas con precios del horizonte
     (reescribe lo existente — para cambios de definición o fixes).
     days None/0 = toda la historia: puede tardar MUCHO (pipeline completo
     por cada fecha)."""
-    return _signal_history_run(progress_cb, days=days, force=True, scope=scope)
+    return _signal_history_run(progress_cb, days=days, force=True,
+                               scope=scope, with_signals=with_signals)
 
 
 def run_recalculate(target_date: date_type | None = None) -> dict:

@@ -38,10 +38,6 @@ from app.models.strategy_result import StrategyResult
 from app.models.asset_verification_flag import AssetVerificationFlag
 from app.models.verification_run_log import VerificationRunLog
 from app.models.backtest import BacktestRun, BacktestQuantileStat, BacktestIcPoint
-from app.models.staging_tables import (SignalValueStaging,
-                                       GroupSignalValueStaging,
-                                       GroupScoreStaging,
-                                       StrategyResultStaging)
 
 __all__ = [
     "User",
@@ -88,8 +84,4 @@ __all__ = [
     "BacktestRun",
     "BacktestQuantileStat",
     "BacktestIcPoint",
-    "SignalValueStaging",
-    "GroupSignalValueStaging",
-    "GroupScoreStaging",
-    "StrategyResultStaging",
 ]

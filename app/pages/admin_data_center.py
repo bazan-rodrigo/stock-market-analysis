@@ -66,10 +66,21 @@ def _op_section(op_id, description, *, has_new_only=False,
                         style={"fontSize": "0.76rem", "minWidth": "260px"},
                     ),
                 ], className="d-flex align-items-center"),
+                dbc.Col([
+                    dbc.Switch(
+                        id=f"dc-with-signals-{op_id}",
+                        label="Incluir señales", value=True,
+                        style={"fontSize": "0.74rem", "color": "#9ca3af"}),
+                ], width="auto", className="d-flex align-items-center"),
             ], className="g-2 mb-1 align-items-center"),
             html.Small("El horizonte y el alcance aplican a los dos botones "
                        "(Ejecutar y Recalcular completo). Vacío = toda la "
-                       "historia (en Recalcular completo puede tardar mucho).",
+                       "historia (en Recalcular completo puede tardar mucho). "
+                       "«Incluir señales» solo aplica con alcance de "
+                       "ESTRATEGIA: apagado, las señales no se re-evalúan "
+                       "(se leen las guardadas) y solo se reconstruye el "
+                       "resultado de la estrategia — mucho más rápido; "
+                       "dejalo prendido si cambiaste señales o indicadores.",
                        className="text-muted d-block mb-2",
                        style={"fontSize": "0.7rem"}),
         ]))

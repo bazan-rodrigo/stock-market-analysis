@@ -290,18 +290,20 @@ def _run(op_id, service_fn):
 
 # ── Callbacks por operación ───────────────────────────────────────────────────
 
-def _days_partial(fn, days, scope=None):
+def _days_partial(fn, days, scope=None, with_signals=True):
     """Fija horizonte en días y alcance para las ops que lo aceptan
     (_HAS_DAYS): scope None = todo, "strategy:<id>" o "signal:<key>".
     days vacío/inválido = SIN horizonte (toda la historia) — antes caía
     silenciosamente a 365 y un 'sin horizonte' pedido a mano calculaba
-    solo un año."""
+    solo un año. with_signals=False (solo con alcance de estrategia):
+    lee las señales guardadas y reconstruye solo strategy_result."""
     import functools
     try:
         days = max(1, int(days))
     except (TypeError, ValueError):
         days = None
-    return functools.partial(fn, days=days, scope=scope or None)
+    return functools.partial(fn, days=days, scope=scope or None,
+                             with_signals=with_signals)
 
 
 @callback(
@@ -336,6 +338,7 @@ def _register(op_id):
     if has_days:
         extra_states.append(State(f"dc-days-{op_id}",  "value"))
         extra_states.append(State(f"dc-scope-{op_id}", "value"))
+        extra_states.append(State(f"dc-with-signals-{op_id}", "value"))
 
     _BAR_RUNNING = {"height": "5px", "display": "flex"}
 
@@ -374,8 +377,9 @@ def _register(op_id):
             from app.services.technical_service import update_indicator_history as fn
         elif op_id == "signals":
             from app.services.signal_service import update_signal_history
-            days, scope = (args + (None, None))[:2]
-            fn = _days_partial(update_signal_history, days, scope)
+            days, scope, with_sig = (args + (None, None, None))[:3]
+            fn = _days_partial(update_signal_history, days, scope,
+                               with_signals=(with_sig is not False))
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 
@@ -431,8 +435,9 @@ def _register(op_id):
                 from app.services.technical_service import rebuild_indicator_history as fn
             elif op_id == "signals":
                 from app.services.signal_service import rebuild_signal_history
-                days, scope = (args + (None, None))[:2]
-                fn = _days_partial(rebuild_signal_history, days, scope)
+                days, scope, with_sig = (args + (None, None, None))[:3]
+                fn = _days_partial(rebuild_signal_history, days, scope,
+                                   with_signals=(with_sig is not False))
             else:
                 import functools
                 from app.services.synthetic_service import compute_all_synthetic
