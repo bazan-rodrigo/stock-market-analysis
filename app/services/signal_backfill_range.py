@@ -556,6 +556,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         activo borrando en cascada) suele ser transitoria."""
         if not batch_dates:
             return
+        _tw0 = time.perf_counter()
         for attempt in range(_MAX_LOCK_RETRIES + 1):
             try:
                 _flush_once(ws, batch_dates, sv_by_sig, gsv_rows, gs_rows,
@@ -574,6 +575,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 raise
         logged.update(batch_dates)
         _ok_box[0] += len(batch_dates)
+        _t_write[0] += time.perf_counter() - _tw0
         logger.info(
             "signal_backfill_range: %s..%s (%d fechas): %d filas de señal, "
             "%d group_signal_value, %d group_scores, %d filas de estrategia",
@@ -594,6 +596,11 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     _ok_box = [0]
     _werrors: list = []
     _wq: queue.Queue = queue.Queue(maxsize=1)
+
+    # Instrumentación: desglose lectura / cómputo / escritura para decidir
+    # dónde atacar (¿read-bound? ¿escritor como cuello? ¿cómputo?). Celdas
+    # de lista: _t_write la suma el thread escritor, el resto el productor.
+    _t_read, _t_compute, _t_wait, _t_write = [0.0], [0.0], [0.0], [0.0]
 
     def _writer_main():
         ws = get_session()
@@ -622,13 +629,17 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         cerrar la corrida."""
         if not batch_dates:
             return
+        _te0 = time.perf_counter()
         if use_async:
             if not _werrors:
+                # put bloquea si la cola (1) está llena: este tiempo ES la
+                # espera del productor al escritor (backpressure)
                 _wq.put((batch_dates, sv_by_sig, gsv_rows, gs_rows,
                          sr_by_strat, marker_rows))
         else:
             _flush(s, batch_dates, sv_by_sig, gsv_rows, gs_rows, sr_by_strat,
                    marker_rows)
+        _t_wait[0] += time.perf_counter() - _te0
 
     # ── Chunks ────────────────────────────────────────────────────────────
     for start in range(0, total, _CHUNK_DATES):
@@ -639,6 +650,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         window_end   = chunk[-1]
 
         try:
+            _tr0 = time.perf_counter()
             sweeps = {code: _load_sweep(s, code, window_start, window_end)
                       for code in sweep_codes}
 
@@ -680,12 +692,15 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                             stored_gsv_by_date.setdefault(
                                 dt, {})[(sig_id, gt, gid)] = float(sc)
 
+            _t_read[0] += time.perf_counter() - _tr0
+
             sv_by_sig: dict[int, list] = {}
             sr_by_strat: dict[int, list] = {}
             gsv_rows, gs_rows, marker_rows = [], [], []
             batch_dates: list = []
             flush_rows = 0  # contador para el flush intermedio por volumen
 
+            _tc0, _w0 = time.perf_counter(), _t_wait[0]
             for d in chunk:
                 done += 1
                 d_str = str(d)
@@ -829,6 +844,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
 
             _emit(batch_dates, sv_by_sig, gsv_rows, gs_rows, sr_by_strat,
                   marker_rows)
+            # cómputo = loop menos lo que _emit pasó bloqueado esperando
+            _t_compute[0] += ((time.perf_counter() - _tc0)
+                              - (_t_wait[0] - _w0))
 
         except Exception as exc:
             s.rollback()
@@ -842,10 +860,28 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     if use_async and _writer is not None:
         if progress_cb:
             progress_cb(total, total, "guardando…")
+        _tj0 = time.perf_counter()
         _wq.put(None)
         _writer.join()
+        _t_wait[0] += time.perf_counter() - _tj0
     if _werrors:
         errors.append({"date": f"{dates[0]}..{dates[-1]}",
                        "error": f"escritor asíncrono: {_werrors[0]}"})
 
-    return {"total": total, "success": _ok_box[0], "errors": errors}
+    timings = {"read_s": round(_t_read[0], 1),
+               "compute_s": round(_t_compute[0], 1),
+               "wait_s": round(_t_wait[0], 1),
+               "write_s": round(_t_write[0], 1)}
+    # La suma lectura+cómputo+espera ≈ tiempo de pared del productor; la
+    # escritura corre SOLAPADA en el thread escritor (solo la parte que
+    # asoma en "espera" frenó la corrida). En sqlite (sync) espera ⊇
+    # escritura. Con esto se decide dónde atacar: read-bound → lecturas;
+    # espera alta → escritores paralelos por tabla; cómputo alto → ProcessPool.
+    logger.info(
+        "signal_backfill_range: tiempos — lectura %.1fs, cómputo %.1fs, "
+        "espera al escritor %.1fs (escritura solapada %.1fs)",
+        timings["read_s"], timings["compute_s"], timings["wait_s"],
+        timings["write_s"])
+
+    return {"total": total, "success": _ok_box[0], "errors": errors,
+            "timings": timings}

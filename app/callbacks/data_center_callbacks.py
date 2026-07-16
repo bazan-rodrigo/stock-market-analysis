@@ -276,6 +276,12 @@ def _run(op_id, service_fn):
         first_err = errs[0].get("error", "") if errs else ""
         st["msg"]   = (f"Completado: {ok}/{total} OK  ·  {len(errs)} errores — {first_err[:300]}"
                        if errs else f"Completado: {total} OK")
+        # Desglose del modo rango de señales (para decidir dónde optimizar)
+        t = result.get("timings")
+        if t and not errs:
+            st["msg"] += (f"  ·  lectura {t['read_s']:.0f}s / "
+                          f"cómputo {t['compute_s']:.0f}s / "
+                          f"espera escritor {t['wait_s']:.0f}s")
         st["error"] = bool(errs)
     except Exception as exc:
         st["msg"]   = f"Error: {exc}"
