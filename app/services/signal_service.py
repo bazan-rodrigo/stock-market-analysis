@@ -19,7 +19,7 @@ from app.models import signal_store
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import query_values_asof
 from app.models.price import Price
-from app.services import signal_engine
+from app.services import db_compat, signal_engine
 
 logger = logging.getLogger(__name__)
 
@@ -584,7 +584,8 @@ def save_signal(
                     "No se puede despublicar: la referencian "
                     + ", ".join(sorted(set(deps))) + ".")
     else:
-        existing = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
+        existing = s.query(SignalDefinition).filter(
+            db_compat.ci_equals(SignalDefinition.key, key)).first()
         if existing:
             raise ValueError(f"Ya existe una señal con key '{key}'.")
         sig = SignalDefinition()
@@ -784,7 +785,11 @@ def import_signals_excel(file_bytes: bytes,
         for p in parsed:
             data = p["data"]
             key  = p["key"]
-            sig = s.query(SignalDefinition).filter(SignalDefinition.key == key).first()
+            # ci_equals: en MySQL el match por key ya era case-insensitive
+            # (collation) — sin esto, en PG un re-import con otro caso
+            # duplicaría la señal en vez de actualizarla
+            sig = s.query(SignalDefinition).filter(
+                db_compat.ci_equals(SignalDefinition.key, key)).first()
             new_vals = dict(
                 key=key,
                 name=str(data.get("name") or key),
@@ -949,7 +954,8 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
     elif scope_kind == "signal":
         # La señal pedida (no sus dependencias) define el "ya calculado"
         target_sig = s.query(SignalDefinition).filter(
-            SignalDefinition.key == scope.partition(":")[2]).first()
+            db_compat.ci_equals(SignalDefinition.key,
+                                scope.partition(":")[2])).first()
         eval_kind, eval_ref = "signal", target_sig.id
         if force:
             computed = set()

@@ -17,7 +17,7 @@ from app.models import (
     StrategyComponent,
 )
 from app.models import signal_store
-from app.services import strategy_filter
+from app.services import db_compat, strategy_filter
 
 logger = logging.getLogger(__name__)
 
@@ -403,7 +403,8 @@ def save_strategy(
         sig_key = str(comp_data.get("signal_key") or "").strip()
         if not sig_key:
             raise ValueError("Cada componente requiere signal_key.")
-        sig = s.query(SignalDefinition).filter(SignalDefinition.key == sig_key).first()
+        sig = s.query(SignalDefinition).filter(
+            db_compat.ci_equals(SignalDefinition.key, sig_key)).first()
         if sig is None:
             raise ValueError(f"Señal '{sig_key}' no encontrada.")
         comp = StrategyComponent(
@@ -459,7 +460,9 @@ def get_strategy_results(strategy_id: int, target_date) -> list[dict]:
         sa.select(rt.c.asset_id, Asset.ticker, Asset.name, rt.c.score)
         .join_from(rt, Asset, Asset.id == rt.c.asset_id)
         .where(rt.c.date == target_date)
-        .order_by(rt.c.score.desc())
+        # NULLs al final en ambos motores (en PG un DESC puro los pondría
+        # primero y encabezarían el ranking)
+        .order_by(*db_compat.order_desc_nulls_last(rt.c.score))
     ).all()
     return [
         {"asset_id": aid, "ticker": ticker, "name": name, "score": score}
@@ -510,7 +513,7 @@ def get_strategy_results_with_breakdown(
         q = q.where(Asset.sector_id == sector_id)
     if market_id is not None:
         q = q.where(Asset.market_id == market_id)
-    q = q.order_by(rt.c.score.desc())
+    q = q.order_by(*db_compat.order_desc_nulls_last(rt.c.score))
     rows = s.execute(q).all()
 
     if not rows:
@@ -828,7 +831,7 @@ def import_strategies_excel(file_bytes: bytes,
                     | _filter_signal_keys(sdata["filter_conditions"]))
         for rk in sorted(ref_keys):
             ref = sigs_by_key.get(rk) or db.query(SignalDefinition).filter(
-                SignalDefinition.key == rk).first()
+                db_compat.ci_equals(SignalDefinition.key, rk)).first()
             if ref is not None and not can_reference(
                     sdata["owner_id"], sdata["is_public"],
                     ref.owner_id, ref.is_public):
@@ -851,7 +854,10 @@ def import_strategies_excel(file_bytes: bytes,
     results: list[dict] = []
     try:
         for name, sdata in strategies.items():
-            existing = db.query(Strategy).filter(Strategy.name == name).first()
+            # ci_equals: el upsert del import matchea por nombre sin
+            # distinguir caso, como lo hacía la collation de MySQL
+            existing = db.query(Strategy).filter(
+                db_compat.ci_equals(Strategy.name, name)).first()
             if existing:
                 strat = existing
                 for comp in list(strat.components):

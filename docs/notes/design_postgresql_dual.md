@@ -136,9 +136,34 @@ PG tiene rama propia — **nunca** cae al camino de sqlite/tests.
    - **Pendiente Codespace**: validar equivalencia cadena↔modelos con
      `alembic revision --autogenerate` (diff vacío) sobre MariaDB, y una
      corrida real de `init_db.py` en base vacía.
-3. **Semántica:** NULLs del ranking (portable, sin `NULLS LAST`),
-   login/aliases case-insensitive, decisión `Float`, aislamiento del
-   backfill, rollback de consola SQL, tuning de pool.
+3. **Semántica** — HECHA (16-jul). Implementación:
+   - `db_compat.order_desc_nulls_last(col)`: clave extra `(col IS NULL)
+     ASC` — portable (MariaDB no soporta `NULLS LAST`), en MySQL no
+     cambia el orden y en PG evita que los NULL encabecen el ranking.
+     Aplicado en los dos ORDER BY de `strategy_service`.
+   - `db_compat.ci_equals(col, valor)`: `LOWER(col) = lower(valor)` —
+     replica en PG la case-insensitivity que la collation de MySQL daba
+     gratis. Aplicado en: login (username), lookups/upserts por key de
+     señal (ABM + import + scope de backfill), upsert de estrategia por
+     nombre (import), y aliases de catálogo (`_resolve_alias`/
+     `_upsert_alias`). La insensibilidad a ACENTOS de MySQL NO se
+     replica en PG — asumido.
+   - Consola SQL: rollback ante error SOLO en PG (transacción abortada —
+     obligatorio); en MySQL el comportamiento histórico no se toca.
+   - Pool configurable: `db_pool_size`/`db_max_overflow` en
+     conf.properties (defaults 30/20, iguales a los hardcodeados).
+   - **Decisión `sa.Float`: se mantiene sin precisión.** En PG las
+     columnas serán `double precision` (8 bytes) vs FLOAT (4) de MySQL:
+     no hay comparación de valores ENTRE motores en producción (cada
+     base se compara consigo misma) y float8 coincide mejor con los
+     doubles de Python. La paridad de fase 5 compara con tolerancia.
+   - **Decisión aislamiento: sin cambio de código.** El productor del
+     backfill lee `ind_*`/prices, que ninguna otra corrida modifica
+     mientras corre (las corridas masivas son excluyentes a nivel app y
+     el escritor de la propia corrida escribe OTRAS tablas). Con READ
+     COMMITTED (default de PG) el resultado es el mismo; si la paridad
+     de fase 5 muestra drift, fijar REPEATABLE READ en la sesión
+     productora solo para PG.
 4. **Entorno:** `DB_ENGINE` en `.devcontainer/setup.sh` +
    `scripts/codespace_setup.sh` (rama PG vía PGDG), `conf.properties.example`,
    CLAUDE.md y docs.

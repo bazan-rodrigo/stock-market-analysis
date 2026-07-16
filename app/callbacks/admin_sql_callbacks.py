@@ -143,6 +143,17 @@ def execute_sql(_, sql, session_id):
                    status, _style("warning"), False, False, True
 
     except Exception as exc:
+        # En PostgreSQL un statement fallido deja la transacción ABORTADA:
+        # sin rollback, todo lo que siga en esta conexión persistente
+        # fallaría con InFailedSqlTransaction. En MySQL se preserva el
+        # comportamiento histórico (la transacción sigue usable).
+        try:
+            from app.database import engine
+            from app.services import db_compat
+            if db_compat.is_postgres(engine):
+                _get_conn(session_id).rollback()
+        except Exception:
+            pass
         _set_pending(session_id, False)
         return _error(str(exc)), f"Error: {exc}", _style("danger"), True, True, True
 

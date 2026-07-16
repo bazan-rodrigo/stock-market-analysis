@@ -7,8 +7,8 @@ engine = create_engine(
     Config.DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=3600,
-    pool_size=30,
-    max_overflow=20,
+    pool_size=Config.DB_POOL_SIZE,
+    max_overflow=Config.DB_MAX_OVERFLOW,
     echo=False,
 )
 

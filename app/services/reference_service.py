@@ -351,8 +351,13 @@ def delete_user(user_id: int) -> None:
 
 
 def _upsert_alias(s, entity_type: str, source_value: str, entity_id: int) -> None:
-    obj = s.query(CatalogAlias).filter_by(
-        entity_type=entity_type, source_value=source_value
+    # ci_equals: el match de aliases era case-insensitive vía collation de
+    # MySQL — sin esto, en PG 'Technology' y 'technology' serían aliases
+    # distintos (duplicados silenciosos)
+    from app.services.db_compat import ci_equals
+    obj = s.query(CatalogAlias).filter(
+        CatalogAlias.entity_type == entity_type,
+        ci_equals(CatalogAlias.source_value, source_value),
     ).first()
     if obj:
         obj.entity_id = entity_id
@@ -361,7 +366,11 @@ def _upsert_alias(s, entity_type: str, source_value: str, entity_id: int) -> Non
 
 
 def _resolve_alias(s, entity_type: str, value: str, Model):
-    alias = s.query(CatalogAlias).filter_by(entity_type=entity_type, source_value=value).first()
+    from app.services.db_compat import ci_equals
+    alias = s.query(CatalogAlias).filter(
+        CatalogAlias.entity_type == entity_type,
+        ci_equals(CatalogAlias.source_value, value),
+    ).first()
     if alias:
         entity = s.get(Model, alias.entity_id)
         if entity:

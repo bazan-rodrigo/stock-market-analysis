@@ -165,6 +165,30 @@ def set_bulk_load_checks(s, enabled: bool) -> None:
         pass   # permisos limitados: ignorar
 
 
+def order_desc_nulls_last(col):
+    """Claves de ORDER BY para "col DESC con NULLs al final" en todos los
+    motores. MySQL ya pone los NULLs al final en DESC, pero PostgreSQL los
+    pone PRIMERO (arruinaría el ranking) y MariaDB no soporta NULLS LAST —
+    la clave extra (col IS NULL) ASC es portable: false/0 < true/1 en los
+    tres motores, y en MySQL no cambia el resultado.
+
+    Uso: .order_by(*order_desc_nulls_last(t.c.score))"""
+    return col.is_(None).asc(), col.desc()
+
+
+def ci_equals(col, value: str):
+    """Igualdad case-insensitive portable: LOWER(col) = lower(valor).
+
+    En MySQL la collation utf8mb4_*_ci ya comparaba sin distinguir
+    mayúsculas (esto no cambia resultados); en PostgreSQL '=' es
+    case-sensitive y sin esto los lookups de login/keys/aliases dejan de
+    matchear filas escritas con otro caso. La insensibilidad a ACENTOS de
+    la collation de MySQL NO se replica en PG (á != a) — asumido.
+    Solo para lookups puntuales sobre tablas chicas: LOWER(col) impide
+    usar el índice de la columna."""
+    return sa.func.lower(col) == (value or "").lower()
+
+
 def supports_truncate(bind) -> bool:
     """TRUNCATE TABLE existe en MySQL/MariaDB y PostgreSQL (en PG es además
     transaccional); sqlite no lo tiene."""

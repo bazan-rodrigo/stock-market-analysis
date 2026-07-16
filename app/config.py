@@ -35,12 +35,20 @@ class Config:
     DB_USER: str = _get("db_user", "root")
     DB_PASSWORD: str = _get("db_password", "")
 
-    # Overrideable completa via env DATABASE_URL (tests usan un stub sqlite)
+    # Overrideable completa via env DATABASE_URL (tests usan un stub
+    # sqlite; para PostgreSQL: postgresql+psycopg://user:pass@host/db)
     DATABASE_URL: str = _get(
         "database_url",
         f"mysql+mysqldb://{DB_USER}:{DB_PASSWORD}"
         f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4",
     )
+
+    # Pool de conexiones de SQLAlchemy. Con MySQL los defaults sobran
+    # (threads baratos, max_connections=151); en PostgreSQL cada conexión
+    # es un PROCESO del servidor (max_connections=100 default) — bajar
+    # estos valores si corren varios procesos contra la misma base.
+    DB_POOL_SIZE: int = int(_get("db_pool_size", "30"))
+    DB_MAX_OVERFLOW: int = int(_get("db_max_overflow", "20"))
 
     LOG_LEVEL: str = _get("log_level", "INFO")
     LOG_FILE: str = _get("log_file", str(BASE_DIR / "logs" / "app.log"))

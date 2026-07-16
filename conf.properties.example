@@ -5,6 +5,13 @@ db_port = 3306
 db_name = stock_analysis
 db_user = root
 db_password = tu_password_aqui
+# El motor lo decide la URL: mysql+mysqldb:// (default, se arma con los
+# db_* de arriba) o PostgreSQL con una URL completa:
+# database_url = postgresql+psycopg://usuario:password@localhost:5432/stock_analysis
+# Pool de conexiones (en PostgreSQL cada conexion es un proceso del
+# servidor, max_connections=100 default — bajar si hay varios procesos):
+# db_pool_size = 30
+# db_max_overflow = 20
 scheduler_hour = 18
 scheduler_minute = 0
 log_level = INFO

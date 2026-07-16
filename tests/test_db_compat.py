@@ -273,6 +273,56 @@ def test_wipe_table_truncate_vs_delete():
     assert s.executed == ["DELETE FROM sig_7"]
 
 
+# ── Semántica portable (fase 3): orden de NULLs y case-insensitive ───────────
+
+def test_order_desc_nulls_last_pone_nulls_al_final():
+    # sqlite es un motor donde el DESC puro ya pone NULLs al final (como
+    # MySQL); el helper debe conservar ese orden Y generar la clave extra
+    # (col IS NULL) que lo garantiza también en PostgreSQL
+    eng, t = _mem_engine_con_tabla()
+    d = date(2026, 1, 2)
+    with eng.begin() as c:
+        c.execute(t.insert(), [
+            {"asset_id": 1, "date": d, "value": 1.0},
+            {"asset_id": 2, "date": d, "value": None},
+            {"asset_id": 3, "date": d, "value": 9.0},
+        ])
+        rows = c.execute(
+            sa.select(t.c.asset_id)
+            .order_by(*db_compat.order_desc_nulls_last(t.c.value))
+        ).fetchall()
+    assert [r[0] for r in rows] == [3, 1, 2]   # 9.0, 1.0, NULL
+
+    # la clave (col IS NULL) tiene que estar en el SQL de ambos motores
+    stmt = sa.select(t.c.asset_id).order_by(
+        *db_compat.order_desc_nulls_last(t.c.value))
+    for d_ in (mysql.dialect(), postgresql.dialect()):
+        s = _sql(stmt, d_)
+        assert "value IS NULL" in s and "value DESC" in s
+
+
+def test_ci_equals_matchea_sin_distinguir_caso():
+    # sqlite compara '=' con BINARY (case-sensitive, como PostgreSQL):
+    # ci_equals debe encontrar la fila igual — es exactamente el contrato
+    # que la collation de MySQL daba gratis
+    eng = sa.create_engine("sqlite://")
+    meta = sa.MetaData()
+    t = sa.Table("u", meta,
+                 sa.Column("id", sa.Integer, primary_key=True),
+                 sa.Column("username", sa.String(80)))
+    meta.create_all(eng)
+    with eng.begin() as c:
+        c.execute(t.insert(), [{"id": 1, "username": "admin"}])
+        exacto = c.execute(sa.select(t.c.id).where(
+            t.c.username == "ADMIN")).fetchall()
+        ci = c.execute(sa.select(t.c.id).where(
+            db_compat.ci_equals(t.c.username, "ADMIN"))).fetchall()
+    assert exacto == []          # '=' puro no matchea en motores CS
+    assert [r[0] for r in ci] == [1]
+    # None no explota (form vacío)
+    assert str(db_compat.ci_equals(sa.column("x"), None))
+
+
 # ── Ejecución real sobre sqlite (la rama que corre en esta suite) ────────────
 
 def _mem_engine_con_tabla():

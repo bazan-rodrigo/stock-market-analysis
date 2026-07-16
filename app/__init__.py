@@ -141,8 +141,12 @@ def create_app():
         if not username or not password:
             return redirect("/login?error=empty")
         try:
+            from app.services.db_compat import ci_equals
             s = _db()
-            user = s.query(User).filter(User.username == username).first()
+            # ci_equals: en MySQL la collation ya era case-insensitive
+            # ('Admin' loguea a 'admin'); esto preserva ese contrato en PG
+            user = s.query(User).filter(
+                ci_equals(User.username, username)).first()
         except Exception:
             logger.exception("Error de base de datos en do_login")
             return redirect("/login?error=db")
