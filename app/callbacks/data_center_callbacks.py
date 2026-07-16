@@ -327,6 +327,50 @@ def load_signal_scope_opts(_):
         return []
 
 
+@callback(
+    Output("dc-redownload-body-signals", "children"),
+    Input("dc-btn-redownload-signals", "n_clicks"),
+    State("dc-scope-signals", "value"),
+    State("dc-with-signals-signals", "value"),
+    State("dc-days-signals", "value"),
+    prevent_initial_call=True,
+)
+def update_signals_confirm_body(_n, scope, with_signals, days):
+    """El modal de confirmación de 'Recalcular completo' dice EXACTAMENTE
+    qué va a pasar según alcance + «Incluir señales» + horizonte (el texto
+    fijo describía siempre el recálculo total, aunque el alcance fuera una
+    sola estrategia)."""
+    try:
+        horizon = f"para los últimos {max(1, int(days))} días"
+    except (TypeError, ValueError):
+        horizon = "para TODA la historia de precios"
+
+    kind, _, val = (scope or "").partition(":")
+    if kind == "strategy":
+        try:
+            from app.models import Strategy
+            strat = get_session().get(Strategy, int(val))
+            name = strat.name if strat is not None else f"id={val}"
+        except Exception:
+            name = f"id={val}"
+        if with_signals is False:
+            return (f"Se reconstruirá SOLO el resultado de la estrategia "
+                    f"«{name}» {horizon}, leyendo las señales ya guardadas "
+                    "(ninguna señal se re-evalúa ni se toca). Es el camino "
+                    "rápido para cuando solo cambió la estrategia. ¿Confirmás?")
+        return (f"Se recalcularán las señales que usa la estrategia «{name}» "
+                f"(componentes y filtro) y se reconstruirá su resultado "
+                f"{horizon}, reescribiendo lo ya calculado. Puede demorar "
+                "varios minutos. ¿Confirmás?")
+    if kind == "signal":
+        return (f"Se recalculará la señal «{val}» {horizon}, reescribiendo "
+                "sus scores. No se tocan los resultados de estrategias. "
+                "¿Confirmás?")
+    return ("Se recalcularán TODAS las señales y los resultados de TODAS "
+            f"las estrategias {horizon}, vaciando y reconstruyendo lo ya "
+            "calculado. Puede demorar varios minutos. ¿Confirmás?")
+
+
 def _register(op_id):
     has_new_only = op_id in _HAS_NEW_ONLY
     has_days     = op_id in _HAS_DAYS
@@ -405,6 +449,9 @@ def _register(op_id):
         if has_days:
             redownload_states.append(State(f"dc-days-{op_id}",  "value"))
             redownload_states.append(State(f"dc-scope-{op_id}", "value"))
+            # Sin este State, with_sig llegaba siempre None y el switch
+            # "Incluir señales" se ignoraba en "Recalcular completo"
+            redownload_states.append(State(f"dc-with-signals-{op_id}", "value"))
 
         @callback(
             Output(f"dc-redownload-modal-{op_id}", "is_open",  allow_duplicate=True),

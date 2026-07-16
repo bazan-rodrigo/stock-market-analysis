@@ -89,7 +89,9 @@ def _op_section(op_id, description, *, has_new_only=False,
     if has_redownload:
         redownload_modal = [dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),
-            dbc.ModalBody(redownload_body),
+            # El id permite reescribir el texto según alcance/switch al
+            # abrirlo (hoy solo la tarjeta de señales lo usa)
+            dbc.ModalBody(redownload_body, id=f"dc-redownload-body-{op_id}"),
             dbc.ModalFooter([
                 dbc.Button(f"Sí, {redownload_label.lower()}", id=f"dc-btn-redownload-{op_id}-confirm", color="danger"),
                 dbc.Button("Cancelar", id=f"dc-btn-redownload-{op_id}-cancel", color="secondary", className="ms-2"),
@@ -222,10 +224,12 @@ def layout(**kwargs):
                 "estrategia. Requiere indicadores ya calculados; las señales sobre "
                 "indicadores sin historia solo puntúan en la fecha vigente.",
                 has_redownload=True, redownload_label="Recalcular completo",
+                # Texto de arranque nomás: al abrir el modal, un callback lo
+                # reescribe según alcance + «Incluir señales» + horizonte
+                # (ver update_signals_confirm_body)
                 redownload_body=(
-                    "Esta acción recalculará señales y resultados de estrategias para "
-                    "TODAS las fechas con precios del horizonte elegido, reescribiendo "
-                    "lo ya calculado. El proceso puede demorar varios minutos. ¿Confirmás?"
+                    "Esta acción borra y reconstruye lo abarcado por el alcance "
+                    "y el horizonte elegidos. ¿Confirmás?"
                 ),
                 has_days=True,
             ),
