@@ -3,12 +3,26 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 # Consulta inicial: monitor de queries en ejecución (útil para diagnosticar
-# qué está corriendo contra la base en este momento)
-_DEFAULT_QUERY = """\
+# qué está corriendo contra la base en este momento), por dialecto
+_MYSQL_DEFAULT_QUERY = """\
 SELECT id, user, db, time, state, info, command
 FROM information_schema.processlist
 WHERE info not like '%information_schema%'
 ORDER BY time DESC;"""
+
+_PG_DEFAULT_QUERY = """\
+SELECT pid, usename, datname, now() - query_start AS time, state, query
+FROM pg_stat_activity
+WHERE state <> 'idle' AND query NOT ILIKE '%pg_stat_activity%'
+ORDER BY time DESC;"""
+
+
+def _default_query() -> str:
+    from app.services import db_compat
+    from app.database import engine
+    if db_compat.is_postgres(engine):
+        return _PG_DEFAULT_QUERY
+    return _MYSQL_DEFAULT_QUERY
 
 
 def layout(**kwargs):
@@ -25,7 +39,7 @@ def layout(**kwargs):
         # ── Editor ───────────────────────────────────────────────────────────
         dbc.Textarea(
             id="sql-input",
-            value=_DEFAULT_QUERY,
+            value=_default_query(),
             placeholder="SELECT * FROM assets LIMIT 10;",
             style={"fontFamily": "monospace", "minHeight": "160px"},
             className="mb-2",

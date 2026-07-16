@@ -124,13 +124,12 @@ def _status_indicators():
                 IndicatorDefinition.category != "Fundamental",
             ).all()
         }
-        # Estimación de information_schema (instantánea): un COUNT(*) exacto
-        # escanea millones de filas por tabla y bajo carga tarda minutos
-        rows = s.execute(sa.text(
-            "SELECT table_name, table_rows FROM information_schema.tables"
-            " WHERE table_schema = DATABASE() AND table_name LIKE 'ind_%'"
-        )).fetchall()
-        total_rows = sum(int(r[1] or 0) for r in rows if r[0] in tech_tables)
+        # Estimación por catálogo (instantánea, por dialecto en db_compat):
+        # un COUNT(*) exacto escanea millones de filas por tabla y bajo
+        # carga tarda minutos
+        from app.services import db_compat
+        rows = db_compat.approx_table_rows(s, "ind_")
+        total_rows = sum(n for name, n in rows.items() if name in tech_tables)
         assets_ok = s.query(IndicatorUpdateLog).filter(
             IndicatorUpdateLog.success.is_(True)).count()
         return f"Indicator values: ~{total_rows:,} filas  |  {assets_ok} activos con indicadores OK"

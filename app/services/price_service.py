@@ -54,7 +54,8 @@ def _upsert_prices(asset_id: int, df, session) -> int:
     if df.empty:
         return 0
     import math
-    from sqlalchemy.dialects.mysql import insert as mysql_insert
+    from app.services import db_compat
+    from app.services.db_compat import INSERTED
 
     def _f(v):
         """Convierte NaN/None a None para columnas float."""
@@ -78,14 +79,10 @@ def _upsert_prices(asset_id: int, df, session) -> int:
 
     for i in range(0, len(mappings), _PRICE_BATCH):
         chunk = mappings[i : i + _PRICE_BATCH]
-        stmt  = mysql_insert(Price).values(chunk)
-        stmt  = stmt.on_duplicate_key_update(
-            open=stmt.inserted.open,
-            high=stmt.inserted.high,
-            low=stmt.inserted.low,
-            close=stmt.inserted.close,
-            volume=stmt.inserted.volume,
-        )
+        stmt  = db_compat.upsert(session, Price, chunk, {
+            "open": INSERTED, "high": INSERTED, "low": INSERTED,
+            "close": INSERTED, "volume": INSERTED,
+        })
         session.execute(stmt)
 
     return len(mappings)

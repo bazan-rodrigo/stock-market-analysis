@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import numpy as np
 from datetime import date as _date_type
 
-from sqlalchemy.dialects.mysql import insert as _mysql_insert
 from sqlalchemy.exc import OperationalError
 
 from app.database import engine, get_session, Session as _ScopedSession
@@ -17,6 +16,8 @@ from app.models import (
     Asset, FundamentalQuarterly, FundamentalUpdateLog, Price,
 )
 from app.models.indicator_store import get_ind_table
+from app.services import db_compat
+from app.services.db_compat import INSERTED
 
 logger = logging.getLogger(__name__)
 
@@ -29,18 +30,11 @@ _EXISTING_CHUNK  = 100
 # descarta ese activo, no el resto del lote ya procesado.
 _RATIO_COMMIT_BATCH = 50
 
-# Códigos de error InnoDB para los que MySQL espera que la aplicación
-# reintente la transacción entera (no son bugs, son el resultado esperado
-# de escrituras concurrentes contra la misma tabla — ver docs de InnoDB).
-_DEADLOCK_ERRNO     = 1213  # "Deadlock found when trying to get lock"
-_LOCK_TIMEOUT_ERRNO = 1205  # "Lock wait timeout exceeded"
-_MAX_LOCK_RETRIES   = 3
-
-
-def _is_retryable_lock_error(exc: BaseException) -> bool:
-    orig  = getattr(exc, "orig", None)
-    errno = orig.args[0] if orig and getattr(orig, "args", None) else None
-    return errno in (_DEADLOCK_ERRNO, _LOCK_TIMEOUT_ERRNO)
+# Deadlock/lock-timeout: el motor espera que la aplicación reintente la
+# transacción entera (no son bugs, son el resultado esperado de escrituras
+# concurrentes contra la misma tabla). Detección por dialecto en db_compat.
+_is_retryable_lock_error = db_compat.is_retryable_lock_error
+_MAX_LOCK_RETRIES = 3
 
 _FUND_DAILY_CODES = frozenset({
     "fundamental_pe_ttm",
@@ -129,8 +123,9 @@ def _upsert_fund_value(code: str, asset_id: int, target_date, val: float, s) -> 
         return
     t    = get_ind_table(code)
     v    = float(val)
-    stmt = _mysql_insert(t).values(asset_id=asset_id, date=target_date, value=v)
-    stmt = stmt.on_duplicate_key_update(value=v)
+    stmt = db_compat.upsert(
+        s, t, dict(asset_id=asset_id, date=target_date, value=v),
+        {"value": v})
     s.execute(stmt)
 
 
@@ -296,8 +291,8 @@ def backfill_asset_fund_history(asset_id: int) -> dict:
                                   "value": float(val)})
 
         if batch:
-            stmt = _mysql_insert(t).values(batch)
-            s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+            stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
+            s.execute(stmt)
             inserted += len(batch)
 
     s.commit()
@@ -1019,8 +1014,8 @@ def _backfill_fund_indicator(
                     if d in target and not np.isnan(v)
                 ]
                 if batch:
-                    stmt = _mysql_insert(t).values(batch)
-                    s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                    stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
+                    s.execute(stmt)
                     inserted += len(batch)
             else:
                 if force:
@@ -1040,8 +1035,8 @@ def _backfill_fund_indicator(
                         batch.append({"asset_id": asset_id, "date": q.period_date,
                                       "value": float(val)})
                 if batch:
-                    stmt = _mysql_insert(t).values(batch)
-                    s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                    stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
+                    s.execute(stmt)
                     inserted += len(batch)
 
             if asset_tick:
@@ -1058,7 +1053,7 @@ def _backfill_fund_indicator_worker(
     code: str, asset_ids: list, force: bool,
     asset_tick, quarters_cache: dict, price_cache: dict,
 ) -> dict:
-    from app.services.technical_service import _set_bulk_load_checks
+    from app.services.db_compat import set_bulk_load_checks as _set_bulk_load_checks
     try:
         if force:
             _set_bulk_load_checks(get_session(), False)
@@ -1154,8 +1149,8 @@ def _backfill_fund_daily_all(
             for code, batch in batches.items():
                 if batch:
                     t    = tables[code]
-                    stmt = _mysql_insert(t).values(batch)
-                    s.execute(stmt.on_duplicate_key_update(value=stmt.inserted.value))
+                    stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
+                    s.execute(stmt)
                     inserted += len(batch)
 
             s.commit()
@@ -1169,7 +1164,7 @@ def _backfill_fund_daily_all_worker(
     daily_codes: list, asset_ids: list, force: bool,
     tick_fns: dict, quarters_cache: dict, price_cache: dict,
 ) -> dict:
-    from app.services.technical_service import _set_bulk_load_checks
+    from app.services.db_compat import set_bulk_load_checks as _set_bulk_load_checks
     try:
         if force:
             _set_bulk_load_checks(get_session(), False)

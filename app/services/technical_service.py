@@ -13,14 +13,15 @@ from datetime import date, datetime, timedelta
 import numpy as np
 import pandas as pd
 import sqlalchemy as sa
-from sqlalchemy.dialects.mysql import insert as _mysql_insert
 
 from app.database import engine, get_session
 from app.models import Asset, DrawdownConfig, Price, RegimeConfig, VolatilityConfig
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import CurrentIndicatorValue, IndAssetMeta, get_ind_table
 
-from app.services import sr_service
+from app.services import db_compat, sr_service
+from app.services.db_compat import INSERTED
+from app.services.db_compat import set_bulk_load_checks as _set_bulk_load_checks
 
 logger = logging.getLogger(__name__)
 
@@ -577,18 +578,21 @@ def _upsert_ind(session, code: str, asset_id: int, target_date, value) -> None:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return
     t    = get_ind_table(code)
-    stmt = _mysql_insert(t).values(asset_id=asset_id, date=target_date, value=value)
-    stmt = stmt.on_duplicate_key_update(value=stmt.inserted.value)
+    stmt = db_compat.upsert(
+        session, t,
+        dict(asset_id=asset_id, date=target_date, value=value),
+        {"value": INSERTED})
     session.execute(stmt)
 
 
 def _upsert_current_ind(session, asset_id: int, code: str,
                         value_num=None, value_str=None) -> None:
     """UPSERT de un valor vigente en current_indicator_values."""
-    stmt = _mysql_insert(CurrentIndicatorValue.__table__).values(
-        asset_id=asset_id, code=code, value_num=value_num, value_str=value_str,
-    )
-    stmt = stmt.on_duplicate_key_update(value_num=value_num, value_str=value_str)
+    stmt = db_compat.upsert(
+        session, CurrentIndicatorValue.__table__,
+        dict(asset_id=asset_id, code=code, value_num=value_num,
+             value_str=value_str),
+        {"value_num": value_num, "value_str": value_str})
     session.execute(stmt)
 
 
@@ -602,27 +606,13 @@ def _upsert_current_ind_batch(session, asset_id: int, values: list[tuple[str, fl
             for code, val in values if val is not None]
     if not rows:
         return
-    stmt = _mysql_insert(CurrentIndicatorValue.__table__).values(rows)
-    stmt = stmt.on_duplicate_key_update(
-        value_num=stmt.inserted.value_num, value_str=stmt.inserted.value_str)
+    stmt = db_compat.upsert(
+        session, CurrentIndicatorValue.__table__, rows,
+        {"value_num": INSERTED, "value_str": INSERTED})
     session.execute(stmt)
 
 
 _IND_BATCH = 5000  # filas por INSERT al escribir series de indicadores
-
-
-def _set_bulk_load_checks(s, enabled: bool) -> None:
-    """Activa/desactiva las validaciones FK/unique de la CONEXIÓN.
-
-    En un rebuild, validar el FK de asset_id contra assets en cada una de
-    millones de filas es trabajo tirado (los ids salen de esa misma tabla).
-    El flag es por conexión: SIEMPRE restaurar antes de devolverla al pool."""
-    flag = 1 if enabled else 0
-    try:
-        s.execute(sa.text(
-            f"SET SESSION foreign_key_checks = {flag}, unique_checks = {flag}"))
-    except Exception:
-        pass   # sqlite en tests / permisos limitados: ignorar
 
 
 def _series_dates_values(values, df) -> tuple[list, list]:
@@ -723,8 +713,10 @@ def _write_ind_series(s, code: str, asset_id: int,
     # executemany crudo con tuplas: evita construir un dict de Python por
     # fila (54M en un rebuild) y la compilación de SQLAlchemy por batch
     table = get_ind_table(code).name
-    sql = (f"INSERT INTO `{table}` (asset_id, date, value) VALUES (%s, %s, %s)"
-           " ON DUPLICATE KEY UPDATE value = VALUES(value)")
+    sql = db_compat.upsert_sql(
+        s, table, ("asset_id", "date", "value"),
+        update_cols=("value",), pk_cols=("asset_id", "date"),
+        quote_table=True)
     conn = s.connection()
     written = 0
     for i in range(0, len(pairs), _IND_BATCH):
@@ -1039,8 +1031,9 @@ def _upsert_ind_asset_meta(s, code: str, *, bench_by_asset: dict | None = None,
     if not data:
         return
     col = "benchmark_id" if bench_by_asset else "checksum"
-    sql = (f"INSERT INTO ind_asset_meta (asset_id, code, {col}) VALUES (%s, %s, %s)"
-           f" ON DUPLICATE KEY UPDATE {col} = VALUES({col})")
+    sql = db_compat.upsert_sql(
+        s, "ind_asset_meta", ("asset_id", "code", col),
+        update_cols=(col,), pk_cols=("asset_id", "code"))
     rows = [(aid, code, val) for aid, val in data.items()]
     s.connection().exec_driver_sql(sql, rows)
     s.commit()
@@ -1056,9 +1049,11 @@ def _upsert_ind_stats_meta(s, code: str, stats_by_asset: dict) -> None:
     escribiría NULL y pisaría un valor cacheado válido de otra corrida."""
     if not stats_by_asset:
         return
-    sql = ("INSERT INTO ind_asset_meta (asset_id, code, min_date, max_date, row_count) "
-           "VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE "
-           "min_date = VALUES(min_date), max_date = VALUES(max_date), row_count = VALUES(row_count)")
+    sql = db_compat.upsert_sql(
+        s, "ind_asset_meta",
+        ("asset_id", "code", "min_date", "max_date", "row_count"),
+        update_cols=("min_date", "max_date", "row_count"),
+        pk_cols=("asset_id", "code"))
     rows = [(aid, code, mn, mx, cnt) for aid, (mn, mx, cnt) in stats_by_asset.items()]
     s.connection().exec_driver_sql(sql, rows)
     s.commit()

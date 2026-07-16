@@ -49,6 +49,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.database import Session as _DbSession
 from app.database import get_session
+from app.services import db_compat
 from app.services.db_utils import delete_by_ranges
 from app.models import (
     Asset,
@@ -82,20 +83,14 @@ logger = logging.getLogger(__name__)
 
 _CHUNK_DATES = 250   # ~1 año de ruedas por chunk (unidad de carga del barrido)
 
-# Errores InnoDB que la app debe reintentar (escrituras concurrentes contra
-# las mismas tablas — p.ej. una baja de activo que borra en cascada
-# signal_value mientras este backfill inserta; ver _fund_worker en
-# fundamental_service, mismo patrón). Sin esto un lock timeout abandona el
-# chunk entero (un año de fechas), que reaparece como hueco en el próximo delta.
-_DEADLOCK_ERRNO     = 1213  # "Deadlock found when trying to get lock"
-_LOCK_TIMEOUT_ERRNO = 1205  # "Lock wait timeout exceeded"
-_MAX_LOCK_RETRIES   = 3
-
-
-def _is_retryable_lock_error(exc: BaseException) -> bool:
-    orig  = getattr(exc, "orig", None)
-    errno = orig.args[0] if orig and getattr(orig, "args", None) else None
-    return errno in (_DEADLOCK_ERRNO, _LOCK_TIMEOUT_ERRNO)
+# Deadlock/lock-timeout que la app debe reintentar (escrituras concurrentes
+# contra las mismas tablas — p.ej. una baja de activo que borra en cascada
+# mientras este backfill inserta; ver _fund_worker en fundamental_service,
+# mismo patrón). Sin esto un lock timeout abandona el chunk entero (un año
+# de fechas), que reaparece como hueco en el próximo delta. Detección por
+# dialecto en db_compat (errno InnoDB / SQLSTATE de PostgreSQL).
+_is_retryable_lock_error = db_compat.is_retryable_lock_error
+_MAX_LOCK_RETRIES = 3
 
 
 def _load_derivation_inputs(s):
@@ -417,11 +412,13 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     errors: list[dict] = []
     done = 0
 
-    is_mysql = s.get_bind().dialect.name in ("mysql", "mariadb")
+    # TRUNCATE existe en MySQL/MariaDB y PostgreSQL; sqlite (tests) vacía
+    # con DELETE (db_compat.wipe_table).
+    can_truncate = db_compat.supports_truncate(s)
 
     # ── Rebuild: limpieza única al inicio (después solo INSERTs) ──────────
     # whole_history (dates cubre toda la historia): las tablas sig_{id}/
-    # strat_res_{id} del alcance se vacían enteras — TRUNCATE en MySQL,
+    # strat_res_{id} del alcance se vacían enteras — TRUNCATE en MySQL/PG,
     # instantáneo y sin filas muertas que purgar. Con horizonte: DELETE por
     # VENTANAS DE FECHAS QUE AVANZAN (delete_by_ranges, convención
     # CLAUDE.md): la sentencia única corrió 400s+ reteniendo locks, y el
@@ -436,10 +433,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         return [(str(w[0]), str(w[-1])) for w in slices]
 
     def _wipe_table(ws, name: str):
-        if is_mysql:
-            ws.execute(sa.text(f"TRUNCATE TABLE {name}"))
-        else:
-            ws.execute(sa.text(f"DELETE FROM {name}"))
+        db_compat.wipe_table(ws, name)
 
     def _initial_cleanup(ws):
         if not force:
@@ -454,7 +448,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     _wipe_table(ws, name)
                 else:
                     delete_by_ranges(ws, name, "date", windows)
-            if full_wipe and is_mysql:
+            if full_wipe and can_truncate:
                 ws.execute(sa.text("TRUNCATE TABLE group_signal_value"))
                 ws.execute(sa.text("TRUNCATE TABLE group_scores"))
             else:
@@ -551,7 +545,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         limpió todo al inicio) + INSERT masivo + commit. Las fechas ya
         flusheadas quedan persistidas aunque un batch posterior falle.
 
-        Reintenta ante lock timeout/deadlock (1205/1213): el DELETE+INSERT es
+        Reintenta ante lock timeout/deadlock (db_compat): el DELETE+INSERT es
         idempotente, y la contención con otras escrituras (p.ej. una baja de
         activo borrando en cascada) suele ser transitoria."""
         if not batch_dates:
@@ -583,16 +577,17 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             sum(len(r) for r in sv_by_sig.values()), len(gsv_rows),
             len(gs_rows), sum(len(r) for r in sr_by_strat.values()))
 
-    # ── Escritor asíncrono (solo MySQL/MariaDB) ───────────────────────────
-    # El borrado/inserción es I/O de MariaDB (libera el GIL): corre en un
-    # thread propio con SU sesión mientras el productor computa el chunk
-    # siguiente en memoria (el barrido as-of no depende del estado de la BD).
-    # Cola acotada (1): a lo sumo un lote en espera además del que se computa
-    # — memoria acotada por backpressure. La barrera borrar-antes-de-insertar
-    # es estructural: limpieza inicial y flushes viven en el MISMO thread, en
-    # orden FIFO. sqlite (tests) va sincrónico: misma semántica, sin
-    # concurrencia (la paridad cubre el resultado final).
-    use_async = is_mysql
+    # ── Escritor asíncrono (motores de producción: MySQL/MariaDB y PG) ────
+    # El borrado/inserción es I/O de la base (libera el GIL, con MySQLdb y
+    # con psycopg por igual): corre en un thread propio con SU sesión
+    # mientras el productor computa el chunk siguiente en memoria (el
+    # barrido as-of no depende del estado de la BD). Cola acotada (1): a lo
+    # sumo un lote en espera además del que se computa — memoria acotada por
+    # backpressure. La barrera borrar-antes-de-insertar es estructural:
+    # limpieza inicial y flushes viven en el MISMO thread, en orden FIFO.
+    # sqlite (tests) va sincrónico: misma semántica, sin concurrencia (la
+    # paridad cubre el resultado final).
+    use_async = db_compat.is_mysql(s) or db_compat.is_postgres(s)
     _ok_box = [0]
     _werrors: list = []
     _wq: queue.Queue = queue.Queue(maxsize=1)

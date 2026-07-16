@@ -148,9 +148,12 @@ def reconcile_dynamic_tables(session) -> dict:
       igual que un activo nuevo en ind_{code}).
     Devuelve {"dropped": [nombres], "created": [nombres]}."""
     import sqlalchemy as sa
+    from app.services.db_compat import quote_ident
     sig_tables, strat_tables = _list_dynamic_tables()
-    # backticks: `signal` es palabra reservada en MariaDB (sqlite los acepta)
-    sig_ids   = {i for (i,) in session.execute(sa.text("SELECT id FROM `signal`"))}
+    # quoting por dialecto: `signal` es palabra reservada en MariaDB
+    # (backticks); en PostgreSQL/sqlite el quoting es con comillas dobles
+    qsig = quote_ident(session, "signal")
+    sig_ids   = {i for (i,) in session.execute(sa.text(f"SELECT id FROM {qsig}"))}
     strat_ids = {i for (i,) in session.execute(sa.text("SELECT id FROM strategy"))}
 
     dropped, created = [], []

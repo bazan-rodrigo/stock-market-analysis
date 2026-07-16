@@ -70,37 +70,42 @@ _TABLES = [
 def _dynamic_tables(conn) -> list[str]:
     """Tablas ind_{code}/ind_fundamental_{code} (una por indicador, ver
     get_ind_table) y sig_{id}/strat_res_{id} (una por señal/estrategia, ver
-    signal_store), sin modelo Python fijo — se listan desde
-    information_schema en vez de mantenerlas a mano acá, para no volver a
-    dejar alguna afuera cuando se agregue una nueva."""
-    rows = conn.execute(text(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = DATABASE() AND (table_name LIKE 'ind\\_%' "
-        "OR table_name LIKE 'sig\\_%' OR table_name LIKE 'strat\\_res\\_%')"
-    )).fetchall()
-    return [r[0] for r in rows]
+    signal_store), sin modelo Python fijo — se listan desde el catálogo en
+    vez de mantenerlas a mano acá, para no volver a dejar alguna afuera
+    cuando se agregue una nueva."""
+    from app.services import db_compat
+    return db_compat.list_tables_by_prefix(conn, "ind_", "sig_", "strat_res_")
 
 
 def clean_data() -> None:
     from app.database import engine
+    from app.services import db_compat
 
+    # Desactivar el chequeo de FKs (knob de sesión solo-MySQL) permite
+    # borrar en cualquier orden; en PG/sqlite no hace falta: todas estas
+    # tablas son hijas (nada las referencia).
+    is_mysql = db_compat.is_mysql(engine)
     with engine.begin() as conn:
         try:
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+            if is_mysql:
+                conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
             tables = _dynamic_tables(conn) + _TABLES
             total = 0
             for table in tables:
-                result = conn.execute(text(f"DELETE FROM `{table}`"))
+                q = db_compat.quote_ident(conn, table)
+                result = conn.execute(text(f"DELETE FROM {q}"))
                 rows = result.rowcount
                 total += rows
                 logger.info("%-35s  %d filas eliminadas", table, rows)
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+            if is_mysql:
+                conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
             logger.info(
                 "Listo. Total: %d filas eliminadas. "
                 "Activos, precios, fuentes y catálogos preservados.", total,
             )
         except Exception as exc:
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+            if is_mysql:
+                conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
             logger.error("Error durante la limpieza: %s", exc)
             raise
 

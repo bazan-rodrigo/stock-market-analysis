@@ -40,6 +40,7 @@ def run_cleanup(_):
     from sqlalchemy import text
     from app.database import engine
     from app.pages.admin_cleanup import _TABLES_INFO
+    from app.services import db_compat
 
     tables = [t for t, _ in _TABLES_INFO]
     _state.update({"running": True, "result": None, "error": None})
@@ -47,12 +48,19 @@ def run_cleanup(_):
     def _run():
         try:
             with engine.begin() as conn:
-                conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+                # Desactivar el chequeo de FKs permite borrar en cualquier
+                # orden — solo existe como knob de sesión en MySQL/MariaDB.
+                # En PG/sqlite se borra igual: _TABLES_INFO son tablas hijas
+                # (nada las referencia), el orden no importa.
+                if db_compat.is_mysql(engine):
+                    conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
                 total = 0
                 for table in tables:
-                    result = conn.execute(text(f"DELETE FROM `{table}`"))
+                    q = db_compat.quote_ident(engine, table)
+                    result = conn.execute(text(f"DELETE FROM {q}"))
                     total += result.rowcount
-                conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+                if db_compat.is_mysql(engine):
+                    conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
             _state["result"] = f"Limpieza completada. {total} filas eliminadas."
         except Exception as exc:
             _state["error"] = f"Error durante la limpieza: {exc}"

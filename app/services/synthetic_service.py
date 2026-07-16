@@ -17,10 +17,11 @@ from datetime import date as _date
 import numpy as np
 import pandas as pd
 from sqlalchemy import func
-from sqlalchemy.dialects.mysql import insert as _mysql_insert
 
 from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, SyntheticComponent, SyntheticFormula
+from app.services import db_compat
+from app.services.db_compat import INSERTED
 from app.services.technical_service import (
     backfill_asset_history, compute_current_indicators, _save_indicator_log,
 )
@@ -212,11 +213,10 @@ def _bulk_insert_synthetic_prices(session, asset_id: int, results: dict) -> int:
     ]
     for i in range(0, len(rows), _SYN_PRICE_BATCH):
         chunk = rows[i : i + _SYN_PRICE_BATCH]
-        stmt = _mysql_insert(Price.__table__).values(chunk)
-        stmt = stmt.on_duplicate_key_update(
-            open=stmt.inserted.open, high=stmt.inserted.high,
-            low=stmt.inserted.low, close=stmt.inserted.close,
-        )
+        stmt = db_compat.upsert(session, Price.__table__, chunk, {
+            "open": INSERTED, "high": INSERTED,
+            "low": INSERTED, "close": INSERTED,
+        })
         session.execute(stmt)
     return len(rows)
 

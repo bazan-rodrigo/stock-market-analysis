@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import get_session
 from app.models import Asset, PriceSource
+from app.services import db_compat
 from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ def purge_assets(s, asset_ids, progress_cb=None) -> int:
     if not ids:
         return 0
 
-    if s.get_bind().dialect.name in ("mysql", "mariadb"):
+    if db_compat.is_mysql(s):
         # ids validados a int → seguro interpolarlos (IN con N valores); LIMIT
         # inline porque algunos drivers no aceptan placeholder ahí
         id_list = ", ".join(str(i) for i in ids)
@@ -75,8 +76,31 @@ def purge_assets(s, asset_ids, progress_cb=None) -> int:
         s.commit()
         if progress_cb:
             progress_cb(total, total, "")
+    elif db_compat.is_postgres(s):
+        # PostgreSQL: mismas tablas que la rama MySQL (las dinámicas NO
+        # tienen FK a assets — sin esta limpieza explícita quedarían filas
+        # huérfanas). Sin LIMIT (no existe en DELETE de PG) y sin lotes: en
+        # MVCC un DELETE por tabla no bloquea lectores, y el commit por
+        # tabla acota la transacción igual que los lotes en InnoDB.
+        id_list = ", ".join(str(i) for i in ids)
+        dyn = db_compat.list_tables_by_prefix(s, "ind_", "sig_", "strat_res_")
+        tables = (*_HIGH_VOLUME_ASSET_TABLES, *dyn)
+        total  = len(tables) + 1
+        for i, tbl in enumerate(tables):
+            if progress_cb:
+                progress_cb(i, total, tbl)
+            s.execute(text(
+                f"DELETE FROM {db_compat.quote_ident(s, tbl)} "
+                f"WHERE asset_id IN ({id_list})"))
+            s.commit()
+        if progress_cb:
+            progress_cb(len(tables), total, "assets")
+        s.execute(text(f"DELETE FROM assets WHERE id IN ({id_list})"))
+        s.commit()
+        if progress_cb:
+            progress_cb(total, total, "")
     else:
-        # sqlite/otros (tests): borrado en bloque, sin cascade lazy-load del ORM
+        # sqlite (tests): borrado en bloque, sin cascade lazy-load del ORM
         s.query(Asset).filter(Asset.id.in_(ids)).delete(synchronize_session=False)
         s.commit()
     return len(ids)
