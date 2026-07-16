@@ -1,3 +1,4 @@
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,24 @@ if not config.get_main_option("sqlalchemy.url"):
 
 target_metadata = Base.metadata
 
+# Tablas dinámicas: viven FUERA de Base.metadata a propósito (una por
+# indicador/señal/estrategia — ver get_ind_table y signal_store). Sin este
+# filtro, autogenerate las ve solo en la base y propone DROPearlas todas.
+# ind_asset_meta sí es un modelo: no matchea la condición porque está en
+# target_metadata.
+_DYNAMIC_RE = re.compile(r"^(ind_.+|sig_\d+|strat_res_\d+)$")
+
+
+def _include_object(obj, name, type_, reflected, compare_to):
+    if type_ == "table":
+        return not (_DYNAMIC_RE.match(name or "")
+                    and name not in target_metadata.tables)
+    if type_ == "index":
+        tname = getattr(getattr(obj, "table", None), "name", "") or ""
+        return not (_DYNAMIC_RE.match(tname)
+                    and tname not in target_metadata.tables)
+    return True
+
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
@@ -37,6 +56,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -52,6 +72,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            include_object=_include_object,
         )
         with context.begin_transaction():
             context.run_migrations()

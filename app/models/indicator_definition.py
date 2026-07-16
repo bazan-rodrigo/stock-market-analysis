@@ -1,4 +1,5 @@
-from sqlalchemy import Boolean, Column, Float, Integer, String, Text
+from sqlalchemy import (Boolean, Column, Float, Index, Integer, String, Text,
+                        UniqueConstraint)
 
 from app.database import Base
 
@@ -7,9 +8,17 @@ class IndicatorDefinition(Base):
     """Catálogo de indicadores técnicos del sistema."""
 
     __tablename__ = "indicator_definitions"
+    # Estructura que dejó la cadena de migraciones: UNIQUE con nombre 'code'
+    # (así lo nombró MySQL) + índice no-unique aparte. Con unique=True +
+    # index=True en la columna, create_all generaría UN índice unique con
+    # otro nombre y el autogenerate-diff contra la base migrada no da vacío.
+    __table_args__ = (
+        UniqueConstraint("code", name="code"),
+        Index("ix_indicator_definitions_code", "code"),
+    )
 
     id           = Column(Integer, primary_key=True)
-    code         = Column(String(50),  nullable=False, unique=True, index=True)
+    code         = Column(String(50),  nullable=False)
     name         = Column(String(100), nullable=False)
     category     = Column(String(50),  nullable=False)
     scale        = Column(String(50))

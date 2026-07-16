@@ -19,7 +19,7 @@ class StrategyComponent(Base):
     strategy_id = Column(Integer,    ForeignKey("strategy.id", ondelete="CASCADE"),
                          nullable=False, index=True)
     signal_id   = Column(Integer,    ForeignKey("signal.id",   ondelete="RESTRICT"),
-                         nullable=False)
+                         nullable=False, index=True)   # ix de la migración 0041
     weight      = Column(Float,      nullable=False, default=1.0)
     scope       = Column(String(20))   # None | own_group | specific_group
     group_type  = Column(String(30))   # solo si scope=specific_group

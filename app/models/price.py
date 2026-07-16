@@ -4,6 +4,7 @@ from sqlalchemy import (
     Date,
     Float,
     ForeignKey,
+    Index,
     Integer,
     UniqueConstraint,
 )
@@ -30,4 +31,7 @@ class Price(Base):
 
     __table_args__ = (
         UniqueConstraint("asset_id", "date", name="uq_asset_date"),
+        # Índice global por fecha (migración 0063): MAX(date), calendario
+        # del backfill y last_close hacían full scan sin él
+        Index("ix_prices_date", "date"),
     )
