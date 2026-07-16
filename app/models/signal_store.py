@@ -149,7 +149,8 @@ def reconcile_dynamic_tables(session) -> dict:
     Devuelve {"dropped": [nombres], "created": [nombres]}."""
     import sqlalchemy as sa
     sig_tables, strat_tables = _list_dynamic_tables()
-    sig_ids   = {i for (i,) in session.execute(sa.text("SELECT id FROM signal"))}
+    # backticks: `signal` es palabra reservada en MariaDB (sqlite los acepta)
+    sig_ids   = {i for (i,) in session.execute(sa.text("SELECT id FROM `signal`"))}
     strat_ids = {i for (i,) in session.execute(sa.text("SELECT id FROM strategy"))}
 
     dropped, created = [], []

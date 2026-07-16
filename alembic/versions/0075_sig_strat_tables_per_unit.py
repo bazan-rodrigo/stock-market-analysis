@@ -55,7 +55,8 @@ def _create_strat_table(name: str) -> None:
 def upgrade() -> None:
     conn = op.get_bind()
 
-    sig_ids = [i for (i,) in conn.execute(sa.text("SELECT id FROM signal"))]
+    # backticks: `signal` es palabra reservada en MariaDB (la sentencia SIGNAL)
+    sig_ids = [i for (i,) in conn.execute(sa.text("SELECT id FROM `signal`"))]
     for sid in sig_ids:
         name = f"sig_{sid}"
         _create_sig_table(name)
