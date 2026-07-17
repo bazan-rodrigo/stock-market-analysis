@@ -173,6 +173,12 @@ _STATUS_FN = {
     "signals":      _status_signals,
 }
 
+# Último estado calculado por tarjeta: con una operación corriendo, las
+# tarjetas ajenas muestran esto en vez de un texto tipo "actualizando…"
+# que daba a entender que ELLAS estaban trabajando (señalado por el
+# usuario: recalcular señales mostraba "actualizando…" en Indicadores).
+_status_cache: dict[str, str] = {}
+
 
 @callback(
     Output("dc-status-prices",        "children"),
@@ -192,13 +198,19 @@ def refresh_status(*_):
     except Exception:
         pass
     if _any_running():
-        # Con una operación en curso, los COUNT sobre las tablas ind_* son
-        # inútiles (el número cambia por miles) y compiten por I/O con las
-        # escrituras masivas. El conteo real llega al terminar la operación.
-        light = "actualizando…"
-        return (_status_prices(), _status_fund(), light, light,
-                _status_synth(), light)
-    return tuple(fn() for fn in _STATUS_FN.values())
+        # Con una operación en curso, los COUNT pesados (ratios,
+        # indicadores, señales) son inútiles (el número cambia por miles) y
+        # compiten por I/O con las escrituras masivas — cada tarjeta
+        # conserva su último estado real; el conteo fresco llega al
+        # terminar la operación.
+        return (_status_prices(), _status_fund(),
+                _status_cache.get("snap", "—"),
+                _status_cache.get("indicators", "—"),
+                _status_synth(),
+                _status_cache.get("signals", "—"))
+    out = {op: fn() for op, fn in _STATUS_FN.items()}
+    _status_cache.update(out)
+    return tuple(out.values())
 
 
 # ── Workers ───────────────────────────────────────────────────────────────────
@@ -245,26 +257,43 @@ def _run(op_id, service_fn):
                 tokens = label[sep + 2:].strip().split()
                 prog   = tokens[0]
                 dn, tn = int(prog.split("/")[0]), int(prog.split("/")[1])
-                # Token opcional: identidad del thread que procesó este tick.
-                # "w{n}" (entero) = worker slot de indicadores (_worker_slot);
-                # cualquier otro texto corto se muestra tal cual — lo usan
-                # las filas por etapa de señales ("w1..w8", "productor",
-                # "escritor").
-                worker = None
-                if len(tokens) > 1:
-                    tok = tokens[1]
-                    if tok.startswith("w") and tok[1:].isdigit():
-                        worker = int(tok[1:])
+                # Tokens opcionales tras el progreso:
+                #  - "t={segundos}": tiempo ACUMULADO de la etapa (timers de
+                #    la instrumentación, no reloj de pared) — filas por etapa
+                #    de señales.
+                #  - identidad del thread: "w{n}" entero (worker slot de
+                #    indicadores, _worker_slot) o texto corto tal cual
+                #    ("w1..w8", "productor", "escritor").
+                #  - el resto se muestra como detalle de actividad actual
+                #    (fecha en curso, rango del chunk, retraso del escritor).
+                worker, secs, detail = None, None, []
+                for tok in tokens[1:]:
+                    if tok.startswith("t="):
+                        try:
+                            secs = float(tok[2:])
+                        except ValueError:
+                            pass
+                    elif worker is None:
+                        worker = (int(tok[1:])
+                                  if tok.startswith("w") and tok[1:].isdigit()
+                                  else tok)
                     else:
-                        worker = tok
+                        detail.append(tok)
                 w = st["workers"].setdefault(
                     code, {"dn": 0, "tn": tn, "start": None, "end": None, "worker": None})
-                if dn == 1 and w["start"] is None:
+                # dn > 0 (no == 1): el escritor persiste de a lotes y su
+                # primera actualización salta de 0 a cientos — con == 1 la
+                # fila quedaba "desde —" para siempre
+                if dn > 0 and w["start"] is None:
                     w["start"] = _dt.now()
                 w["dn"] = dn
                 w["tn"] = tn
                 if worker is not None:
                     w["worker"] = worker
+                if secs is not None:
+                    w["secs"] = secs
+                if detail:
+                    w["detail"] = " ".join(detail)
                 if dn >= tn and w["end"] is None:
                     w["end"] = _dt.now()
             except Exception:
@@ -586,7 +615,18 @@ def _register(op_id):
                             f"{k}={pc[k]}" for k in ("gap", "checksum", "bench") if pc[k]
                         )
                         slow_tag = f"  ·  lento={slow_n} ({detail})"
-                if dn >= tn:
+                if w.get("secs") is not None:
+                    # Fila por ETAPA (señales): lo útil en vivo es lo que
+                    # DIFIERE entre etapas — segundos acumulados de la etapa
+                    # + actividad actual — no el % (las tres avanzan casi en
+                    # paralelo y triplicarían la barra)
+                    mark  = "✓" if dn >= tn else " "
+                    color = ("#4ade80" if dn >= tn
+                             else "#d1d5db" if dn > 0 else "#4b5563")
+                    text  = (f"{mark} {code:<{name_w}}{prog}"
+                             f"  {w['secs']:>5.0f}s{wk_tag}"
+                             f"  {w.get('detail', '')}")
+                elif dn >= tn:
                     color = "#4ade80"
                     text  = (f"✓ {code:<{name_w}}{prog}   {ws} → {we}"
                              f"  ({_fmt_dur(w['start'], w['end'])}){wk_tag}{slow_tag}")

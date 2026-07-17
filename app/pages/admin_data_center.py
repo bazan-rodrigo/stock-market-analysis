@@ -187,7 +187,7 @@ def layout(**kwargs):
                 has_reconcile=True,
             ),
             _solo_card(
-                "snap", "Fundamentales",
+                "snap", "Indicadores Fundamentales",
                 "'Ejecutar' recalcula P/E, P/B, márgenes, ROIC y otros ratios para hoy "
                 "y de paso completa fechas históricas sin ratio calculado (backfill delta). "
                 "'Recalcular completo' borra y rehace todo el historial de ratios desde cero.",

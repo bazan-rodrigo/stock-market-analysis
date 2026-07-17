@@ -606,7 +606,10 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         if progress_cb:
             # Fila "escritura" del panel: fechas ya PERSISTIDAS — muestra en
             # vivo cuánto viene retrasado el escritor respecto del productor
-            progress_cb(done, total, f"escritura: {_ok_box[0]}/{total} escritor")
+            progress_cb(done, total,
+                        f"escritura: {_ok_box[0]}/{total} escritor "
+                        f"t={_t_write[0]:.0f} "
+                        f"retraso: {max(0, done - _ok_box[0])} fechas")
         logger.info(
             "signal_backfill_range: %s..%s (%d fechas): %d filas de señal, "
             "%d group_signal_value, %d group_scores, %d filas de estrategia",
@@ -708,9 +711,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     # cómputo por fechas evaluadas, escritura por fechas persistidas.
     n_chunks = (total + _CHUNK_DATES - 1) // _CHUNK_DATES
     if progress_cb:
-        progress_cb(0, total, f"lectura: 0/{n_chunks}")
-        progress_cb(0, total, f"cómputo: 0/{total} productor")
-        progress_cb(0, total, f"escritura: 0/{total} escritor")
+        progress_cb(0, total, f"lectura: 0/{n_chunks} lectores t=0")
+        progress_cb(0, total, f"cómputo: 0/{total} productor t=0")
+        progress_cb(0, total, f"escritura: 0/{total} escritor t=0")
 
     # ── Chunks ────────────────────────────────────────────────────────────
     for start in range(0, total, _CHUNK_DATES):
@@ -774,7 +777,8 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                           else "w1" if n_rd == 1 else "productor")
                 progress_cb(done, total,
                             f"lectura: {start // _CHUNK_DATES + 1}"
-                            f"/{n_chunks} {rd_tag}")
+                            f"/{n_chunks} {rd_tag} t={_t_read[0]:.0f}"
+                            f" {chunk[0]}..{chunk[-1]}")
 
             _t_read[0] += time.perf_counter() - _tr0
 
@@ -789,8 +793,13 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 done += 1
                 d_str = str(d)
                 if progress_cb:
+                    # segundos vivos de cómputo: acumulado + lo que va de
+                    # este chunk, descontando esperas al escritor
+                    live = (_t_compute[0] + (time.perf_counter() - _tc0)
+                            - (_t_wait[0] - _w0))
                     progress_cb(done, total,
-                                f"cómputo: {done}/{total} productor")
+                                f"cómputo: {done}/{total} productor "
+                                f"t={live:.0f} {d_str}")
 
                 for sw in sweeps.values():
                     sw.advance(d)
