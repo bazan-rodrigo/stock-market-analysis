@@ -643,8 +643,14 @@ def _register(op_id):
                                                    "whiteSpace": "pre"}))
             if done:
                 total_dur = _fmt_dur(st.get("start_time"), st.get("end_time"))
-                overall = (f"Completado: {done_cnt}/{len(workers)} OK  •  "
-                           f"{t_start} → {t_end}  ({total_dur})")
+                if all("secs" in w for w in workers.values()):
+                    # Filas por ETAPA (señales): el mensaje final real ya
+                    # trae el conteo de fechas y el desglose de tiempos —
+                    # no pisarlo con un conteo de filas ("3/3 OK")
+                    overall = f"{st['msg']}  •  {t_start} → {t_end}  ({total_dur})"
+                else:
+                    overall = (f"Completado: {done_cnt}/{len(workers)} OK  •  "
+                               f"{t_start} → {t_end}  ({total_dur})")
             else:
                 overall = (f"{st['current']} / {st['total']}  •  "
                            f"{done_cnt} / {len(workers)} listos  •  "

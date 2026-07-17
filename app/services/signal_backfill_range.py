@@ -260,11 +260,14 @@ def _load_stored_group_scores(s, group_sig_ids, d0, d1):
         GroupSignalValue.date <= d1).all()
 
 
-# Lectores paralelos: la lectura domina la corrida (medido 158s de 180s en
-# strategy_only) y es I/O que libera el GIL (fetch por socket + conversión
-# de filas en C del driver) — una tabla por thread paraleliza de verdad.
-# 8 alcanza: los task son pocos y gordos (una query grande por tabla).
-_READ_WORKERS = 8
+# Lectores paralelos: la lectura serial dominaba la corrida (medido 158s
+# de 180s en strategy_only) y es I/O que libera el GIL (fetch por socket +
+# conversión de filas en C del driver) — una tabla por thread paraleliza
+# de verdad. PERO con 8 se midió sobre-paralelización (Codespace, 2 vCPU):
+# los lectores le sacaban CPU/disco al propio servidor MariaDB mientras
+# insertaba y la corrida con señales pasó de 5m10s a 6m50s (escritor +30%,
+# productor 177s esperándolo). 3 mantiene el solape sin ahogar al server.
+_READ_WORKERS = 3
 
 
 def _load_current_values(s, codes) -> dict[str, dict]:
