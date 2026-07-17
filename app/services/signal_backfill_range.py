@@ -235,6 +235,38 @@ def _load_sweep(s, code, window_start, window_end) -> _Sweep:
     return _Sweep([(r[0], r[1], r[2]) for r in rows])
 
 
+def _load_price_closes(s, d0, d1):
+    """Filas (date, asset_id, close) del rango — para el virtual last_close."""
+    return s.query(Price.date, Price.asset_id, Price.close).filter(
+        Price.date >= d0, Price.date <= d1).all()
+
+
+def _load_stored_scores(s, sig_id, d0, d1):
+    """Filas (date, asset_id, score) de sig_{id} en el rango (strategy_only)."""
+    t = signal_store.get_sig_table(sig_id)
+    return s.execute(
+        sa.select(t.c.date, t.c.asset_id, t.c.score)
+        .where(t.c.date >= d0, t.c.date <= d1)).fetchall()
+
+
+def _load_stored_group_scores(s, group_sig_ids, d0, d1):
+    """Filas de group_signal_value del rango (strategy_only)."""
+    return s.query(
+        GroupSignalValue.date, GroupSignalValue.signal_id,
+        GroupSignalValue.group_type, GroupSignalValue.group_id,
+        GroupSignalValue.score).filter(
+        GroupSignalValue.signal_id.in_(group_sig_ids),
+        GroupSignalValue.date >= d0,
+        GroupSignalValue.date <= d1).all()
+
+
+# Lectores paralelos: la lectura domina la corrida (medido 158s de 180s en
+# strategy_only) y es I/O que libera el GIL (fetch por socket + conversión
+# de filas en C del driver) — una tabla por thread paraleliza de verdad.
+# 8 alcanza: los task son pocos y gordos (una query grande por tabla).
+_READ_WORKERS = 8
+
+
 def _load_current_values(s, codes) -> dict[str, dict]:
     """{code: {asset_id: value}} desde current_indicator_values (indicadores
     sin historia y operandos resolution=current del filtro)."""
@@ -598,6 +630,33 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     # de lista: _t_write la suma el thread escritor, el resto el productor.
     _t_read, _t_compute, _t_wait, _t_write = [0.0], [0.0], [0.0], [0.0]
 
+    # Pool de LECTORES (motores reales — MySQL y PostgreSQL liberan el GIL
+    # en el I/O por igual): una tabla por thread, cada thread con su propia
+    # sesión (scoped session = thread-local). sqlite (tests) lee inline con
+    # la sesión única — mismos datos, la paridad cubre el resultado (mismo
+    # criterio que el escritor asíncrono).
+    _readers = (ThreadPoolExecutor(max_workers=_READ_WORKERS,
+                                   thread_name_prefix="sigread")
+                if use_async else None)
+
+    def _run_reads(tasks):
+        """tasks: [(fn, args)] con fn(session, *args) → filas. Devuelve los
+        resultados EN ORDEN. Cada task corre con la sesión de su thread y
+        la limpia al salir (remove = cierra y devuelve la conexión al pool,
+        sin snapshots InnoDB retenidos entre chunks)."""
+        if _readers is None:
+            return [fn(s, *args) for fn, args in tasks]
+
+        def _wrap(fn, args):
+            rs = get_session()
+            try:
+                return fn(rs, *args)
+            finally:
+                _DbSession.remove()
+
+        futures = [_readers.submit(_wrap, fn, args) for fn, args in tasks]
+        return [f.result() for f in futures]
+
     def _writer_main():
         ws = get_session()
         try:
@@ -647,43 +706,48 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
 
         try:
             _tr0 = time.perf_counter()
-            sweeps = {code: _load_sweep(s, code, window_start, window_end)
-                      for code in sweep_codes}
-
-            closes_by_date: dict = {}
+            # Todas las lecturas del chunk en UN fan-out (una tabla por
+            # task): barridos de indicadores + prefetch de cierres +
+            # (strategy_only) señales guardadas por tabla y de grupo — la
+            # historia de una señal no depende de la estrategia, por eso
+            # en strategy_only se LEE en vez de re-evaluarse.
+            read_tasks: list = [
+                ("sweep", code, (_load_sweep, (code, window_start, window_end)))
+                for code in sorted(sweep_codes)]
             if need_last_close and not strategy_only:
-                rows = s.query(Price.date, Price.asset_id, Price.close).filter(
-                    Price.date >= chunk[0], Price.date <= window_end).all()
-                for dt, aid, close in rows:
-                    if close is not None:
-                        closes_by_date.setdefault(dt, {})[aid] = float(close)
+                read_tasks.append(
+                    ("closes", None, (_load_price_closes,
+                                      (chunk[0], window_end))))
+            if strategy_only:
+                read_tasks.extend(
+                    ("sig", sig_id, (_load_stored_scores,
+                                     (sig_id, chunk[0], chunk[-1])))
+                    for sig_id in signal_ids_all)
+                if group_sig_ids:
+                    read_tasks.append(
+                        ("gsv", None, (_load_stored_group_scores,
+                                       (group_sig_ids, chunk[0], chunk[-1]))))
 
-            # strategy_only: los scores de las señales se LEEN por chunk
-            # (lectura secuencial indexada) en vez de re-evaluarse — la
-            # historia de una señal no depende de la estrategia.
+            fetched = _run_reads([t[2] for t in read_tasks])
+
+            sweeps: dict = {}
+            closes_by_date: dict = {}
             stored_sv_by_date: dict = {}
             stored_gsv_by_date: dict = {}
-            if strategy_only:
-                for sig_id in signal_ids_all:
-                    t = signal_store.get_sig_table(sig_id)
-                    srows = s.execute(
-                        sa.select(t.c.date, t.c.asset_id, t.c.score)
-                        .where(t.c.date >= chunk[0],
-                               t.c.date <= chunk[-1])).fetchall()
-                    for dt, aid, sc in srows:
+            for (kind, key, _), rows in zip(read_tasks, fetched):
+                if kind == "sweep":
+                    sweeps[key] = rows
+                elif kind == "closes":
+                    for dt, aid, close in rows:
+                        if close is not None:
+                            closes_by_date.setdefault(dt, {})[aid] = float(close)
+                elif kind == "sig":
+                    for dt, aid, sc in rows:
                         if sc is not None:
                             stored_sv_by_date.setdefault(
-                                dt, {})[(sig_id, aid)] = float(sc)
-                if group_sig_ids:
-                    grows = s.query(
-                        GroupSignalValue.date, GroupSignalValue.signal_id,
-                        GroupSignalValue.group_type,
-                        GroupSignalValue.group_id,
-                        GroupSignalValue.score).filter(
-                        GroupSignalValue.signal_id.in_(group_sig_ids),
-                        GroupSignalValue.date >= chunk[0],
-                        GroupSignalValue.date <= chunk[-1]).all()
-                    for dt, sig_id, gt, gid, sc in grows:
+                                dt, {})[(key, aid)] = float(sc)
+                else:  # gsv
+                    for dt, sig_id, gt, gid, sc in rows:
                         if sc is not None:
                             stored_gsv_by_date.setdefault(
                                 dt, {})[(sig_id, gt, gid)] = float(sc)
@@ -850,6 +914,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 "signal_backfill_range: chunk %s..%s falló", chunk[0], chunk[-1])
             errors.append({"date": f"{chunk[0]}..{chunk[-1]}",
                            "error": f"chunk {chunk[0]}..{chunk[-1]}: {exc}"})
+
+    if _readers is not None:
+        _readers.shutdown(wait=True)
 
     # Cierre del escritor: sentinel + join. Recién acá se sabe cuántas
     # fechas quedaron realmente persistidas (_ok_box lo suma el flush).
