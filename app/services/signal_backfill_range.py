@@ -603,6 +603,10 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         logged.update(batch_dates)
         _ok_box[0] += len(batch_dates)
         _t_write[0] += time.perf_counter() - _tw0
+        if progress_cb:
+            # Fila "escritura" del panel: fechas ya PERSISTIDAS — muestra en
+            # vivo cuánto viene retrasado el escritor respecto del productor
+            progress_cb(done, total, f"escritura: {_ok_box[0]}/{total} escritor")
         logger.info(
             "signal_backfill_range: %s..%s (%d fechas): %d filas de señal, "
             "%d group_signal_value, %d group_scores, %d filas de estrategia",
@@ -635,6 +639,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     # sesión (scoped session = thread-local). sqlite (tests) lee inline con
     # la sesión única — mismos datos, la paridad cubre el resultado (mismo
     # criterio que el escritor asíncrono).
+    _used_readers: set = set()   # threads lectores que trabajaron de verdad
     _readers = (ThreadPoolExecutor(max_workers=_READ_WORKERS,
                                    thread_name_prefix="sigread")
                 if use_async else None)
@@ -648,6 +653,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             return [fn(s, *args) for fn, args in tasks]
 
         def _wrap(fn, args):
+            _used_readers.add(threading.current_thread().name)
             rs = get_session()
             try:
                 return fn(rs, *args)
@@ -695,6 +701,16 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             _flush(s, batch_dates, sv_by_sig, gsv_rows, gs_rows, sr_by_strat,
                    marker_rows)
         _t_wait[0] += time.perf_counter() - _te0
+
+    # Filas por ETAPA en el panel (protocolo "{fila}: dn/tn tag" de _cb en
+    # data_center_callbacks — mismo render que el detalle de indicadores,
+    # con la identidad del thread por fila): lectura avanza por chunks,
+    # cómputo por fechas evaluadas, escritura por fechas persistidas.
+    n_chunks = (total + _CHUNK_DATES - 1) // _CHUNK_DATES
+    if progress_cb:
+        progress_cb(0, total, f"lectura: 0/{n_chunks}")
+        progress_cb(0, total, f"cómputo: 0/{total} productor")
+        progress_cb(0, total, f"escritura: 0/{total} escritor")
 
     # ── Chunks ────────────────────────────────────────────────────────────
     for start in range(0, total, _CHUNK_DATES):
@@ -752,6 +768,14 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                             stored_gsv_by_date.setdefault(
                                 dt, {})[(sig_id, gt, gid)] = float(sc)
 
+            if progress_cb:
+                n_rd = len(_used_readers)
+                rd_tag = (f"w1..w{n_rd}" if n_rd > 1
+                          else "w1" if n_rd == 1 else "productor")
+                progress_cb(done, total,
+                            f"lectura: {start // _CHUNK_DATES + 1}"
+                            f"/{n_chunks} {rd_tag}")
+
             _t_read[0] += time.perf_counter() - _tr0
 
             sv_by_sig: dict[int, list] = {}
@@ -765,7 +789,8 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 done += 1
                 d_str = str(d)
                 if progress_cb:
-                    progress_cb(done, total, d_str)
+                    progress_cb(done, total,
+                                f"cómputo: {done}/{total} productor")
 
                 for sw in sweeps.values():
                     sw.advance(d)

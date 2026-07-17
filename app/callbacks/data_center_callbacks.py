@@ -245,14 +245,18 @@ def _run(op_id, service_fn):
                 tokens = label[sep + 2:].strip().split()
                 prog   = tokens[0]
                 dn, tn = int(prog.split("/")[0]), int(prog.split("/")[1])
-                # Token opcional "w{n}": worker real que proceso este tick
-                # (diagnostico de scheduling, ver _worker_slot en technical_service.py)
+                # Token opcional: identidad del thread que procesó este tick.
+                # "w{n}" (entero) = worker slot de indicadores (_worker_slot);
+                # cualquier otro texto corto se muestra tal cual — lo usan
+                # las filas por etapa de señales ("w1..w8", "productor",
+                # "escritor").
                 worker = None
-                if len(tokens) > 1 and tokens[1].startswith("w"):
-                    try:
-                        worker = int(tokens[1][1:])
-                    except ValueError:
-                        worker = None
+                if len(tokens) > 1:
+                    tok = tokens[1]
+                    if tok.startswith("w") and tok[1:].isdigit():
+                        worker = int(tok[1:])
+                    else:
+                        worker = tok
                 w = st["workers"].setdefault(
                     code, {"dn": 0, "tn": tn, "start": None, "end": None, "worker": None})
                 if dn == 1 and w["start"] is None:
@@ -567,7 +571,9 @@ def _register(op_id):
                 # Worker real que proceso este indicador (diagnostico de
                 # scheduling/concurrencia, ver _worker_slot en technical_service.py)
                 wk = w.get("worker")
-                wk_tag = f" [w{wk}]" if wk is not None else ""
+                wk_tag = ""
+                if wk is not None:
+                    wk_tag = f" [w{wk}]" if isinstance(wk, int) else f" [{wk}]"
                 # Cuántos activos de este código cayeron al camino lento del
                 # delta (gap/checksum/bench) en vez del rápido — ver
                 # _DELTA_TAIL_MODE/path_counts en technical_service.py.
@@ -601,7 +607,7 @@ def _register(op_id):
                            f"{t_start} → {t_end}  ({total_dur})")
             else:
                 overall = (f"{st['current']} / {st['total']}  •  "
-                           f"{done_cnt} / {len(workers)} indicadores listos  •  "
+                           f"{done_cnt} / {len(workers)} listos  •  "
                            f"{t_start} → {t_end}")
             msg_children = [
                 html.Div(overall, style={"fontSize": "0.73rem", "color": "#9ca3af",
