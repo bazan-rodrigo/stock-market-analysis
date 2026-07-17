@@ -53,6 +53,26 @@ class Config:
     LOG_LEVEL: str = _get("log_level", "INFO")
     LOG_FILE: str = _get("log_file", str(BASE_DIR / "logs" / "app.log"))
 
+    # ── ProcessPool del backfill de indicadores (partición por activos) ──
+    # Procesos hijos del pool; 0 = auto (cores - 1, dejando un core para el
+    # padre: UI, drenaje de progreso, BD). 1 fuerza threads.
+    IND_POOL_PROCS: int = int(_get("ind_pool_procs", "0"))
+    # Techo del modo auto (0=auto): acota cores-1 para no reventar
+    # max_connections en máquinas grandes — N procesos × ind_child_db_pool
+    # + el pool del padre (30+20) deben entrar en 151 (MySQL) / 100 (PG).
+    # 12×2 + 50 = 74 < 100: seguro contra el default de PostgreSQL. Subir
+    # con IND_POOL_PROCS explícito si el hardware y max_connections lo dan.
+    IND_POOL_MAX_PROCS: int = int(_get("ind_pool_max_procs", "12"))
+    # Umbral de activos para activar procesos: por debajo, threads — a
+    # escala chica el overhead de spawn+import supera al beneficio del
+    # paralelismo real (medido: a ~560 activos el GIL-bound domina recién
+    # en cómputo, no en el arranque).
+    IND_POOL_MIN_ASSETS: int = int(_get("ind_pool_min_assets", "1500"))
+    # Pool de conexiones de CADA proceso hijo (el padre conserva
+    # db_pool_size): N hijos × pool grande agotaría max_connections
+    # (151 MySQL / 100 PostgreSQL).
+    IND_CHILD_DB_POOL: int = int(_get("ind_child_db_pool", "2"))
+
     # Credenciales del admin inicial (se cambian en el primer login)
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"

@@ -129,6 +129,9 @@ def _stub_orquestacion(monkeypatch, calls, n_assets=3):
     monkeypatch.setattr(ts, "get_session", lambda: fake)
     monkeypatch.setattr(ts, "_load_all_prices",
                         lambda s: {i: [0] * (10 * i) for i in range(1, n_assets + 1)})
+    monkeypatch.setattr(ts, "_load_price_weights",
+                        lambda s: {i: 10 * i for i in range(1, n_assets + 1)})
+    monkeypatch.setattr(ts, "_count_price_assets", lambda s: n_assets)
     monkeypatch.setattr(ts, "_resample_ohlc", lambda df, f: None)
     monkeypatch.setattr(ts, "_load_best_sma_cache", lambda s: {})
     monkeypatch.setattr(ts, "_precompute_all_tail_stats", lambda s, c, f: {})
@@ -220,6 +223,84 @@ def test_lote_caido_no_rompe_y_marca_los_codigos(monkeypatch):
     res = ts.backfill_all_indicator_values(force=False)
     assert res["success"] == 0
     assert res["errors"] and all("lote" in e["code"] for e in res["errors"])
+
+
+# ── Fase 2: selección de modo, harness de procesos, task del hijo ────────────
+
+def test_use_process_pool_en_sqlite_siempre_threads():
+    # el stub de la suite ES sqlite: nunca procesos (spawn no comparte
+    # monkeypatch y sqlite con escritores concurrentes da SQLITE_BUSY)
+    assert ts._use_process_pool(10_000) == (False, 0)
+
+
+class _FakeDialect:
+    def __init__(self, name):
+        self.dialect = type("D", (), {"name": name})()
+
+
+def test_use_process_pool_umbral_y_config(monkeypatch):
+    from app.config import Config
+    monkeypatch.setattr(ts, "engine", _FakeDialect("mysql"))
+    monkeypatch.setattr(Config, "IND_POOL_PROCS", 4)
+    monkeypatch.setattr(Config, "IND_POOL_MIN_ASSETS", 1500)
+    assert ts._use_process_pool(2000) == (True, 4)
+    assert ts._use_process_pool(500) == (False, 0)     # bajo el umbral
+    monkeypatch.setattr(Config, "IND_POOL_PROCS", 1)
+    assert ts._use_process_pool(2000) == (False, 0)    # 1 = forzar threads
+
+
+def test_resolve_pool_procs_auto_explicito_y_cap(monkeypatch):
+    import os
+    from app.config import Config
+    # explícito: no se acota (el operador se hace cargo del presupuesto)
+    monkeypatch.setattr(Config, "IND_POOL_PROCS", 6)
+    monkeypatch.setattr(Config, "IND_POOL_MAX_PROCS", 4)
+    assert ts._resolve_pool_procs() == 6
+    # auto: cores-1 acotado por IND_POOL_MAX_PROCS
+    monkeypatch.setattr(Config, "IND_POOL_PROCS", 0)
+    monkeypatch.setattr(Config, "IND_POOL_MAX_PROCS", 3)
+    assert ts._resolve_pool_procs() == min(max(1, (os.cpu_count() or 2) - 1), 3)
+    monkeypatch.setattr(Config, "IND_POOL_MAX_PROCS", 999)
+    assert ts._resolve_pool_procs() == max(1, (os.cpu_count() or 2) - 1)
+
+
+def test_use_process_pool_degrada_si_executable_no_es_python(monkeypatch):
+    from app.config import Config
+    import app.services.process_pool as pp
+    monkeypatch.setattr(ts, "engine", _FakeDialect("mysql"))
+    monkeypatch.setattr(Config, "IND_POOL_PROCS", 4)
+    monkeypatch.setattr(Config, "IND_POOL_MIN_ASSETS", 1500)
+    monkeypatch.setattr(pp, "spawn_executable_ok", lambda: False)
+    assert ts._use_process_pool(5000) == (False, 0)   # mod_wsgi/httpd → threads
+
+
+def test_slice_by_assets():
+    d = {1: "a", 2: "b", 3: "c"}
+    assert ts._slice_by_assets(d, [2, 9]) == {2: "b"}
+    assert ts._slice_by_assets(None, [1]) == {}
+
+
+def test_child_initializer_setea_entorno(monkeypatch):
+    import os
+    import sys
+    from process_child import child_initializer
+    # setenv (no delenv): el teardown de monkeypatch restaura el valor
+    # previo — child_initializer escribe os.environ directo y sin esto
+    # contaminaría DB_POOL_SIZE para el resto de la suite.
+    monkeypatch.setenv("DB_POOL_SIZE", "sentinel")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "sentinel")
+    fake_root = "zz-fake-root-pp"
+    try:
+        child_initializer(fake_root, 5, "INFO")
+        assert os.environ["DB_POOL_SIZE"] == "5"
+        assert os.environ["DB_MAX_OVERFLOW"] == "0"
+        assert fake_root in sys.path
+        # piso de 2: la tarea del hijo necesita 2 conexiones simultáneas
+        child_initializer(fake_root, 1, "INFO")
+        assert os.environ["DB_POOL_SIZE"] == "2"
+    finally:
+        if fake_root in sys.path:
+            sys.path.remove(fake_root)
 
 
 # ── Flujo real sobre sqlite ──────────────────────────────────────────────────
@@ -411,6 +492,139 @@ def test_error_en_un_codigo_no_envenena_el_lote(monkeypatch):
     finally:
         _cleanup(s, engine, Asset, Price, IndicatorDefinition, "return_daily", ids)
         _cleanup(s, engine, Asset, Price, IndicatorDefinition, "rsi_daily", ids)
+        Session.remove()
+
+
+class _InlineExecutor:
+    """Executor fake con Futures reales ya resueltos: ejecuta la task del
+    'proceso hijo' EN el proceso del test (sqlite compartido, monkeypatch
+    visible) — valida el camino de procesos completo salvo el spawn real,
+    que se verifica en el Codespace.
+
+    Hace round-trip de pickle sobre los argumentos y el resultado: sin eso
+    el contrato picklable del boundary (invariante de la fase 2) no tendría
+    red y un tipo no-serializable pasaría la suite para explotar solo en
+    spawn real como BrokenProcessPool opaco."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def submit(self, fn, *args, **kw):
+        import pickle
+        from concurrent.futures import Future
+        f = Future()
+        try:
+            args = pickle.loads(pickle.dumps(args))     # como un boundary real
+            out = fn(*args, **kw)
+            f.set_result(pickle.loads(pickle.dumps(out)))
+        except Exception as exc:
+            f.set_exception(exc)
+        return f
+
+
+def test_flujo_procesos_inline_equivale_a_threads(monkeypatch):
+    import app.models  # noqa: F401
+    import app.services.process_pool as pp
+    from app.database import Base, Session, engine, get_session
+    from app.models import Asset, Price
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_store import ensure_ind_table, get_ind_table
+
+    Base.metadata.create_all(engine)
+    ensure_ind_table("return_daily", "num")
+    s = get_session()
+    code = "return_daily"
+    ids = [_A1, _A2, _A3, _A4]
+    try:
+        caches = _seed_assets(s, Asset, Price, ids)
+        if not s.query(IndicatorDefinition).filter(
+                IndicatorDefinition.code == code).first():
+            s.add(IndicatorDefinition(code=code, name=code, category="test",
+                                      type="num", keep_history=True))
+        s.commit()
+
+        monkeypatch.setattr(ts, "_BACKFILL_FNS", {code: ts._BACKFILL_FNS[code]})
+        monkeypatch.setattr(ts, "_POOL_WORKERS", 1)
+        monkeypatch.setattr(ts, "_MIN_BATCH_ASSETS", 1)
+
+        t = get_ind_table(code)
+
+        def _snapshot():
+            rows = s.execute(sa.select(t.c.asset_id, t.c.date, t.c.value)
+                             .where(t.c.asset_id.in_(ids))).fetchall()
+            meta = s.execute(sa.text(
+                "SELECT asset_id, min_date, max_date, row_count"
+                " FROM ind_asset_meta WHERE code = :c"), {"c": code}).fetchall()
+            return sorted(map(tuple, rows)), sorted(map(tuple, meta))
+
+        # Corrida A: threads (modo default en sqlite)
+        res_a = ts.backfill_all_indicator_values(price_cache=dict(caches))
+        assert res_a["errors"] == []
+        snap_a = _snapshot()
+
+        # limpiar y correr B: camino de PROCESOS con executor inline
+        s.execute(t.delete().where(t.c.asset_id.in_(ids)))
+        s.execute(sa.text("DELETE FROM ind_asset_meta WHERE code = :c"),
+                  {"c": code})
+        s.commit()
+
+        monkeypatch.setattr(ts, "_use_process_pool", lambda n: (True, 2))
+        monkeypatch.setattr(pp, "make_executor",
+                            lambda *a, **k: _InlineExecutor())
+        labels: list = []
+        res_b = ts.backfill_all_indicator_values(
+            progress_cb=lambda c, tt, l="": labels.append(l))
+        assert res_b["errors"] == []
+        snap_b = _snapshot()
+        assert snap_a == snap_b, \
+            "procesos (inline) y threads deben escribir exactamente lo mismo"
+
+        # progreso grueso del modo procesos: dn por código llega al total
+        ticks = [l for l in labels if l.startswith(f"{code}: ")]
+        assert ticks and max(int(l.split(" ")[1].split("/")[0]) for l in ticks) == len(ids)
+        assert any(l.startswith("__init__:") for l in labels)
+    finally:
+        _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
+        Session.remove()
+
+
+def test_process_task_carga_benchmark_por_su_cuenta():
+    """La task del hijo no recibe precios: los carga ella, incluyendo el
+    benchmark de sus activos aunque no esté en el lote."""
+    import app.models  # noqa: F401
+    from app.database import Base, Session, engine, get_session
+    from app.models import Asset, Price
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_store import ensure_ind_table
+
+    Base.metadata.create_all(engine)
+    code = "relative_strength_52w"
+    ensure_ind_table(code, "num")
+    s = get_session()
+    ids = [_BENCH, _A1, _A2]
+    try:
+        _seed_assets(s, Asset, Price, ids, days=25)
+        for aid in (_A1, _A2):
+            s.get(Asset, aid).benchmark_id = _BENCH
+        s.commit()
+
+        # carga particionada: el lote [a1] trae también el benchmark
+        pc = ts._load_prices_for_assets(s, [_A1])
+        assert set(pc.keys()) == {_A1, _BENCH}
+        from datetime import date as _d
+        assert isinstance(pc[_A1]["date"].iloc[0], _d)   # fechas tipadas
+
+        # task completa en el proceso del test (sqlite): meta scopeada
+        out = ts._process_batch_task(0, [_A1], [code], False, {}, {})
+        assert out["errors"] == []
+        meta = out["per_code"][code]["meta"]
+        assert set(meta["bench_by_asset"].keys()) == {_A1}
+        assert meta["bench_by_asset"][_A1] == _BENCH
+    finally:
+        _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
         Session.remove()
 
 

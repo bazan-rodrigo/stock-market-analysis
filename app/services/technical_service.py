@@ -7,6 +7,7 @@ import bisect
 import hashlib
 import logging
 import math
+import sys
 from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed
 from datetime import date, datetime, timedelta
 
@@ -1159,6 +1160,49 @@ def _load_all_prices(_s) -> dict:
     return {aid: sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
 
 
+def _count_price_assets(s) -> int:
+    """Cantidad de activos con al menos una fila de precios — barato
+    (COUNT DISTINCT), suficiente para decidir el modo threads/procesos
+    sin cargar precios ni el GROUP BY completo de _load_price_weights."""
+    return int(s.query(sa.func.count(sa.distinct(Price.asset_id))).scalar() or 0)
+
+
+def _load_price_weights(s) -> dict:
+    """{asset_id: cantidad de filas de precios} — el proxy de costo del
+    particionador (_partition_assets), sin cargar la tabla entera en
+    memoria: en modo procesos el padre no necesita los precios (cada hijo
+    carga su lote) y este conteo alcanza para armar lotes balanceados y
+    el denominador del progreso."""
+    rows = s.query(Price.asset_id, sa.func.count(Price.date)) \
+            .group_by(Price.asset_id).all()
+    return {aid: int(n) for aid, n in rows}
+
+
+def _load_prices_for_assets(s, asset_ids: list) -> dict:
+    """Precios de un lote (+ los benchmarks de sus activos) para un proceso
+    hijo: la versión particionada de _load_all_prices — cada hijo carga
+    SOLO lo suyo, que es el objetivo de memoria del diseño. Los benchmarks
+    se suman porque relative_strength_52w necesita el df del benchmark,
+    que puede pertenecer a otro lote (suelen ser pocos índices repetidos:
+    duplicarlos entre lotes es barato).
+
+    Select de Core (no SQL crudo): los result processors de SQLAlchemy
+    tipan `date` también en sqlite, así los tests comparan fechas reales.
+    """
+    bench_ids = {bid for (bid,) in s.query(Asset.benchmark_id).filter(
+        Asset.id.in_(asset_ids), Asset.benchmark_id.isnot(None)
+    ).distinct()}
+    want = sorted(set(asset_ids) | bench_ids)
+    sel = (sa.select(Price.asset_id, Price.date, Price.close,
+                     Price.high, Price.low)
+           .where(Price.asset_id.in_(want))
+           .order_by(Price.asset_id, Price.date))
+    with engine.connect() as conn:
+        df = pd.read_sql(sel, conn)
+    df.columns = ["asset_id", "date", "close", "high", "low"]
+    return {aid: sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
+
+
 _RECENT_LOOKBACK_DAYS = 1500  # ~6 años; suficiente para RSI, ATR, zonas, RS52w
 
 
@@ -1220,6 +1264,46 @@ _EXISTING_CHUNK = 100
 # Vuelto a cores+2; el fix real es sacar ese prefetch de adentro del worker.
 import os as _os
 _POOL_WORKERS = max(3, (_os.cpu_count() or 2) + 2)
+
+
+def _resolve_pool_procs() -> int:
+    """Procesos del ProcessPool: config explícita, o auto = cores - 1
+    (un core libre para el padre: UI, drenaje de progreso, BD), acotado
+    por IND_POOL_MAX_PROCS para no reventar max_connections en máquinas
+    grandes. Una config explícita (IND_POOL_PROCS > 0) NO se acota: el
+    operador se hace responsable del presupuesto de conexiones."""
+    from app.config import Config
+    n = Config.IND_POOL_PROCS
+    if n > 0:
+        return n
+    return max(1, min((_os.cpu_count() or 2) - 1, Config.IND_POOL_MAX_PROCS))
+
+
+def _use_process_pool(n_assets: int) -> tuple[bool, int]:
+    """Decide procesos vs threads para el backfill por lotes (fase 2).
+
+    Threads cuando: sqlite (tests/stub — spawn no comparte el monkeypatch
+    de la suite y un archivo sqlite con escritores concurrentes da
+    SQLITE_BUSY), sys.executable no es python (Apache+mod_wsgi embebido:
+    spawn no podría arrancar los hijos — degradar en vez de fallar la
+    corrida en silencio), un solo proceso resuelto, o universo chico (por
+    debajo del umbral el overhead de spawn+import supera el beneficio; a
+    561 activos la línea base de threads ya está optimizada). PostgreSQL y
+    MySQL usan el mismo camino de procesos — nunca el de sqlite."""
+    from app.config import Config
+    from app.services import process_pool as _pp
+    if engine.dialect.name == "sqlite":
+        return False, 0
+    if not _pp.spawn_executable_ok():
+        logger.warning("ProcessPool desactivado: sys.executable=%s no es un "
+                       "intérprete de Python (¿mod_wsgi embebido?) — usando "
+                       "threads. Configurar multiprocessing.set_executable "
+                       "para habilitarlo.", sys.executable)
+        return False, 0
+    n_procs = _resolve_pool_procs()
+    if n_procs <= 1 or n_assets < Config.IND_POOL_MIN_ASSETS:
+        return False, 0
+    return True, n_procs
 
 
 def _cost_rank(code: str) -> float:
@@ -1319,6 +1403,15 @@ def _partition_assets(asset_ids: list, weights: dict, n_batches: int) -> list[li
         batches.append(batch)
         remaining_total -= w
     return batches
+
+
+def _slice_by_assets(d: dict | None, asset_ids: list) -> dict:
+    """Sub-dict con solo los activos del lote: lo único que viaja pickleado
+    a un proceso hijo (mandar los dicts completos multiplicaría el payload
+    por N lotes sin necesidad)."""
+    if not d:
+        return {}
+    return {aid: d[aid] for aid in asset_ids if aid in d}
 
 
 def _force_reset_ind_tables(s, codes: list) -> list[dict]:
@@ -1812,6 +1905,43 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
     return out
 
 
+def _process_batch_task(batch_idx: int, batch_asset_ids: list, codes: list,
+                        force: bool,
+                        best_sma_slice: dict | None,
+                        tail_stats_slices: dict | None) -> dict:
+    """Tarea del PROCESO HIJO (fase 2 del ProcessPool): carga los precios
+    de SU lote (+ benchmarks), resamplea localmente y delega en
+    _backfill_batch_worker — la misma unidad de trabajo que valida la
+    suite en modo threads.
+
+    Contrato del boundary de proceso: recibe y devuelve SOLO tipos simples
+    picklables y chicos (ids, dicts de fechas/floats); los DataFrames nunca
+    viajan — nacen y mueren en el hijo. Sin asset_tick: el progreso de la
+    fase 2 es por lote completado (el padre avanza los contadores al drenar
+    cada future); el progreso vivo por activo llega en la fase 3 con una
+    Queue. Nunca deja escapar una excepción: los errores viajan como
+    strings en el dict (las excepciones de SQLAlchemy pueden fallar al
+    des-picklearse y volverse errores opacos en el padre)."""
+    from app.database import Session as _DbSession
+    try:
+        s = get_session()
+        price_cache = _load_prices_for_assets(s, batch_asset_ids)
+        df_w_cache = {aid: _resample_ohlc(price_cache[aid], "W")
+                      for aid in batch_asset_ids if aid in price_cache}
+        df_m_cache = {aid: _resample_ohlc(price_cache[aid], "M")
+                      for aid in batch_asset_ids if aid in price_cache}
+        return _backfill_batch_worker(
+            batch_idx, batch_asset_ids, codes, force,
+            None, price_cache, best_sma_slice,
+            df_w_cache, df_m_cache, tail_stats_slices)
+    except Exception as exc:
+        logger.warning("Tarea de lote %d falló: %s", batch_idx, exc)
+        return {"batch": batch_idx, "inserted": 0, "per_code": {},
+                "errors": [{"code": f"lote-{batch_idx}", "error": str(exc)}]}
+    finally:
+        _DbSession.remove()
+
+
 def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                                   price_cache: dict | None = None) -> dict:
     """
@@ -1848,24 +1978,45 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
         return {"total": 0, "success": 0, "inserted": 0, "errors": []}
     all_codes = set(hist)   # para success al final (hist puede achicarse)
 
-    # Avisa al UI antes de la carga (puede tardar varios segundos)
-    if progress_cb:
-        progress_cb(0, 1, "Cargando precios en memoria...")
+    # Pesos de partición ANTES de decidir el modo: en procesos el padre NO
+    # carga los precios (cada hijo carga su lote) — el conteo de filas por
+    # activo alcanza para el umbral, los lotes y el denominador del
+    # progreso, sin pagar la tabla entera en memoria.
+    if price_cache is not None:
+        # caller ya cargó los precios (camino threads): pesos gratis del df
+        weights = {aid: len(df) for aid, df in price_cache.items()}
+        n_assets = len(weights)
+        use_procs, n_procs = _use_process_pool(n_assets)
+    else:
+        # sin cache: decidir el modo con un COUNT barato ANTES de cargar
+        # nada — en procesos el padre no carga precios, y en threads los
+        # pesos salen del cache que se carga igual (sin el GROUP BY extra).
+        n_assets = _count_price_assets(s)
+        use_procs, n_procs = _use_process_pool(n_assets)
+        if use_procs:
+            weights = _load_price_weights(s)          # para particionar
+        else:
+            if progress_cb:
+                progress_cb(0, 1, "Cargando precios en memoria...")
+            logger.info("Pre-cargando precios en memoria...")
+            price_cache = _load_all_prices(s)
+            weights = {aid: len(df) for aid, df in price_cache.items()}
+            n_assets = len(price_cache)               # autoritativo
+    total_work = n_indicators * n_assets
 
-    if price_cache is None:
-        logger.info("Pre-cargando precios en memoria...")
-        price_cache = _load_all_prices(s)
-    best_sma_cache  = _load_best_sma_cache(s)
-    n_assets        = len(price_cache)
-    total_work      = n_indicators * n_assets
-    logger.info("Precios cargados: %d activos", n_assets)
+    best_sma_cache = _load_best_sma_cache(s)
+    logger.info("Backfill por lotes: %d activos, modo %s", n_assets,
+                f"{n_procs} procesos" if use_procs else "threads")
 
-    # Resamples W/M una sola vez, compartidos por todos los workers (en la
-    # fase 2 del ProcessPool cada hijo resampleará solo su lote)
-    if progress_cb:
-        progress_cb(0, 1, "Precalculando resamples semanales y mensuales...")
-    df_w_cache = {aid: _resample_ohlc(df, "W") for aid, df in price_cache.items()}
-    df_m_cache = {aid: _resample_ohlc(df, "M") for aid, df in price_cache.items()}
+    # Resamples W/M una sola vez, compartidos por referencia entre los
+    # workers-thread; en modo procesos cada hijo resamplea SOLO su lote
+    # (acá no se paga nada).
+    df_w_cache = df_m_cache = None
+    if not use_procs:
+        if progress_cb:
+            progress_cb(0, 1, "Precalculando resamples semanales y mensuales...")
+        df_w_cache = {aid: _resample_ohlc(df, "W") for aid, df in price_cache.items()}
+        df_m_cache = {aid: _resample_ohlc(df, "M") for aid, df in price_cache.items()}
 
     # force: reset IZADO al padre, una vez por código y ANTES del pool —
     # con partición por activos un worker no puede truncar (ver
@@ -1889,12 +2040,11 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
         progress_cb(0, 1, "Calculando estadísticas de historial (tail-mode)...")
     tail_stats_by_code = _precompute_all_tail_stats(s, hist, force)
 
-    # Partición por activos: lotes balanceados por largo de historia (proxy
-    # del costo de cómputo del activo, disponible gratis del price_cache)
-    asset_ids = list(price_cache.keys())
-    weights   = {aid: len(df) for aid, df in price_cache.items()}
-    batches   = _partition_assets(asset_ids, weights,
-                                  _n_batches(n_assets, _POOL_WORKERS))
+    # Partición por activos: lotes balanceados por largo de historia
+    asset_ids = list(weights.keys())
+    batches   = _partition_assets(
+        asset_ids, weights,
+        _n_batches(n_assets, n_procs if use_procs else _POOL_WORKERS))
 
     from app.database import Session as _DbSession
     _DbSession.remove()   # libera la conexión principal antes de lanzar workers
@@ -1967,7 +2117,70 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
             if meta.get(key):
                 tgt[key].update(meta[key])
 
-    if batches:
+    def _consume_batch(out: dict) -> None:
+        nonlocal inserted
+        inserted += out.get("inserted", 0)
+        for err in out.get("errors", []):
+            failed_codes.add(err["code"])
+            if err["code"] not in all_codes:
+                # entrada 'lote-N': el lote entero no corrió (catch-all del
+                # hijo) — afecta a todos los códigos para esos activos
+                failed_codes.update(hist)
+            errors.append(err)
+        for code, res in out.get("per_code", {}).items():
+            _merge_code_result(code, res)
+
+    def _advance_batch(bi: int, out: dict) -> None:
+        # Progreso grueso del modo procesos: sin ticks vivos por activo
+        # (llegan en la fase 3 con una Queue IPC), el padre avanza los
+        # contadores al completarse cada lote y emite la fila por código
+        # con el dn agregado.
+        nonlocal _assets_done
+        batch_n = len(batches[bi])
+        for code in out.get("per_code", {}):
+            with _lock:
+                _assets_done += batch_n
+                _done_by_code[code] += batch_n
+                n, k = _assets_done, _done_by_code[code]
+            if progress_cb:
+                progress_cb(n, total_work, f"{code}: {k}/{n_assets}")
+
+    def _drain(futures: dict, advance: bool) -> None:
+        for future in as_completed(futures):
+            bi = futures[future]
+            try:
+                out = future.result()
+            except Exception as exc:
+                # En procesos, BrokenProcessPool cae acá para TODOS los
+                # lotes en vuelo cuando un hijo muere sin excepción Python
+                # (OOM-killer/segfault): cada lote queda anotado como no
+                # corrido y la corrida sigue re-ejecutable por delta.
+                logger.warning("Backfill future error lote=%d: %s", bi, exc)
+                failed_codes.update(hist)
+                errors.append({"code": f"lote-{bi}", "error": str(exc)})
+                continue
+            _consume_batch(out)
+            if advance:
+                _advance_batch(bi, out)
+
+    if batches and use_procs:
+        from app.config import BASE_DIR, Config
+        from app.services import process_pool as _pp
+        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
+                               Config.IND_CHILD_DB_POOL,
+                               Config.LOG_LEVEL) as pool:
+            futures = {
+                pool.submit(_process_batch_task, i, batch, hist, force,
+                            _slice_by_assets(best_sma_cache, batch),
+                            {c: _slice_by_assets(st, batch)
+                             for c, st in tail_stats_by_code.items()}): i
+                for i, batch in enumerate(batches)
+            }
+            if progress_cb:
+                # Mensaje especial para pre-poblar todos los workers en el UI
+                progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(hist)}")
+            _drain(futures, advance=True)
+    elif batches:
         with _TPE(max_workers=min(len(batches), _POOL_WORKERS)) as pool:
             futures = {
                 pool.submit(_backfill_batch_worker, i, batch, hist, force,
@@ -1978,24 +2191,9 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
             if progress_cb:
                 # Mensaje especial para pre-poblar todos los workers en el UI
                 # (las filas del panel siguen siendo por código; el tag [wN]
-                # ahora identifica al worker de lote que lo avanzó último)
+                # identifica al worker de lote que lo avanzó último)
                 progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(hist)}")
-            for future in as_completed(futures):
-                bi = futures[future]
-                try:
-                    out = future.result()
-                    inserted += out.get("inserted", 0)
-                    for err in out.get("errors", []):
-                        failed_codes.add(err["code"])
-                        errors.append(err)
-                    for code, res in out.get("per_code", {}).items():
-                        _merge_code_result(code, res)
-                except Exception as exc:
-                    logger.warning("Backfill future error lote=%d: %s", bi, exc)
-                    # el lote entero no corrió: ningún código lo cubrió para
-                    # estos activos — se cuentan todos como afectados
-                    failed_codes.update(hist)
-                    errors.append({"code": f"lote-{bi}", "error": str(exc)})
+            _drain(futures, advance=False)
 
     # Consolidación en el padre (único escritor de ind_asset_meta) + log y
     # __pc__ por código con los conteos COMPLETOS sumados entre lotes. Solo
@@ -2872,8 +3070,20 @@ def _run_current_and_backfill(progress_cb, *, force: bool) -> dict:
     r1 = recompute_current_indicators(progress_cb=cb1,
                                  codes=_CURRENT_ONLY_CODES,
                                  preloaded_caches=snap_caches)
-    r2 = backfill_all_indicator_values(progress_cb=cb2, force=force,
-                                       price_cache=price_cache_full)
+    # En modo procesos cada hijo carga los precios de SU lote: retener acá
+    # el price_cache completo (que la fase 1 ya usó y terminó) sería el pico
+    # de memoria que la partición quería evitar, encima del de los hijos.
+    # Soltar las referencias del padre antes del backfill; los pesos de
+    # partición salen de un COUNT liviano (price_cache=None). En threads el
+    # backfill sí reutiliza el cache cargado. La fase de vigentes cargando
+    # toda la tabla sigue siendo el techo de memoria del padre (diferido a
+    # una etapa futura del plan — ver docs/notes).
+    if _use_process_pool(n_assets)[0]:
+        del price_cache_full, snap_caches
+        r2 = backfill_all_indicator_values(progress_cb=cb2, force=force)
+    else:
+        r2 = backfill_all_indicator_values(progress_cb=cb2, force=force,
+                                           price_cache=price_cache_full)
     _refresh_group_scores()
     errors = r1["errors"] + r2["errors"]
     total  = r1["total"]
