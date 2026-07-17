@@ -173,11 +173,20 @@ PG tiene rama propia — **nunca** cae al camino de sqlite/tests.
    documenta `database_url` y el pool. CLAUDE.md actualizado (stack, flujo,
    convención db_compat). Drive-by: el check de admin de
    `codespace_setup.sh` consultaba la tabla `user` (no existe; es `users`).
-5. **Paridad en Codespace:** ambos motores con el mismo dataset → pipeline
-   completo (delta + rebuild + señales + estrategias + backtest) → comparar
-   filas/scores/rankings → medir performance (lectura de series `ind_*` — el
-   riesgo de la PK clusterizada de InnoDB — y rebuild; revalidar las
-   lecciones de `delete_by_ranges` bajo MVCC/autovacuum).
+5. **Paridad en Codespace** — herramienta lista, ejecución pendiente.
+   La equivalencia cadena↔modelos quedó **VALIDADA** el 16-jul (`alembic
+   check` limpio sobre la base MariaDB migrada del Codespace, tras alinear
+   los índices de group_scores/indicator_definitions/market_event/prices/
+   strategy_component en los modelos y filtrar las tablas dinámicas con
+   `include_object` en env.py). Para la paridad de RESULTADOS:
+   `scripts/compare_engines.py <url_mysql> <url_pg>` compara conteos por
+   tabla, agregados por fecha con tolerancia (float4 de MySQL vs float8 de
+   PG) y el ORDEN del ranking por estrategia en la última fecha común
+   (empates por precisión = WARN, no error). Flujo: Codespace
+   `DB_ENGINE=both` → importar el mismo dataset en ambos → "Recalcular
+   completo" contra cada motor → correr el comparador. Medir además
+   performance: lectura de series `ind_*` (riesgo de la PK clusterizada de
+   InnoDB), rebuild, y `delete_by_ranges` bajo MVCC/autovacuum.
 6. **Datos reales (si se decide):** copiar tablas fuente (users,
    definiciones, catálogo, prices, fundamentals, eventos) con pgloader o
    export/import; las derivadas (`ind_*`, `sig_*`, `strat_res_*`,
