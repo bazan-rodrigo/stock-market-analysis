@@ -900,6 +900,16 @@ _BACKFILL_FNS: dict[str, callable] = {
 }
 
 
+def _resolve_backfill_fn(code: str):
+    """Resolución de la función de backfill por CÓDIGO (string), en un único
+    punto. Las entradas de _BACKFILL_FNS son closures de fábrica (no
+    picklables): un worker en otro proceso no puede recibir la función, solo
+    el código — importa este módulo y resuelve acá. El módulo futuro de
+    indicadores por plantilla enchufaría acá la instanciación
+    "plantilla + parámetros" leída de IndicatorDefinition, sin tocar el pool."""
+    return _BACKFILL_FNS.get(code)
+
+
 # Códigos aptos para el camino rápido del delta: el valor de una fecha, una
 # vez escrito, no cambia con barras nuevas — así que si el historial guardado
 # está completo alcanza con escribir la cola (>= última fecha guardada).
@@ -1252,6 +1262,101 @@ def _lpt_order(codes: list, measured: dict) -> list:
     return sorted(codes, key=lambda c: measured.get(c, float("inf")), reverse=True)
 
 
+# Lotes por worker en el pool por lotes de activos: más lotes que workers da
+# balanceo dinámico (un lote que resulta pesado no deja al resto esperando),
+# pero cada (lote × código) paga queries scopeadas propias — el piso de
+# activos por lote evita que ese overhead domine en universos chicos.
+_BATCH_FACTOR      = 4
+_MIN_BATCH_ASSETS  = 25
+
+
+def _n_batches(n_assets: int, workers: int) -> int:
+    """Cantidad de lotes para particionar n_assets activos entre `workers`."""
+    if n_assets <= 0:
+        return 0
+    by_floor = n_assets // _MIN_BATCH_ASSETS
+    return max(1, min(workers * _BATCH_FACTOR, by_floor if by_floor else 1))
+
+
+def _partition_assets(asset_ids: list, weights: dict, n_batches: int) -> list[list]:
+    """Particiona activos en lotes de rangos CONTIGUOS de asset_id,
+    balanceados por peso acumulado (peso = largo de la historia de precios,
+    proxy del costo de cómputo del activo).
+
+    Contiguos a propósito, no greedy-LPT: las tablas ind_{code} tienen PK
+    (asset_id, date) y los N workers escriben la MISMA tabla a la vez — con
+    lotes contiguos, los activos vecinos en la PK caen en el mismo lote y
+    los next-key/gap locks de InnoDB de workers distintos casi no se tocan
+    (solo en las fronteras entre rangos). Un reparto por peso puro
+    intercalaría vecinos de PK entre lotes y convertiría cada frontera de
+    activo en superficie de deadlock.
+
+    Garantiza: cada activo en exactamente un lote, sin lotes vacíos (si hay
+    menos activos que lotes, devuelve menos lotes), determinístico."""
+    n_batches = min(n_batches, len(asset_ids))
+    if n_batches <= 0:
+        return []
+    ordered = sorted(asset_ids)
+    if n_batches == 1:
+        return [ordered]
+    remaining_total = float(sum(weights.get(a) or 0 for a in ordered))
+    batches: list[list] = []
+    i = 0
+    for b in range(n_batches):
+        remaining_batches = n_batches - b
+        if remaining_batches == 1:
+            batches.append(ordered[i:])
+            break
+        target = remaining_total / remaining_batches
+        # dejar al menos un activo para cada lote restante
+        max_i = len(ordered) - (remaining_batches - 1)
+        batch: list = []
+        w = 0.0
+        while i < max_i and (not batch or w < target):
+            batch.append(ordered[i])
+            w += weights.get(ordered[i]) or 0
+            i += 1
+        batches.append(batch)
+        remaining_total -= w
+    return batches
+
+
+def _force_reset_ind_tables(s, codes: list) -> list[dict]:
+    """Reset del rebuild (force) IZADO al padre del pool: TRUNCATE de cada
+    ind_{code} + limpieza de su caché de ind_asset_meta, UNA vez y ANTES de
+    lanzar los workers. Con partición por activos ningún worker puede
+    truncar (borraría lo que ya escribieron los otros lotes). Mismo criterio
+    de crash-safety que tenía backfill_indicator adentro: si la corrida
+    muere a mitad, la tabla queda truncada+parcial pero el caché AUSENTE
+    (no con un valor viejo) — el próximo delta cae al camino lento para ese
+    código en vez de confiar en un min/max/count que ya no corresponde a la
+    tabla real. wipe_table emite el TRUNCATE histórico en MySQL y cae a
+    DELETE en sqlite (tests).
+
+    Trade-off asumido de izar el reset (documentado a propósito): las
+    tablas de TODOS los códigos quedan vacías durante toda la corrida (el
+    pool viejo truncaba cada tabla recién al arrancar su worker), y un
+    rebuild interrumpido deja vacía la historia completa hasta re-correr.
+
+    Devuelve los códigos que NO pudieron resetearse (p.ej. metadata lock
+    del TRUNCATE): el caller DEBE excluirlos de la corrida — backfillear
+    en force sobre una tabla no truncada mezclaría filas nuevas con
+    historia vieja no recalculada."""
+    failed: list[dict] = []
+    for code in codes:
+        try:
+            t = get_ind_table(code)
+            db_compat.wipe_table(s, t.name)
+            s.execute(sa.text("DELETE FROM ind_asset_meta WHERE code = :code"),
+                      {"code": code})
+            s.commit()
+        except Exception as exc:
+            logger.warning("Reset de rebuild falló code=%s: %s", code, exc)
+            s.rollback()
+            failed.append({"code": code, "error": f"reset: {exc}"})
+    return failed
+
+
 def _query_tail_stats(session, code: str) -> dict:
     """{asset_id: (min_date, max_date, count)} cacheado en ind_asset_meta
     para este código (migración 0055), mantenido por backfill_indicator en
@@ -1289,10 +1394,25 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                        best_sma_cache: dict | None = None,
                        df_w_cache: dict | None = None,
                        df_m_cache: dict | None = None,
-                       precomputed_tail_stats: dict | None = None) -> dict:
+                       precomputed_tail_stats: dict | None = None,
+                       asset_ids: list | None = None,
+                       skip_force_reset: bool = False,
+                       defer_meta: bool = False) -> dict:
     """
     Backfill histórico de un indicador específico para todos los activos.
     Escribe en la tabla ind_{code}.
+
+    asset_ids: lote explícito de activos (partición por activos del pool por
+    lotes). Además de acotar la iteración, scopea las queries de metadatos
+    (benchmark/checksum de ind_asset_meta) al lote — sin scope, cada lote
+    traería y re-escribiría los metadatos de TODOS los activos.
+    skip_force_reset: el caller ya trunca ind_{code} y limpió ind_asset_meta
+    (ver _force_reset_ind_tables — con partición por activos el reset va en
+    el padre, un lote no puede truncar sin borrar el trabajo de los demás).
+    defer_meta: no upsertear ind_asset_meta acá; devolver los dicts en el
+    resultado (clave "meta") para que el caller los consolide — con N lotes
+    escribiendo el mismo código, el único escritor de ind_asset_meta debe
+    ser el padre (evita contención/deadlocks sin necesidad).
 
     force=True trunca la tabla del indicador y la reconstruye completa.
     Si el indicador tiene full_sample=True (estadísticos sobre toda la serie,
@@ -1312,11 +1432,12 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     GROUP BY asset_id + COUNT(*) sobre ind_{code} (COUNT impedía el loose
     index scan que MIN/MAX solos permiten).
     """
-    compute_fn = _BACKFILL_FNS.get(code)
+    compute_fn = _resolve_backfill_fn(code)
     if compute_fn is None:
         return {"inserted": 0, "skipped": True, "reason": "no_compute_fn"}
 
     s = get_session()
+    scoped = asset_ids is not None
 
     # full_sample (percentiles/zonas sobre toda la muestra): en delta la serie
     # se recalcula ENTERA igual, pero en vez de borrar y reescribir todo se
@@ -1333,7 +1454,9 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     # activos sin precio descargado todavía quedan afuera de las dos
     # cuentas por igual (antes: aparecían en el loop vía asset_ids pero no
     # en el denominador, mostrando p.ej. "497/495" en el panel).
-    if price_cache is not None:
+    if scoped:
+        pass                       # lote explícito del pool por lotes
+    elif price_cache is not None:
         asset_ids = list(price_cache.keys())
     else:
         asset_ids = [r[0] for r in s.query(Asset.id).all()]
@@ -1361,12 +1484,17 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     bench_current: dict = {}
     bench_stale:   set  = set()
     if needs_bench:
-        bench_current = dict(s.query(Asset.id, Asset.benchmark_id).all())
+        bench_q = s.query(Asset.id, Asset.benchmark_id)
+        if scoped:
+            bench_q = bench_q.filter(Asset.id.in_(asset_ids))
+        bench_current = dict(bench_q.all())
         if tail_mode:
-            bench_stored = dict(s.execute(
-                sa.select(IndAssetMeta.asset_id, IndAssetMeta.benchmark_id)
-                .where(IndAssetMeta.code == code)
-            ).fetchall())
+            bench_sel = sa.select(
+                IndAssetMeta.asset_id, IndAssetMeta.benchmark_id
+            ).where(IndAssetMeta.code == code)
+            if scoped:
+                bench_sel = bench_sel.where(IndAssetMeta.asset_id.in_(asset_ids))
+            bench_stored = dict(s.execute(bench_sel).fetchall())
             bench_stale = _stale_bench_assets(bench_current, bench_stored)
 
     # Invalidación por checksum (ver _CHECKSUM_DEP_CODES): full_sample sin
@@ -1377,17 +1505,20 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     checksum_stored:  dict = {}
     checksum_by_asset: dict = {}
     if needs_checksum and tail_mode:
-        checksum_stored = dict(s.execute(
-            sa.select(IndAssetMeta.asset_id, IndAssetMeta.checksum)
-            .where(IndAssetMeta.code == code)
-        ).fetchall())
+        cs_sel = sa.select(
+            IndAssetMeta.asset_id, IndAssetMeta.checksum
+        ).where(IndAssetMeta.code == code)
+        if scoped:
+            cs_sel = cs_sel.where(IndAssetMeta.asset_id.in_(asset_ids))
+        checksum_stored = dict(s.execute(cs_sel).fetchall())
 
-    if force:
+    if force and not skip_force_reset:
         # TRUNCATE en lugar de DELETE por activo: instantáneo y sin undo log
         # (millones de filas). Trade-offs asumidos: la tabla queda vacía
         # mientras se rellena, y si la corrida falla hay que re-correr el
-        # rebuild (TRUNCATE es DDL, no se rollbackea).
-        s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
+        # rebuild (TRUNCATE es DDL, no se rollbackea). wipe_table emite el
+        # TRUNCATE histórico en MySQL; en sqlite (tests) cae a DELETE.
+        db_compat.wipe_table(s, t.name)
         # Limpia el caché de ind_asset_meta (benchmark_id/checksum/stats) en
         # el MISMO commit que el TRUNCATE, no al final: si el proceso se cae
         # a mitad del rebuild, la tabla queda truncada+parcial pero el caché
@@ -1550,6 +1681,19 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
         s.commit()   # cierra el lote al fin de cada chunk de activos
         rows_since_commit = 0
 
+    result = {"inserted": inserted, "code": code, "path_counts": path_counts,
+              "slow_asset_ids": slow_asset_ids}
+    if defer_meta:
+        # El caller consolida y persiste (ver docstring). Dicts de tipos
+        # simples (int/str/date/tuplas): el contrato ya es apto para volver
+        # pickleado desde un proceso hijo en la fase 2 del ProcessPool.
+        result["meta"] = {
+            "bench_by_asset":    bench_current if needs_bench else None,
+            "checksum_by_asset": checksum_by_asset if needs_checksum else None,
+            "stats_by_asset":    stats_by_asset if tail_eligible else None,
+        }
+        return result
+
     if needs_bench:
         _upsert_ind_asset_meta(s, code, bench_by_asset=bench_current)
     if needs_checksum:
@@ -1557,47 +1701,131 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     if tail_eligible:
         _upsert_ind_stats_meta(s, code, stats_by_asset)
 
-    return {"inserted": inserted, "code": code, "path_counts": path_counts,
-            "slow_asset_ids": slow_asset_ids}
+    return result
 
 
-def _backfill_indicator_worker(code: str, force: bool = False, asset_tick=None,
-                               price_cache: dict | None = None,
-                               best_sma_cache: dict | None = None,
-                               df_w_cache: dict | None = None,
-                               df_m_cache: dict | None = None,
-                               precomputed_tail_stats: dict | None = None) -> dict:
+# Reintentos ante deadlock (1213) / lock timeout (1205) por (lote, código):
+# con partición por activos, N workers escriben CONCURRENTEMENTE las mismas
+# tablas ind_{code} (el pool viejo tenía un único escritor por tabla) — la
+# clase de contención que CLAUDE.md documenta como esperable con retry
+# obligatorio (patrón de fundamental_service._fund_worker).
+_MAX_LOCK_RETRIES = 3
+
+
+def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
+                           force: bool = False, asset_tick=None,
+                           price_cache: dict | None = None,
+                           best_sma_cache: dict | None = None,
+                           df_w_cache: dict | None = None,
+                           df_m_cache: dict | None = None,
+                           tail_stats_by_code: dict | None = None) -> dict:
+    """Worker del pool por LOTES de activos: calcula todos los códigos de
+    backfill para su lote y devuelve un resultado agregable por el padre
+    (dicts de tipos simples — el contrato ya es apto para cruzar a un
+    proceso hijo en la fase 2 del ProcessPool; hoy corre en threads y
+    recibe los cachés completos por referencia, con partición real solo de
+    la iteración vía asset_ids).
+
+    asset_tick(code): una llamada por (código, activo) procesado — el padre
+    agrega los contadores por código entre lotes.
+    El reset del force (TRUNCATE) NO ocurre acá: lo hace el padre una vez
+    por código antes del pool (_force_reset_ind_tables). Los metadatos de
+    ind_asset_meta tampoco se escriben acá (defer_meta): los consolida el
+    padre como único escritor.
+    Un error en un código no aborta el lote: se anota y se sigue con el
+    resto (mismo criterio que el pool histórico por indicador)."""
+    import random as _random
     import time as _time
+    from sqlalchemy.exc import OperationalError
     from app.database import Session as _DbSession
-    t0 = _time.monotonic()
+    out = {"batch": batch_idx, "inserted": 0, "per_code": {}, "errors": []}
     try:
         if force:
             # Bulk-load: sin validación FK/unique por fila durante el rebuild
             _set_bulk_load_checks(get_session(), False)
-        res = backfill_indicator(code, force=force, asset_tick=asset_tick,
-                                 price_cache=price_cache, best_sma_cache=best_sma_cache,
-                                 df_w_cache=df_w_cache, df_m_cache=df_m_cache,
-                                 precomputed_tail_stats=precomputed_tail_stats)
-        res["seconds"] = round(_time.monotonic() - t0, 1)
-        return res
-    except Exception as exc:
-        logger.warning("Backfill error code=%s: %s", code, exc)
-        return {"inserted": 0, "code": code, "error": str(exc)}
+        for code in codes:
+            t0 = _time.monotonic()
+            res = None
+            emitted = 0
+            for attempt in range(_MAX_LOCK_RETRIES + 1):
+                seen = 0
+
+                def _code_tick(c=code):
+                    # En reintentos, los activos ya contados no re-emiten:
+                    # el dn por código del panel es acumulativo entre lotes
+                    # y un doble tick lo pasaría del total (dn > tn).
+                    nonlocal seen, emitted
+                    seen += 1
+                    if seen > emitted:
+                        emitted = seen
+                        asset_tick(c)
+
+                try:
+                    res = backfill_indicator(
+                        code, force=force,
+                        asset_tick=_code_tick if asset_tick else None,
+                        price_cache=price_cache, best_sma_cache=best_sma_cache,
+                        df_w_cache=df_w_cache, df_m_cache=df_m_cache,
+                        precomputed_tail_stats=(tail_stats_by_code or {}).get(code),
+                        asset_ids=batch_asset_ids,
+                        skip_force_reset=True, defer_meta=True)
+                    break
+                except OperationalError as exc:
+                    # SIEMPRE rollback antes de decidir: la transacción quedó
+                    # envenenada (en PG cualquier statement posterior daría
+                    # InFailedSqlTransaction; en SQLAlchemy 2.0,
+                    # PendingRollbackError) y el resto de los códigos del
+                    # lote comparten esta misma sesión thread-local.
+                    get_session().rollback()
+                    if (attempt < _MAX_LOCK_RETRIES
+                            and db_compat.is_retryable_lock_error(exc)):
+                        # Deadlock (1213) / lock timeout (1205) contra otro
+                        # worker del pool: N lotes escriben las mismas
+                        # tablas ind_* — reintentar la transacción completa
+                        # es seguro (upserts idempotentes, meta diferida).
+                        # Mismo patrón que fundamental_service._fund_worker.
+                        _time.sleep(0.2 * (attempt + 1) + _random.uniform(0, 0.2))
+                        continue
+                    logger.warning("Backfill error lote=%d code=%s: %s",
+                                   batch_idx, code, exc)
+                    out["errors"].append({"code": code, "error": str(exc)})
+                    break
+                except Exception as exc:
+                    # rollback también acá: descarta el chunk parcial sin
+                    # commitear del código fallido (el pool viejo lo hacía
+                    # implícito con el remove() al morir su worker) y deja
+                    # la sesión usable para el próximo código del lote.
+                    get_session().rollback()
+                    logger.warning("Backfill error lote=%d code=%s: %s",
+                                   batch_idx, code, exc)
+                    out["errors"].append({"code": code, "error": str(exc)})
+                    break
+            if res is not None:
+                res["seconds"] = round(_time.monotonic() - t0, 1)
+                out["inserted"] += res.get("inserted", 0)
+                out["per_code"][code] = res
     finally:
         if force:
             # Restaurar SIEMPRE antes de devolver la conexión al pool
             _set_bulk_load_checks(get_session(), True)
         _DbSession.remove()
+    return out
 
 
 def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                                   price_cache: dict | None = None) -> dict:
     """
-    Backfill histórico parallelizado por indicador.
-    Un worker por indicador (keep_history=True con función de cómputo definida).
-    El número de workers se adapta dinámicamente al número de indicadores.
-    Progreso reportado por activo procesado (no por indicador) para feedback más fino.
-    price_cache permite reutilizar precios ya cargados por el caller.
+    Backfill histórico paralelizado por LOTES DE ACTIVOS.
+
+    Fase 1 del plan ProcessPool (partición por activos): la unidad de
+    trabajo es un lote de activos × todos los códigos de backfill, hoy
+    ejecutada en threads — el mismo eje que tendrán los procesos hijos en
+    la fase 2, así la corrección del particionado se valida con la
+    infraestructura actual. El padre trunca (force), precalcula tail-stats,
+    reparte lotes balanceados por largo de historia, agrega el progreso por
+    código entre lotes y consolida ind_asset_meta y diagnósticos como único
+    escritor. price_cache permite reutilizar precios ya cargados por el
+    caller.
     """
     import threading as _th
     s    = get_session()
@@ -1605,8 +1833,10 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
         IndicatorDefinition.keep_history.is_(True)
     ).order_by(IndicatorDefinition.id).all()
     hist = [d.code for d in defs if d.code in _BACKFILL_FNS]
-    # Cola LPT del modo que corresponde: delta y rebuild completo tienen
-    # costos muy distintos para el mismo código (ver migración 0056).
+    # Duraciones medidas del modo que corresponde: delta y rebuild completo
+    # tienen costos muy distintos para el mismo código (ver migración 0056).
+    # Con partición por activos ya no ordenan workers: ordenan los códigos
+    # DENTRO de cada lote (pesados primero, ver _lpt_order más abajo).
     measured = {
         d.code: (d.last_rebuild_seconds if force else d.last_backfill_seconds)
         for d in defs if d.code in _BACKFILL_FNS
@@ -1616,6 +1846,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
     n_indicators = len(hist)
     if not n_indicators:
         return {"total": 0, "success": 0, "inserted": 0, "errors": []}
+    all_codes = set(hist)   # para success al final (hist puede achicarse)
 
     # Avisa al UI antes de la carga (puede tardar varios segundos)
     if progress_cb:
@@ -1629,11 +1860,27 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
     total_work      = n_indicators * n_assets
     logger.info("Precios cargados: %d activos", n_assets)
 
-    # Resamples W/M una sola vez, compartidos por todos los workers
+    # Resamples W/M una sola vez, compartidos por todos los workers (en la
+    # fase 2 del ProcessPool cada hijo resampleará solo su lote)
     if progress_cb:
         progress_cb(0, 1, "Precalculando resamples semanales y mensuales...")
     df_w_cache = {aid: _resample_ohlc(df, "W") for aid, df in price_cache.items()}
     df_m_cache = {aid: _resample_ohlc(df, "M") for aid, df in price_cache.items()}
+
+    # force: reset IZADO al padre, una vez por código y ANTES del pool —
+    # con partición por activos un worker no puede truncar (ver
+    # _force_reset_ind_tables). Un código cuyo reset falló queda EXCLUIDO
+    # de la corrida: backfillear en force sobre una tabla no truncada
+    # mezclaría filas nuevas con historia vieja.
+    reset_errors: list[dict] = []
+    if force:
+        if progress_cb:
+            progress_cb(0, 1, "Vaciando tablas de indicadores (rebuild)...")
+        reset_errors = _force_reset_ind_tables(s, hist)
+        if reset_errors:
+            bad = {e["code"] for e in reset_errors}
+            hist = [c for c in hist if c not in bad]
+            total_work = len(hist) * n_assets
 
     # tail_stats de todos los códigos tail-mode, SECUENCIAL y antes del pool
     # (ver _precompute_all_tail_stats): evita que varios indicadores
@@ -1642,16 +1889,26 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
         progress_cb(0, 1, "Calculando estadísticas de historial (tail-mode)...")
     tail_stats_by_code = _precompute_all_tail_stats(s, hist, force)
 
+    # Partición por activos: lotes balanceados por largo de historia (proxy
+    # del costo de cómputo del activo, disponible gratis del price_cache)
+    asset_ids = list(price_cache.keys())
+    weights   = {aid: len(df) for aid, df in price_cache.items()}
+    batches   = _partition_assets(asset_ids, weights,
+                                  _n_batches(n_assets, _POOL_WORKERS))
+
     from app.database import Session as _DbSession
     _DbSession.remove()   # libera la conexión principal antes de lanzar workers
 
-    done_ind = 0
     inserted = 0
-    errors: list[dict] = []
+    errors: list[dict] = list(reset_errors)
+    failed_codes: set = {e["code"] for e in reset_errors}
 
-    # Contador total compartido + contador por indicador (thread-safe)
-    _assets_done = 0
-    _lock        = _th.Lock()
+    # Contador total + contador por código, compartidos entre lotes: varios
+    # workers avanzan el MISMO código a la vez, así que el "dn" por código
+    # del panel se agrega acá (ya no es local de un worker por indicador).
+    _assets_done  = 0
+    _done_by_code = {c: 0 for c in hist}
+    _lock         = _th.Lock()
 
     # Diagnóstico (jul-2026): número de worker (0..N-1) estable por hilo,
     # asignado la primera vez que ese hilo llama a _tick. Se ve en el panel
@@ -1666,77 +1923,148 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 _worker_slots[ident] = len(_worker_slots)
             return _worker_slots[ident]
 
-    def _make_tick(code):
-        per_ind = [0]
-        def _tick():
-            nonlocal _assets_done
-            per_ind[0] += 1
-            with _lock:
-                _assets_done += 1
-                n = _assets_done
-            if progress_cb:
-                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets} w{_worker_slot()}")
-        return _tick
-
-    # LPT por duración MEDIDA en la corrida anterior (nuevos primero;
-    # heurística solo en la primera corrida de una instalación)
-    hist = _lpt_order(hist, measured)
-    durations: dict = {}
-
-    with _TPE(max_workers=min(n_indicators, _POOL_WORKERS)) as pool:
-        futures = {
-            pool.submit(_backfill_indicator_worker, code, force, _make_tick(code),
-                        price_cache, best_sma_cache, df_w_cache, df_m_cache,
-                        tail_stats_by_code.get(code)): code
-            for code in hist
-        }
+    def _tick(code):
+        nonlocal _assets_done
+        with _lock:
+            _assets_done += 1
+            _done_by_code[code] += 1
+            n, k = _assets_done, _done_by_code[code]
         if progress_cb:
-            # Mensaje especial para pre-poblar todos los workers en el UI
-            progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(hist)}")
-        for future in as_completed(futures):
-            done_ind += 1
-            code      = futures[future]
-            try:
-                res = future.result()
-                inserted += res.get("inserted", 0)
-                if res.get("seconds") is not None:
-                    durations[code] = res["seconds"]
-                pc = res.get("path_counts")
-                if pc and sum(pc.values()):
-                    logger.info(
-                        "Backfill %s (%.1fs): rápido=%d gap=%d checksum=%d bench=%d empty=%d",
-                        code, res.get("seconds", 0),
-                        pc["fast"], pc["gap"], pc["checksum"], pc["bench"], pc["empty"],
-                    )
-                    slow_ids = res.get("slow_asset_ids") or {}
-                    if any(slow_ids.values()):
-                        logger.info(
-                            "Backfill %s activos no-rápidos — gap=%s checksum=%s bench=%s empty=%s",
-                            code, slow_ids.get("gap"), slow_ids.get("checksum"),
-                            slow_ids.get("bench"), slow_ids.get("empty"),
-                        )
-                    # Mensaje especial (mismo mecanismo que __init__:) para que
-                    # el panel del Centro de Datos muestre cuántos activos
-                    # cayeron al camino lento (gap/checksum/bench) por código
-                    # — "empty" queda afuera a propósito, no es un hueco real
-                    # que amerite revisión (ver comentario en path_counts),
-                    # no solo la duración — visibilidad sin tener que ir al log.
-                    if progress_cb:
-                        progress_cb(_assets_done, total_work,
-                                    f"__pc__:{code}:{pc['fast']}:{pc['gap']}:"
-                                    f"{pc['checksum']}:{pc['bench']}")
-                if "error" in res:
-                    errors.append({"code": code, "error": res["error"]})
-            except Exception as exc:
-                logger.warning("Backfill future error code=%s: %s", code, exc)
-                errors.append({"code": code, "error": str(exc)})
+            progress_cb(n, total_work, f"{code}: {k}/{n_assets} w{_worker_slot()}")
 
-    # Persistir las duraciones medidas: ordenan la cola LPT de la próxima
-    # corrida del MISMO modo (ver migración 0056 — delta y rebuild completo
-    # tienen costos muy distintos para el mismo código, no comparten campo).
+    # Orden de códigos dentro de cada lote: pesados primero por duración
+    # MEDIDA de la corrida anterior (nuevos primero; heurística solo en la
+    # primera corrida de una instalación). Todos los lotes comparten el
+    # orden — los códigos caros terminan parejo entre lotes.
+    hist = _lpt_order(hist, measured)
+
+    # Agregación por código entre lotes: duraciones (suma), path_counts
+    # (suma), slow_asset_ids (concatenación) y metadatos de ind_asset_meta
+    # (unión de dicts por activo — los lotes son disjuntos). El padre es el
+    # único que persiste y el único que emite __pc__/log por código: sin
+    # este merge, el panel mostraría solo los conteos del último lote.
+    durations: dict = {}
+    agg_pc:    dict = {}
+    agg_slow:  dict = {}
+    agg_meta:  dict = {}
+
+    def _merge_code_result(code: str, res: dict) -> None:
+        if res.get("seconds") is not None:
+            durations[code] = round(durations.get(code, 0) + res["seconds"], 1)
+        pc = res.get("path_counts")
+        if pc:
+            tgt = agg_pc.setdefault(code, {})
+            for k, v in pc.items():
+                tgt[k] = tgt.get(k, 0) + v
+        for k, ids in (res.get("slow_asset_ids") or {}).items():
+            if ids:
+                agg_slow.setdefault(code, {}).setdefault(k, []).extend(ids)
+        meta = res.get("meta") or {}
+        tgt = agg_meta.setdefault(code, {"bench_by_asset": {},
+                                         "checksum_by_asset": {},
+                                         "stats_by_asset": {}})
+        for key in ("bench_by_asset", "checksum_by_asset", "stats_by_asset"):
+            if meta.get(key):
+                tgt[key].update(meta[key])
+
+    if batches:
+        with _TPE(max_workers=min(len(batches), _POOL_WORKERS)) as pool:
+            futures = {
+                pool.submit(_backfill_batch_worker, i, batch, hist, force,
+                            _tick, price_cache, best_sma_cache,
+                            df_w_cache, df_m_cache, tail_stats_by_code): i
+                for i, batch in enumerate(batches)
+            }
+            if progress_cb:
+                # Mensaje especial para pre-poblar todos los workers en el UI
+                # (las filas del panel siguen siendo por código; el tag [wN]
+                # ahora identifica al worker de lote que lo avanzó último)
+                progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(hist)}")
+            for future in as_completed(futures):
+                bi = futures[future]
+                try:
+                    out = future.result()
+                    inserted += out.get("inserted", 0)
+                    for err in out.get("errors", []):
+                        failed_codes.add(err["code"])
+                        errors.append(err)
+                    for code, res in out.get("per_code", {}).items():
+                        _merge_code_result(code, res)
+                except Exception as exc:
+                    logger.warning("Backfill future error lote=%d: %s", bi, exc)
+                    # el lote entero no corrió: ningún código lo cubrió para
+                    # estos activos — se cuentan todos como afectados
+                    failed_codes.update(hist)
+                    errors.append({"code": f"lote-{bi}", "error": str(exc)})
+
+    # Consolidación en el padre (único escritor de ind_asset_meta) + log y
+    # __pc__ por código con los conteos COMPLETOS sumados entre lotes. Solo
+    # entran los lotes que terminaron bien ese código: un (lote, código)
+    # fallido deja sus metadatos sin actualizar → ese subconjunto cae al
+    # camino lento en el próximo delta (mismo criterio de seguridad que el
+    # worker por indicador, que ante error no upserteaba nada).
+    s2 = get_session()
+    for code in hist:
+        try:
+            meta = agg_meta.get(code)
+            if meta:
+                if meta["bench_by_asset"]:
+                    _upsert_ind_asset_meta(s2, code, bench_by_asset=meta["bench_by_asset"])
+                if meta["checksum_by_asset"]:
+                    _upsert_ind_asset_meta(s2, code, checksum_by_asset=meta["checksum_by_asset"])
+                if meta["stats_by_asset"]:
+                    _upsert_ind_stats_meta(s2, code, meta["stats_by_asset"])
+            pc = agg_pc.get(code)
+            if pc and sum(pc.values()):
+                logger.info(
+                    "Backfill %s (%.1fs): rápido=%d gap=%d checksum=%d bench=%d empty=%d",
+                    code, durations.get(code, 0),
+                    pc["fast"], pc["gap"], pc["checksum"], pc["bench"], pc["empty"],
+                )
+                slow_ids = agg_slow.get(code) or {}
+                if any(slow_ids.values()):
+                    logger.info(
+                        "Backfill %s activos no-rápidos — gap=%s checksum=%s bench=%s empty=%s",
+                        code, slow_ids.get("gap"), slow_ids.get("checksum"),
+                        slow_ids.get("bench"), slow_ids.get("empty"),
+                    )
+                # Mensaje especial (mismo mecanismo que __init__:) para que
+                # el panel del Centro de Datos muestre cuántos activos
+                # cayeron al camino lento (gap/checksum/bench) por código
+                # — "empty" queda afuera a propósito, no es un hueco real
+                # que amerite revisión (ver comentario en path_counts).
+                if progress_cb:
+                    progress_cb(_assets_done, total_work,
+                                f"__pc__:{code}:{pc['fast']}:{pc['gap']}:"
+                                f"{pc['checksum']}:{pc['bench']}")
+            # Fila final autoritativa por código: dn agregado + costo real
+            # (t= suma de segundos entre lotes). Devuelve al panel el costo
+            # POR CÓDIGO que el eje invertido le quitó al span inicio→fin
+            # (todas las filas abren en la primera ola y cierran en la
+            # última), y corrige cualquier tick final desordenado.
+            if progress_cb and code in durations:
+                progress_cb(_assets_done, total_work,
+                            f"{code}: {_done_by_code.get(code, 0)}/{n_assets}"
+                            f" t={durations[code]}")
+        except Exception as exc:
+            # Un fallo consolidando UN código no aborta el resto (sin esto,
+            # una caída en el primer upsert dejaba a los 24 códigos sin
+            # meta/diagnóstico y el panel mostraba éxito total en verde).
+            logger.warning("Consolidación de meta falló code=%s: %s", code, exc)
+            try:
+                s2.rollback()
+            except Exception:
+                pass
+            failed_codes.add(code)
+            errors.append({"code": code, "error": f"consolidación: {exc}"})
+
+    # Persistir las duraciones medidas: ordenan los códigos dentro de los
+    # lotes de la próxima corrida del MISMO modo (ver migración 0056). Con
+    # partición por activos la duración por código es la SUMA entre lotes
+    # (proxy del costo total del código, no wall-clock de un worker) — el
+    # orden relativo, que es lo que LPT necesita, se preserva.
     if durations:
         try:
-            s2   = get_session()
             attr = "last_rebuild_seconds" if force else "last_backfill_seconds"
             for d in s2.query(IndicatorDefinition).filter(
                     IndicatorDefinition.code.in_(list(durations))).all():
@@ -1746,7 +2074,29 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
             logger.warning("No se pudieron guardar las duraciones de backfill",
                            exc_info=True)
 
-    return {"total": n_indicators, "success": n_indicators - len(errors),
+    # errors: UNA entrada por código, como en el pool viejo — los
+    # consumidores (panel '{X}/{Y} OK', acumuladores de price_service)
+    # cuentan len(errors) contra el total de códigos; con N lotes, un error
+    # sistémico en un código generaría N entradas e inflaría la cuenta.
+    # Las entradas 'lote-N' (lote entero caído) se conservan tal cual.
+    deduped: list[dict] = []
+    seen_codes: dict = {}
+    for e in errors:
+        c = e.get("code")
+        if c in all_codes:
+            if c in seen_codes:
+                seen_codes[c] += 1
+                continue
+            seen_codes[c] = 1
+        deduped.append(dict(e))
+    for e in deduped:
+        n = seen_codes.get(e.get("code"), 1)
+        if n > 1:
+            e["error"] += f" (x{n} lotes)"
+    errors = deduped
+
+    n_failed = len(failed_codes & all_codes)
+    return {"total": n_indicators, "success": n_indicators - n_failed,
             "inserted": inserted, "errors": errors}
 
 

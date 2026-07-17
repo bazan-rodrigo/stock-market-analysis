@@ -286,7 +286,11 @@ def _run(op_id, service_fn):
                 # fila quedaba "desde —" para siempre
                 if dn > 0 and w["start"] is None:
                     w["start"] = _dt.now()
-                w["dn"] = dn
+                # Monotónico: con el pool por lotes varios threads avanzan el
+                # MISMO código y el label se emite fuera del lock — un tick
+                # rezagado puede llegar DESPUÉS de uno mayor; aplicar el
+                # último a ciegas dejaba la fila final en dn<tn sin ✓.
+                w["dn"] = max(dn, w["dn"])
                 w["tn"] = tn
                 if worker is not None:
                     w["worker"] = worker

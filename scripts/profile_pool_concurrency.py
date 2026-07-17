@@ -86,7 +86,9 @@ def main():
     print(f"\nSECUENCIAL (1 hilo, {len(_CODES)} códigos): {seq_elapsed:.2f}s")
 
     # --- Concurrente: un thread por código, cada uno con su propia sesión
-    # (mismo patrón que _backfill_indicator_worker) ---
+    # (mismo patrón que el pool histórico por indicador, hoy reemplazado
+    # por lotes de activos en _backfill_batch_worker — este script midió
+    # el techo del GIL de aquel diseño: speedup 0.9x con 6 threads) ---
     def _worker(code):
         sess = get_session()
         try:
