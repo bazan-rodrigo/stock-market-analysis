@@ -67,6 +67,16 @@ class Config:
     DB_POOL_SIZE: int = int(_get("db_pool_size", "30"))
     DB_MAX_OVERFLOW: int = int(_get("db_max_overflow", "20"))
 
+    # Arranque de APScheduler EN ESTE PROCESO. Con gunicorn multi-worker o
+    # réplicas, cada proceso arrancaría su propio scheduler y el job diario
+    # se dispararía N veces (el lock persistido lo deduplica, pero es
+    # desperdicio: N schedulers, N misfires). Patrón recomendado: RUN_SCHEDULER=0
+    # en el/los proceso(s) web y correr el scheduler en un proceso worker
+    # dedicado (worker.py, que lo fuerza a 1). Default 1 = no rompe el dev
+    # local ni el Codespace, que corren en un solo proceso.
+    RUN_SCHEDULER: bool = _get("run_scheduler", "1").strip().lower() \
+        not in ("0", "false", "no", "off", "")
+
     LOG_LEVEL: str = _get("log_level", "INFO")
     LOG_FILE: str = _get("log_file", str(BASE_DIR / "logs" / "app.log"))
 

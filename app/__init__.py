@@ -369,8 +369,16 @@ def create_app():
     except Exception as exc:
         logger.warning("No se pudieron limpiar locks de corrida: %s", exc)
 
+    # El scheduler arranca solo donde RUN_SCHEDULER está activo: en un
+    # deploy multi-proceso (gunicorn/réplicas) va en un worker dedicado
+    # (worker.py), no en cada web worker. En dev/Codespace (proceso único,
+    # default 1) arranca acá como siempre.
     from app.services.scheduler_service import start_if_enabled
-    start_if_enabled()
+    if Config.RUN_SCHEDULER:
+        start_if_enabled()
+    else:
+        logger.info("APScheduler no arranca en este proceso (RUN_SCHEDULER=0);"
+                    " lo corre el proceso worker dedicado")
 
     logger.info("Aplicación inicializada correctamente")
     return server, dash_app
