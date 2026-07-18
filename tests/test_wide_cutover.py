@@ -85,6 +85,35 @@ def test_write_ind_series_stale_nullea_solo_su_columna(wide_tables, wide_on):
     assert rows[1].trend_daily == "b"   # trend_daily del D2 NO se pisó
 
 
+def test_buffer_rebuild_escribe_fila_completa_una_vez(wide_tables, wide_on):
+    """Opción B (sin bloat): con el buffer activo (rebuild), _write_ind_series
+    acumula por código; el flush escribe UNA fila completa por (activo,fecha)
+    con todas las columnas — sin updates repetidos."""
+    from app.services.technical_service import (
+        _wide_buffer_clear, _wide_buffer_flush, _wide_buffer_start,
+    )
+    s = get_session()
+    _wide_buffer_start()
+    try:
+        n1 = _write_ind_series(s, "rsi_daily", 1, [_D1, _D2], [55.0, 60.0],
+                               existing=set())
+        n2 = _write_ind_series(s, "trend_daily", 1, [_D1, _D2], ["a", "b"],
+                               existing=set())
+        assert n1 == 2 and n2 == 2
+        # nada escrito todavía: está en el buffer
+        assert s.execute(sa.text("SELECT COUNT(*) FROM ind_daily")).scalar() == 0
+        _wide_buffer_flush(s)
+        s.commit()
+    finally:
+        _wide_buffer_clear()
+
+    # una fila por (activo,fecha), con AMBAS columnas (rsi + trend)
+    rows = s.execute(sa.text(
+        "SELECT rsi_daily, trend_daily FROM ind_daily WHERE asset_id = 1 "
+        "ORDER BY date")).fetchall()
+    assert [(r.rsi_daily, r.trend_daily) for r in rows] == [(55.0, "a"), (60.0, "b")]
+
+
 def test_null_wide_column_acota_por_activo(wide_tables, wide_on):
     s = get_session()
     _upsert_ind(s, "rsi_weekly", 1, _D1, 40.0)

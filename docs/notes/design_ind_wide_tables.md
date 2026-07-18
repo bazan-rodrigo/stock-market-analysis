@@ -154,7 +154,17 @@ hasta validar; se dropean al final.
   (bases create_all). `data_center` status → nombres anchos; script de medición
   reconoce las anchas.
 
-**Refactor COMPLETO (639 tests).** Wide es el camino permanente para los 24
+- **Opción B (escritura sin bloat): HECHA.** El rebuild escribía columna por
+  columna → cada fila ancha se ACTUALIZA N veces → tuplas muertas en Postgres
+  (medido: ind_daily 3.4→25 MB tras un rebuild). Fix: buffer thread-local
+  (`_wide_buffer_*`) que junta las columnas de una cadencia por (activo,fecha)
+  durante el rebuild y las escribe como **fila completa una sola vez** al final
+  del worker (tabla truncada → inserts puros, sin bloat). `compute_current`
+  agrupa por cadencia (una fila vs 24 upserts). El **delta NO se bufferiza**
+  (escribe la cola per-columna; su bloat chico lo recupera autovacuum). Test:
+  `test_wide_cutover.py` (fila completa una vez).
+
+**Refactor COMPLETO (652 tests).** Wide es el camino permanente para los 24
 indicadores técnicos con historia; los fundamentales siguen per-código.
 Pendiente opcional: fundamentales anchos (`ind_fundamental_daily`) — misma técnica.
 

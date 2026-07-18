@@ -8,6 +8,7 @@ import hashlib
 import logging
 import math
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed
 from datetime import date, datetime, timedelta
 
@@ -21,7 +22,7 @@ from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import (CurrentIndicatorValue, IndAssetMeta,
                                         get_ind_table, use_wide_ind_tables,
                                         _WIDE, _WIDE_CADENCE_TABLE,
-                                        _get_wide_table)
+                                        _WIDE_CADENCE_COLUMNS, _get_wide_table)
 
 from app.services import db_compat, sr_service
 from app.services.db_compat import INSERTED
@@ -749,8 +750,13 @@ def _write_ind_series(s, code: str, asset_id: int,
         return 0
 
     if wide:
-        # UPSERT parcial a la columna de la tabla ancha: acumula sin pisar las
-        # columnas de los otros códigos de la cadencia.
+        if _wide_buffer_active():
+            # Rebuild bufferizado: acumular; el worker escribe la fila completa
+            # una sola vez al final (sin updates repetidos → sin bloat).
+            for d, v in pairs:
+                _wide_buffer_append(cadence, asset_id, d, column, v)
+            return len(pairs)
+        # Delta: UPSERT parcial a la columna (bloat chico de la cola → autovacuum).
         return upsert_ind_cadence(
             s, cadence, [column], [(asset_id, d, v) for d, v in pairs])
 
@@ -807,6 +813,52 @@ def upsert_ind_cadence(session, cadence: str, columns, rows) -> int:
         conn.exec_driver_sql(sql, chunk)
         written += len(chunk)
     return written
+
+
+# ── Buffer de escritura ancha (fase 5, opción B): rebuild sin bloat ───────────
+# El rebuild escribe columna por columna (un código a la vez); en la tabla
+# ancha eso ACTUALIZA cada fila N veces → N-1 tuplas muertas por fila en
+# Postgres (bloat ~Nx). El buffer junta las columnas de una cadencia por
+# (activo,fecha) durante el rebuild y las escribe como fila COMPLETA una sola
+# vez al final del worker (la tabla ya fue truncada por el padre → inserts
+# puros, sin conflictos ni tuplas muertas). Thread-local: cada worker acumula
+# lo suyo. El DELTA no se bufferiza (escribe la cola per-columna; su bloat
+# chico lo recupera autovacuum).
+_WIDE_WRITE_BUFFER = threading.local()
+
+
+def _wide_buffer_active() -> bool:
+    return getattr(_WIDE_WRITE_BUFFER, "active", False)
+
+
+def _wide_buffer_start() -> None:
+    _WIDE_WRITE_BUFFER.active = True
+    _WIDE_WRITE_BUFFER.data = {}   # {cadence: {(asset_id, date): {col: val}}}
+
+
+def _wide_buffer_append(cadence: str, asset_id: int, date_, column: str,
+                        value) -> None:
+    (_WIDE_WRITE_BUFFER.data.setdefault(cadence, {})
+     .setdefault((asset_id, date_), {})[column]) = value
+
+
+def _wide_buffer_flush(session) -> None:
+    """Vuelca el buffer como filas COMPLETAS (una por (activo,fecha) y
+    cadencia). La tabla fue truncada por el padre → upsert_ind_cadence no
+    dispara conflictos (inserts puros) → sin tuplas muertas."""
+    data = getattr(_WIDE_WRITE_BUFFER, "data", None) or {}
+    for cadence, rows_by_key in data.items():
+        if not rows_by_key:
+            continue
+        cols = _WIDE_CADENCE_COLUMNS[cadence]
+        rows = [(aid, d, *[colvals.get(c) for c in cols])
+                for (aid, d), colvals in rows_by_key.items()]
+        upsert_ind_cadence(session, cadence, cols, rows)
+
+
+def _wide_buffer_clear() -> None:
+    _WIDE_WRITE_BUFFER.active = False
+    _WIDE_WRITE_BUFFER.data = {}
 
 
 # ── Compute functions para backfill por indicador ────────────────────────────
@@ -1958,7 +2010,12 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
     from sqlalchemy.exc import OperationalError
     from app.database import Session as _DbSession
     out = {"batch": batch_idx, "inserted": 0, "per_code": {}, "errors": []}
+    # Rebuild + wide: bufferizar las escrituras y volcarlas como fila completa
+    # al final (sin bloat). El delta (force=False) NO se bufferiza.
+    wide_buffered = force and use_wide_ind_tables()
     try:
+        if wide_buffered:
+            _wide_buffer_start()
         if force:
             # Bulk-load: sin validación FK/unique por fila durante el rebuild
             _set_bulk_load_checks(get_session(), False)
@@ -2023,7 +2080,30 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
                 res["seconds"] = round(_time.monotonic() - t0, 1)
                 out["inserted"] += res.get("inserted", 0)
                 out["per_code"][code] = res
+        if wide_buffered:
+            # Volcar el buffer: fila completa por (activo,fecha), una sola vez.
+            for attempt in range(_MAX_LOCK_RETRIES + 1):
+                try:
+                    _wide_buffer_flush(get_session())
+                    get_session().commit()
+                    break
+                except OperationalError as exc:
+                    get_session().rollback()
+                    if (attempt < _MAX_LOCK_RETRIES
+                            and db_compat.is_retryable_lock_error(exc)):
+                        _time.sleep(0.2 * (attempt + 1) + _random.uniform(0, 0.2))
+                        continue
+                    logger.warning("Flush ancho lote=%d falló: %s", batch_idx, exc)
+                    out["errors"].append({"code": "wide_flush", "error": str(exc)})
+                    break
+                except Exception as exc:
+                    get_session().rollback()
+                    logger.warning("Flush ancho lote=%d falló: %s", batch_idx, exc)
+                    out["errors"].append({"code": "wide_flush", "error": str(exc)})
+                    break
     finally:
+        if wide_buffered:
+            _wide_buffer_clear()
         if force:
             # Restaurar SIEMPRE antes de devolver la conexión al pool
             _set_bulk_load_checks(get_session(), True)
@@ -2788,8 +2868,23 @@ def compute_current_indicators(
         "return_52w":               _pct_change(last_close, ref_52w),
         "relative_strength_52w":    ind_rs_52w,
     }
-    for code, value in _current_inds.items():
-        _upsert_ind(s, code, asset_id, today, value)
+    if use_wide_ind_tables():
+        # Agrupar por cadencia y escribir la fila COMPLETA (una vez por
+        # cadencia) en vez de 24 upserts por-columna → sin updates repetidos.
+        from collections import defaultdict as _dd
+        _by_cad = _dd(dict)
+        for code, value in _current_inds.items():
+            _tbl, _column, _cadence = _WIDE[code]
+            _by_cad[_cadence][_column] = (
+                None if isinstance(value, float) and pd.isna(value) else value)
+        for _cadence, _colvals in _by_cad.items():
+            _cols = _WIDE_CADENCE_COLUMNS[_cadence]
+            upsert_ind_cadence(
+                s, _cadence, _cols,
+                [(asset_id, today, *[_colvals.get(c) for c in _cols])])
+    else:
+        for code, value in _current_inds.items():
+            _upsert_ind(s, code, asset_id, today, value)
 
     # Escritura en current_indicator_values (keep_history=False): batch en 1
     # round-trip en vez de uno por código (todos comparten la misma tabla).
