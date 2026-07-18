@@ -59,35 +59,46 @@ def _save_config(**fields) -> None:
 
 def _daily_update_job() -> None:
     global _daily_running
+    from app.services import run_lock_service as rl
+    # Lock persistido: si el Centro de Datos (u otro proceso) tiene una
+    # corrida pesada en curso, saltear en vez de escribir en paralelo contra
+    # las mismas tablas. guarded_acquire devuelve None solo si otro tiene el
+    # lock vivo; NO_LOCK (fail-open) o un token real → proceder.
+    lock_token = rl.guarded_acquire(rl.HEAVY_WRITE)
+    if lock_token is None:
+        logger.warning("Actualización diaria salteada: otra corrida pesada "
+                       "en curso (lock de corrida)")
+        return
     _daily_running = True
     logger.info("Iniciando actualización diaria de precios (scheduled)")
     try:
-        try:
-            from app.services.price_service import update_all_active_assets
-            summary = update_all_active_assets()
-            logger.info(
-                "Actualización diaria finalizada: %d/%d exitosos, %d errores",
-                summary["success"],
-                summary["total"],
-                len(summary["errors"]),
-            )
-        except Exception as exc:
-            logger.exception("Error crítico en la actualización diaria: %s", exc)
-            return
+        with rl.heartbeating(rl.HEAVY_WRITE, lock_token):
+            try:
+                from app.services.price_service import update_all_active_assets
+                summary = update_all_active_assets()
+                logger.info(
+                    "Actualización diaria finalizada: %d/%d exitosos, %d errores",
+                    summary["success"],
+                    summary["total"],
+                    len(summary["errors"]),
+                )
+            except Exception as exc:
+                logger.exception("Error crítico en la actualización diaria: %s", exc)
+                return
 
-        # ── Pipeline de señales/estrategias ─────────────────────────────────
-        # Delta con relleno de huecos (misma función que el botón "Ejecutar"
-        # de Señales y Estrategias en Centro de Datos): por cada fecha con
-        # precios pero sin señales corre scores de grupo → señales →
-        # estrategias, y siempre recalcula la última fecha. Si la app estuvo
-        # apagada unos días, esos días se completan solos acá — igual que ya
-        # hacen precios/indicadores/fundamentales más arriba.
-        try:
-            from app.services.signal_service import update_signal_history
-            result = update_signal_history()
-            logger.info("signal_service backfill delta: %s", result)
-        except Exception as exc:
-            logger.exception("Error en update_signal_history: %s", exc)
+            # ── Pipeline de señales/estrategias ─────────────────────────────
+            # Delta con relleno de huecos (misma función que el botón
+            # "Ejecutar" de Señales y Estrategias en Centro de Datos): por
+            # cada fecha con precios pero sin señales corre scores de grupo →
+            # señales → estrategias, y siempre recalcula la última fecha. Si
+            # la app estuvo apagada unos días, esos días se completan solos
+            # acá — igual que precios/indicadores/fundamentales más arriba.
+            try:
+                from app.services.signal_service import update_signal_history
+                result = update_signal_history()
+                logger.info("signal_service backfill delta: %s", result)
+            except Exception as exc:
+                logger.exception("Error en update_signal_history: %s", exc)
     finally:
         _daily_running = False
         # El thread del scheduler se reutiliza entre corridas: liberar la
@@ -136,6 +147,15 @@ def start_scheduler() -> None:
             trigger=CronTrigger(hour=cfg.hour, minute=cfg.minute),
             id="daily_price_update",
             replace_existing=True,
+            # Sin esto, los defaults de APScheduler (misfire_grace_time=1s,
+            # coalesce=True, max_instances=1) saltean el job en silencio si
+            # el thread timer despierta >1s tarde (pools GIL-bound) o si la
+            # corrida anterior sigue viva al llegar el próximo trigger. 1h de
+            # gracia tolera un arranque demorado sin cancelar la corrida
+            # nocturna; el lock persistido cubre el solape entre corridas.
+            misfire_grace_time=3600,
+            coalesce=True,
+            max_instances=1,
         )
         if cfg.weekly_verify_enabled:
             _scheduler.add_job(
@@ -145,6 +165,9 @@ def start_scheduler() -> None:
                                     minute=cfg.weekly_verify_minute),
                 id=_WEEKLY_JOB_ID,
                 replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+                max_instances=1,
             )
         _scheduler.start()
     _save_config(enabled=True)
@@ -222,6 +245,9 @@ def enable_weekly_verification() -> None:
                                     minute=cfg.weekly_verify_minute),
                 id=_WEEKLY_JOB_ID,
                 replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+                max_instances=1,
             )
     logger.info("Verificación semanal habilitada")
 

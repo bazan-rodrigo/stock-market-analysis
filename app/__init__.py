@@ -355,8 +355,20 @@ def create_app():
         logger.warning("No se pudo inicializar datos de arranque: %s", exc)
 
     # -----------------------------------------------------------------
-    # 11. APScheduler
+    # 11. Locks de corrida muertos + APScheduler
     # -----------------------------------------------------------------
+    # Limpia locks de corrida que dejó un proceso anterior caído a mitad de
+    # una operación (reciclado de mod_wsgi): sin esto, el heartbeat viejo
+    # quedaría hasta cumplir el umbral de obsolescencia. Best-effort — si la
+    # tabla no existe todavía (migración 0076 pendiente), no pasa nada.
+    try:
+        from app.services.run_lock_service import clear_stale
+        n = clear_stale()
+        if n:
+            logger.info("Locks de corrida muertos limpiados al arranque: %d", n)
+    except Exception as exc:
+        logger.warning("No se pudieron limpiar locks de corrida: %s", exc)
+
     from app.services.scheduler_service import start_if_enabled
     start_if_enabled()
 

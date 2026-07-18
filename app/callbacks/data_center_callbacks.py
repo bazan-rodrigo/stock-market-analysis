@@ -9,6 +9,7 @@ from app.models import (
     FundamentalUpdateLog, PriceUpdateLog,
     SyntheticFormula,
 )
+from app.services import run_lock_service as _rl
 
 _OPS          = ("prices", "fund", "snap", "indicators", "synth", "signals")
 _HAS_NEW_ONLY = {"prices", "fund"}
@@ -215,7 +216,21 @@ def refresh_status(*_):
 
 # ── Workers ───────────────────────────────────────────────────────────────────
 
-def _run(op_id, service_fn):
+def _launch_run(op_id, fn, lock_token):
+    """Lanza _run tras haber tomado el lock. _run libera el lock (vía
+    heartbeating) al terminar; pero si el thread NO llega a arrancar, nadie
+    liberaría — por eso este wrapper libera ante cualquier fallo previo al
+    start, para no dejar el lock trabado hasta el stale-reclaim."""
+    try:
+        _state[op_id].update(_blank(), running=True, msg="Iniciando...")
+        threading.Thread(target=_run, args=(op_id, fn, lock_token),
+                         daemon=True).start()
+    except Exception:
+        _rl.release(_rl.HEAVY_WRITE, lock_token)
+        raise
+
+
+def _run(op_id, service_fn, lock_token=_rl.NO_LOCK):
     st = _state[op_id]
     st.update(_blank(), running=True, msg="Iniciando...", start_time=_dt.now())
 
@@ -305,7 +320,11 @@ def _run(op_id, service_fn):
         st["msg"] = f"{cur} / {tot}" + (f"  —  {label}" if label else "")
 
     try:
-        result = service_fn(progress_cb=_cb)
+        # heartbeating late el lock persistido mientras corre (así otro
+        # proceso lo ve vivo) y lo LIBERA al salir — el guard de _start lo
+        # tomó y pasó su token. Con NO_LOCK (fail-open pre-migración) es no-op.
+        with _rl.heartbeating(_rl.HEAVY_WRITE, lock_token):
+            result = service_fn(progress_cb=_cb)
         errs   = result.get("errors", [])
         total  = result.get("total", 0)
         ok     = result.get("success", total - len(errs))
@@ -441,7 +460,7 @@ def _register(op_id):
         if not n:
             return no_update, no_update, no_update, no_update, no_update
 
-        # Exclusión mutua: una sola operación del Centro de Datos a la vez
+        # Exclusión mutua: guard en memoria (rápido, cubre este proceso).
         if _any_running():
             return no_update, no_update, _BUSY_MSG, no_update, no_update
 
@@ -468,10 +487,15 @@ def _register(op_id):
         else:
             from app.services.synthetic_service import compute_all_synthetic as fn
 
-        # running=True sincrónico: el guard y los botones lo ven antes de que
-        # el thread arranque (evita la ventana de carrera)
-        _state[op_id].update(_blank(), running=True, msg="Iniciando...")
-        threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
+        # Lock persistido atómico DESPUÉS de armar fn (así un fallo al armar
+        # no filtra el lock): cross-proceso y a prueba de reciclado (cierra
+        # la carrera check-then-act y la doble corrida con hijos huérfanos).
+        # None = otro tiene el lock vivo; token/NO_LOCK = proceder. _run lo
+        # libera vía heartbeating.
+        lock_token = _rl.guarded_acquire(_rl.HEAVY_WRITE)
+        if lock_token is None:
+            return no_update, no_update, _BUSY_MSG, no_update, no_update
+        _launch_run(op_id, fn, lock_token)
         return False, True, "Iniciando...", 0, _BAR_RUNNING
 
     has_redownload = op_id in _HAS_REDOWNLOAD
@@ -531,8 +555,10 @@ def _register(op_id):
                 from app.services.synthetic_service import compute_all_synthetic
                 fn = functools.partial(compute_all_synthetic, full=True)
 
-            _state[op_id].update(_blank(), running=True, msg="Iniciando...")
-            threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
+            lock_token = _rl.guarded_acquire(_rl.HEAVY_WRITE)
+            if lock_token is None:
+                return False, no_update, no_update, _BUSY_MSG, no_update, no_update
+            _launch_run(op_id, fn, lock_token)
             return False, False, True, "Iniciando...", 0, _BAR_RUNNING
 
     has_reconcile = op_id in _HAS_RECONCILE
@@ -555,8 +581,10 @@ def _register(op_id):
 
             from app.services.technical_service import reconcile_ind_asset_meta as fn
 
-            _state[op_id].update(_blank(), running=True, msg="Iniciando...")
-            threading.Thread(target=_run, args=(op_id, fn), daemon=True).start()
+            lock_token = _rl.guarded_acquire(_rl.HEAVY_WRITE)
+            if lock_token is None:
+                return no_update, no_update, _BUSY_MSG, no_update, no_update
+            _launch_run(op_id, fn, lock_token)
             return False, True, "Iniciando...", 0, _BAR_RUNNING
 
     @callback(
