@@ -137,7 +137,9 @@ hasta validar; se dropean al final.
   (`existing=None`/stale) nullean la columna (`_null_wide_column`) en vez de
   borrar la fila. Prefetch del delta con `col IS NOT NULL`. Force: `_null_wide_column`
   (inline) / TRUNCATE por cadencia (`_force_reset_ind_tables`). Migración **0078**
-  (pivot que puebla, byte a byte, guard offline). Tests: `test_wide_cutover.py`.
+  (**merge en Python**: arma la fila completa e inserta UNA vez, byte a byte,
+  **sin bloat** — el INSERT..ON CONFLICT por código actualizaba N veces cada fila
+  → tuplas muertas; chunked por activo; guard offline). Tests: `test_wide_cutover.py`.
   **Falta:** validar en Railway (migrar 0078, `USE_WIDE_IND_TABLES=1`, correr el
   pipeline y comparar señales viejas vs nuevas). El path completo de
   `backfill_indicator` con flag ON no está unit-testeado end-to-end (los
