@@ -92,3 +92,62 @@ def poll_cleanup(_):
         return {"display": "none"}, True, _state["result"], True, "success", False
 
     return no_update, no_update, no_update, no_update, no_update, no_update
+
+
+# ── Recuperar espacio (VACUUM FULL / OPTIMIZE TABLE) ──────────────────────────
+_vac_state = {"running": False, "result": None, "error": None}
+
+
+@callback(
+    Output("vacuum-interval", "disabled"),
+    Output("vacuum-progress", "style"),
+    Output("vacuum-btn",      "disabled"),
+    Input("vacuum-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def run_vacuum(_):
+    from app.services import maintenance_service
+
+    _vac_state.update({"running": True, "result": None, "error": None})
+
+    def _run():
+        try:
+            res = maintenance_service.vacuum_bloat_tables()
+            freed_mb = res["freed_bytes"] / 1024 / 1024
+            n = len(res["tables"])
+            if res["dialect"] == "sqlite":
+                _vac_state["result"] = "VACUUM de la base completado (sqlite)."
+            else:
+                _vac_state["result"] = (
+                    f"Espacio recuperado: {freed_mb:.1f} MB en {n} tablas "
+                    f"({res['dialect']}).")
+        except Exception as exc:
+            _vac_state["error"] = f"Error al recuperar espacio: {exc}"
+        finally:
+            _vac_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return False, {"display": "block"}, True
+
+
+@callback(
+    Output("vacuum-progress", "style",    allow_duplicate=True),
+    Output("vacuum-interval", "disabled", allow_duplicate=True),
+    Output("vacuum-alert",    "children"),
+    Output("vacuum-alert",    "is_open"),
+    Output("vacuum-alert",    "color"),
+    Output("vacuum-btn",      "disabled", allow_duplicate=True),
+    Input("vacuum-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def poll_vacuum(_):
+    if _vac_state["running"]:
+        return {"display": "block"}, False, no_update, no_update, no_update, True
+
+    if _vac_state["error"]:
+        return {"display": "none"}, True, _vac_state["error"], True, "danger", False
+
+    if _vac_state["result"]:
+        return {"display": "none"}, True, _vac_state["result"], True, "success", False
+
+    return no_update, no_update, no_update, no_update, no_update, no_update

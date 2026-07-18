@@ -57,6 +57,29 @@ def layout(**kwargs):
                      label="Procesando...", className="mt-3", style={"display": "none"}),
         dbc.Alert(id="cleanup-alert", is_open=False, dismissable=True, className="mt-3"),
 
+        html.Hr(className="my-4"),
+        html.H4("Recuperar espacio (VACUUM)", className="mb-2"),
+        dbc.Alert(
+            [
+                html.P(
+                    "Compacta las tablas del pipeline (indicadores, señales, "
+                    "estrategias, precios…) y devuelve al disco el espacio de "
+                    "las tuplas muertas que dejan los recálculos (bloat). "
+                    "NO borra datos.",
+                    className="mb-1"),
+                html.P(
+                    "Toma un lock exclusivo por tabla mientras dura — conviene "
+                    "correrlo en un momento tranquilo (sin corridas del pipeline).",
+                    className="mb-0 text-muted small"),
+            ],
+            color="info", className="mb-3"),
+        dbc.Button("Recuperar espacio", id="vacuum-btn", color="primary"),
+
+        dcc.Interval(id="vacuum-interval", interval=800, disabled=True, n_intervals=0),
+        dbc.Progress(id="vacuum-progress", value=100, striped=True, animated=True,
+                     label="Compactando...", className="mt-3", style={"display": "none"}),
+        dbc.Alert(id="vacuum-alert", is_open=False, dismissable=True, className="mt-3"),
+
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("⚠ Confirmar limpieza")),
             dbc.ModalBody([
