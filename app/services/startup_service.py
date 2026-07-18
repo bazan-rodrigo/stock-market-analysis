@@ -151,6 +151,11 @@ def ensure_builtin_data() -> None:
             ensure_ind_table(d.code, d.type or "num")
     except Exception as exc:
         logger.warning("No se pudieron asegurar las tablas ind_*: %s", exc)
+    # Las tablas anchas (ind_daily/weekly/monthly, design_ind_wide_tables.md) NO
+    # se crean en el arranque a propósito: las crea la migración 0077. Crearlas
+    # acá antes de correr la migración en una base ya migrada haría fallar su
+    # op.create_table (tabla ya existe). Con el flag OFF nada las usa; el manejo
+    # de bases create_all se resuelve en el cutover (fase 4).
 
     # Tablas dinámicas sig_{id}/strat_res_{id}: reparar en el arranque los
     # dos estados que un crash puede dejar (tabla huérfana / definición sin

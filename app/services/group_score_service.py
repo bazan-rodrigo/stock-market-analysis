@@ -81,7 +81,12 @@ def compute_group_scores(target_date: date_type) -> None:
         except Exception:
             continue
         rows = s.execute(
-            sa.select(t.c.asset_id, t.c.value).where(t.c.date == target_date)
+            # value IS NOT NULL: en una tabla ancha la fila de target_date puede
+            # tener trend_* en NULL (la escribió otro código de la cadencia); sin
+            # el filtro entraría como tendencia None. En las ind_trend_* per-código
+            # (sin value NULL) es equivalente.
+            sa.select(t.c.asset_id, t.c.value)
+            .where(t.c.date == target_date, t.c.value.isnot(None))
         ).fetchall()
         for asset_id, value_str in rows:
             asset_trends.setdefault(asset_id, {})[tf] = value_str

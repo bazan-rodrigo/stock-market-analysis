@@ -229,7 +229,12 @@ def _load_sweep(s, code, window_start, window_end) -> _Sweep:
         return _Sweep([])
     rows = s.execute(
         sa.select(tbl.c.asset_id, tbl.c.date, tbl.c.value)
-        .where(tbl.c.date >= window_start, tbl.c.date <= window_end)
+        # value IS NOT NULL: as-of fiel por columna (ver query_values_asof). En
+        # una tabla ancha una fila puede tener ESTA columna en NULL (la escribió
+        # otro código); sin el filtro entraría a .live y pisaría el último valor
+        # válido. En las ind_{code} per-código (sin value NULL) es equivalente.
+        .where(tbl.c.date >= window_start, tbl.c.date <= window_end,
+               tbl.c.value.isnot(None))
         .order_by(tbl.c.date)
     ).fetchall()
     return _Sweep([(r[0], r[1], r[2]) for r in rows])

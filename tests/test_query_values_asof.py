@@ -69,14 +69,19 @@ def test_asof_respeta_el_tope_de_antiguedad(asof_table):
     assert out == {1: "al_limite"}
 
 
-def test_asof_ignora_valores_null(asof_table):
+def test_asof_columna_null_en_la_cola_arrastra_la_ultima_valida(asof_table):
+    """As-of POR COLUMNA (fiel, ver design_ind_wide_tables.md): si la fila más
+    reciente tiene value NULL se salta y se arrastra el último valor válido
+    dentro del tope. En las ind_{code} per-código no ocurre (no guardan value
+    NULL), pero en las tablas anchas una columna queda NULL en fechas que otro
+    código escribió — la semántica debe ser idéntica en ambos caminos de as-of
+    (query_values_asof y el _Sweep del backfill de rango)."""
     _insert([
         (1, date(2026, 7, 7), "buena"),
-        (1, date(2026, 7, 8), None),  # la más reciente es NULL → no puntúa
+        (1, date(2026, 7, 8), None),  # la más reciente es NULL → se salta
     ])
     out = query_values_asof(get_session(), _CODE, date(2026, 7, 8))
-    # la fila elegida es la del 8 (MAX date) y su valor es NULL → se filtra
-    assert out == {}
+    assert out == {1: "buena"}
 
 
 def test_asof_tabla_vacia(asof_table):

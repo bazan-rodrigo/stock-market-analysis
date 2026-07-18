@@ -728,6 +728,44 @@ def _write_ind_series(s, code: str, asset_id: int,
     return written
 
 
+def upsert_ind_cadence(session, cadence: str, columns, rows) -> int:
+    """UPSERT multi-columna en la tabla ancha de la cadencia (ind_daily/weekly/
+    monthly) — escritor de la fase 2 del refactor a tablas anchas
+    (docs/notes/design_ind_wide_tables.md). Todavía NADIE lo llama en el
+    pipeline vivo: el cutover (fases 2-4) conecta este escritor junto con el
+    lector ancho, para no dejar las tablas viejas desactualizadas en el medio.
+
+    columns: nombres de columna a escribir (subconjunto de las de la cadencia).
+    rows:    iterable de (asset_id, date, *valores) alineadas con `columns`.
+
+    UPSERT PARCIAL: solo se insertan/actualizan `columns`; las demás columnas
+    de la fila NO se tocan. Así varios códigos de la misma cadencia escriben la
+    misma fila (asset_id, date) sin pisarse — la fila acumula sus columnas.
+    Mismo camino crudo (executemany + upsert_sql) que _write_ind_series; el
+    valor se coacciona a float salvo str/None. NO commitea."""
+    from app.models.indicator_store import _WIDE_CADENCE_TABLE
+
+    rows = list(rows)
+    if not rows:
+        return 0
+    columns = tuple(columns)
+    table = _WIDE_CADENCE_TABLE[cadence]
+    sql = db_compat.upsert_sql(
+        session, table, ("asset_id", "date", *columns),
+        update_cols=columns, pk_cols=("asset_id", "date"), quote_table=True)
+    conn = session.connection()
+    written = 0
+    for i in range(0, len(rows), _IND_BATCH):
+        chunk = [
+            (aid, d, *[(v if (v is None or isinstance(v, str)) else float(v))
+                       for v in vals])
+            for aid, d, *vals in rows[i:i + _IND_BATCH]
+        ]
+        conn.exec_driver_sql(sql, chunk)
+        written += len(chunk)
+    return written
+
+
 # ── Compute functions para backfill por indicador ────────────────────────────
 
 def _bf_return_daily(df, df_w, df_m, **kw):
