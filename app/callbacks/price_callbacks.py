@@ -3,8 +3,34 @@ import threading
 from dash import Input, Output, State, callback, no_update, html
 
 import app.services.price_service as svc
+from app.services import run_lock_service as _rl
 
 _prices_state = {"running": False, "current": 0, "total": 0, "summary": None, "error": None, "msg": "", "phase": ""}
+
+_BUSY_PRICES = "Hay otra operación pesada en curso. Esperá a que termine antes de lanzar esta."
+
+
+def _launch_locked_bg(run_fn) -> bool:
+    """Toma el lock persistido HEAVY_WRITE y lanza run_fn en un thread daemon,
+    con heartbeat mientras corre y liberación al terminar. Devuelve False si
+    otra corrida pesada tiene el lock (el caller debe refrescar el estado y
+    mostrar 'ocupado'). Con multi-worker (gunicorn en Railway) esto evita que
+    un botón de precios de un worker escriba en paralelo con el scheduler o el
+    Centro de Datos de otro. guarded_acquire es fail-open: sin la migración
+    0076 procede igual que antes (coordinación en memoria de siempre)."""
+    token = _rl.guarded_acquire(_rl.HEAVY_WRITE)
+    if token is None:
+        return False
+
+    def _wrapped():
+        try:
+            with _rl.heartbeating(_rl.HEAVY_WRITE, token):
+                run_fn()
+        finally:
+            _prices_state["running"] = False
+
+    threading.Thread(target=_wrapped, daemon=True).start()
+    return True
 
 
 def _logs_to_rows(logs) -> list[dict]:
@@ -83,27 +109,36 @@ def poll_prices(_):
 def update_one(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    from app.services.asset_service import get_asset_by_ticker
-    tickers = [data[i]["ticker"] for i in sel_rows]
-    successes, errors = [], []
-    for ticker in tickers:
-        try:
-            asset = get_asset_by_ticker(ticker)
-            if asset is None:
-                errors.append(f"{ticker}: no encontrado")
-                continue
-            svc.update_asset_prices(asset.id)
-            successes.append(ticker)
-        except Exception as exc:
-            errors.append(f"{ticker}: {exc}")
-    if not errors:
-        msg, color = f"{len(successes)} actualizados correctamente.", "success"
-    elif not successes:
-        msg, color = f"{len(errors)} errores: {', '.join(errors[:5])}", "danger"
-    else:
-        msg, color = (f"{len(successes)} actualizados, {len(errors)} errores: "
-                      f"{', '.join(errors[:5])}"), "warning"
-    return svc.get_all_assets_with_log(), msg, True, color
+    # Síncrono (thread del request), pero escribe prices/ind_* → mismo lock
+    # que las corridas pesadas. Sin heartbeating: es corto y no cruza threads.
+    token = _rl.guarded_acquire(_rl.HEAVY_WRITE)
+    if token is None:
+        return no_update, _BUSY_PRICES, True, "warning"
+    try:
+        from app.services.asset_service import get_asset_by_ticker
+        tickers = [data[i]["ticker"] for i in sel_rows]
+        successes, errors = [], []
+        for ticker in tickers:
+            try:
+                asset = get_asset_by_ticker(ticker)
+                if asset is None:
+                    errors.append(f"{ticker}: no encontrado")
+                    continue
+                svc.update_asset_prices(asset.id)
+                successes.append(ticker)
+            except Exception as exc:
+                errors.append(f"{ticker}: {exc}")
+        if not errors:
+            msg, color = f"{len(successes)} actualizados correctamente.", "success"
+        elif not successes:
+            msg, color = f"{len(errors)} errores: {', '.join(errors[:5])}", "danger"
+        else:
+            msg, color = (f"{len(successes)} actualizados, {len(errors)} errores: "
+                          f"{', '.join(errors[:5])}"), "warning"
+        result = svc.get_all_assets_with_log(), msg, True, color
+    finally:
+        _rl.release(_rl.HEAVY_WRITE, token)
+    return result
 
 
 @callback(
@@ -146,9 +181,10 @@ def retry_failed(_):
         if errors:
             parts.append(f"{len(errors)} errores: {', '.join(errors[:5])}")
         _prices_state["msg"] = " ".join(parts)
-        _prices_state["running"] = False
 
-    threading.Thread(target=_run, daemon=True).start()
+    if not _launch_locked_bg(_run):
+        _prices_state["running"] = False
+        return True, {"display": "none"}, _BUSY_PRICES, True, "warning"
     return False, {"display": "block"}, "", False, "info"
 
 
@@ -196,11 +232,12 @@ def redownload_selected(_, sel_rows, data):
             )
         except Exception as exc:
             _prices_state["error"] = str(exc)
-        finally:
-            _prices_state["running"] = False
 
-    threading.Thread(target=_run, daemon=True).start()
-    return False, False, {"display": "block"}  # cierra modal, activa interval
+    if not _launch_locked_bg(_run):
+        _prices_state["running"] = False
+        _prices_state["error"] = _BUSY_PRICES     # el poll lo muestra como alerta
+        return False, False, {"display": "none"}  # cierra modal, sin arrancar
+    return False, False, {"display": "block"}     # cierra modal, activa interval
 
 
 @callback(
@@ -264,8 +301,10 @@ def recompute_indicators(_, sel_rows, data):
         except Exception as exc:
             _prices_state["error"] = str(exc)
         finally:
-            _prices_state["running"] = False
             _DbSession.remove()
 
-    threading.Thread(target=_run, daemon=True).start()
+    if not _launch_locked_bg(_run):
+        _prices_state["running"] = False
+        _prices_state["error"] = _BUSY_PRICES     # el poll lo muestra como alerta
+        return False, {"display": "none"}, no_update
     return False, {"display": "block"}, True
