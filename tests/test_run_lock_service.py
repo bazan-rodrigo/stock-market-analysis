@@ -16,12 +16,14 @@ from app.services import run_lock_service as rl
 @pytest.fixture(autouse=True)
 def _clean_run_lock():
     Base.metadata.create_all(engine)
+    rl._unavailable = False          # el latch es global de módulo; aislar tests
     s = get_session()
     s.execute(sa.delete(RunLock))
     s.commit()
     yield
     s.execute(sa.delete(RunLock))
     s.commit()
+    rl._unavailable = False
     Session.remove()
 
 
@@ -152,3 +154,37 @@ def test_guarded_acquire_fail_open_devuelve_sentinel(monkeypatch):
                                       Exception("no such table: run_lock"))
     monkeypatch.setattr(rl, "acquire", _boom)
     assert rl.guarded_acquire(rl.HEAVY_WRITE) == rl.NO_LOCK
+
+
+def test_tabla_ausente_latchea_y_deja_de_tocar_la_bd(monkeypatch):
+    """Ante 'tabla ausente', el servicio se desactiva para el proceso: la
+    PRIMERA llamada falla y las siguientes NO tocan la BD (evita el spam de
+    queries/logs pre-migración)."""
+    calls = {"n": 0}
+
+    def _boom(*a, **k):
+        calls["n"] += 1
+        raise sa.exc.OperationalError(
+            "stmt", None, Exception('relation "run_lock" does not exist'))
+
+    monkeypatch.setattr(rl, "acquire", _boom)
+    assert rl.guarded_acquire(rl.HEAVY_WRITE) == rl.NO_LOCK   # 1er intento pega a BD
+    assert rl._unavailable is True
+    assert rl.guarded_acquire(rl.HEAVY_WRITE) == rl.NO_LOCK   # ya no pega
+    assert calls["n"] == 1
+    # beat/release/status/clear_stale también cortocircuitan
+    assert rl.beat(rl.HEAVY_WRITE, "tok") is True
+    rl.release(rl.HEAVY_WRITE, "tok")
+    assert rl.status(rl.HEAVY_WRITE) is None
+    assert rl.clear_stale() == 0
+
+
+def test_error_transitorio_no_latchea(monkeypatch):
+    """Un error transitorio (conexión, lock timeout) NO desactiva el
+    servicio: se reintenta en cada llamada."""
+    def _boom(*a, **k):
+        raise sa.exc.OperationalError(
+            "stmt", None, Exception("connection refused"))
+    monkeypatch.setattr(rl, "acquire", _boom)
+    assert rl.guarded_acquire(rl.HEAVY_WRITE) == rl.NO_LOCK
+    assert rl._unavailable is False          # no latcheó

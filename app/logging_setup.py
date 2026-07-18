@@ -30,8 +30,12 @@ def configure_logging() -> None:
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
-    # Silenciar loggers muy verbosos de librerías externas
+    # Silenciar loggers muy verbosos de librerías externas — se fijan a
+    # WARNING SIN importar LOG_LEVEL, así ni con LOG_LEVEL=DEBUG (debug de la
+    # app) inundan. urllib3/requests son los que más pesan: cada request a
+    # Yahoo emitía varias líneas DEBUG (reventaron el rate limit de logs de
+    # Railway, 500/seg, durante un backfill de precios).
+    for _noisy in ("apscheduler", "yfinance", "peewee",
+                   "urllib3", "requests", "asyncio", "hpack", "httpx"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
     logging.getLogger("werkzeug").setLevel(logging.INFO)   # ver requests HTTP
-    logging.getLogger("apscheduler").setLevel(logging.WARNING)
-    logging.getLogger("yfinance").setLevel(logging.WARNING)
-    logging.getLogger("peewee").setLevel(logging.WARNING)

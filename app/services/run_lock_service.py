@@ -52,6 +52,39 @@ STALE_SECONDS = 120
 # (una sola corrida pesada a la vez), así que comparten este lock.
 HEAVY_WRITE = "heavy_write"
 
+# Latch: si la tabla run_lock NO existe (deploy sin correr la migración 0076),
+# se desactiva el lock persistido para TODO el proceso en vez de reintentar en
+# cada acquire/heartbeat (una corrida entera martillaría la BD con queries a
+# una tabla inexistente, que PostgreSQL además loguea como ERROR una por una).
+# Solo latchea ante "tabla ausente" (no ante errores transitorios de conexión,
+# que sí conviene reintentar). Se resetea al reiniciar el proceso — el flujo
+# normal de deploy corre la migración y reinicia, así que la tabla aparece con
+# un proceso nuevo.
+_unavailable = False
+
+_MISSING_TABLE_MARKERS = (
+    "does not exist", "doesn't exist", "no such table", "undefinedtable",
+    "1146",  # MySQL: Table doesn't exist
+)
+
+
+def _looks_like_missing_table(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(m in msg for m in _MISSING_TABLE_MARKERS)
+
+
+def _note_error(exc: Exception) -> None:
+    """Latchea el lock como no disponible SOLO si el error es 'tabla ausente'
+    (pre-migración). Loguea una única vez. Los errores transitorios (conexión,
+    lock timeout) no latchean: cada llamada los reintenta."""
+    global _unavailable
+    if not _unavailable and _looks_like_missing_table(exc):
+        _unavailable = True
+        logger.warning(
+            "run_lock: la tabla no existe (¿falta correr la migración 0076?). "
+            "Lock persistido DESACTIVADO en este proceso hasta reiniciar; el "
+            "Centro de Datos usa el guard en memoria de siempre.")
+
 
 def _utcnow() -> datetime:
     return datetime.utcnow()
@@ -98,11 +131,15 @@ def guarded_acquire(op: str, stale_seconds: int = STALE_SECONDS) -> str | None:
     real), o None SOLO cuando otro tiene un lock VIVO (el caller debe
     rechazar). Fail-open mantiene la feature puramente aditiva: sin la tabla,
     el Centro de Datos funciona igual que antes."""
+    if _unavailable:
+        return NO_LOCK
     try:
         return acquire(op, stale_seconds)
-    except Exception:
-        logger.warning("run_lock no disponible; sigo con el guard en memoria",
-                       exc_info=True)
+    except Exception as exc:
+        _note_error(exc)
+        if not _unavailable:  # error transitorio (no 'tabla ausente')
+            logger.warning("run_lock no disponible; sigo con el guard en "
+                           "memoria", exc_info=True)
         # dejar la sesión del thread limpia (el DELETE/INSERT fallido pudo
         # envenenar la transacción) para no arrastrar el error al caller
         try:
@@ -118,6 +155,8 @@ def beat(op: str, token: str) -> bool:
     reclamó por muerte aparente). Cualquier error de BD se trata como
     transitorio (incluye tabla ausente pre-migración): no marca perdido ni
     escapa a spamear el log del beat thread."""
+    if _unavailable:
+        return True
     s = get_session()
     try:
         res = s.execute(sa.update(RunLock)
@@ -125,8 +164,9 @@ def beat(op: str, token: str) -> bool:
                         .values(heartbeat=_utcnow()))
         s.commit()
         return res.rowcount == 1
-    except Exception:
+    except Exception as exc:
         s.rollback()
+        _note_error(exc)
         return True
 
 
@@ -136,24 +176,35 @@ def release(op: str, token: str) -> None:
     que acaba de fallar— para que el DELETE opere sobre una sesión limpia:
     de lo contrario un PendingRollbackError abortaría el DELETE y el lock
     quedaría trabado hasta el stale-reclaim."""
+    if _unavailable:
+        return
     Session.remove()
     s = get_session()
     try:
         s.execute(sa.delete(RunLock).where(
             RunLock.op == op, RunLock.token == token))
         s.commit()
-    except Exception:
+    except Exception as exc:
         s.rollback()
-        logger.warning("No se pudo liberar el lock de corrida %s", op,
-                       exc_info=True)
+        _note_error(exc)
+        if not _unavailable:
+            logger.warning("No se pudo liberar el lock de corrida %s", op,
+                           exc_info=True)
 
 
 def status(op: str, stale_seconds: int = STALE_SECONDS) -> dict | None:
     """Estado del lock de `op` para la UI, o None si no hay corrida
     registrada. `stale` = el heartbeat quedó viejo (corrida abortada por
     reciclado): el botón puede destrabarse aunque la fila siga."""
+    if _unavailable:
+        return None
     s = get_session()
-    row = s.get(RunLock, op)
+    try:
+        row = s.get(RunLock, op)
+    except Exception as exc:
+        s.rollback()
+        _note_error(exc)
+        return None
     if row is None:
         return None
     age = (_utcnow() - row.heartbeat).total_seconds()
@@ -179,14 +230,17 @@ def clear_stale(stale_seconds: int = STALE_SECONDS) -> int:
     """Borra todos los locks muertos (heartbeat viejo). Para el arranque de
     la app: limpia lo que dejó un proceso anterior que murió a mitad de
     corrida. Devuelve cuántos borró."""
+    if _unavailable:
+        return 0
     s = get_session()
     cutoff = _utcnow() - timedelta(seconds=stale_seconds)
     try:
         res = s.execute(sa.delete(RunLock).where(RunLock.heartbeat < cutoff))
         s.commit()
         return res.rowcount or 0
-    except Exception:
+    except Exception as exc:
         s.rollback()
+        _note_error(exc)
         return 0
 
 
