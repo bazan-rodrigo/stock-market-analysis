@@ -18,7 +18,10 @@ import sqlalchemy as sa
 from app.database import engine, get_session
 from app.models import Asset, DrawdownConfig, Price, RegimeConfig, VolatilityConfig
 from app.models.indicator_definition import IndicatorDefinition
-from app.models.indicator_store import CurrentIndicatorValue, IndAssetMeta, get_ind_table
+from app.models.indicator_store import (CurrentIndicatorValue, IndAssetMeta,
+                                        get_ind_table, use_wide_ind_tables,
+                                        _WIDE, _WIDE_CADENCE_TABLE,
+                                        _get_wide_table)
 
 from app.services import db_compat, sr_service
 from app.services.db_compat import INSERTED
@@ -578,11 +581,34 @@ def _upsert_ind(session, code: str, asset_id: int, target_date, value) -> None:
     ProgrammingError en el INSERT."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return
+    if use_wide_ind_tables() and code in _WIDE:
+        _tbl, column, cadence = _WIDE[code]
+        upsert_ind_cadence(session, cadence, [column],
+                           [(asset_id, target_date, value)])
+        return
     t    = get_ind_table(code)
     stmt = db_compat.upsert(
         session, t,
         dict(asset_id=asset_id, date=target_date, value=value),
         {"value": INSERTED})
+    session.execute(stmt)
+
+
+def _null_wide_column(session, cadence: str, column: str, *,
+                      asset_id=None, asset_ids=None, dates=None) -> None:
+    """Pone en NULL una columna de la tabla ancha (docs/notes/
+    design_ind_wide_tables.md): el equivalente al DELETE de fila del camino
+    per-código — en la ancha no se borra la fila porque otras columnas la
+    comparten. Sin filtros nullea la columna entera; con asset_id/asset_ids/
+    dates acota."""
+    wt = _get_wide_table(_WIDE_CADENCE_TABLE[cadence])
+    stmt = sa.update(wt).values({wt.c[column]: None})
+    if asset_id is not None:
+        stmt = stmt.where(wt.c.asset_id == asset_id)
+    elif asset_ids is not None:
+        stmt = stmt.where(wt.c.asset_id.in_(asset_ids))
+    if dates is not None:
+        stmt = stmt.where(wt.c.date.in_(dates))
     session.execute(stmt)
 
 
@@ -698,18 +724,35 @@ def _write_ind_series(s, code: str, asset_id: int,
     existing: ver _pairs_to_write. Con None, además borra las filas previas
     del activo. NO commitea: el caller decide el tamaño de la transacción.
     """
+    wide = use_wide_ind_tables() and code in _WIDE
+    if wide:
+        _tbl, column, cadence = _WIDE[code]
+
     if existing is None:
-        t = get_ind_table(code)
-        s.execute(t.delete().where(t.c.asset_id == asset_id))
+        if wide:
+            _null_wide_column(s, cadence, column, asset_id=asset_id)
+        else:
+            t = get_ind_table(code)
+            s.execute(t.delete().where(t.c.asset_id == asset_id))
     else:
         stale = _stale_dates_to_delete(dates_list, vals_list, existing)
         if stale:
-            t = get_ind_table(code)
-            s.execute(t.delete().where(
-                t.c.asset_id == asset_id, t.c.date.in_(stale)))
+            if wide:
+                _null_wide_column(s, cadence, column,
+                                  asset_id=asset_id, dates=stale)
+            else:
+                t = get_ind_table(code)
+                s.execute(t.delete().where(
+                    t.c.asset_id == asset_id, t.c.date.in_(stale)))
     pairs = _pairs_to_write(dates_list, vals_list, existing)
     if not pairs:
         return 0
+
+    if wide:
+        # UPSERT parcial a la columna de la tabla ancha: acumula sin pisar las
+        # columnas de los otros códigos de la cadencia.
+        return upsert_ind_cadence(
+            s, cadence, [column], [(asset_id, d, v) for d, v in pairs])
 
     # executemany crudo con tuplas: evita construir un dict de Python por
     # fila (54M en un rebuild) y la compilación de SQLAlchemy por batch
@@ -1474,10 +1517,21 @@ def _force_reset_ind_tables(s, codes: list) -> list[dict]:
     en force sobre una tabla no truncada mezclaría filas nuevas con
     historia vieja no recalculada."""
     failed: list[dict] = []
+    wide_on = use_wide_ind_tables()
+    wiped_wide: set = set()   # tablas de cadencia ya truncadas (una vez c/u)
     for code in codes:
         try:
-            t = get_ind_table(code)
-            db_compat.wipe_table(s, t.name)
+            if wide_on and code in _WIDE:
+                # En la ancha los N códigos de una cadencia comparten tabla:
+                # TRUNCAR la tabla de cadencia UNA vez (codes = todos los
+                # técnicos en el rebuild completo) y limpiar el meta por código.
+                wide_name = _WIDE_CADENCE_TABLE[_WIDE[code][2]]
+                if wide_name not in wiped_wide:
+                    db_compat.wipe_table(s, wide_name)
+                    wiped_wide.add(wide_name)
+            else:
+                t = get_ind_table(code)
+                db_compat.wipe_table(s, t.name)
             s.execute(sa.text("DELETE FROM ind_asset_meta WHERE code = :code"),
                       {"code": code})
             s.commit()
@@ -1649,7 +1703,14 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
         # mientras se rellena, y si la corrida falla hay que re-correr el
         # rebuild (TRUNCATE es DDL, no se rollbackea). wipe_table emite el
         # TRUNCATE histórico en MySQL; en sqlite (tests) cae a DELETE.
-        db_compat.wipe_table(s, t.name)
+        if use_wide_ind_tables() and code in _WIDE:
+            # En la ancha no se puede TRUNCATE por un solo código (comparte
+            # tabla con los otros de la cadencia): se nullea su columna.
+            _tbl, column, cadence = _WIDE[code]
+            _null_wide_column(s, cadence, column,
+                              asset_ids=(asset_ids if scoped else None))
+        else:
+            db_compat.wipe_table(s, t.name)
         # Limpia el caché de ind_asset_meta (benchmark_id/checksum/stats) en
         # el MISMO commit que el TRUNCATE, no al final: si el proceso se cae
         # a mitad del rebuild, la tabla queda truncada+parcial pero el caché
@@ -1686,15 +1747,20 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
         # Con tail_mode no se prefetchea nada: alcanza con tail_stats.
         existing_by_asset: dict = {}
         if not force and not tail_mode:
+            # value IS NOT NULL: en la tabla ancha una fila puede tener ESTA
+            # columna en NULL (la escribió otro código); "existente" = la
+            # columna del código tiene valor. En per-código (sin value NULL)
+            # es no-op.
             if full_sample:
                 for aid, d, v in s.execute(
                     sa.select(t.c.asset_id, t.c.date, t.c.value)
-                    .where(t.c.asset_id.in_(chunk))
+                    .where(t.c.asset_id.in_(chunk), t.c.value.isnot(None))
                 ).fetchall():
                     existing_by_asset.setdefault(aid, {})[d] = v
             else:
                 for aid, d in s.execute(
-                    sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
+                    sa.select(t.c.asset_id, t.c.date)
+                    .where(t.c.asset_id.in_(chunk), t.c.value.isnot(None))
                 ).fetchall():
                     existing_by_asset.setdefault(aid, set()).add(d)
 
@@ -1787,10 +1853,12 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                     # comparar valores, set si solo hay que rellenar huecos)
                     if needs_dict_fallback:
                         existing = {d: v for d, v in s.execute(
-                            sa.select(t.c.date, t.c.value).where(t.c.asset_id == asset_id))}
+                            sa.select(t.c.date, t.c.value).where(
+                                t.c.asset_id == asset_id, t.c.value.isnot(None)))}
                     else:
                         existing = {d for (d,) in s.execute(
-                            sa.select(t.c.date).where(t.c.asset_id == asset_id))}
+                            sa.select(t.c.date).where(
+                                t.c.asset_id == asset_id, t.c.value.isnot(None)))}
                 else:
                     path_counts["fast"] += 1
                     dates_list, vals_list = dates_list[k:], vals_list[k:]

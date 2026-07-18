@@ -59,6 +59,10 @@ def _fmt(nbytes) -> str:
 def _cadence(code: str) -> str:
     if code.startswith("fundamental_"):
         return "fundamental"
+    # return_* son returns rolling que se calculan TODOS los dias (grilla
+    # diaria), aunque el nombre diga monthly/quarterly/yearly.
+    if code.startswith("return_"):
+        return "daily"
     if code.endswith("_weekly"):
         return "weekly"
     if code.endswith("_monthly"):
@@ -95,6 +99,22 @@ def _exact_count(s, name: str) -> int:
     return int(s.execute(sa.text(f"SELECT COUNT(*) FROM {_quote(name)}")).scalar() or 0)
 
 
+def _total_db_bytes(s) -> int:
+    """Tamaño total de la base (lo que cuenta contra el limite de Railway)."""
+    if _is_mysql():
+        return int(s.execute(sa.text(
+            "SELECT COALESCE(SUM(data_length + index_length), 0) "
+            "FROM information_schema.tables WHERE table_schema = DATABASE()"
+        )).scalar() or 0)
+    return int(s.execute(sa.text(
+        "SELECT pg_database_size(current_database())"
+    )).scalar() or 0)
+
+
+# Techo de almacenamiento del plan de Railway (ajustar si cambia el plan).
+_BUDGET_MB = 500
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 def main() -> None:
     s = get_session()
@@ -102,6 +122,28 @@ def main() -> None:
 
     sizes = _all_table_sizes(s)
     by_name = {name: (approx, data, idx) for name, approx, data, idx in sizes}
+
+    # ── 0. Presupuesto de Railway (LO QUE MAS IMPORTA con el limite de disco) ──
+    total_db = _total_db_bytes(s)
+    budget_bytes = _BUDGET_MB * 1024 * 1024
+    print("=" * 88)
+    print(f"0. TAMAÑO TOTAL DE LA BASE  (presupuesto ~{_BUDGET_MB} MB)")
+    print("=" * 88)
+    print(f"  Base completa: {_fmt(total_db)}   "
+          f"({100 * total_db / budget_bytes:.1f}% de {_BUDGET_MB} MB)")
+    if _is_mysql():
+        print("  (MySQL: suma data+index de todas las tablas; sin binlog/undo)")
+    else:
+        print("  (Postgres: pg_database_size — incluye catalogos y bloat de "
+              "tuplas muertas; NO incluye WAL. Si es mucho mayor que la suma de")
+        print("   las tablas de abajo, hay BLOAT: un VACUUM FULL recupera espacio.)")
+    print("\n  Top 15 tablas por tamaño:")
+    print(f"  {'tabla':<40}{'total':>11}")
+    print("  " + "-" * 52)
+    for name, _a, data, idx in sorted(
+            sizes, key=lambda r: r[2] + r[3], reverse=True)[:15]:
+        print(f"  {name:<40}{_fmt(data + idx):>11}")
+    print()
 
     # Tablas ind_* de VALORES (excluye ind_asset_meta, que es cache de metadatos)
     ind_tables = sorted(
@@ -204,6 +246,13 @@ def main() -> None:
               f"(x{factor:.1f}, supone misma profundidad de historia)")
         print("  Nota: si los activos nuevos entran con menos historia, es una "
               "cota superior.")
+        # Cuantos activos entran en el presupuesto de Railway a ESTA densidad
+        db_per_asset = total_db / n_assets
+        fit = budget_bytes / db_per_asset if db_per_asset else 0
+        print(f"\n  Base COMPLETA por activo: {_fmt(db_per_asset)}")
+        print(f"  Activos que entran en {_BUDGET_MB} MB (a esta densidad de "
+              f"historia): ~{fit:.0f}")
+        print("  (a mayor profundidad de historia por activo, entran menos)")
 
     # ── 6. Comparacion con otras tablas del pipeline ──────────────────────────
     print("\n" + "=" * 88)

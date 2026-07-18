@@ -130,11 +130,24 @@ hasta validar; se dropean al final.
   devuelve el proxy con el flag ON. As-of FIEL (`col IS NOT NULL`) aplicado en
   `query_values_asof`, `_load_sweep` y `group_score`. Tests: `test_wide_reader.py`,
   `test_query_values_asof.py` actualizado. Con el flag OFF todo es idéntico a hoy.
-- **Fase 4 (cutover): PENDIENTE.** Wiring del escritor en
-  `compute_current_indicators`/backfill (buffered por cadencia), migración 0078
-  (pivot que puebla las anchas), flip del flag ON, gate de cómputo (profiling) y
-  validación con 500 activos en Codespace. Lectura y escritura se activan JUNTAS.
-- **Fase 5 (limpieza): pendiente.** DROP de las 24 viejas.
+- **Fase 4 (cutover): maquinaria HECHA, falta VALIDAR.** Escritura gateada por
+  el flag ruteada en los dos chokepoints: `_upsert_ind` (cubre
+  `compute_current_indicators` + `_run_current_and_backfill`) y `_write_ind_series`
+  (backfill), escribiendo la columna vía `upsert_ind_cadence`; los "borrados"
+  (`existing=None`/stale) nullean la columna (`_null_wide_column`) en vez de
+  borrar la fila. Prefetch del delta con `col IS NOT NULL`. Force: `_null_wide_column`
+  (inline) / TRUNCATE por cadencia (`_force_reset_ind_tables`). Migración **0078**
+  (pivot que puebla, byte a byte, guard offline). Tests: `test_wide_cutover.py`.
+  **Falta:** validar en Railway (migrar 0078, `USE_WIDE_IND_TABLES=1`, correr el
+  pipeline y comparar señales viejas vs nuevas). El path completo de
+  `backfill_indicator` con flag ON no está unit-testeado end-to-end (los
+  chokepoints sí) → se valida en Railway.
+- **Fase 5 (limpieza): pendiente.** DROP de las 24 viejas (tras validar).
 
 **Deploy-safe hasta acá:** con `USE_WIDE_IND_TABLES` sin setear (default), nada
-lee ni escribe las tablas anchas — todo lo hecho es aditivo/inerte.
+lee ni escribe las tablas anchas — todo lo hecho es aditivo/inerte (633 tests).
+
+> Nota de coordinación: esta línea usa las migraciones **0077 y 0078**. El
+> rediseño Backtest+Carteras también planea "migraciones 0078+" — sus migraciones
+> deben encadenar DESPUÉS (0079+), o colisionan (dos revisiones con
+> down_revision=0077 → alembic multiple heads).
