@@ -1797,6 +1797,26 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     return result
 
 
+# Progreso vivo del modo procesos (fase 3): marcador de fin de la Queue IPC
+# y tamaño del batch de ticks del hijo. El hijo acumula cuentas por código y
+# flushea cada _TICK_FLUSH activos procesados — a 10k activos × 24 códigos
+# serían ~240k mensajes sin batchear; con 50, ~4800.
+_IPC_STOP = "__ind_pump_stop__"
+_TICK_FLUSH = 50
+
+
+def _make_ipc_queue():
+    """(manager, queue) para el progreso vivo del modo procesos. La cola es
+    un Manager().Queue() — un proxy PICKLABLE que cruza a los hijos por el
+    submit (una mp.Queue cruda solo se comparte por herencia). El caller
+    cierra el manager en su finally. Punto de inyección para los tests, que
+    lo reemplazan por una queue.Queue en proceso (sin levantar un Manager
+    real)."""
+    import multiprocessing as _mp
+    mgr = _mp.get_context("spawn").Manager()
+    return mgr, mgr.Queue()
+
+
 # Reintentos ante deadlock (1213) / lock timeout (1205) por (lote, código):
 # con partición por activos, N workers escriben CONCURRENTEMENTE las mismas
 # tablas ind_{code} (el pool viejo tenía un único escritor por tabla) — la
@@ -1908,7 +1928,8 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
 def _process_batch_task(batch_idx: int, batch_asset_ids: list, codes: list,
                         force: bool,
                         best_sma_slice: dict | None,
-                        tail_stats_slices: dict | None) -> dict:
+                        tail_stats_slices: dict | None,
+                        progress_q=None) -> dict:
     """Tarea del PROCESO HIJO (fase 2 del ProcessPool): carga los precios
     de SU lote (+ benchmarks), resamplea localmente y delega en
     _backfill_batch_worker — la misma unidad de trabajo que valida la
@@ -1916,13 +1937,27 @@ def _process_batch_task(batch_idx: int, batch_asset_ids: list, codes: list,
 
     Contrato del boundary de proceso: recibe y devuelve SOLO tipos simples
     picklables y chicos (ids, dicts de fechas/floats); los DataFrames nunca
-    viajan — nacen y mueren en el hijo. Sin asset_tick: el progreso de la
-    fase 2 es por lote completado (el padre avanza los contadores al drenar
-    cada future); el progreso vivo por activo llega en la fase 3 con una
-    Queue. Nunca deja escapar una excepción: los errores viajan como
-    strings en el dict (las excepciones de SQLAlchemy pueden fallar al
-    des-picklearse y volverse errores opacos en el padre)."""
+    viajan — nacen y mueren en el hijo. progress_q (fase 3): Queue IPC por
+    la que el hijo emite cuentas por código {code: n} batcheadas cada
+    _TICK_FLUSH activos, que el padre drena hacia el panel. Nunca deja
+    escapar una excepción: los errores viajan como strings en el dict (las
+    excepciones de SQLAlchemy pueden fallar al des-picklearse y volverse
+    errores opacos en el padre)."""
     from app.database import Session as _DbSession
+    pending: dict = {}
+    acc = [0]
+
+    def _emit(code):
+        pending[code] = pending.get(code, 0) + 1
+        acc[0] += 1
+        if acc[0] >= _TICK_FLUSH:
+            try:
+                progress_q.put(dict(pending))
+            except Exception:
+                pass
+            pending.clear()
+            acc[0] = 0
+
     try:
         s = get_session()
         price_cache = _load_prices_for_assets(s, batch_asset_ids)
@@ -1932,13 +1967,20 @@ def _process_batch_task(batch_idx: int, batch_asset_ids: list, codes: list,
                       for aid in batch_asset_ids if aid in price_cache}
         return _backfill_batch_worker(
             batch_idx, batch_asset_ids, codes, force,
-            None, price_cache, best_sma_slice,
-            df_w_cache, df_m_cache, tail_stats_slices)
+            _emit if progress_q is not None else None, price_cache,
+            best_sma_slice, df_w_cache, df_m_cache, tail_stats_slices)
     except Exception as exc:
         logger.warning("Tarea de lote %d falló: %s", batch_idx, exc)
         return {"batch": batch_idx, "inserted": 0, "per_code": {},
                 "errors": [{"code": f"lote-{batch_idx}", "error": str(exc)}]}
     finally:
+        # flush de la cola pendiente ANTES de retornar: garantiza que todas
+        # las cuentas del hijo están en la Queue cuando el padre pone _STOP
+        if progress_q is not None and pending:
+            try:
+                progress_q.put(dict(pending))
+            except Exception:
+                pass
         _DbSession.remove()
 
 
@@ -2073,14 +2115,21 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 _worker_slots[ident] = len(_worker_slots)
             return _worker_slots[ident]
 
-    def _tick(code):
+    def _bump(code, delta=1, tag=""):
+        # Avanza los contadores agregados por código y emite la fila del
+        # panel. Lo llaman el _tick de los workers-thread (delta=1) y el
+        # thread bomba que drena la Queue IPC del modo procesos (delta=N).
         nonlocal _assets_done
         with _lock:
-            _assets_done += 1
-            _done_by_code[code] += 1
+            _assets_done += delta
+            _done_by_code[code] = _done_by_code.get(code, 0) + delta
             n, k = _assets_done, _done_by_code[code]
         if progress_cb:
-            progress_cb(n, total_work, f"{code}: {k}/{n_assets} w{_worker_slot()}")
+            suffix = f" {tag}" if tag else ""
+            progress_cb(n, total_work, f"{code}: {k}/{n_assets}{suffix}")
+
+    def _tick(code):
+        _bump(code, 1, f"w{_worker_slot()}")
 
     # Orden de códigos dentro de cada lote: pesados primero por duración
     # MEDIDA de la corrida anterior (nuevos primero; heurística solo en la
@@ -2130,22 +2179,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
         for code, res in out.get("per_code", {}).items():
             _merge_code_result(code, res)
 
-    def _advance_batch(bi: int, out: dict) -> None:
-        # Progreso grueso del modo procesos: sin ticks vivos por activo
-        # (llegan en la fase 3 con una Queue IPC), el padre avanza los
-        # contadores al completarse cada lote y emite la fila por código
-        # con el dn agregado.
-        nonlocal _assets_done
-        batch_n = len(batches[bi])
-        for code in out.get("per_code", {}):
-            with _lock:
-                _assets_done += batch_n
-                _done_by_code[code] += batch_n
-                n, k = _assets_done, _done_by_code[code]
-            if progress_cb:
-                progress_cb(n, total_work, f"{code}: {k}/{n_assets}")
-
-    def _drain(futures: dict, advance: bool) -> None:
+    def _drain(futures: dict) -> None:
         for future in as_completed(futures):
             bi = futures[future]
             try:
@@ -2160,26 +2194,80 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 errors.append({"code": f"lote-{bi}", "error": str(exc)})
                 continue
             _consume_batch(out)
-            if advance:
-                _advance_batch(bi, out)
 
     if batches and use_procs:
         from app.config import BASE_DIR, Config
         from app.services import process_pool as _pp
-        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
-                               Config.IND_CHILD_DB_POOL,
-                               Config.LOG_LEVEL) as pool:
-            futures = {
-                pool.submit(_process_batch_task, i, batch, hist, force,
-                            _slice_by_assets(best_sma_cache, batch),
-                            {c: _slice_by_assets(st, batch)
-                             for c, st in tail_stats_by_code.items()}): i
-                for i, batch in enumerate(batches)
-            }
-            if progress_cb:
-                # Mensaje especial para pre-poblar todos los workers en el UI
-                progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(hist)}")
-            _drain(futures, advance=True)
+
+        # Progreso vivo por activo (fase 3): los hijos no comparten los
+        # closures de _tick — emiten cuentas por código en una Queue IPC
+        # que un thread bomba del padre drena hacia _bump (mismas filas del
+        # panel que el modo threads). El manager es un punto de inyección
+        # para los tests (evita levantar un proceso Manager real).
+        #
+        # Sin progress_cb (job diario desatendido) NO se arma el canal: el
+        # Manager, la bomba y los puts de los hijos serían puro desperdicio
+        # (los contadores que alimentan solo se leen bajo `if progress_cb`).
+        mgr = pq = pump = None
+        if progress_cb is not None:
+            mgr, pq = _make_ipc_queue()
+
+            def _pump():
+                while True:
+                    try:
+                        msg = pq.get()
+                    except (EOFError, OSError):
+                        break
+                    if msg == _IPC_STOP:
+                        break
+                    if isinstance(msg, dict):
+                        for code, delta in msg.items():
+                            try:
+                                _bump(code, delta)
+                            except Exception:
+                                logger.warning("bomba de progreso falló", exc_info=True)
+
+            pump = _th.Thread(target=_pump, name="ind-progress-pump", daemon=True)
+            pump.start()
+        try:
+            with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
+                                   Config.IND_CHILD_DB_POOL,
+                                   Config.LOG_LEVEL) as pool:
+                futures = {
+                    pool.submit(_process_batch_task, i, batch, hist, force,
+                                _slice_by_assets(best_sma_cache, batch),
+                                {c: _slice_by_assets(st, batch)
+                                 for c, st in tail_stats_by_code.items()},
+                                pq): i
+                    for i, batch in enumerate(batches)
+                }
+                if progress_cb:
+                    # Mensaje especial para pre-poblar todos los workers en el UI
+                    progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(hist)}")
+                _drain(futures)
+        finally:
+            # Cada paso del cleanup en su propio try/except: si el proceso
+            # Manager murió, pq.put/pump.join NO deben saltear el shutdown ni
+            # enmascarar una excepción de la corrida (la consolidación de
+            # ind_asset_meta viene DESPUÉS y no debe abortarse por el cleanup
+            # del canal de progreso).
+            if pump is not None:
+                # Todos los hijos volvieron (flushearon su cola pendiente
+                # antes de retornar) → el STOP queda último en la Queue FIFO.
+                try:
+                    pq.put(_IPC_STOP)
+                except Exception:
+                    logger.warning("no se pudo cerrar la cola de progreso",
+                                   exc_info=True)
+                try:
+                    pump.join(timeout=30)
+                except Exception:
+                    pass
+            if mgr is not None:
+                try:
+                    mgr.shutdown()
+                except Exception:
+                    pass
     elif batches:
         with _TPE(max_workers=min(len(batches), _POOL_WORKERS)) as pool:
             futures = {
@@ -2193,7 +2281,7 @@ def backfill_all_indicator_values(progress_cb=None, *, force: bool = False,
                 # (las filas del panel siguen siendo por código; el tag [wN]
                 # identifica al worker de lote que lo avanzó último)
                 progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(hist)}")
-            _drain(futures, advance=False)
+            _drain(futures)
 
     # Consolidación en el padre (único escritor de ind_asset_meta) + log y
     # __pc__ por código con los conteos COMPLETOS sumados entre lotes. Solo

@@ -501,10 +501,13 @@ class _InlineExecutor:
     visible) — valida el camino de procesos completo salvo el spawn real,
     que se verifica en el Codespace.
 
-    Hace round-trip de pickle sobre los argumentos y el resultado: sin eso
-    el contrato picklable del boundary (invariante de la fase 2) no tendría
-    red y un tipo no-serializable pasaría la suite para explotar solo en
-    spawn real como BrokenProcessPool opaco."""
+    Hace round-trip de pickle sobre el RESULTADO: sin eso el contrato
+    picklable del boundary (un DataFrame/ORM colado en el dict de retorno,
+    el riesgo que documenta la fase 2) no tendría red y explotaría solo en
+    spawn real como BrokenProcessPool opaco. Los argumentos no se
+    round-trippean acá: la Queue de progreso viaja como proxy picklable en
+    spawn real pero es una queue.Queue en proceso en el test (no picklable);
+    los demás args son dicts de tipos simples (_slice_by_assets)."""
 
     def __enter__(self):
         return self
@@ -517,12 +520,35 @@ class _InlineExecutor:
         from concurrent.futures import Future
         f = Future()
         try:
-            args = pickle.loads(pickle.dumps(args))     # como un boundary real
             out = fn(*args, **kw)
             f.set_result(pickle.loads(pickle.dumps(out)))
         except Exception as exc:
             f.set_exception(exc)
         return f
+
+
+class _FakeManager:
+    """Manager fake: entrega una queue.Queue en proceso (thread-safe) en vez
+    de levantar un proceso Manager real de multiprocessing."""
+
+    def __init__(self):
+        import queue
+        self._q = queue.Queue()
+
+    def Queue(self):
+        return self._q
+
+    def shutdown(self):
+        pass
+
+
+def _patch_ipc(monkeypatch):
+    """Cola IPC en proceso para el modo procesos-inline (sin Manager real).
+    El proxy picklable no hace falta: el executor inline corre en el mismo
+    proceso, así que una queue.Queue cruza igual y el thread bomba la drena."""
+    mgr = _FakeManager()
+    monkeypatch.setattr(ts, "_make_ipc_queue", lambda: (mgr, mgr.Queue()))
+    return mgr
 
 
 def test_flujo_procesos_inline_equivale_a_threads(monkeypatch):
@@ -574,6 +600,8 @@ def test_flujo_procesos_inline_equivale_a_threads(monkeypatch):
         monkeypatch.setattr(ts, "_use_process_pool", lambda n: (True, 2))
         monkeypatch.setattr(pp, "make_executor",
                             lambda *a, **k: _InlineExecutor())
+        monkeypatch.setattr(ts, "_TICK_FLUSH", 1)   # flush por activo en el test
+        _patch_ipc(monkeypatch)
         labels: list = []
         res_b = ts.backfill_all_indicator_values(
             progress_cb=lambda c, tt, l="": labels.append(l))
@@ -582,10 +610,93 @@ def test_flujo_procesos_inline_equivale_a_threads(monkeypatch):
         assert snap_a == snap_b, \
             "procesos (inline) y threads deben escribir exactamente lo mismo"
 
-        # progreso grueso del modo procesos: dn por código llega al total
+        # progreso VIVO por la Queue IPC: el thread bomba drenó las cuentas
+        # del hijo y el dn por código llegó al total de activos
         ticks = [l for l in labels if l.startswith(f"{code}: ")]
         assert ticks and max(int(l.split(" ")[1].split("/")[0]) for l in ticks) == len(ids)
         assert any(l.startswith("__init__:") for l in labels)
+    finally:
+        _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
+        Session.remove()
+
+
+def test_modo_procesos_sin_progress_cb_no_arma_canal_ipc(monkeypatch):
+    """Job desatendido (progress_cb=None) en modo procesos: NO se crea el
+    Manager/bomba (se detectaría porque _make_ipc_queue explotaría), y la
+    corrida escribe igual."""
+    import app.models  # noqa: F401
+    import app.services.process_pool as pp
+    from app.database import Base, Session, engine, get_session
+    from app.models import Asset, Price
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_store import ensure_ind_table, get_ind_table
+
+    Base.metadata.create_all(engine)
+    code = "return_daily"
+    ensure_ind_table(code, "num")
+    s = get_session()
+    ids = [_A1, _A2, _A3]
+    try:
+        caches = _seed_assets(s, Asset, Price, ids)
+        if not s.query(IndicatorDefinition).filter(
+                IndicatorDefinition.code == code).first():
+            s.add(IndicatorDefinition(code=code, name=code, category="test",
+                                      type="num", keep_history=True))
+        s.commit()
+        monkeypatch.setattr(ts, "_BACKFILL_FNS", {code: ts._BACKFILL_FNS[code]})
+        monkeypatch.setattr(ts, "_POOL_WORKERS", 1)
+        monkeypatch.setattr(ts, "_MIN_BATCH_ASSETS", 1)
+        monkeypatch.setattr(ts, "_use_process_pool", lambda n: (True, 2))
+        monkeypatch.setattr(pp, "make_executor", lambda *a, **k: _InlineExecutor())
+        # si el canal IPC se armara pese a progress_cb=None, esto explotaría
+        monkeypatch.setattr(ts, "_make_ipc_queue",
+                            lambda: (_ for _ in ()).throw(
+                                AssertionError("no debía crear el canal IPC")))
+
+        res = ts.backfill_all_indicator_values(price_cache=dict(caches))
+        assert res["errors"] == []
+        t = get_ind_table(code)
+        n = s.execute(sa.select(sa.func.count()).select_from(t)
+                      .where(t.c.asset_id.in_(ids))).scalar()
+        assert n > 0
+    finally:
+        _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
+        Session.remove()
+
+
+def test_process_task_emite_progreso_batcheado(monkeypatch):
+    """El hijo acumula cuentas por código y las flushea cada _TICK_FLUSH a
+    la Queue; el total emitido = activos procesados por código."""
+    import queue
+    import app.models  # noqa: F401
+    from app.database import Base, Session, engine, get_session
+    from app.models import Asset, Price
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_store import ensure_ind_table
+
+    Base.metadata.create_all(engine)
+    code = "return_daily"
+    ensure_ind_table(code, "num")
+    s = get_session()
+    ids = [_A1, _A2, _A3, _A4]
+    try:
+        _seed_assets(s, Asset, Price, ids)
+        if not s.query(IndicatorDefinition).filter(
+                IndicatorDefinition.code == code).first():
+            s.add(IndicatorDefinition(code=code, name=code, category="test",
+                                      type="num", keep_history=True))
+        s.commit()
+        monkeypatch.setattr(ts, "_TICK_FLUSH", 2)   # flush cada 2 activos
+
+        q: queue.Queue = queue.Queue()
+        out = ts._process_batch_task(0, ids, [code], False, {}, {}, q)
+        assert out["errors"] == []
+
+        total = {}
+        while not q.empty():
+            for c, n in q.get_nowait().items():
+                total[c] = total.get(c, 0) + n
+        assert total == {code: len(ids)}    # una cuenta por activo, batcheada
     finally:
         _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
         Session.remove()
