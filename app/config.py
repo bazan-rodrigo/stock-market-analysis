@@ -12,6 +12,23 @@ if _conf_file.exists():
 _SECTION = "settings"
 
 
+def _normalize_db_url(url: str) -> str:
+    """Normaliza el prefijo de PostgreSQL al driver que usa el proyecto.
+
+    Railway/Heroku entregan la cadena de conexión como ``postgres://`` o
+    ``postgresql://`` (sin driver). El proyecto usa **psycopg3**, que en
+    SQLAlchemy exige el prefijo explícito ``postgresql+psycopg://`` — sin él,
+    SQLAlchemy busca psycopg2 (no instalado) y falla. Normalizamos solo
+    cuando falta el driver; no tocamos URLs que ya lo traen
+    (``mysql+mysqldb://``, ``sqlite://`` de los tests, ``postgresql+psycopg://``).
+    """
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 def _get(key: str, default: str | None = None) -> str:
     env_val = os.environ.get(key.upper())
     if env_val is not None:
@@ -37,11 +54,11 @@ class Config:
 
     # Overrideable completa via env DATABASE_URL (tests usan un stub
     # sqlite; para PostgreSQL: postgresql+psycopg://user:pass@host/db)
-    DATABASE_URL: str = _get(
+    DATABASE_URL: str = _normalize_db_url(_get(
         "database_url",
         f"mysql+mysqldb://{DB_USER}:{DB_PASSWORD}"
         f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4",
-    )
+    ))
 
     # Pool de conexiones de SQLAlchemy. Con MySQL los defaults sobran
     # (threads baratos, max_connections=151); en PostgreSQL cada conexión
