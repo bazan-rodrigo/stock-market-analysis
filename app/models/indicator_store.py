@@ -66,12 +66,13 @@ _WIDE: dict[str, tuple[str, str, str]] = {
 
 
 def use_wide_ind_tables() -> bool:
-    """Flag del cutover a tablas anchas (docs/notes/design_ind_wide_tables.md,
-    fase 4). Default False → todo el pipeline usa las ind_{code} per-código
-    (comportamiento actual). Se pone True SOLO en el cutover, junto con la
-    migración que puebla las anchas y el wiring del escritor — gatea lectura y
-    escritura. Vía env para que el cutover sea un cambio de deploy."""
-    return os.environ.get("USE_WIDE_IND_TABLES", "").strip().lower() in (
+    """Ruteo a tablas anchas (docs/notes/design_ind_wide_tables.md). Default
+    TRUE desde la fase 5: las per-código de los códigos _WIDE se dropearon
+    (migración 0079), así que wide es el camino permanente. Se puede forzar
+    per-código con USE_WIDE_IND_TABLES=0 (debug, o bases aún sin migrar/poblar
+    las anchas). La suite lo pone en 0 en conftest (los tests usan sqlite y
+    tablas per-código); los tests de wide lo vuelven a 1."""
+    return os.environ.get("USE_WIDE_IND_TABLES", "1").strip().lower() in (
         "1", "true", "yes", "on")
 
 

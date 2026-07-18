@@ -18,3 +18,8 @@ _STUB = ROOT / ".pytest-stub.db"
 _STUB.unlink(missing_ok=True)
 
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_STUB}")
+
+# La suite corre contra el stub sqlite con tablas ind_{code} per-código: forzar
+# el camino per-código (en prod el default de use_wide_ind_tables es wide desde
+# la fase 5). Los tests de tablas anchas lo vuelven a "1" con monkeypatch.
+os.environ["USE_WIDE_IND_TABLES"] = "0"

@@ -56,7 +56,14 @@ def _fmt(nbytes) -> str:
     return f"{mb:8.1f} MB"
 
 
+_WIDE_TABLES = {"ind_daily": "daily", "ind_weekly": "weekly",
+                "ind_monthly": "monthly"}
+
+
 def _cadence(code: str) -> str:
+    # tablas anchas por cadencia (ind_daily/weekly/monthly)
+    if f"ind_{code}" in _WIDE_TABLES:
+        return _WIDE_TABLES[f"ind_{code}"]
     if code.startswith("fundamental_"):
         return "fundamental"
     # return_* son returns rolling que se calculan TODOS los dias (grilla
@@ -292,8 +299,12 @@ def main() -> None:
 
     total_now = total_proj = 0
     for cad in ("daily", "weekly", "monthly"):
+        # solo las per-código: la proyección compara per-código vs ancha, así
+        # que se excluyen las anchas ya existentes (post-cutover el grupo queda
+        # vacío y no se proyecta nada — ya está todo en las anchas).
         group = [(n, rows_by_table[n], by_name[n][1] + by_name[n][2])
-                 for n in ind_tables if _cadence(n[len("ind_"):]) == cad]
+                 for n in ind_tables
+                 if _cadence(n[len("ind_"):]) == cad and n not in _WIDE_TABLES]
         if not group:
             continue
         n_codes = len(group)

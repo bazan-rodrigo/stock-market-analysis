@@ -144,18 +144,23 @@ def ensure_builtin_data() -> None:
     # las refleja), así que en una base nacida por create_all + stamp head
     # no existen — materializarlas desde las definiciones. En una base
     # migrada ya existen y esto es una inspección por tabla.
-    from app.models.indicator_store import ensure_ind_table
+    from app.models.indicator_store import (ensure_ind_table,
+                                            ensure_wide_ind_tables, _WIDE)
     try:
         for d in s.query(IndicatorDefinition).filter(
                 IndicatorDefinition.keep_history.is_(True)).all():
+            # Los códigos _WIDE viven en las tablas anchas por cadencia desde la
+            # fase 5 (sus ind_{code} per-código se dropearon en la 0079): NO
+            # recrearlas acá, o el drop se desharía en cada arranque.
+            if d.code in _WIDE:
+                continue
             ensure_ind_table(d.code, d.type or "num")
+        # Tablas anchas: la migración 0077 las crea en bases migradas; acá se
+        # materializan en bases create_all (no están en Base.metadata). En una
+        # base migrada ya existen: es una inspección por tabla.
+        ensure_wide_ind_tables()
     except Exception as exc:
         logger.warning("No se pudieron asegurar las tablas ind_*: %s", exc)
-    # Las tablas anchas (ind_daily/weekly/monthly, design_ind_wide_tables.md) NO
-    # se crean en el arranque a propósito: las crea la migración 0077. Crearlas
-    # acá antes de correr la migración en una base ya migrada haría fallar su
-    # op.create_table (tabla ya existe). Con el flag OFF nada las usa; el manejo
-    # de bases create_all se resuelve en el cutover (fase 4).
 
     # Tablas dinámicas sig_{id}/strat_res_{id}: reparar en el arranque los
     # dos estados que un crash puede dejar (tabla huérfana / definición sin

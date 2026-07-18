@@ -114,17 +114,15 @@ def _status_ratios():
 
 
 def _status_indicators():
-    import sqlalchemy as sa
     from app.models import IndicatorUpdateLog
-    from app.models.indicator_definition import IndicatorDefinition
     try:
         s = get_session()
-        tech_tables = {
-            f"ind_{r[0]}" for r in s.query(IndicatorDefinition.code).filter(
-                IndicatorDefinition.keep_history.is_(True),
-                IndicatorDefinition.category != "Fundamental",
-            ).all()
-        }
+        # Fase 5 (design_ind_wide_tables.md): los indicadores técnicos con
+        # historia viven en 3 tablas anchas por cadencia (una fila por
+        # activo/fecha), no en 24 ind_{code}. El conteo es de FILAS de esas
+        # tablas (no de valores individuales).
+        from app.models.indicator_store import _WIDE_CADENCE_TABLE
+        tech_tables = set(_WIDE_CADENCE_TABLE.values())
         # Estimación por catálogo (instantánea, por dialecto en db_compat):
         # un COUNT(*) exacto escanea millones de filas por tabla y bajo
         # carga tarda minutos

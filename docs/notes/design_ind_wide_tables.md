@@ -144,12 +144,20 @@ hasta validar; se dropean al final.
   pipeline y comparar señales viejas vs nuevas). El path completo de
   `backfill_indicator` con flag ON no está unit-testeado end-to-end (los
   chokepoints sí) → se valida en Railway.
-- **Fase 5 (limpieza): pendiente.** DROP de las 24 viejas (tras validar).
+  Fase 4 **validada en Railway**: 0078 pobló las anchas (bloat de la 1ª versión
+  corregido), flag ON, señales idénticas leyendo de las anchas.
+- **Fase 5: HECHA.** Migración **0079** dropea las 24 `ind_{code}` técnicas
+  (punto de no retorno; downgrade recrea + repuebla desde las anchas). Wide pasa
+  a ser el DEFAULT (`use_wide_ind_tables()` default True); la suite lo fuerza a 0
+  en `conftest` (per-código sqlite). El arranque saltea los códigos `_WIDE` en
+  `ensure_ind_table` (si no, se recrearían tras el drop) + asegura las anchas
+  (bases create_all). `data_center` status → nombres anchos; script de medición
+  reconoce las anchas.
 
-**Deploy-safe hasta acá:** con `USE_WIDE_IND_TABLES` sin setear (default), nada
-lee ni escribe las tablas anchas — todo lo hecho es aditivo/inerte (633 tests).
+**Refactor COMPLETO (639 tests).** Wide es el camino permanente para los 24
+indicadores técnicos con historia; los fundamentales siguen per-código.
+Pendiente opcional: fundamentales anchos (`ind_fundamental_daily`) — misma técnica.
 
-> Nota de coordinación: esta línea usa las migraciones **0077 y 0078**. El
+> Nota de coordinación: esta línea usa las migraciones **0077, 0078 y 0079**. El
 > rediseño Backtest+Carteras también planea "migraciones 0078+" — sus migraciones
-> deben encadenar DESPUÉS (0079+), o colisionan (dos revisiones con
-> down_revision=0077 → alembic multiple heads).
+> deben encadenar DESPUÉS (**0080+**), o colisionan (alembic multiple heads).
