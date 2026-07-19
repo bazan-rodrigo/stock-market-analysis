@@ -24,6 +24,7 @@ def layout(**kwargs):
         dcc.Interval(id="bt-interval", interval=1000, disabled=True),
         dcc.Interval(id="bt-rules-interval", interval=1000, disabled=True),
         dcc.Interval(id="bt-port-interval", interval=1000, disabled=True),
+        dcc.Interval(id="bt-wf-interval", interval=1000, disabled=True),
         dcc.Store(id="bt-cmp-reload", data=0),
 
         dbc.Row([
@@ -253,6 +254,44 @@ def layout(**kwargs):
                          placeholder="Elegí corridas para comparar…",
                          style=_IN)], md=8)], className="mb-2"),
         dcc.Loading(html.Div(id="bt-cmp-results"), type="circle",
+                    color="#dee2e6"),
+                  ])),
+
+          dbc.Tab(label="Walk-forward", tab_id="bt-tab-wf",
+                  children=html.Div([
+        dbc.Alert([
+            html.B("Optimización robusta out-of-sample. "),
+            "En cada ventana de entrenamiento busca la mejor combinación "
+            "(top-N × trailing) por retorno del gated y la aplica en la ventana "
+            "siguiente (test), sobre datos no vistos. Concatena los tests → una "
+            "curva out-of-sample honesta; la brecha train vs test mide el "
+            "sobreajuste. La cartera se re-arma en cada costura de ventana "
+            "(OOS conservador, sin arrastre de posiciones)."],
+            color="info", className="mb-3 mt-3 small py-2"),
+        dbc.Row([
+            dbc.Col([dbc.Label("Estrategia", style=_LBL),
+                     dcc.Dropdown(id="bt-wf-strategy", placeholder="Elegí…",
+                                  style=_IN)], md=4),
+            dbc.Col([dbc.Label("Entrada: score ≥", style=_LBL),
+                     dbc.Input(id="bt-wf-entry", type="number", value=20,
+                               size="sm", style=_IN)], md=2),
+            dbc.Col([dbc.Label("Ventanas", style=_LBL),
+                     dbc.Input(id="bt-wf-nwin", type="number", value=4, min=2,
+                               max=8, step=1, size="sm", style=_IN)], md=2),
+            dbc.Col([dbc.Label("Costo (bps/lado)", style=_LBL),
+                     dbc.Input(id="bt-wf-cost", type="number", value=0, min=0,
+                               size="sm", style=_IN)], md=2),
+        ], className="g-2"),
+        html.Small("Optimiza top-N ∈ {10, 20, 30} × trailing ∈ {10, 15, 20}% "
+                   "por retorno del gated en cada train.",
+                   className="text-muted"),
+        html.Div(dbc.Button("Correr walk-forward", id="bt-wf-run",
+                            color="primary", size="sm"), className="mt-2"),
+        dbc.Progress(id="bt-wf-progress", striped=True, animated=True,
+                     style={"display": "none"}, className="mt-2"),
+        dbc.Alert(id="bt-wf-alert", is_open=False, dismissable=True,
+                  className="mt-2 small py-1"),
+        dcc.Loading(html.Div(id="bt-wf-results"), type="circle",
                     color="#dee2e6"),
                   ])),
         ], className="mb-3"),

@@ -18,6 +18,10 @@ _port_state = {"running": False, "current": 0, "total": 0, "phase": "",
                "error": None, "result": None}
 _port_lock = threading.Lock()
 
+_wf_state = {"running": False, "current": 0, "total": 0, "phase": "",
+             "error": None, "result": None}
+_wf_lock = threading.Lock()
+
 
 def _num(v):
     if v in (None, ""):
@@ -368,3 +372,167 @@ def render_compare(run_ids):
             html.Th("Ret. total", className="text-end")])),
         html.Tbody(rows)], bordered=False, hover=True, size="sm", className="small")
     return html.Div([chart, html.H6("KPIs (gated)", className="mt-2"), table])
+
+
+# ── Walk-forward (optimización robusta out-of-sample) ─────────────────────────
+
+@callback(
+    Output("bt-wf-strategy", "options"),
+    Input("bt-wf-strategy", "id"),
+)
+@safe_callback(lambda exc: [])
+def load_wf_strategies(_):
+    from app.services.strategy_service import get_visible_strategies
+    from app.services.visibility import current_viewer
+    return [{"label": s.name, "value": s.id}
+            for s in get_visible_strategies(*current_viewer())]
+
+
+@callback(
+    Output("bt-wf-interval", "disabled"),
+    Output("bt-wf-progress", "style"),
+    Output("bt-wf-alert", "children"),
+    Output("bt-wf-alert", "is_open"),
+    Output("bt-wf-alert", "color"),
+    Input("bt-wf-run", "n_clicks"),
+    State("bt-wf-strategy", "value"),
+    State("bt-wf-entry", "value"),
+    State("bt-wf-nwin", "value"),
+    State("bt-wf-cost", "value"),
+    prevent_initial_call=True,
+)
+@safe_callback(lambda exc: (True, no_update, f"Error: {exc}", True, "danger"))
+def start_wf_run(_, strategy_id, entry, nwin, cost):
+    if not strategy_id:
+        return no_update, no_update, "Seleccioná una estrategia.", True, "warning"
+    from app.services.strategy_service import get_visible_strategies
+    from app.services.visibility import current_viewer
+    visible = {st.id for st in get_visible_strategies(*current_viewer())}
+    if int(strategy_id) not in visible:
+        return no_update, no_update, "Estrategia no visible.", True, "warning"
+    entry_th = _num(entry)
+    if entry_th is None:
+        return (no_update, no_update, "Definí el score de entrada (score ≥).",
+                True, "warning")
+    base_spec = {"entries": [{"type": "score", "th": entry_th}],
+                 "score_exits": [], "caps": [], "rearm": False, "cooldown": 0}
+    n_windows = max(2, min(8, int(_num(nwin) or 4)))
+    cost_bps = _num(cost) or 0.0
+
+    if not _wf_lock.acquire(blocking=False):
+        return (no_update, no_update, "Ya hay un walk-forward en curso.", True,
+                "warning")
+    _wf_state.update({"running": True, "current": 0, "total": 0, "phase": "",
+                      "error": None, "result": None})
+
+    def _run():
+        from app.database import Session
+        from app.services import portfolio_backtest_service as pbs
+
+        def _progress(cur, tot, phase):
+            (_wf_state["current"], _wf_state["total"],
+             _wf_state["phase"]) = cur, tot, phase
+
+        try:
+            _wf_state["result"] = pbs.walk_forward(
+                Session(), int(strategy_id), base_spec, n_windows=n_windows,
+                cost_bps=cost_bps, progress_cb=_progress)
+        except Exception as exc:
+            _wf_state["error"] = str(exc)
+        finally:
+            _wf_state["running"] = False
+            _wf_lock.release()
+            Session.remove()
+
+    try:
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception as exc:      # si no arranca el thread, no dejar el lock tomado
+        _wf_state["running"] = False
+        _wf_lock.release()
+        return (True, {"display": "none"}, f"No se pudo iniciar: {exc}", True,
+                "danger")
+    return (False, {"display": "block", "height": "16px", "fontSize": "0.72rem"},
+            "Corriendo walk-forward (optimiza ventana por ventana)…", True,
+            "info")
+
+
+@callback(
+    Output("bt-wf-progress", "value"),
+    Output("bt-wf-progress", "label"),
+    Output("bt-wf-progress", "style", allow_duplicate=True),
+    Output("bt-wf-interval", "disabled", allow_duplicate=True),
+    Output("bt-wf-alert", "children", allow_duplicate=True),
+    Output("bt-wf-alert", "is_open", allow_duplicate=True),
+    Output("bt-wf-alert", "color", allow_duplicate=True),
+    Output("bt-wf-results", "children"),
+    Input("bt-wf-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+@safe_callback(lambda exc: (0, "", {"display": "none"}, True,
+                            f"Error al mostrar resultados: {exc}", True,
+                            "danger", no_update))
+def poll_wf(_):
+    hidden = {"display": "none"}
+    if _wf_state["running"]:
+        cur, tot = _wf_state["current"], _wf_state["total"] or 1
+        pct = int(cur / tot * 100)
+        label = (f"{_wf_state['phase']} {cur}/{_wf_state['total']}"
+                 if _wf_state["total"] else "Iniciando…")
+        return pct, label, no_update, False, no_update, True, no_update, no_update
+    if _wf_state["error"]:
+        return (0, "", hidden, True, f"Error: {_wf_state['error']}", True,
+                "danger", no_update)
+    return (100, "Completo", hidden, True, "Walk-forward terminado.", True,
+            "success", _render_wf(_wf_state["result"]))
+
+
+def _render_wf(res):
+    if not res:
+        return None
+    if not res.get("oos_dates"):
+        return dbc.Alert("Sin datos out-of-sample para el período (historia "
+                         "insuficiente para las ventanas).", color="secondary",
+                         className="small py-2")
+    oos_fig = pv.equity_figure(
+        [{"name": "Out-of-sample (concatenado)",
+          "values": [v * 100 for v in res["oos_equity"]],
+          "x": res["oos_dates"]}])
+    tiles = pv.kpi_tiles([
+        {"label": "CAGR OOS", "value": pv.fmt_pct(res.get("cagr"), signed=True),
+         "good": (res.get("cagr") or 0) >= 0},
+        {"label": "Retorno total OOS",
+         "value": pv.fmt_mult(res.get("total_return"))},
+        {"label": "Sharpe OOS", "value": pv.fmt_ratio(res.get("sharpe"))},
+        {"label": "Máx drawdown OOS", "value": pv.fmt_pct(res.get("max_drawdown")),
+         "good": False},
+    ])
+    rows = []
+    for i, w in enumerate(res["windows"], 1):
+        rows.append(html.Tr([
+            html.Td(f"#{i}"),
+            html.Td(f"{w['test'][0]:%Y-%m} … {w['test'][1]:%Y-%m}",
+                    className="small"),
+            html.Td(f"top-{w['top_n']} · trail {w['trailing']:g}%",
+                    className="small"),
+            html.Td(pv.fmt_pct(w["train_cagr"], signed=True),
+                    className="text-end"),
+            html.Td(pv.fmt_pct(w["test_cagr"], signed=True), className="text-end"),
+        ]))
+    table = dbc.Table([
+        html.Thead(html.Tr([
+            html.Th("Ventana"), html.Th("Período test"),
+            html.Th("Mejor config (train)"),
+            html.Th("CAGR train", className="text-end"),
+            html.Th("CAGR test", className="text-end")])),
+        html.Tbody(rows)], bordered=False, hover=True, size="sm", className="small")
+    return html.Div([
+        tiles,
+        dcc.Graph(figure=oos_fig, config=pv.graph_config(), className="mt-2"),
+        html.H6("Ventanas: config elegida en train vs resultado en test",
+                className="mt-2"),
+        table,
+        html.Small("CAGR anualizada para comparar tramos de largo distinto. Si "
+                   "la CAGR de test es consistentemente menor que la de train, "
+                   "parte de la ventaja es sobreajuste.",
+                   className="text-muted"),
+    ])

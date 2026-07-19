@@ -275,12 +275,12 @@ def _spec_with_trailing(base_spec, trailing_pct):
     return {**base_spec, "caps": caps}
 
 
-def _gated_equity_range(per_asset_raw, spec, top_n, date_from, date_to, *,
-                        rebalance_every=1, cost_bps=0.0):
-    """Equity gated de la cartera sobre [date_from, date_to]. El simulador arranca
-    FRESCO en el rango (sin carryover del train) — correcto para OOS. Reusa el
-    motor. `per_asset_raw`: {aid: {dates, closes, scores, pcts}}."""
-    from app.services import portfolio_sim_engine as eng
+def _panels_for_range(per_asset_raw, spec, date_from, date_to):
+    """Panels (dates, scores, rets, eligible) de la cartera sobre [date_from,
+    date_to]. Los trades arrancan FRESCOS en el rango (sin carryover del train).
+    La elegibilidad depende de la spec (entrada + trailing), NO de top_n → en el
+    walk-forward se calcula una vez por trailing y se reusa para todos los
+    top_n. `per_asset_raw`: {aid: {dates, closes, scores, pcts}}."""
     from app.services.trade_simulator import simulate_trades
 
     per_asset = {}
@@ -296,10 +296,31 @@ def _gated_equity_range(per_asset_raw, spec, top_n, date_from, date_to, *,
         per_asset[aid] = {"dates": [raw["dates"][i] for i in idxs],
                           "closes": closes, "scores": scores,
                           "in_position": _in_position(trades, len(closes))}
-    dates, scores_bd, rets_bd, elig_bd = build_panels(per_asset)
+    return build_panels(per_asset)
+
+
+def _gated_equity_range(per_asset_raw, spec, top_n, date_from, date_to, *,
+                        rebalance_every=1, cost_bps=0.0):
+    """Equity gated de la cartera sobre [date_from, date_to] (arranque fresco →
+    correcto para OOS). Reusa el motor."""
+    from app.services import portfolio_sim_engine as eng
+    dates, scores_bd, rets_bd, elig_bd = _panels_for_range(
+        per_asset_raw, spec, date_from, date_to)
     res = eng.simulate_gated(dates, scores_bd, elig_bd, rets_bd, top_n=top_n,
                              rebalance_every=rebalance_every, cost_bps=cost_bps)
     return dates, res["equity"]
+
+
+def _span_cagr(equity, dates):
+    """CAGR sobre el período REAL de la ventana. Permite comparar train (expansivo)
+    vs test (un tramo) de forma justa — los retornos totales crudos no son
+    comparables porque cubren largos distintos."""
+    from app.services import portfolio_metrics as pm
+    if not equity or not dates or len(dates) < 2:
+        return None
+    days = (dates[-1] - dates[0]).days
+    years = days / 365.25 if days > 0 else None
+    return pm.cagr(equity, years)
 
 
 def _load_universe(session, strategy_id):
@@ -330,16 +351,29 @@ def _load_universe(session, strategy_id):
     return per_asset
 
 
+_WF_MIN_SEG_BARS = 10   # cada tramo (train inicial / test) necesita ≥ esto
+
+
 def walk_forward(session, strategy_id, base_spec, *, topn_grid=(10, 20, 30),
                  trail_grid=(10.0, 15.0, 20.0), n_windows=4, rebalance_every=1,
                  cost_bps=0.0, progress_cb=None):
     """Walk-forward de OPTIMIZACIÓN. En cada ventana train busca la mejor
     (top_n, trailing) por retorno total del gated, la aplica en el test
-    (out-of-sample, fresco) y concatena los tests → curva OOS. Devuelve
-    {oos_dates, oos_equity, windows, **KPIs de portfolio_metrics}."""
+    (out-of-sample, fresco) y concatena los tests → curva OOS. Cada ventana
+    reporta CAGR de train y test (comparables entre sí pese al largo distinto).
+    Devuelve {oos_dates, oos_equity, windows, **KPIs de portfolio_metrics}.
+
+    NOTA: en cada costura la cartera se re-arma desde plano (el test arranca sin
+    posiciones del train) — sesgo conservador (no cobra el retorno de la rueda de
+    costura y paga entrada), nunca look-ahead."""
     from app.services import portfolio_metrics as pm
+    from app.services import portfolio_sim_engine as eng
 
     per_asset_raw = _load_universe(session, strategy_id)
+    # Única fase con BD: cierro la transacción de lectura para liberar el
+    # read-view y devolver la conexión al pool durante el cómputo puro (CLAUDE.md:
+    # presión de undo/purge de una transacción ociosa larga en MariaDB).
+    session.rollback()
     if not per_asset_raw:
         raise ValueError("La estrategia no tiene historia calculada. Corré "
                          "'Recalcular completo' en Centro de Datos.")
@@ -348,23 +382,32 @@ def walk_forward(session, strategy_id, base_spec, *, topn_grid=(10, 20, 30),
     splits = _window_splits(len(all_dates), n_windows)
     if not splits:
         raise ValueError("Historia insuficiente para el walk-forward.")
-    configs = [(tn, tr) for tn in topn_grid for tr in trail_grid]
+    if (splits[0][1] - splits[0][0] + 1) < _WF_MIN_SEG_BARS:
+        raise ValueError(
+            f"Historia insuficiente para {n_windows} ventanas (cada tramo "
+            f"quedaría con < {_WF_MIN_SEG_BARS} ruedas). Reducí las ventanas.")
 
     oos_dates, oos_equity, windows = [], [], []
     val = 1.0
     for w, (tr_lo, tr_hi, te_lo, te_hi) in enumerate(splits):
         tr_from, tr_to = all_dates[tr_lo], all_dates[tr_hi]
         te_from, te_to = all_dates[te_lo], all_dates[te_hi]
-        best = None
-        for (tn, trail) in configs:
+        # La elegibilidad (trades) depende sólo del trailing, no de top_n → simulo
+        # los panels una vez por trailing y vario top_n con simulate_gated (barato).
+        best = None   # (obj, top_n, trailing, train_eq, train_dates)
+        for trail in trail_grid:
             spec = _spec_with_trailing(base_spec, trail)
-            _d, eq = _gated_equity_range(per_asset_raw, spec, tn, tr_from, tr_to,
-                                         rebalance_every=rebalance_every,
-                                         cost_bps=cost_bps)
-            obj = (eq[-1] - 1.0) if eq else float("-inf")
-            if best is None or obj > best[0]:
-                best = (obj, tn, trail)
-        _obj, tn, trail = best
+            dts, scores_bd, rets_bd, elig_bd = _panels_for_range(
+                per_asset_raw, spec, tr_from, tr_to)
+            for tn in topn_grid:
+                res = eng.simulate_gated(
+                    dts, scores_bd, elig_bd, rets_bd, top_n=tn,
+                    rebalance_every=rebalance_every, cost_bps=cost_bps)
+                eq = res["equity"]
+                obj = (eq[-1] - 1.0) if eq else float("-inf")
+                if best is None or obj > best[0]:
+                    best = (obj, tn, trail, eq, dts)
+        _obj, tn, trail, tr_eq, tr_dts = best
         spec = _spec_with_trailing(base_spec, trail)
         td, teq = _gated_equity_range(per_asset_raw, spec, tn, te_from, te_to,
                                       rebalance_every=rebalance_every,
@@ -376,7 +419,9 @@ def walk_forward(session, strategy_id, base_spec, *, topn_grid=(10, 20, 30),
             val = val * teq[-1]
         windows.append({"train": [tr_from, tr_to], "test": [te_from, te_to],
                         "top_n": tn, "trailing": trail, "train_ret": best[0],
-                        "test_ret": (teq[-1] - 1.0) if teq else None})
+                        "test_ret": (teq[-1] - 1.0) if teq else None,
+                        "train_cagr": _span_cagr(tr_eq, tr_dts),
+                        "test_cagr": _span_cagr(teq, td)})
         if progress_cb:
             progress_cb(w + 1, len(splits), "ventanas")
 

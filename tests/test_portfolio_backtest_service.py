@@ -164,3 +164,13 @@ def test_gated_equity_range_runs_fresh_in_window():
     assert dates == d[1:4]
     assert len(eq) == 3
     assert eq[-1] > 1.0        # el activo sube y se mantiene → equity crece
+
+
+def test_span_cagr_annualizes_over_window():
+    from app.services.portfolio_backtest_service import _span_cagr
+    # +21% en ~1 año calendario → CAGR ≈ 21%
+    dts = [date(2025, 1, 1), date(2026, 1, 1)]
+    assert _span_cagr([1.0, 1.21], dts) == pytest.approx(0.21, abs=0.01)
+    # sin datos suficientes → None (no comparable)
+    assert _span_cagr([], []) is None
+    assert _span_cagr([1.0], [date(2025, 1, 1)]) is None
