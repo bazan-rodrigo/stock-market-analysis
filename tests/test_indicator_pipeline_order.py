@@ -12,8 +12,10 @@ import app.services.technical_service as ts
 
 def _stub_pipeline(monkeypatch, calls):
     monkeypatch.setattr(ts, "get_session", lambda: object())
+    # threads (use_procs=False) → _run_current_and_backfill usa _load_all_prices
+    monkeypatch.setattr(ts, "_count_price_assets", lambda s: 0)
+    monkeypatch.setattr(ts, "_use_process_pool", lambda n: (False, 1))
     monkeypatch.setattr(ts, "_load_all_prices", lambda s: {})
-    monkeypatch.setattr(ts, "_derive_recent_caches", lambda pc: (None, None, None))
     monkeypatch.setattr(ts, "_refresh_group_scores", lambda: None)
     monkeypatch.setattr(ts, "recompute_current_indicators",
                         lambda **kw: calls.append("current") or {"total": 0, "errors": []})

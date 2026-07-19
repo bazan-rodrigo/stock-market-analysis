@@ -547,23 +547,30 @@ def _query_best_sma(asset_id: int, session, best_sma_cache: dict | None = None) 
     return {code: int(val) for code, val in rows if val is not None}
 
 
-def _load_benchmark_cache(s) -> dict:
-    """Precarga {asset_id: benchmark_id} para todos los activos con benchmark."""
-    rows = s.query(Asset.id, Asset.benchmark_id).filter(Asset.benchmark_id.isnot(None)).all()
-    return {aid: bid for aid, bid in rows}
+def _load_benchmark_cache(s, asset_ids=None) -> dict:
+    """Precarga {asset_id: benchmark_id} para los activos con benchmark.
+    asset_ids=None: todos (default); una lista lo acota al slice de un lote
+    (ver _current_batch, modo procesos)."""
+    q = s.query(Asset.id, Asset.benchmark_id).filter(Asset.benchmark_id.isnot(None))
+    if asset_ids is not None:
+        q = q.filter(Asset.id.in_(asset_ids))
+    return {aid: bid for aid, bid in q.all()}
 
 
-def _load_best_sma_cache(s) -> dict:
-    """Precarga best_sma_d/w/m para todos los activos. {asset_id: {code: val}}"""
-    rows = s.query(
+def _load_best_sma_cache(s, asset_ids=None) -> dict:
+    """Precarga best_sma_d/w/m. {asset_id: {code: val}}. asset_ids=None: todos
+    (default); una lista lo acota al slice de un lote (ver _current_batch)."""
+    q = s.query(
         CurrentIndicatorValue.asset_id,
         CurrentIndicatorValue.code,
         CurrentIndicatorValue.value_num,
     ).filter(
         CurrentIndicatorValue.code.in_(["best_sma_d", "best_sma_w", "best_sma_m"])
-    ).all()
+    )
+    if asset_ids is not None:
+        q = q.filter(CurrentIndicatorValue.asset_id.in_(asset_ids))
     cache: dict = {}
-    for asset_id, code, val in rows:
+    for asset_id, code, val in q.all():
         if val is not None:
             cache.setdefault(asset_id, {})[code] = int(val)
     return cache
@@ -1336,50 +1343,6 @@ def _load_prices_for_assets(s, asset_ids: list) -> dict:
 
 
 _RECENT_LOOKBACK_DAYS = 1500  # ~6 años; suficiente para RSI, ATR, zonas, RS52w
-
-
-def _load_recent_prices(s) -> tuple[dict, dict, dict]:
-    """Carga precios para valores vigentes.
-
-    Retorna (price_cache, ath_cache, close_cache) donde:
-    - price_cache:  {asset_id: df} con close/high/low de los últimos 1500 días
-    - ath_cache:    {asset_id: float} con el máximo histórico de close
-    - close_cache:  {asset_id: np.ndarray} con cierre completo histórico (para drawdowns)
-    """
-    from sqlalchemy import text as _text
-
-    cutoff = (date.today() - timedelta(days=_RECENT_LOOKBACK_DAYS)).isoformat()
-
-    with engine.connect() as conn:
-        # ATH histórico
-        ath_rows = conn.execute(
-            _text("SELECT asset_id, MAX(close) FROM prices"
-                  " WHERE close IS NOT NULL GROUP BY asset_id")
-        ).fetchall()
-        ath_cache = {aid: float(ath) for aid, ath in ath_rows if ath is not None}
-
-        # Precios recientes
-        price_rows = conn.execute(
-            _text(f"SELECT asset_id, date, close, high, low FROM prices"
-                  f" WHERE date >= '{cutoff}' ORDER BY asset_id, date")
-        ).fetchall()
-
-        # Cierre completo histórico para drawdowns (2 columnas, mysqlclient lo hace rápido)
-        close_rows = conn.execute(
-            _text("SELECT asset_id, close FROM prices"
-                  " WHERE close IS NOT NULL ORDER BY asset_id, date")
-        ).fetchall()
-
-    df = pd.DataFrame(price_rows, columns=["asset_id", "date", "close", "high", "low"])
-    price_cache = {int(aid): sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
-
-    df_c = pd.DataFrame(close_rows, columns=["asset_id", "close"])
-    close_cache = {
-        int(aid): sub["close"].to_numpy(dtype=float)
-        for aid, sub in df_c.groupby("asset_id")
-    }
-
-    return price_cache, ath_cache, close_cache
 
 
 # Activos por query al leer fechas existentes durante un backfill delta
@@ -3152,119 +3115,197 @@ def _compute_current_indicator(code: str, asset_ids: list,
     s.commit()   # cierra el último lote pendiente
 
 
-def _compute_current_indicator_worker(code, asset_ids,
-                               price_cache, df_w_cache, df_m_cache,
-                               best_sma_cache, benchmark_cache,
-                               ath_cache, close_cache, regime_cfg, vol_cfg, sr_cfg, asset_tick,
-                               error_collector=None, collector_lock=None):
+def _current_batch(batch_asset_ids: list, codes: list, preloaded: dict | None = None) -> dict:
+    """Unidad de trabajo del pool de vigentes: TODOS los códigos para un LOTE de
+    activos (antes la unidad era 'un código para todos los activos'). Reusa
+    _compute_current_indicator por código escopado al lote: la lógica per-activo
+    (savepoints + error_collector) queda intacta.
+
+    Dos modos de caches, mismo patrón que backfill_indicator (price_cache):
+    - preloaded=None (PROCESOS): auto-contenido —el hijo carga SU slice
+      (_load_prices_for_assets trae los benchmarks) y deriva sus caches— SIN que
+      el padre cargue la tabla de precios entera (el techo de memoria que cerraba
+      el diseño).
+    - preloaded=dict (THREADS): el padre ya derivó las caches UNA vez y las pasa
+      por referencia (todas las claves de _derive_recent_caches/resamples/
+      best_sma/benchmark); el lote no re-lee precios ni duplica memoria (evita
+      la relectura completa redundante del fallback de threads a escala).
+
+    NO propaga: _compute_current_indicator ya maneja el error por-activo (lo
+    anota y sigue); un fallo global del código/lote se anota para todos sus
+    activos. Devuelve {"asset_errors": {asset_id: [errores]}} para que el padre
+    agregue indicator_update_log."""
     from app.database import Session as _DbSession
+    asset_errors: dict = {}
+    _clock = threading.Lock()   # el lote es single-thread, pero la firma lo exige
     try:
-        _compute_current_indicator(
-            code, asset_ids,
-            price_cache=price_cache, df_w_cache=df_w_cache, df_m_cache=df_m_cache,
-            best_sma_cache=best_sma_cache,
-            benchmark_cache=benchmark_cache, ath_cache=ath_cache,
-            close_cache=close_cache,
-            regime_cfg=regime_cfg, vol_cfg=vol_cfg, sr_cfg=sr_cfg,
-            asset_tick=asset_tick,
-            error_collector=error_collector, collector_lock=collector_lock,
-        )
+        s = get_session()
+        if preloaded is not None:
+            price_cache     = preloaded["price_cache"]
+            ath_cache       = preloaded["ath_cache"]
+            close_cache     = preloaded["close_cache"]
+            df_w_cache      = preloaded["df_w_cache"]
+            df_m_cache      = preloaded["df_m_cache"]
+            best_sma_cache  = preloaded["best_sma_cache"]
+            benchmark_cache = preloaded["benchmark_cache"]
+            ids = [aid for aid in batch_asset_ids if aid in price_cache]
+        else:
+            full = _load_prices_for_assets(s, batch_asset_ids)
+            price_cache, ath_cache, close_cache = _derive_recent_caches(full)
+            # computar SOLO los activos del lote (full puede traer benchmarks de otros)
+            ids = [aid for aid in batch_asset_ids if aid in price_cache]
+            df_w_cache = {aid: _resample_ohlc(price_cache[aid], "W") for aid in ids}
+            df_m_cache = {aid: _resample_ohlc(price_cache[aid], "M") for aid in ids}
+            best_sma_cache  = _load_best_sma_cache(s, batch_asset_ids)
+            benchmark_cache = _load_benchmark_cache(s, batch_asset_ids)
+        if not ids:
+            return {"asset_errors": asset_errors}
+        regime_cfg = _get_regime_config()
+        vol_cfg    = _get_volatility_config()
+        sr_cfg     = sr_service._get_sr_config()
+        for code in codes:
+            try:
+                _compute_current_indicator(
+                    code, ids,
+                    price_cache=price_cache, df_w_cache=df_w_cache, df_m_cache=df_m_cache,
+                    best_sma_cache=best_sma_cache,
+                    benchmark_cache=benchmark_cache, ath_cache=ath_cache,
+                    close_cache=close_cache,
+                    regime_cfg=regime_cfg, vol_cfg=vol_cfg, sr_cfg=sr_cfg,
+                    asset_tick=None,
+                    error_collector=asset_errors, collector_lock=_clock,
+                )
+            except Exception as exc:
+                logger.warning("Error lote vigente code=%s: %s", code, exc)
+                for aid in ids:
+                    asset_errors.setdefault(aid, []).append(f"{code}: {exc}")
+        return {"asset_errors": asset_errors}
     except Exception as exc:
-        logger.warning("Error worker valor vigente code=%s: %s", code, exc)
-        if error_collector is not None:
-            with collector_lock:
-                for asset_id in asset_ids:
-                    error_collector.setdefault(asset_id, []).append(f"{code}: {exc}")
+        logger.warning("Error lote vigente: %s", exc)
+        for aid in batch_asset_ids:
+            asset_errors.setdefault(aid, []).append(str(exc))
+        return {"asset_errors": asset_errors}
     finally:
         _DbSession.remove()
 
 
 def recompute_current_indicators(progress_cb=None, *, codes=None,
-                            preloaded_caches: tuple | None = None) -> dict:
-    """Recomputa el valor vigente de los indicadores.
+                            asset_ids=None, weights=None, price_cache=None) -> dict:
+    """Recomputa el valor vigente de los indicadores, por LOTES de activos
+    (threads o procesos, mismo harness y criterio que el backfill —
+    _use_process_pool). Cada lote computa TODOS los códigos para su subconjunto.
 
-    codes: subconjunto de _CURRENT_FNS a procesar (None = todos).
-    preloaded_caches: (price_cache, ath_cache, close_cache) ya cargados por el
-    caller para no releer precios de la DB.
-    """
-    import threading as _th
-
+    codes: subconjunto de _CURRENT_FNS (None = todos).
+    asset_ids/weights: universo y pesos ya calculados por el caller
+    (_run_current_and_backfill los saca de _load_price_weights, un COUNT
+    liviano). Si no se pasan, se cargan acá.
+    price_cache: en modo THREADS el caller pasa la tabla de precios que YA tiene
+    en RAM (para el backfill) → se derivan las caches UNA vez y se comparten por
+    referencia con los lotes (sin relectura). En modo PROCESOS se ignora: cada
+    hijo carga su slice (cierra el techo de memoria del padre; ver _current_batch)."""
     current_codes = sorted(codes) if codes is not None else sorted(_CURRENT_FNS.keys())
     # LPT: pesados primero (ver _cost_rank)
     current_codes = sorted(current_codes, key=_cost_rank, reverse=True)
-    n_ind      = len(current_codes)
+    n_ind         = len(current_codes)
 
     if progress_cb:
-        progress_cb(0, 1, "Cargando precios en memoria...")
+        progress_cb(0, 1, "Preparando valores vigentes...")
 
     s = get_session()
-    if preloaded_caches is not None:
-        price_cache, ath_cache, close_cache = preloaded_caches
-    else:
-        price_cache, ath_cache, close_cache = _load_recent_prices(s)
-    best_sma_cache                            = _load_best_sma_cache(s)
-    benchmark_cache                           = _load_benchmark_cache(s)
-    asset_ids       = sorted(price_cache.keys())
-    n_assets        = len(asset_ids)
-    total_work      = n_ind * n_assets
+    if weights is None:
+        weights = _load_price_weights(s)
+    if asset_ids is None:
+        asset_ids = sorted(weights.keys())
+    n_assets   = len(asset_ids)
+    total_work = n_ind * n_assets
 
-    if progress_cb:
-        progress_cb(0, 1, "Precalculando resamples semanales y mensuales...")
-    df_w_cache = {aid: _resample_ohlc(df, "W") for aid, df in price_cache.items()}
-    df_m_cache = {aid: _resample_ohlc(df, "M") for aid, df in price_cache.items()}
+    if n_assets == 0:
+        return {"total": 0, "success": 0, "errors": []}
 
-    regime_cfg = _get_regime_config()
-    vol_cfg    = _get_volatility_config()
-    sr_cfg     = sr_service._get_sr_config()
+    use_procs, n_procs = _use_process_pool(n_assets)
+    workers = n_procs if use_procs else _POOL_WORKERS
+    batches = _partition_assets(asset_ids, weights, _n_batches(n_assets, workers))
+
+    # Pre-asegurar las configs (regime/vol/sr) UNA vez en el padre: cada lote
+    # las lee, y _get_*_config crea un default si falta → sin esto, lotes
+    # concurrentes chocarían al crearlo a la vez (mismo fix que la verificación).
+    _get_regime_config()
+    _get_volatility_config()
+    sr_service._get_sr_config()
+
+    # THREADS con price_cache del caller: derivar las caches UNA vez y pasarlas
+    # a los lotes por referencia (evita que cada lote re-lea de la BD los precios
+    # que el padre ya tiene en RAM). En procesos NO: cada hijo carga su slice.
+    preloaded = None
+    if not use_procs and price_cache is not None:
+        rec, ath, close = _derive_recent_caches(price_cache)
+        preloaded = {
+            "price_cache": rec, "ath_cache": ath, "close_cache": close,
+            "df_w_cache": {aid: _resample_ohlc(df, "W") for aid, df in rec.items()},
+            "df_m_cache": {aid: _resample_ohlc(df, "M") for aid, df in rec.items()},
+            "best_sma_cache":  _load_best_sma_cache(s),
+            "benchmark_cache": _load_benchmark_cache(s),
+        }
 
     from app.database import Session as _DbSession
-    _DbSession.remove()
+    _DbSession.remove()   # soltar la conexión del padre antes del pool
 
-    _assets_done = 0
-    _lock        = _th.Lock()
-    asset_errors: dict = {}   # asset_id -> [errores de cualquier indicador]
+    asset_errors: dict = {}   # asset_id -> [errores de cualquier código]
+    done = [0]
+    lock = threading.Lock()
 
-    def _make_tick(code):
-        per_ind = [0]
-        def _tick():
-            nonlocal _assets_done
-            per_ind[0] += 1
-            with _lock:
-                _assets_done += 1
-                n = _assets_done
-            if progress_cb:
-                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets}")
-        return _tick
-
-    with _TPE(max_workers=min(n_ind, _POOL_WORKERS)) as pool:
-        futures = {
-            pool.submit(
-                _compute_current_indicator_worker,
-                code, asset_ids,
-                price_cache, df_w_cache, df_m_cache,
-                best_sma_cache, benchmark_cache,
-                ath_cache, close_cache, regime_cfg, vol_cfg, sr_cfg,
-                _make_tick(code),
-                error_collector=asset_errors, collector_lock=_lock,
-            ): code
-            for code in current_codes
-        }
+    def _consume(out: dict, batch: list) -> None:
+        if out:
+            for aid, errs in out.get("asset_errors", {}).items():
+                asset_errors.setdefault(aid, []).extend(errs)
+        with lock:
+            done[0] += len(batch)
+            d = done[0]
+        # Progreso GRUESO por lote: todos los códigos avanzan juntos (un lote los
+        # computa todos para sus activos) → cada fila por-código del panel avanza
+        # al mismo conteo. Al terminar el último lote, d == n_assets → filas con ✓.
         if progress_cb:
-            progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(current_codes)}")
-        for future in as_completed(futures):
-            code = futures[future]
-            try:
-                future.result()
-            except Exception as exc:
-                logger.warning("Error valor vigente code=%s: %s", code, exc)
+            for code in current_codes:
+                progress_cb(d * n_ind, max(total_work, 1), f"{code}: {d}/{n_assets}")
 
-    # Un registro por activo en indicator_update_log, agregando errores de
-    # todos los indicadores (no solo el último que se haya procesado).
+    def _drain(futures: dict) -> None:
+        for f in as_completed(futures):
+            batch = futures[f]
+            try:
+                out = f.result()
+            except Exception as exc:
+                # Crash duro del hijo (BrokenProcessPool): marcar TODO el lote como
+                # error (así indicator_update_log no lo da por exitoso) y SEGUIR.
+                # NO se avanza el progreso (como technical._drain del backfill): las
+                # filas del panel quedan cortas → señal visible de que algo falló.
+                logger.warning("Current lote muerto: %s", exc)
+                for aid in batch:
+                    asset_errors.setdefault(aid, []).append(f"lote: {exc}")
+                continue
+            _consume(out, batch)
+
+    if progress_cb:
+        progress_cb(0, max(total_work, 1),
+                    f"__init__:{n_assets}:{','.join(current_codes)}")
+
+    if use_procs:
+        from app.config import BASE_DIR, Config
+        from app.services import process_pool as _pp
+        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
+                               Config.IND_CHILD_DB_POOL, Config.LOG_LEVEL) as pool:
+            _drain({pool.submit(_current_batch, b, current_codes): b for b in batches})
+    else:
+        with _TPE(max_workers=min(len(batches), workers)) as pool:
+            _drain({pool.submit(_current_batch, b, current_codes, preloaded): b
+                    for b in batches})
+
+    # Un registro por activo en indicator_update_log, agregando errores de todos
+    # los códigos (igual que antes, en el padre tras juntar los lotes).
     log_session = get_session()
-    for asset_id in asset_ids:
-        errs = asset_errors.get(asset_id)
+    for aid in asset_ids:
+        errs = asset_errors.get(aid)
         _save_indicator_log(
-            asset_id, success=not errs,
+            aid, success=not errs,
             error="; ".join(errs) if errs else None,
             session=log_session,
         )
@@ -3285,8 +3326,10 @@ def recompute_current_indicators(progress_cb=None, *, codes=None,
 
 def _derive_recent_caches(price_cache_full: dict) -> tuple[dict, dict, dict]:
     """Deriva (price_cache 1500d, ath_cache, close_cache) desde precios completos
-    ya en memoria, con la misma semántica que _load_recent_prices pero sin
-    volver a leer la DB."""
+    ya en memoria (price=últimos 1500d, ath=máx close histórico, close=array de
+    cierre completo para drawdowns), sin volver a leer la DB. Lo usan tanto el
+    padre en modo threads como cada _current_batch en modo procesos (sobre su
+    slice de _load_prices_for_assets)."""
     cutoff = date.today() - timedelta(days=_RECENT_LOOKBACK_DAYS)
     price_cache: dict = {}
     ath_cache:   dict = {}
@@ -3336,13 +3379,26 @@ def _run_current_and_backfill(progress_cb, *, force: bool) -> dict:
     barra de progreso salta hacia atrás al pasar de una fase a la otra
     (fase 2 arranca en 0 con un total más chico) — el usuario lo notó como
     "se resetea". cb1/cb2 remapean cada fase al mismo total combinado,
-    con la fase 2 offseteada por el tamaño de la fase 1."""
+    con la fase 2 offseteada por el tamaño de la fase 1.
+
+    En modo PROCESOS el padre YA NO carga la tabla de precios entera (era el
+    techo de memoria): universo y pesos salen de _load_price_weights (un COUNT
+    liviano) y cada hijo de AMBAS fases carga su slice. En modo threads (escala
+    chica) sí carga el full una vez y lo reusa para el backfill."""
     s = get_session()
-    if progress_cb:
-        progress_cb(0, 1, "Cargando precios en memoria...")
-    price_cache_full = _load_all_prices(s)
-    snap_caches      = _derive_recent_caches(price_cache_full)
-    n_assets         = len(price_cache_full)
+    use_procs = _use_process_pool(_count_price_assets(s))[0]
+    if use_procs:
+        weights          = _load_price_weights(s)
+        asset_ids        = sorted(weights.keys())
+        n_assets         = len(asset_ids)
+        price_cache_full = None
+    else:
+        if progress_cb:
+            progress_cb(0, 1, "Cargando precios en memoria...")
+        price_cache_full = _load_all_prices(s)
+        asset_ids        = sorted(price_cache_full.keys())
+        weights          = {aid: len(df) for aid, df in price_cache_full.items()}
+        n_assets         = len(asset_ids)
 
     cb1 = cb2 = progress_cb
     if progress_cb:
@@ -3357,19 +3413,16 @@ def _run_current_and_backfill(progress_cb, *, force: bool) -> dict:
         def cb2(cur, tot, label=""):
             progress_cb(phase1_total + cur, combined_total, label)
 
+    # En threads pasamos el price_cache_full que ya cargamos (fase 1 deriva las
+    # caches una vez y las comparte, sin relectura); en procesos va None (cada
+    # hijo carga su slice → el padre no tiene la tabla entera).
     r1 = recompute_current_indicators(progress_cb=cb1,
                                  codes=_CURRENT_ONLY_CODES,
-                                 preloaded_caches=snap_caches)
-    # En modo procesos cada hijo carga los precios de SU lote: retener acá
-    # el price_cache completo (que la fase 1 ya usó y terminó) sería el pico
-    # de memoria que la partición quería evitar, encima del de los hijos.
-    # Soltar las referencias del padre antes del backfill; los pesos de
-    # partición salen de un COUNT liviano (price_cache=None). En threads el
-    # backfill sí reutiliza el cache cargado. La fase de vigentes cargando
-    # toda la tabla sigue siendo el techo de memoria del padre (diferido a
-    # una etapa futura del plan — ver docs/notes).
-    if _use_process_pool(n_assets)[0]:
-        del price_cache_full, snap_caches
+                                 asset_ids=asset_ids, weights=weights,
+                                 price_cache=price_cache_full)
+    # Fase 2: en procesos cada hijo carga los precios de SU lote (price_cache
+    # None → pesos por COUNT); en threads reusa el full ya cargado.
+    if use_procs:
         r2 = backfill_all_indicator_values(progress_cb=cb2, force=force)
     else:
         r2 = backfill_all_indicator_values(progress_cb=cb2, force=force,
