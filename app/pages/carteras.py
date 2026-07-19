@@ -74,6 +74,12 @@ def layout(**kwargs):
                 dcc.Dropdown(id="cart-f-members", multi=True,
                              placeholder="Elegí activos…",
                              style={"fontSize": "0.85rem"})])], className="mb-2"),
+            dbc.Row([dbc.Col([
+                dbc.Label("Teórica objetivo (opcional, para las reales)",
+                          style={"fontSize": "0.82rem"}),
+                dcc.Dropdown(id="cart-f-link", clearable=True,
+                             placeholder="Vincular a una teórica…",
+                             style={"fontSize": "0.85rem"})])], className="mb-2"),
 
             dbc.Alert(id="cart-modal-error", is_open=False, color="danger",
                       className="mt-2 mb-0 small py-1"),

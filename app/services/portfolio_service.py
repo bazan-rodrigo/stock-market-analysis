@@ -385,3 +385,32 @@ def _strategy_topn_members(session, strategy_id, top_n, as_of=None):
         return []
     ew = 1.0 / len(ranked)
     return [(aid, ew) for aid, _ in ranked]
+
+
+def tracking_drift(session, portfolio_id):
+    """Desvío de COMPOSICIÓN de una cartera real vs su teórica objetivo vinculada.
+
+    Compara los pesos reales vigentes (market_value / total) con los pesos
+    objetivo (resolve_membership de la teórica). Devuelve {'target_name', 'rows':
+    [{asset_id, target_w, real_w, diff}]} (diff = real − objetivo; negativo =
+    faltante) o None si la cartera no está vinculada. El tracking error por
+    RETORNOS queda para cuando se resuelva la convención de equity/TWR.
+    """
+    p = session.get(Portfolio, portfolio_id)
+    if p is None or not p.linked_portfolio_id:
+        return None
+    target = dict(resolve_membership(session, p.linked_portfolio_id))
+    holdings = resolve_holdings(session, portfolio_id)
+    mv = sum(h["market_value"] for h in holdings
+             if h["market_value"] is not None)
+    real_w = {}
+    if mv:
+        for h in holdings:
+            if h["market_value"] is not None:
+                real_w[h["asset_id"]] = h["market_value"] / mv
+    rows = [{"asset_id": aid, "target_w": target.get(aid, 0.0),
+             "real_w": real_w.get(aid, 0.0),
+             "diff": real_w.get(aid, 0.0) - target.get(aid, 0.0)}
+            for aid in sorted(set(target) | set(real_w))]
+    linked = session.get(Portfolio, p.linked_portfolio_id)
+    return {"target_name": linked.name if linked else "—", "rows": rows}

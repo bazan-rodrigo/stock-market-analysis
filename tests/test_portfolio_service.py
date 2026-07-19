@@ -263,3 +263,28 @@ def test_resolve_membership_no_method_is_empty():
     s = _session()
     p = ps.create_portfolio(s, "R", "seg", owner_id=1)   # sin método
     assert ps.resolve_membership(s, p.id) == []
+
+
+def test_tracking_drift_composition():
+    s = _session()
+    teo = ps.create_portfolio(s, "Target", "seg", owner_id=1,
+                              composition_method="curated")
+    ps.set_members(s, teo.id, [1, 2])                     # objetivo EW 50/50
+    real = ps.create_portfolio(s, "Real", "real", owner_id=1,
+                               linked_portfolio_id=teo.id)
+    s.add(Price(asset_id=1, date=date(2026, 1, 2), close=100))
+    s.commit()
+    ps.add_transaction(s, real.id, 1, "buy", date(2026, 1, 2),
+                       quantity=10, price=100)            # sólo tiene el activo 1
+    d = ps.tracking_drift(s, real.id)
+    assert d["target_name"] == "Target"
+    byid = {r["asset_id"]: r for r in d["rows"]}
+    assert byid[1]["target_w"] == pytest.approx(0.5)
+    assert byid[1]["real_w"] == pytest.approx(1.0)
+    assert byid[2]["diff"] == pytest.approx(-0.5)         # activo 2 faltante
+
+
+def test_tracking_drift_none_when_not_linked():
+    s = _session()
+    real = ps.create_portfolio(s, "Real", "real", owner_id=1)
+    assert ps.tracking_drift(s, real.id) is None

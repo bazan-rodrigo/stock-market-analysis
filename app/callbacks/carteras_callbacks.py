@@ -115,21 +115,25 @@ def toggle_modal(_add, _cancel, _edit, sel_id, data):
 @callback(
     Output("cart-f-strategy", "options"),
     Output("cart-f-members", "options"),
+    Output("cart-f-link", "options"),
     Input("cart-modal", "is_open"),
 )
 def load_composition_options(is_open):
     if not is_open:
-        return no_update, no_update
+        return no_update, no_update, no_update
     from app.database import get_session
     from app.models import Asset
     from app.services.strategy_service import get_visible_strategies
     s = get_session()
+    user_id, is_admin = current_viewer()
     strat = [{"label": st.name, "value": st.id}
-             for st in get_visible_strategies(*current_viewer())]
+             for st in get_visible_strategies(user_id, is_admin)]
     assets = [{"label": tk or f"#{i}", "value": i}
               for i, tk in s.query(Asset.id, Asset.ticker)
               .order_by(Asset.ticker).all()]
-    return strat, assets
+    segs = [{"label": pf.name, "value": pf.id}
+            for pf in svc.list_portfolios(s, user_id, is_admin, ptype="seg")]
+    return strat, assets, segs
 
 
 @callback(
@@ -148,12 +152,13 @@ def load_composition_options(is_open):
     State("cart-f-strategy", "value"),
     State("cart-f-topn", "value"),
     State("cart-f-members", "value"),
+    State("cart-f-link", "value"),
     State("cart-editing-id", "data"),
     State("cart-reload", "data"),
     prevent_initial_call=True,
 )
 def save(_n, name, ptype, currency, is_public, method, strategy_id, topn,
-         members, editing_id, reload):
+         members, link, editing_id, reload):
     def err(msg):
         # El modal NO se cierra ante error: solo se muestra el mensaje.
         return no_update, no_update, no_update, msg, True, no_update
@@ -192,7 +197,8 @@ def save(_n, name, ptype, currency, is_public, method, strategy_id, topn,
                 base_currency=currency, composition_method=comp,
                 strategy_id=(strategy_id if comp == "strategy" else None),
                 top_n=(int(_num(topn))
-                       if comp == "strategy" and _num(topn) else None))
+                       if comp == "strategy" and _num(topn) else None),
+                linked_portfolio_id=(link if ptype == "real" else None))
             if comp == "curated" and members:
                 svc.set_members(s, new_p.id, members)
             msg = f"Cartera «{name}» creada."
@@ -341,8 +347,11 @@ def render_detail(sel_id, _refresh):
     holdings = svc.resolve_holdings(s, sel_id)
     es = svc.equity_series(s, sel_id)
     txns = svc.list_transactions(s, sel_id)
+    drift = svc.tracking_drift(s, sel_id)
 
     ids = {h["asset_id"] for h in holdings} | {t.asset_id for t in txns}
+    if drift:
+        ids |= {r["asset_id"] for r in drift["rows"]}
     tickers = ({i: tk for i, tk in
                 s.query(Asset.id, Asset.ticker).filter(Asset.id.in_(ids)).all()}
                if ids else {})
@@ -396,6 +405,23 @@ def render_detail(sel_id, _refresh):
          "Moneda"], txn_rows) if txn_rows else html.Small(
         "Sin operaciones registradas.", className="text-muted")
 
+    drift_block = html.Div()
+    if drift:
+        drift_rows = [[
+            tickers.get(r["asset_id"], f"#{r['asset_id']}"),
+            f"{r['target_w'] * 100:.1f}%", f"{r['real_w'] * 100:.1f}%",
+            html.Span(f"{r['diff'] * 100:+.1f}%",
+                      className="text-success" if r["diff"] >= 0
+                      else "text-danger"),
+        ] for r in drift["rows"]]
+        drift_block = html.Div([
+            html.H6(f"Desvío vs teórica objetivo «{drift['target_name']}»",
+                    className="mt-3"),
+            html.Small("Desvío = peso real − objetivo (negativo = faltante).",
+                       className="text-muted d-block mb-1"),
+            _table(["Activo", "Objetivo", "Real", "Desvío"], drift_rows),
+        ])
+
     return html.Div([
         header,
         tiles,
@@ -408,6 +434,7 @@ def render_detail(sel_id, _refresh):
         holdings_tbl,
         html.H6("Registro de operaciones", className="mt-3"),
         txns_tbl,
+        drift_block,
     ])
 
 
