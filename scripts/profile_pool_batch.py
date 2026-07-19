@@ -32,6 +32,12 @@ Uso (en el Codespace, con la BD levantada):
     python scripts/profile_pool_batch.py delta          # delta (camino del job diario)
     python scripts/profile_pool_batch.py rebuild 100    # rebuild, lote de 100 activos (mas historia primero)
     python scripts/profile_pool_batch.py delta 100
+    python scripts/profile_pool_batch.py delta --raw    # wall-clock SIN profiler (baseline real)
+
+El flag --raw corre el mismo lote sin instrumentar: es el numero honesto
+para comparar antes/despues de una optimizacion. El total que imprime el
+modo con profiler esta inflado (cProfile cobra por cada llamada, y este
+camino hace decenas de millones), asi que NO sirve como baseline.
 """
 import cProfile
 import io
@@ -68,13 +74,32 @@ def _profile(label: str, fn, n_reps: int) -> None:
     print(buf.getvalue())
 
 
+def _raw(label: str, fn, n_reps: int) -> None:
+    """Wall-clock SIN cProfile: el baseline real.
+
+    cProfile instrumenta cada llamada, asi que infla mucho las funciones
+    llamadas millones de veces (medido: pd.notna a ~15M llamadas aparecia
+    ~12x mas caro bajo el profiler que su costo real). Para saber cuanto
+    tarda de verdad el lote —y para comparar antes/despues de una
+    optimizacion— hay que medir sin instrumentar."""
+    t0 = time.perf_counter()
+    for _ in range(n_reps):
+        fn()
+    elapsed = time.perf_counter() - t0
+    print(f"\n{'=' * 70}\n{label} [SIN profiler]: {elapsed:.3f}s total "
+          f"({n_reps} rep., {elapsed / n_reps * 1000:.1f}ms/rep)\n{'=' * 70}")
+
+
 def main():
     args = sys.argv[1:]
     mode  = "rebuild"
     limit = None
+    raw   = False
     for a in args:
         if a in ("delta", "rebuild"):
             mode = a
+        elif a == "--raw":
+            raw = True
         elif a.isdigit():
             limit = int(a)
     force = (mode == "rebuild")
@@ -116,7 +141,8 @@ def main():
 
     # Un solo lote (n_reps=1): el worker escribe en la BD; repetir solo
     # re-upsertearía las mismas filas.
-    _profile(f"_backfill_batch_worker (1 lote inline, {mode})", _run_batch, 1)
+    label = f"_backfill_batch_worker (1 lote inline, {mode})"
+    (_raw if raw else _profile)(label, _run_batch, 1)
 
 
 if __name__ == "__main__":

@@ -662,12 +662,22 @@ def _pairs_to_write(dates_list: list, vals_list: list, existing) -> list:
       recalcula entera pero los valores viejos casi no cambian, así que
       solo se escriben las diferencias reales.
 
-    Nota: se probó una variante vectorizada con numpy y el benchmark la
-    descartó — este camino escalar cuesta ~1 ms por activo, y la versión
-    numpy pagaba sorts y conversiones que no amortizaba.
+    La máscara de nulos se calcula VECTORIZADA una sola vez (un pd.notna
+    sobre toda la serie) en vez de una llamada escalar por fecha. Medido:
+    0.708 -> 0.321 ms por serie de 4570 fechas en floats, 0.687 -> 0.364 ms
+    en series de texto (zonas), con salida idéntica.
+
+    Nota: una variante vectorizada ANTERIOR se había descartado por
+    benchmark, pero esa vectorizaba TODO el filtro —incluidos el sort y las
+    conversiones del modo dict—, y eso era lo que no amortizaba. Acá sólo se
+    vectoriza la máscara de nulos, que no paga ninguna de las dos cosas; el
+    resto del filtro (dict/set) sigue escalar.
     """
+    notna_mask = pd.notna(vals_list) if vals_list else ()
+
     if existing is None:
-        return [(d, v) for d, v in zip(dates_list, vals_list) if pd.notna(v)]
+        return [(d, v) for d, v, ok in zip(dates_list, vals_list, notna_mask)
+                if ok]
 
     last_d = dates_list[-1] if dates_list else None
     if isinstance(existing, dict):
@@ -679,11 +689,11 @@ def _pairs_to_write(dates_list: list, vals_list: list, existing) -> list:
                 return float(old) != float(v)
             except (TypeError, ValueError):
                 return str(old) != str(v)
-        return [(d, v) for d, v in zip(dates_list, vals_list)
-                if pd.notna(v) and _keep(d, v)]
+        return [(d, v) for d, v, ok in zip(dates_list, vals_list, notna_mask)
+                if ok and _keep(d, v)]
 
-    return [(d, v) for d, v in zip(dates_list, vals_list)
-            if pd.notna(v) and (d not in existing or d == last_d)]
+    return [(d, v) for d, v, ok in zip(dates_list, vals_list, notna_mask)
+            if ok and (d not in existing or d == last_d)]
 
 
 def _stale_dates_to_delete(dates_list: list, vals_list: list, existing) -> list:
@@ -1147,7 +1157,12 @@ def _series_stats(dates_list: list, vals_list: list) -> tuple | None:
     fechas no-nulas de esta serie — mismo invariante en el que ya confía
     todo el sistema de tail-mode (_pairs_to_write sólo filtra pd.notna(v)
     en sus 3 modos)."""
-    valid = [d for d, v in zip(dates_list, vals_list) if pd.notna(v)]
+    if not vals_list:
+        return None
+    # máscara vectorizada por el mismo motivo que en _pairs_to_write: esta
+    # función recorre la serie COMPLETA una vez por (activo, código)
+    notna_mask = pd.notna(vals_list)
+    valid = [d for d, ok in zip(dates_list, notna_mask) if ok]
     return (valid[0], valid[-1], len(valid)) if valid else None
 
 

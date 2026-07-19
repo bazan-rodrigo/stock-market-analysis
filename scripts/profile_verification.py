@@ -134,7 +134,10 @@ def _pick_asset(session, ticker: str | None):
     row = session.execute(
         sa.select(Price.asset_id, sa.func.count().label("n"), Asset.ticker)
         .join(Asset, Asset.id == Price.asset_id)
-        .group_by(Price.asset_id)
+        # ticker va en el GROUP BY: PostgreSQL rechaza seleccionar una
+        # columna no agregada ni agrupada (MySQL lo tolera). Es dependiente
+        # funcional de asset_id, así que el resultado no cambia.
+        .group_by(Price.asset_id, Asset.ticker)
         .order_by(sa.desc("n"))
         .limit(1)
     ).first()
@@ -147,7 +150,7 @@ def _pick_fund_asset(session):
         sa.select(FundamentalQuarterly.asset_id, sa.func.count().label("n"),
                   Asset.ticker)
         .join(Asset, Asset.id == FundamentalQuarterly.asset_id)
-        .group_by(FundamentalQuarterly.asset_id)
+        .group_by(FundamentalQuarterly.asset_id, Asset.ticker)
         .order_by(sa.desc("n"))
         .limit(1)
     ).first()
