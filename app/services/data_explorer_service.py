@@ -56,6 +56,9 @@ def indicator_history(code: str, asset_id: int):
     rows = s.execute(
         sa.select(*cols)
         .where(tbl.c.asset_id == asset_id)
+        .where(tbl.c.value.isnot(None))  # tabla ancha: no mostrar filas donde
+                                         # esta columna es NULL (fila de un
+                                         # código hermano); no-op en per-código
         .order_by(tbl.c.date)
         .limit(MAX_ROWS)
     ).all()

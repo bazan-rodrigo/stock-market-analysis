@@ -173,6 +173,10 @@ def _prefetch_stored(session, codes: list, asset_ids: list) -> dict:
         rows = session.execute(
             sa.select(t.c.asset_id, t.c.date, t.c.value)
             .where(t.c.asset_id.in_(asset_ids))
+            .where(t.c.value.isnot(None))  # tabla ancha: ignorar filas donde
+                                           # esta columna es NULL (la escribió
+                                           # otro código de la cadencia); en
+                                           # per-código es no-op
         ).all()
         by_asset: dict = {}
         for aid, d, v in rows:

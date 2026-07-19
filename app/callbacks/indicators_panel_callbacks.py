@@ -148,6 +148,9 @@ def load_indicators_panel(asset_id, active_tab):
         row = s.execute(
             sa.select(t.c.value, t.c.date)
             .where(t.c.asset_id == aid)
+            .where(t.c.value.isnot(None))  # tabla ancha: último valor REAL de
+                                           # este código (saltear filas NULL de
+                                           # códigos hermanos); no-op per-código
             .order_by(t.c.date.desc())
             .limit(1)
         ).fetchone()

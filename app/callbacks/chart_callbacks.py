@@ -187,6 +187,8 @@ def load_chart_data(asset_id, current_data):
             row = db.execute(
                 sa.select(t.c.value)
                 .where(t.c.asset_id == aid)
+                .where(t.c.value.isnot(None))  # tabla ancha: saltear filas NULL
+                                               # de códigos hermanos; no-op per-código
                 .order_by(t.c.date.desc())
                 .limit(1)
             ).fetchone()
