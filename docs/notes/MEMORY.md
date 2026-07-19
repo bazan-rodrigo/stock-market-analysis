@@ -1,12 +1,12 @@
 # Memoria del proyecto
 
 - [Guía de deploy — Codespace y Railway](guide_deploy.md) — Cómo levantar cada entorno + casos: traer el head, armar staging manual, conectar a otra base, apagar sin perder datos, recrear la base, auto-deploy
-- [Módulo de backtesting](project_backtest.md) — MVP deciles+IC hecho (14-jul, migración 0070); gate de lectura contra scores as-of; fases 2/3 pendientes
-- [Rediseño Backtest + Carteras](design_backtest_carteras_rediseno.md) — 18-jul: 2 módulos (Backtest niveles A-D + Carteras biblioteca de N reales/teóricas), motor y vistas compartidos; plan en 6 fases (migraciones 0078+); Fase 0 (motor de métricas puro) en progreso
+- [Módulo de backtesting](project_backtest.md) — REDISEÑO COMPLETO (19-jul): Backtest niveles A-D (Señal/Reglas/Cartera/Comparar+Walk-forward) + Carteras (reales con registro de operaciones, teóricas curadas/derivadas de estrategia, vínculo real→teórica); migraciones 0070/0080/0083/0084; walk-forward objetivo Sharpe + carga batcheada; pasos de verificación Codespace en project_backtest.md
+- [Rediseño Backtest + Carteras](design_backtest_carteras_rediseno.md) — 18-jul: 2 módulos (Backtest niveles A-D + Carteras biblioteca de N reales/teóricas), motor y vistas compartidos; plan en 6 fases — IMPLEMENTADO (estado por fase en project_backtest.md)
 
 - [Proyecto: Stock Market Analysis](project_overview.md) — App web Dash+Flask para análisis técnico de activos financieros, con admin y analistas
 - [Decisiones técnicas acordadas](project_decisions.md) — APScheduler proceso único, Alembic, screener pre-calculado (nomenclatura current/history/scores), Yahoo Finance only, admin hardcoded
-- [Suite de tests pytest](project_testing.md) — 182 tests de lógica pura en tests/; correr `pytest` antes de cada push (el venv local ya tiene las deps)
+- [Suite de tests pytest](project_testing.md) — 710 tests de lógica pura en tests/ (incl. portfolio_metrics/views/service/sim_engine + backtest de cartera/reglas/walk-forward); correr `pytest` antes de cada push (el venv local ya tiene las deps)
 - [Pendientes próxima sesión](project_pendientes.md) — GIL confirmado como cuello de botella del pool (ThreadPoolExecutor→ProcessPoolExecutor pendiente); varios bugs de datos/threading arreglados jul-2026; indicadores nuevos elegidos
 - [Objetivo: soportar 10000 activos](project_scaling_target.md) — Hoy 500 de prueba; priorizar perf de indicadores full_sample con el patrón de profiling aislado
 - [Filtro de estrategias + roadmap indicadores](project_filtro_estrategias.md) — Filtro AND/OR + editor de señales + backfill delta, todo en vivo (12-jul); semántica as-of de indicadores; próximo natural: backtest por deciles; indicadores por plantilla diferido
