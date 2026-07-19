@@ -221,3 +221,40 @@ def _render_port(res):
         html.H6("Comparación", className="mt-2"),
         table,
     ])
+
+
+@callback(
+    Output("bt-port-promote-alert", "children"),
+    Output("bt-port-promote-alert", "is_open"),
+    Output("bt-port-promote-alert", "color"),
+    Input("bt-port-promote", "n_clicks"),
+    State("bt-port-strategy", "value"),
+    State("bt-port-topn", "value"),
+    State("bt-port-rebal", "value"),
+    prevent_initial_call=True,
+)
+@safe_callback(lambda exc: (f"Error: {exc}", True, "danger"))
+def promote_to_seguimiento(_, strategy_id, topn, rebal):
+    """Crea una cartera teórica (seguimiento) derivada del top-N de la estrategia
+    con la config actual — el 'promover a seguimiento' del rediseño."""
+    if not strategy_id:
+        return "Elegí una estrategia primero.", True, "warning"
+    from app.database import get_session
+    from app.services import portfolio_service as ps
+    from app.services.strategy_service import get_visible_strategies
+    from app.services.visibility import current_viewer
+
+    user_id, _is_admin = current_viewer()
+    visible = {st.id: st.name for st in get_visible_strategies(*current_viewer())}
+    if int(strategy_id) not in visible:
+        return "Estrategia no visible.", True, "warning"
+
+    top_n = max(1, int(_num(topn) or 20))
+    rebalance = max(1, int(_num(rebal) or 1))
+    name = f"Seguimiento: {visible[int(strategy_id)]} · top-{top_n}"
+    ps.create_portfolio(get_session(), name, "seg", owner_id=user_id,
+                        composition_method="strategy",
+                        strategy_id=int(strategy_id), top_n=top_n,
+                        rebalance=rebalance)
+    return (f"Cartera de seguimiento «{name}» creada — vela en /carteras.",
+            True, "success")

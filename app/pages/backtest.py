@@ -221,6 +221,13 @@ def layout(**kwargs):
                                 "fontSize": "0.72rem"}),
             dbc.Alert(id="bt-port-alert", is_open=False, dismissable=True,
                       className="mt-2 small py-1"),
+            dbc.Button("↗ Promover a seguimiento", id="bt-port-promote",
+                       color="secondary", outline=True, size="sm",
+                       className="mt-1",
+                       title="Crea una cartera teórica en /carteras que sigue el "
+                             "top-N de esta estrategia"),
+            dbc.Alert(id="bt-port-promote-alert", is_open=False, dismissable=True,
+                      className="mt-2 small py-1"),
         ]), className="mb-3",
             style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
 
