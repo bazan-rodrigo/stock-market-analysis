@@ -6,6 +6,7 @@ posición, filtro as-of y fallback de precio.
 """
 from datetime import date
 
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
@@ -226,3 +227,39 @@ def test_realized_pnl_total_includes_closed_positions():
     # posición cerrada → resolve_holdings no la devuelve, pero el realizado sí
     assert ps.resolve_holdings(s, p.id) == []
     assert ps.realized_pnl_total(s, p.id) == 10 * (120 - 100)
+
+
+# ── carteras teóricas: membresía ──────────────────────────────────────────────
+
+def test_resolve_membership_curated_equal_weight():
+    s = _session()
+    p = ps.create_portfolio(s, "Tech", "seg", owner_id=1,
+                            composition_method="curated")
+    ps.set_members(s, p.id, [10, 20, 30])
+    m = ps.resolve_membership(s, p.id)
+    assert sorted(a for a, _ in m) == [10, 20, 30]
+    assert all(w == pytest.approx(1 / 3) for _, w in m)
+
+
+def test_resolve_membership_curated_weighted_normalizes():
+    s = _session()
+    p = ps.create_portfolio(s, "W", "seg", owner_id=1,
+                            composition_method="curated")
+    ps.set_members(s, p.id, [10, 20], weights=[3.0, 1.0])
+    m = dict(ps.resolve_membership(s, p.id))
+    assert m[10] == pytest.approx(0.75) and m[20] == pytest.approx(0.25)
+
+
+def test_set_members_replaces():
+    s = _session()
+    p = ps.create_portfolio(s, "Tech", "seg", owner_id=1,
+                            composition_method="curated")
+    ps.set_members(s, p.id, [10, 20, 30])
+    ps.set_members(s, p.id, [40])                 # reemplaza
+    assert [a for a, _ in ps.resolve_membership(s, p.id)] == [40]
+
+
+def test_resolve_membership_no_method_is_empty():
+    s = _session()
+    p = ps.create_portfolio(s, "R", "seg", owner_id=1)   # sin método
+    assert ps.resolve_membership(s, p.id) == []

@@ -16,7 +16,8 @@ esquema ya los contempla vía `kind`).
 
 from bisect import bisect_right
 
-from app.models.portfolio import Portfolio, PortfolioTransaction
+from app.models.portfolio import (Portfolio, PortfolioMember,
+                                  PortfolioTransaction)
 from app.models.price import Price
 from app.services import visibility
 
@@ -171,11 +172,14 @@ def realized_pnl_total(session, portfolio_id, as_of=None):
 
 def create_portfolio(session, name, ptype, owner_id, *, is_public=False,
                      base_currency=None, benchmark_asset_id=None,
-                     linked_portfolio_id=None):
+                     linked_portfolio_id=None, composition_method=None,
+                     strategy_id=None, top_n=None, rebalance=None):
     p = Portfolio(name=name, ptype=ptype, owner_id=owner_id,
                   is_public=is_public, base_currency=base_currency,
                   benchmark_asset_id=benchmark_asset_id,
-                  linked_portfolio_id=linked_portfolio_id)
+                  linked_portfolio_id=linked_portfolio_id,
+                  composition_method=composition_method, strategy_id=strategy_id,
+                  top_n=top_n, rebalance=rebalance)
     session.add(p)
     session.commit()
     return p
@@ -314,3 +318,70 @@ def equity_series(session, portfolio_id, dates=None, initial_cash=0.0):
         hvs.append(hv)
         cashes.append(cash)
     return {"dates": dates, "nav": navs, "holdings_value": hvs, "cash": cashes}
+
+
+# ── Carteras teóricas: membresía (Fase 3) ─────────────────────────────────────
+
+def set_members(session, portfolio_id, asset_ids, weights=None):
+    """Reemplaza la lista de miembros de una cartera CURADA."""
+    session.query(PortfolioMember).filter(
+        PortfolioMember.portfolio_id == portfolio_id).delete()
+    for i, aid in enumerate(asset_ids):
+        session.add(PortfolioMember(
+            portfolio_id=portfolio_id, asset_id=aid,
+            weight=(weights[i] if weights else None)))
+    session.commit()
+
+
+def resolve_membership(session, portfolio_id, as_of=None):
+    """Miembros vigentes de una cartera teórica: lista de (asset_id, weight).
+
+    - 'curated': los PortfolioMember (peso tal cual, normalizado; si ninguno
+      tiene peso, equal-weight).
+    - 'strategy': top-N por score de la estrategia as-of (equal-weight).
+    - 'rule' / None: [] (la regla dinámica se implementa después).
+    """
+    p = session.get(Portfolio, portfolio_id)
+    if p is None:
+        return []
+    if p.composition_method == "curated":
+        rows = (session.query(PortfolioMember.asset_id, PortfolioMember.weight)
+                .filter(PortfolioMember.portfolio_id == portfolio_id).all())
+        if not rows:
+            return []
+        if all(w is None for _, w in rows):
+            ew = 1.0 / len(rows)
+            return [(aid, ew) for aid, _ in rows]
+        total = sum(w or 0.0 for _, w in rows) or 1.0
+        return [(aid, (w or 0.0) / total) for aid, w in rows]
+    if p.composition_method == "strategy" and p.strategy_id:
+        return _strategy_topn_members(session, p.strategy_id, p.top_n or 20,
+                                      as_of)
+    return []
+
+
+def _strategy_topn_members(session, strategy_id, top_n, as_of=None):
+    """Top-N por score de la estrategia en la última fecha con scores (<= as_of),
+    equal-weight. [] si la estrategia ya no tiene tabla o historia."""
+    import sqlalchemy as sa
+
+    from app.models import signal_store
+    try:
+        rt = signal_store.ensure_strat_table(strategy_id,
+                                             bind=session.connection())
+    except Exception:
+        return []
+    q = sa.select(sa.func.max(rt.c.date)).where(rt.c.score.isnot(None))
+    if as_of is not None:
+        q = q.where(rt.c.date <= as_of)
+    last_date = session.execute(q).scalar()
+    if last_date is None:
+        return []
+    rows = session.execute(
+        sa.select(rt.c.asset_id, rt.c.score)
+        .where(rt.c.date == last_date, rt.c.score.isnot(None))).all()
+    ranked = sorted(rows, key=lambda r: r[1], reverse=True)[:top_n]
+    if not ranked:
+        return []
+    ew = 1.0 / len(ranked)
+    return [(aid, ew) for aid, _ in ranked]

@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (Boolean, Column, Date, DateTime, Float, ForeignKey,
-                        Integer, String)
+                        Integer, String, Text)
 
 from app.database import Base
 
@@ -38,6 +38,16 @@ class Portfolio(Base):
                                  ForeignKey("assets.id", ondelete="SET NULL"))
     linked_portfolio_id = Column(Integer,
                                  ForeignKey("portfolio.id", ondelete="SET NULL"))
+    # ── Composición (sólo teóricas, ptype='seg') ──
+    # composition_method: 'curated' (lista PortfolioMember) | 'strategy' (top-N
+    # de una estrategia) | 'rule' (regla dinámica, rule_json — se implementa
+    # después). strategy_id: Integer plano (sin FK de BD — el servicio tolera que
+    # la estrategia ya no exista). rebalance: cada cuántas ruedas se recalcula.
+    composition_method  = Column(String(10))
+    strategy_id         = Column(Integer)
+    top_n               = Column(Integer)
+    rebalance           = Column(Integer)
+    rule_json           = Column(Text)
     created_at          = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -73,3 +83,22 @@ class PortfolioTransaction(Base):
     currency     = Column(String(10))
     note         = Column(String(255))
     created_at   = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class PortfolioMember(Base):
+    """Miembro de una cartera teórica CURADA (lista estática de activos).
+
+    `weight` opcional: si todos son None, la cartera es equal-weight entre sus
+    miembros.
+    """
+
+    __tablename__ = "portfolio_member"
+
+    id           = Column(Integer, primary_key=True)
+    portfolio_id = Column(Integer,
+                          ForeignKey("portfolio.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    asset_id     = Column(Integer,
+                          ForeignKey("assets.id", ondelete="CASCADE"),
+                          nullable=False)
+    weight       = Column(Float)

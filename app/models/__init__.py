@@ -38,7 +38,8 @@ from app.models.strategy_component import StrategyComponent
 from app.models.asset_verification_flag import AssetVerificationFlag
 from app.models.verification_run_log import VerificationRunLog
 from app.models.backtest import BacktestRun, BacktestQuantileStat, BacktestIcPoint
-from app.models.portfolio import Portfolio, PortfolioTransaction
+from app.models.portfolio import (Portfolio, PortfolioMember,
+                                  PortfolioTransaction)
 
 __all__ = [
     "User",
@@ -87,4 +88,5 @@ __all__ = [
     "BacktestIcPoint",
     "Portfolio",
     "PortfolioTransaction",
+    "PortfolioMember",
 ]
