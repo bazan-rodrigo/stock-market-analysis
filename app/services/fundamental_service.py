@@ -876,7 +876,7 @@ def _daily_ratio_series(quarters, q_ords: np.ndarray, price_dates: list,
     return out
 
 
-# ── Backfill por indicador (1 thread por código) ──────────────────────────────
+# ── Backfill histórico (por lotes de activos; ver _backfill_fund_batch) ───────
 
 from collections import namedtuple as _nt
 
@@ -931,6 +931,12 @@ def _load_fund_prices(_s, asset_ids: list) -> dict:
                   f" ORDER BY asset_id, date")
         ).fetchall()
     df = pd.DataFrame(rows, columns=["asset_id", "date", "close"])
+    # Normalizar date → datetime.date: mysqldb/psycopg ya lo devuelven como date,
+    # pero el raw-SQL sobre sqlite (tests) lo trae como str ISO, y los consumidores
+    # (_daily_ratio_series usa .toordinal(); _price_asof_from_cache hace bisect)
+    # necesitan date, no str.
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"]).dt.date
     return {
         aid: list(zip(sub["date"], sub["close"].astype(float)))
         for aid, sub in df.groupby("asset_id")
@@ -961,11 +967,16 @@ def _backfill_fund_indicator(
     asset_ids: list,
     *,
     force: bool = False,
+    skip_force_reset: bool = False,
     asset_tick=None,
     quarters_cache: dict | None = None,
     price_cache: dict | None = None,
 ) -> dict:
-    """Backfill de un indicador fundamental para todos los activos."""
+    """Backfill de un indicador fundamental para todos los activos.
+
+    skip_force_reset: en rebuild, NO truncar acá —el padre ya lo hizo una vez
+    antes del pool (ver _fund_force_reset / _backfill_fund_batch)—; solo aplica
+    la semántica force (target = toda la historia, sin leer existentes)."""
     import sqlalchemy as sa
     from app.models.indicator_store import _WIDE, use_wide_ind_tables
     s        = get_session()
@@ -978,7 +989,7 @@ def _backfill_fund_indicator(
                                                     upsert_ind_cadence)
         _wt, _column, _cadence = _WIDE[code]
 
-    if force:
+    if force and not skip_force_reset:
         # TRUNCATE: instantáneo y sin undo log (vs DELETE por activo)
         if wide:
             # comparte tabla con los otros códigos de la cadencia → no truncar:
@@ -1091,36 +1102,51 @@ def _backfill_fund_indicator(
     return {"inserted": inserted, "code": code}
 
 
-def _backfill_fund_indicator_worker(
-    code: str, asset_ids: list, force: bool,
-    asset_tick, quarters_cache: dict, price_cache: dict,
-) -> dict:
-    from app.services.db_compat import set_bulk_load_checks as _set_bulk_load_checks
-    try:
-        if force:
-            _set_bulk_load_checks(get_session(), False)
-        return _backfill_fund_indicator(
-            code, asset_ids, force=force, asset_tick=asset_tick,
-            quarters_cache=quarters_cache, price_cache=price_cache,
-        )
-    except Exception as exc:
-        logger.warning("Fund backfill indicator error code=%s: %s", code, exc)
-        return {"inserted": 0, "code": code, "error": str(exc)}
-    finally:
-        if force:
-            _set_bulk_load_checks(get_session(), True)
-        _ScopedSession.remove()
+def _fund_asset_ids(s) -> list:
+    """asset_ids con fundamentales (universo del backfill), ordenados. Se usa
+    cuando el caller no pasó quarters_cache (el orden ascendente importa: los
+    lotes se arman por rangos contiguos de asset_id, ver _partition_assets)."""
+    rows = (s.query(FundamentalQuarterly.asset_id)
+             .distinct()
+             .order_by(FundamentalQuarterly.asset_id)
+             .all())
+    return [r[0] for r in rows]
+
+
+def _fund_force_reset(s, quarterly_codes: list, daily_codes: list) -> None:
+    """Reset previo al rebuild (force), HOISTED al padre —una sola vez, antes
+    del pool— en vez de dentro de cada worker: así los lotes concurrentes no se
+    pisan el TRUNCATE (mismo motivo que _force_reset_ind_tables en el pool de
+    indicadores). En modo ancho borra las tablas de cadencia COMPARTIDAS una
+    vez cada una; en angosto, wipe por código (db_compat: TRUNCATE en MySQL/PG,
+    DELETE en sqlite)."""
+    from app.models.indicator_store import (_WIDE, _WIDE_CADENCE_TABLE,
+                                            use_wide_ind_tables)
+    wide           = use_wide_ind_tables()
+    wiped_cadences: set = set()
+    for code in list(quarterly_codes) + list(daily_codes):
+        if wide and code in _WIDE:
+            cadence = _WIDE[code][2]
+            if cadence not in wiped_cadences:
+                db_compat.wipe_table(s, _WIDE_CADENCE_TABLE[cadence])
+                wiped_cadences.add(cadence)
+        else:
+            db_compat.wipe_table(s, get_ind_table(code).name)
+    s.commit()
 
 
 def _backfill_fund_daily_all(
     daily_codes: list, asset_ids: list, *,
-    force: bool, tick_fns: dict,
+    force: bool, skip_force_reset: bool = False, tick_fns: dict,
     quarters_cache: dict, price_cache: dict,
 ) -> dict:
     """Procesa todos los daily codes en un único pass por activo×fecha.
 
     Llama a _compute_daily_ratios una sola vez por (activo, fecha) en lugar de
     una vez por código, eliminando 4x de cómputo redundante.
+
+    skip_force_reset: en rebuild, NO truncar acá —el padre ya lo hizo (ver
+    _fund_force_reset / _backfill_fund_batch).
     """
     import sqlalchemy as sa
     from app.models.indicator_store import (_WIDE, _WIDE_CADENCE_TABLE,
@@ -1130,7 +1156,7 @@ def _backfill_fund_daily_all(
     tables = {code: get_ind_table(code) for code in daily_codes}
     inserted = 0
 
-    if force:
+    if force and not skip_force_reset:
         # TRUNCATE: instantáneo y sin undo log (vs DELETE por activo)
         if wide:
             # los 4 diarios comparten ind_fundamental_daily → truncar UNA vez
@@ -1230,41 +1256,87 @@ def _backfill_fund_daily_all(
     return {"inserted": inserted, "codes": daily_codes}
 
 
-def _backfill_fund_daily_all_worker(
-    daily_codes: list, asset_ids: list, force: bool,
-    tick_fns: dict, quarters_cache: dict, price_cache: dict,
-) -> dict:
-    from app.services.db_compat import set_bulk_load_checks as _set_bulk_load_checks
+def _backfill_fund_batch(batch_asset_ids: list, quarterly_codes: list,
+                         daily_codes: list, force: bool) -> dict:
+    """Unidad de trabajo del pool: TODOS los códigos fundamentales para un LOTE
+    de activos (antes la unidad era 'un código para todos los activos'). Es
+    AUTO-CONTENIDO —carga su propio slice de quarters/precios— para poder correr
+    en un proceso hijo (argumentos picklables). Reusa _backfill_fund_indicator /
+    _backfill_fund_daily_all ESCOPADOS a los activos del lote: la lógica de
+    delta/wide/narrow queda intacta y la equivalencia es por-activo (ver
+    tests/test_fundamental_batching.py).
+
+    force: el TRUNCATE ya lo hizo el padre (_fund_force_reset) → skip_force_reset.
+
+    NO propaga (a diferencia de la verificación): un lote que falla se registra
+    en errors y la corrida sigue —el backfill es idempotente y re-corrible, así
+    que un lote incompleto se completa en el próximo delta (misma semántica
+    resiliente que el backfill por-código anterior). El retry 1205/1213 es
+    porque varios lotes escriben la misma tabla ancha en paralelo."""
+    out: dict = {"inserted": 0, "errors": []}
     try:
-        if force:
-            _set_bulk_load_checks(get_session(), False)
-        return _backfill_fund_daily_all(
-            daily_codes, asset_ids, force=force, tick_fns=tick_fns,
-            quarters_cache=quarters_cache, price_cache=price_cache,
-        )
+        s              = get_session()
+        quarters_cache = _load_all_quarters(s, batch_asset_ids)
+        if not quarters_cache:
+            return out
+        ids         = sorted(quarters_cache.keys())
+        price_cache = _load_fund_prices(s, ids) if daily_codes else {}
+        _noop       = lambda: None
+        for attempt in range(_MAX_LOCK_RETRIES + 1):
+            try:
+                inserted = 0
+                for code in quarterly_codes:
+                    inserted += _backfill_fund_indicator(
+                        code, ids, force=force, skip_force_reset=True,
+                        quarters_cache=quarters_cache, price_cache=price_cache,
+                    ).get("inserted", 0)
+                if daily_codes:
+                    inserted += _backfill_fund_daily_all(
+                        daily_codes, ids, force=force, skip_force_reset=True,
+                        tick_fns={c: _noop for c in daily_codes},
+                        quarters_cache=quarters_cache, price_cache=price_cache,
+                    ).get("inserted", 0)
+                out["inserted"] = inserted
+                return out
+            except OperationalError as exc:
+                get_session().rollback()
+                if attempt < _MAX_LOCK_RETRIES and _is_retryable_lock_error(exc):
+                    time.sleep(0.2 * (attempt + 1) + random.uniform(0, 0.2))
+                    continue
+                raise   # agotado / no-retryable → al handler del lote (abajo)
     except Exception as exc:
-        logger.warning("Fund backfill daily error codes=%s: %s", daily_codes, exc)
-        return {"inserted": 0, "codes": daily_codes, "error": str(exc)}
+        # Cualquier fallo del lote —incluida la carga de slices— se REGISTRA y
+        # NO se propaga: la corrida sigue y el hueco lo sana el próximo delta
+        # (backfill idempotente). Que un lote muerto no tumbe la corrida entera.
+        try:
+            get_session().rollback()
+        except Exception:
+            pass
+        logger.warning("Fund backfill lote error: %s", exc)
+        out["errors"].append(str(exc))
+        return out
     finally:
-        if force:
-            _set_bulk_load_checks(get_session(), True)
         _ScopedSession.remove()
 
 
 def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
                                     quarters_cache: dict | None = None,
                                     price_cache: dict | None = None) -> dict:
-    """Backfill histórico de indicadores fundamentales.
+    """Backfill histórico de indicadores fundamentales, por LOTES de activos
+    (threads o procesos, mismo harness y criterio que el pool de indicadores —
+    ver _use_process_pool). Cada lote computa TODOS los códigos para su
+    subconjunto de activos; el padre particiona, hoistea el TRUNCATE del rebuild
+    y agrega el progreso GRUESO por lote.
 
-    Indicadores trimestrales: 1 thread por código.
-    Indicadores diarios (pe_ttm, pb, ps_ttm, pe_growth_yoy): 1 thread combinado
-    que llama _compute_daily_ratios una sola vez por (activo, fecha).
-
-    quarters_cache/price_cache: si el caller ya los cargó (ver
-    _run_ratios_and_backfill, que los comparte con recompute_all_ratios),
-    se reusan en vez de volver a consultarlos.
-    """
-    import threading as _th
+    quarters_cache: si el caller lo pasó (ver _run_ratios_and_backfill), se usa
+    SOLO para fijar el universo de activos (sus claves) y el total de progreso;
+    cada lote recarga su propio slice (auto-contenido, requisito de procesos).
+    price_cache se ignora acá (los lotes recargan) — se mantiene en la firma por
+    compatibilidad con el caller, que lo comparte con recompute_all_ratios.
+    (En el camino de threads esto re-lee lo que el padre ya tenía en RAM: costo
+    asumido a cambio de que el mismo lote sirva para threads y para procesos.)"""
+    from app.services.technical_service import (_n_batches, _partition_assets,
+                                                _POOL_WORKERS, _use_process_pool)
     s               = get_session()
     fund_codes      = sorted(_ALL_FUND_CODES)
     daily_codes     = sorted(c for c in fund_codes if c in _FUND_DAILY_CODES)
@@ -1272,83 +1344,85 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
     n_ind           = len(fund_codes)
 
     if progress_cb:
-        progress_cb(0, 1, "Cargando datos fundamentales en memoria...")
+        progress_cb(0, 1, "Preparando backfill de fundamentales...")
 
-    if quarters_cache is None:
-        logger.info("Pre-cargando datos fundamentales en memoria...")
-        quarters_cache = _load_all_quarters(s)
-    asset_ids      = sorted(quarters_cache.keys())
-    if price_cache is None:
-        price_cache = _load_fund_prices(s, asset_ids)
-    n_assets       = len(asset_ids)
-    total_work     = n_ind * n_assets
-    logger.info("Datos cargados: %d activos, %d indicadores", n_assets, n_ind)
+    asset_ids = (sorted(quarters_cache.keys()) if quarters_cache is not None
+                 else _fund_asset_ids(s))
+    n_assets   = len(asset_ids)
+    total_work = n_ind * n_assets
 
-    done_ind = 0
+    if n_assets == 0:
+        return {"total": n_ind, "success": n_ind, "inserted": 0, "errors": []}
+
+    # Rebuild: el TRUNCATE se hace UNA vez acá (no dentro de cada lote), así los
+    # lotes concurrentes no se pisan (mismo motivo que _force_reset_ind_tables).
+    if force:
+        _fund_force_reset(s, quarterly_codes, daily_codes)
+    _ScopedSession.remove()   # soltar la conexión del padre antes del pool
+
+    use_procs, n_procs = _use_process_pool(n_assets)
+    workers = n_procs if use_procs else _POOL_WORKERS
+    batches = _partition_assets(asset_ids, {aid: 1 for aid in asset_ids},
+                                _n_batches(n_assets, workers))
+
     inserted = 0
     errors:  list[dict] = []
+    assets_done = [0]
+    lock        = threading.Lock()
 
-    _assets_done  = 0
-    _lock         = _th.Lock()
-    _worker_slots: dict[int, int] = {}
-
-    def _worker_slot() -> int:
-        ident = _th.get_ident()
-        with _lock:
-            if ident not in _worker_slots:
-                _worker_slots[ident] = len(_worker_slots)
-            return _worker_slots[ident]
-
-    def _make_tick(code):
-        per_ind = [0]
-        def _tick():
-            nonlocal _assets_done
-            per_ind[0] += 1
-            with _lock:
-                _assets_done += 1
-                n = _assets_done
-            if progress_cb:
-                progress_cb(n, total_work, f"{code}: {per_ind[0]}/{n_assets} w{_worker_slot()}")
-        return _tick
-
-    tick_fns = {code: _make_tick(code) for code in fund_codes}
-
-    # n_workers = quarterly codes + 1 combined daily worker
-    n_workers = len(quarterly_codes) + (1 if daily_codes else 0)
-    with ThreadPoolExecutor(max_workers=n_workers) as pool:
-        futures: dict = {}
-
-        for code in quarterly_codes:
-            futures[pool.submit(
-                _backfill_fund_indicator_worker,
-                code, asset_ids, force, tick_fns[code],
-                quarters_cache, price_cache,
-            )] = [code]
-
-        if daily_codes:
-            futures[pool.submit(
-                _backfill_fund_daily_all_worker,
-                daily_codes, asset_ids, force,
-                {c: tick_fns[c] for c in daily_codes},
-                quarters_cache, price_cache,
-            )] = daily_codes
-
+    def _consume(out: dict, n_batch_assets: int) -> None:
+        nonlocal inserted
+        if out:
+            inserted += out.get("inserted", 0)
+            for e in out.get("errors", []):
+                errors.append({"code": "lote", "error": e})
+        with lock:
+            assets_done[0] += n_batch_assets
+            d = assets_done[0]
+        # Progreso GRUESO por lote: en este eje TODOS los códigos avanzan juntos
+        # (un lote computa todos los códigos para sus activos), así que cada fila
+        # por-código del panel avanza al mismo conteo de activos. Al terminar el
+        # último lote, d == n_assets → todas las filas cierran con ✓.
         if progress_cb:
-            progress_cb(0, total_work, f"__init__:{n_assets}:{','.join(fund_codes)}")
+            for code in fund_codes:
+                progress_cb(d * n_ind, max(total_work, 1),
+                            f"{code}: {d}/{n_assets}")
 
-        for future in as_completed(futures):
-            done_ind += 1
-            codes = futures[future]
+    def _drain(futures: dict) -> None:
+        for f in as_completed(futures):
+            n_b = futures[f]
             try:
-                res = future.result()
-                inserted += res.get("inserted", 0)
-                if "error" in res:
-                    errors.append({"code": str(codes), "error": res["error"]})
+                out = f.result()
             except Exception as exc:
-                logger.warning("Fund backfill future error codes=%s: %s", codes, exc)
-                errors.append({"code": str(codes), "error": str(exc)})
+                # Crash duro del hijo (OOM/segfault → BrokenProcessPool): anotar
+                # el lote como no corrido y SEGUIR drenando —igual que
+                # technical_service._drain—; el hueco lo sana el próximo delta.
+                logger.warning("Fund backfill lote muerto: %s", exc)
+                errors.append({"code": "lote", "error": str(exc)})
+                _consume(None, n_b)   # avanzar la barra; sin sumar inserted
+                continue
+            _consume(out, n_b)
 
-    return {"total": n_ind, "success": n_ind - len(errors),
+    if progress_cb:
+        progress_cb(0, max(total_work, 1),
+                    f"__init__:{n_assets}:{','.join(fund_codes)}")
+
+    if use_procs:
+        from app.config import BASE_DIR, Config
+        from app.services import process_pool as _pp
+        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
+                               Config.IND_CHILD_DB_POOL, Config.LOG_LEVEL) as pool:
+            _drain({pool.submit(_backfill_fund_batch, b, quarterly_codes,
+                                daily_codes, force): len(b) for b in batches})
+    else:
+        with ThreadPoolExecutor(max_workers=min(len(batches), workers)) as pool:
+            _drain({pool.submit(_backfill_fund_batch, b, quarterly_codes,
+                                daily_codes, force): len(b) for b in batches})
+
+    # success: n_ind cuenta INDICADORES pero errors es por-LOTE (otra unidad) →
+    # este success es aproximado. _run_ratios_and_backfill lo recalcula con su
+    # propio total y solo consume `errors`, así que el campo no se usa tal cual.
+    return {"total": n_ind, "success": max(n_ind - len(errors), 0),
             "inserted": inserted, "errors": errors}
 
 
