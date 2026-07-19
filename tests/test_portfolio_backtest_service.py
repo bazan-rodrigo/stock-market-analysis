@@ -120,3 +120,47 @@ def test_list_portfolio_runs_visibility():
     pbs.save_portfolio_run(s, 2, 7, "Ajena", {}, empty)
     assert {r.name for r in pbs.list_portfolio_runs(s, 1, False)} == {"Mia"}
     assert len(pbs.list_portfolio_runs(s, 1, True)) == 2
+
+
+# ── walk-forward (helpers puros) ──────────────────────────────────────────────
+
+def test_window_splits_anchored_expanding():
+    from app.services.portfolio_backtest_service import _window_splits
+    # 100 fechas, 4 ventanas: seg=20, train desde 0, tests consecutivos al final
+    assert _window_splits(100, 4) == [
+        (0, 19, 20, 39), (0, 39, 40, 59), (0, 59, 60, 79), (0, 79, 80, 99)]
+    # la última ventana estira hasta el final aunque no sea múltiplo exacto
+    assert _window_splits(103, 4)[-1] == (0, 79, 80, 102)
+
+
+def test_window_splits_insufficient_history():
+    from app.services.portfolio_backtest_service import _window_splits
+    assert _window_splits(3, 4) == []      # n < n_windows + 1
+    assert _window_splits(50, 0) == []     # sin ventanas
+
+
+def test_spec_with_trailing_replaces_existing():
+    from app.services.portfolio_backtest_service import _spec_with_trailing
+    base = {"entries": [{"type": "score", "th": 20}],
+            "caps": [{"type": "stop_loss", "pct": 8},
+                     {"type": "trailing_stop", "pct": 99}]}
+    out = _spec_with_trailing(base, 15.0)
+    trails = [c for c in out["caps"] if c["type"] == "trailing_stop"]
+    assert len(trails) == 1 and trails[0]["pct"] == 15.0     # reemplazado, no dup
+    assert {"type": "stop_loss", "pct": 8} in out["caps"]    # los demás intactos
+    assert base["caps"][1]["pct"] == 99                      # base sin mutar
+
+
+def test_gated_equity_range_runs_fresh_in_window():
+    from app.services.portfolio_backtest_service import _gated_equity_range
+    d = [date(2026, 1, i) for i in (2, 3, 4, 5, 6)]
+    raw = {1: {"dates": d, "closes": [100.0, 110.0, 121.0, 133.0, 146.0],
+               "scores": [9.0] * 5, "pcts": [None] * 5}}
+    spec = {"entries": [{"type": "score", "th": 5}], "score_exits": [],
+            "caps": [], "rearm": False, "cooldown": 0}
+    # sub-rango [d2, d4]: sólo esas fechas entran al panel (arranque fresco)
+    dates, eq = _gated_equity_range(raw, spec, top_n=1, date_from=d[1],
+                                    date_to=d[3])
+    assert dates == d[1:4]
+    assert len(eq) == 3
+    assert eq[-1] > 1.0        # el activo sube y se mantiene → equity crece

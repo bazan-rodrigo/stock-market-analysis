@@ -247,3 +247,138 @@ def get_portfolio_run(session, run_id):
         sm["equity"].append(p.value)
     return {"run": run, "config": json.loads(run.config or "{}"),
             "summary": json.loads(run.summary or "{}"), "series": series}
+
+
+# ── Walk-forward (optimización robusta out-of-sample) ─────────────────────────
+
+def _window_splits(n, n_windows):
+    """Ventanas train/test anclado-expansivo: n_windows tramos de test
+    consecutivos al final; el train de cada uno va desde el inicio. Devuelve
+    tuplas de índices (train_lo, train_hi, test_lo, test_hi). [] si no alcanza."""
+    if n_windows < 1 or n < n_windows + 1:
+        return []
+    seg = n // (n_windows + 1)
+    if seg < 1:
+        return []
+    out = []
+    for w in range(n_windows):
+        te_lo = (w + 1) * seg
+        te_hi = (w + 2) * seg - 1 if w < n_windows - 1 else n - 1
+        out.append((0, te_lo - 1, te_lo, te_hi))
+    return out
+
+
+def _spec_with_trailing(base_spec, trailing_pct):
+    """Copia de la spec con el trailing_stop fijado (reemplaza el existente)."""
+    caps = [c for c in base_spec.get("caps", []) if c["type"] != "trailing_stop"]
+    caps = caps + [{"type": "trailing_stop", "pct": trailing_pct}]
+    return {**base_spec, "caps": caps}
+
+
+def _gated_equity_range(per_asset_raw, spec, top_n, date_from, date_to, *,
+                        rebalance_every=1, cost_bps=0.0):
+    """Equity gated de la cartera sobre [date_from, date_to]. El simulador arranca
+    FRESCO en el rango (sin carryover del train) — correcto para OOS. Reusa el
+    motor. `per_asset_raw`: {aid: {dates, closes, scores, pcts}}."""
+    from app.services import portfolio_sim_engine as eng
+    from app.services.trade_simulator import simulate_trades
+
+    per_asset = {}
+    for aid, raw in per_asset_raw.items():
+        idxs = [i for i, d in enumerate(raw["dates"])
+                if date_from <= d <= date_to]
+        if not idxs:
+            continue
+        closes = [raw["closes"][i] for i in idxs]
+        scores = [raw["scores"][i] for i in idxs]
+        pcts = [raw["pcts"][i] for i in idxs]
+        trades = simulate_trades(closes, scores, spec, percentiles=pcts)
+        per_asset[aid] = {"dates": [raw["dates"][i] for i in idxs],
+                          "closes": closes, "scores": scores,
+                          "in_position": _in_position(trades, len(closes))}
+    dates, scores_bd, rets_bd, elig_bd = build_panels(per_asset)
+    res = eng.simulate_gated(dates, scores_bd, elig_bd, rets_bd, top_n=top_n,
+                             rebalance_every=rebalance_every, cost_bps=cost_bps)
+    return dates, res["equity"]
+
+
+def _load_universe(session, strategy_id):
+    """{aid: {dates, closes, scores, pcts}} para todo el universo de la
+    estrategia (activos con score). Se carga UNA vez y se reusa por ventana."""
+    import sqlalchemy as sa
+
+    from app.models import Price, signal_store
+    rt = signal_store.ensure_strat_table(strategy_id, bind=session.connection())
+    asset_ids = sorted(r[0] for r in session.execute(
+        sa.select(rt.c.asset_id).where(rt.c.score.isnot(None)).distinct()).all())
+    per_asset = {}
+    for aid in asset_ids:
+        prows = (session.query(Price.date, Price.close)
+                 .filter(Price.asset_id == aid, Price.close.isnot(None))
+                 .order_by(Price.date).all())
+        if not prows:
+            continue
+        srows = session.execute(sa.select(rt.c.date, rt.c.score, rt.c.pct)
+                                .where(rt.c.asset_id == aid)).all()
+        sc = {d: (float(x) if x is not None else None,
+                  float(p) if p is not None else None) for d, x, p in srows}
+        dates = [d for d, _ in prows]
+        per_asset[aid] = {"dates": dates,
+                          "closes": [float(c) for _, c in prows],
+                          "scores": [sc.get(d, (None, None))[0] for d in dates],
+                          "pcts": [sc.get(d, (None, None))[1] for d in dates]}
+    return per_asset
+
+
+def walk_forward(session, strategy_id, base_spec, *, topn_grid=(10, 20, 30),
+                 trail_grid=(10.0, 15.0, 20.0), n_windows=4, rebalance_every=1,
+                 cost_bps=0.0, progress_cb=None):
+    """Walk-forward de OPTIMIZACIÓN. En cada ventana train busca la mejor
+    (top_n, trailing) por retorno total del gated, la aplica en el test
+    (out-of-sample, fresco) y concatena los tests → curva OOS. Devuelve
+    {oos_dates, oos_equity, windows, **KPIs de portfolio_metrics}."""
+    from app.services import portfolio_metrics as pm
+
+    per_asset_raw = _load_universe(session, strategy_id)
+    if not per_asset_raw:
+        raise ValueError("La estrategia no tiene historia calculada. Corré "
+                         "'Recalcular completo' en Centro de Datos.")
+    all_dates = sorted({d for raw in per_asset_raw.values()
+                        for d in raw["dates"]})
+    splits = _window_splits(len(all_dates), n_windows)
+    if not splits:
+        raise ValueError("Historia insuficiente para el walk-forward.")
+    configs = [(tn, tr) for tn in topn_grid for tr in trail_grid]
+
+    oos_dates, oos_equity, windows = [], [], []
+    val = 1.0
+    for w, (tr_lo, tr_hi, te_lo, te_hi) in enumerate(splits):
+        tr_from, tr_to = all_dates[tr_lo], all_dates[tr_hi]
+        te_from, te_to = all_dates[te_lo], all_dates[te_hi]
+        best = None
+        for (tn, trail) in configs:
+            spec = _spec_with_trailing(base_spec, trail)
+            _d, eq = _gated_equity_range(per_asset_raw, spec, tn, tr_from, tr_to,
+                                         rebalance_every=rebalance_every,
+                                         cost_bps=cost_bps)
+            obj = (eq[-1] - 1.0) if eq else float("-inf")
+            if best is None or obj > best[0]:
+                best = (obj, tn, trail)
+        _obj, tn, trail = best
+        spec = _spec_with_trailing(base_spec, trail)
+        td, teq = _gated_equity_range(per_asset_raw, spec, tn, te_from, te_to,
+                                      rebalance_every=rebalance_every,
+                                      cost_bps=cost_bps)
+        for d, e in zip(td, teq):
+            oos_dates.append(d)
+            oos_equity.append(val * e)
+        if teq:
+            val = val * teq[-1]
+        windows.append({"train": [tr_from, tr_to], "test": [te_from, te_to],
+                        "top_n": tn, "trailing": trail, "train_ret": best[0],
+                        "test_ret": (teq[-1] - 1.0) if teq else None})
+        if progress_cb:
+            progress_cb(w + 1, len(splits), "ventanas")
+
+    return {"oos_dates": oos_dates, "oos_equity": oos_equity,
+            "windows": windows, **pm.summary(oos_equity, dates=oos_dates)}
