@@ -318,3 +318,50 @@ def test_backfill_fund_batch_retry_agota_y_anota(_seeded, monkeypatch):
     assert calls["n"] == fs._MAX_LOCK_RETRIES + 1   # 1 intento + N reintentos
     assert len(res["errors"]) == 1                  # anotó el lote, sin abortar
     assert res["inserted"] == 0                     # nada se escribió
+
+
+# ── Un lote que revienta NO tumba la corrida (anota y sigue) ─────────────────
+# El catch-all de _backfill_fund_batch registra el fallo en out["errors"] y NO
+# propaga; backfill_all_fundamental_values._consume lo agrega como {"code":"lote"}
+# y los DEMÁS lotes escriben igual (backfill idempotente, el hueco lo sana el
+# próximo delta). Un fallo NO-lock (RuntimeError) cae directo al catch-all sin
+# pasar por el retry (que solo intercepta OperationalError reintentable).
+
+def test_backfill_fund_un_lote_falla_y_sigue(_seeded, monkeypatch):
+    """Con lotes de 1 activo (executor inline), un lote cuyo cómputo trimestral
+    revienta se ANOTA en res["errors"] y NO escribe filas; los demás activos SÍ
+    quedan escritos (partición independiente + resiliencia por-lote)."""
+    import app.services.process_pool as pp
+    s = _seeded  # noqa: F841 (fija el universo de activos sembrados)
+
+    # camino real del padre, forzado a procesos-inline con un lote por activo
+    monkeypatch.setattr(ts, "_MIN_BATCH_ASSETS", 1)
+    monkeypatch.setattr(ts, "_use_process_pool", lambda n: (True, 3))
+    monkeypatch.setattr(pp, "make_executor", lambda *a, **k: _InlineExecutor())
+
+    _BAD = _IDS[1]
+    real_q = fs._backfill_fund_quarterly_all
+
+    def _flaky_q(codes, ids, *a, **kw):
+        # revienta SOLO en el lote que contiene el activo marcado
+        if _BAD in ids:
+            raise RuntimeError("lote roto")
+        return real_q(codes, ids, *a, **kw)
+
+    monkeypatch.setattr(fs, "_backfill_fund_quarterly_all", _flaky_q)
+
+    res = fs.backfill_all_fundamental_values()
+
+    # el lote muerto quedó anotado, la corrida no abortó
+    assert res["errors"], "un lote roto debe anotarse, no tumbar la corrida"
+    assert all(e["code"] == "lote" for e in res["errors"])
+
+    got = _snapshot(get_session())
+    covered_q = {r[0] for r in got["fund_quarterly"]}
+    covered_d = {r[0] for r in got["fund_daily"]}
+    # el activo del lote roto no escribió NADA (rollback del batch entero)
+    assert _BAD not in covered_q
+    assert _BAD not in covered_d
+    # los OTROS activos SÍ tienen filas (trimestrales y diarias)
+    assert set(_IDS) - {_BAD} <= covered_q
+    assert set(_IDS) - {_BAD} <= covered_d

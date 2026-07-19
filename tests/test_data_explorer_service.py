@@ -9,7 +9,9 @@ import sqlalchemy as sa
 
 from app.database import Base, engine, get_session
 from app.models import signal_store
+from app.models.fundamental_quarterly import FundamentalQuarterly
 from app.models.group_scores import GroupScore
+from app.models.group_signal_value import GroupSignalValue
 from app.models.indicator_store import CurrentIndicatorValue, get_ind_table
 from app.services import data_explorer_service as des
 
@@ -117,3 +119,77 @@ def test_group_scores():
     assert table == "group_scores"
     assert len(recs) == 1
     assert recs[0]["n_assets"] == 5 and recs[0]["date"] == "2026-07-07"
+
+
+# ── M8: señal por grupo, resultado de estrategia, fundamentales ───────────────
+
+def test_signal_group():
+    s = get_session()
+    s.query(GroupSignalValue).delete()
+    s.add_all([
+        GroupSignalValue(signal_id=1, group_type="sector", group_id=3,
+                         date=dt.date(2026, 7, 8), score=0.7),
+        GroupSignalValue(signal_id=1, group_type="sector", group_id=3,
+                         date=dt.date(2026, 7, 7), score=0.5),
+        # ruido: otro signal / group_type / group_id → excluidos por el filtro
+        GroupSignalValue(signal_id=2, group_type="sector", group_id=3,
+                         date=dt.date(2026, 7, 8), score=9.9),
+        GroupSignalValue(signal_id=1, group_type="market", group_id=3,
+                         date=dt.date(2026, 7, 8), score=8.8),
+        GroupSignalValue(signal_id=1, group_type="sector", group_id=4,
+                         date=dt.date(2026, 7, 8), score=7.7),
+    ])
+    s.commit()
+    table, cols, recs = des.signal_group(1, "sector", 3)
+    assert table == "group_signal_value"
+    assert cols == ["date", "score"]
+    assert [r["score"] for r in recs] == [0.5, 0.7]   # solo el trío pedido, asc
+    assert recs[0]["date"] == "2026-07-07"            # fecha serializada a str
+
+
+def test_strategy_result():
+    s = get_session()
+    t1 = signal_store.ensure_strat_table(1)
+    t2 = signal_store.ensure_strat_table(2)
+    s.execute(t1.delete())
+    s.execute(t2.delete())
+    s.execute(t1.insert(), [
+        {"asset_id": 1, "date": dt.date(2026, 7, 7), "score": 0.5, "pct": 10.0},
+        {"asset_id": 1, "date": dt.date(2026, 7, 8), "score": 0.7, "pct": 20.0},
+        {"asset_id": 2, "date": dt.date(2026, 7, 8), "score": 9.9, "pct": 99.0},
+    ])
+    s.execute(t2.insert(), [
+        {"asset_id": 1, "date": dt.date(2026, 7, 8), "score": 1.1, "pct": 30.0},
+    ])
+    s.commit()
+    table, cols, recs = des.strategy_result(1, 1)
+    assert table == "strat_res_1"                     # tabla dinámica por id
+    assert cols == ["date", "score"]
+    assert [r["score"] for r in recs] == [0.5, 0.7]   # activo 1, otra estrat fuera
+
+
+def test_fundamentals():
+    s = get_session()
+    s.query(FundamentalQuarterly).delete()
+    s.add_all([
+        FundamentalQuarterly(asset_id=1, period_date=dt.date(2025, 12, 31),
+                             revenue=90.0, net_income=8.0),
+        FundamentalQuarterly(asset_id=1, period_date=dt.date(2026, 3, 31),
+                             revenue=100.0, net_income=10.0),
+        FundamentalQuarterly(asset_id=2, period_date=dt.date(2026, 3, 31),
+                             revenue=999.0),           # otro activo → excluido
+    ])
+    s.commit()
+    table, cols, recs = des.fundamentals(1)
+    assert table == "fundamental_quarterly"
+    assert cols == des._FUND_COLS and cols[0] == "period_date"
+    assert len(recs) == 2                              # solo el activo 1
+    # más reciente arriba (period_date desc), fechas serializadas a str
+    assert [r["period_date"] for r in recs] == ["2026-03-31", "2025-12-31"]
+    assert recs[0]["revenue"] == 100.0
+
+    # limpiar: fundamental_quarterly lo enumera globalmente otro test
+    # (test_fundamental_batching._fund_asset_ids) sobre el stub compartido; no
+    # dejar filas colgadas de este activo.
+    s.query(FundamentalQuarterly).delete()
+    s.commit()

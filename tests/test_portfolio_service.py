@@ -103,6 +103,25 @@ def test_multiple_assets():
     assert pos[1]["qty"] == 100 and pos[2]["qty"] == 10
 
 
+def test_dividend_split_are_noops():
+    """B5: 'dividend' y 'split' todavía no se procesan (fase pendiente). Fija que
+    NO alteran qty / cost_basis / realized_pnl: la posición con esas operaciones
+    debe ser idéntica a la posición sin ellas. Cuando se implementen dividendos,
+    este test tendrá que cambiar deliberadamente."""
+    base = positions_from_transactions([
+        _txn(1, "buy", date(2026, 1, 2), 100, 100),
+    ])[1]
+    with_events = positions_from_transactions([
+        _txn(1, "buy", date(2026, 1, 2), 100, 100),
+        _txn(1, "dividend", date(2026, 1, 3), 100, 2),     # importe por acción
+        _txn(1, "split", date(2026, 1, 4), 2, None),        # factor, sin precio
+    ])[1]
+    assert with_events == base
+    assert with_events["qty"] == 100
+    assert with_events["cost_basis"] == 100 * 100
+    assert with_events["realized_pnl"] == 0.0
+
+
 def test_unrealized_pnl():
     pos = {"qty": 1000, "avg_cost": 3490.0}
     assert unrealized_pnl(pos, 3742.0) == 1000 * (3742.0 - 3490.0)
@@ -266,6 +285,27 @@ def test_resolve_membership_no_method_is_empty():
     assert ps.resolve_membership(s, p.id) == []
 
 
+def test_resolve_membership_curated_mixed_weights():
+    """M6: pesos mezclados (algunos None) → los None valen 0.0 y se normaliza por
+    la suma de los definidos (regla `w or 0.0`). set_members([10,20],[3.0,None])
+    → {10:1.0, 20:0.0}."""
+    s = _session()
+    p = ps.create_portfolio(s, "Mix", "seg", owner_id=1,
+                            composition_method="curated")
+    ps.set_members(s, p.id, [10, 20], weights=[3.0, None])
+    m = dict(ps.resolve_membership(s, p.id))
+    assert m[10] == pytest.approx(1.0)      # 3.0 / (3.0 + 0.0)
+    assert m[20] == pytest.approx(0.0)      # None → 0.0
+
+
+def test_resolve_membership_curated_no_members_empty():
+    """M6: método 'curated' sin miembros cargados → [] (rama `if not rows`)."""
+    s = _session()
+    p = ps.create_portfolio(s, "Vacia", "seg", owner_id=1,
+                            composition_method="curated")   # sin set_members
+    assert ps.resolve_membership(s, p.id) == []
+
+
 def test_tracking_drift_composition():
     s = _session()
     teo = ps.create_portfolio(s, "Target", "seg", owner_id=1,
@@ -289,6 +329,54 @@ def test_tracking_drift_none_when_not_linked():
     s = _session()
     real = ps.create_portfolio(s, "Real", "real", owner_id=1)
     assert ps.tracking_drift(s, real.id) is None
+
+
+def test_tracking_drift_extra_asset():
+    """M5: un activo presente SOLO en la real (no en el objetivo) aparece con
+    target_w=0 y diff>0 (`extra puro`)."""
+    s = _session()
+    teo = ps.create_portfolio(s, "Target", "seg", owner_id=1,
+                              composition_method="curated")
+    ps.set_members(s, teo.id, [1])                        # objetivo: sólo activo 1
+    real = ps.create_portfolio(s, "Real", "real", owner_id=1,
+                               linked_portfolio_id=teo.id)
+    s.add_all([Price(asset_id=1, date=date(2026, 1, 2), close=100),
+               Price(asset_id=2, date=date(2026, 1, 2), close=100)])
+    s.commit()
+    # real: mitad en el activo 1 (del objetivo) y mitad en el 2 (fuera del objetivo)
+    ps.add_transaction(s, real.id, 1, "buy", date(2026, 1, 2), quantity=10, price=100)
+    ps.add_transaction(s, real.id, 2, "buy", date(2026, 1, 2), quantity=10, price=100)
+    d = ps.tracking_drift(s, real.id)
+    byid = {r["asset_id"]: r for r in d["rows"]}
+    # activo 2: sólo en la real → objetivo 0, real 0.5, drift positivo
+    assert byid[2]["target_w"] == pytest.approx(0.0)
+    assert byid[2]["real_w"] == pytest.approx(0.5)
+    assert byid[2]["diff"] == pytest.approx(0.5)
+    assert byid[2]["diff"] > 0
+    # activo 1: compartido, sub-ponderado respecto del objetivo (drift negativo)
+    assert byid[1]["target_w"] == pytest.approx(1.0)
+    assert byid[1]["real_w"] == pytest.approx(0.5)
+    assert byid[1]["diff"] == pytest.approx(-0.5)
+
+
+def test_tracking_drift_real_without_holdings():
+    """M5: real sin tenencias (mv=0 → guard `if mv:`) ⇒ real_w vacío; las filas son
+    los activos del objetivo con diff = -target_w."""
+    s = _session()
+    teo = ps.create_portfolio(s, "Target", "seg", owner_id=1,
+                              composition_method="curated")
+    ps.set_members(s, teo.id, [1, 2])                     # objetivo EW 50/50
+    real = ps.create_portfolio(s, "Real", "real", owner_id=1,
+                               linked_portfolio_id=teo.id)
+    # sin operaciones → holdings=[] → mv=0 → real_w={}
+    d = ps.tracking_drift(s, real.id)
+    assert d["target_name"] == "Target"
+    byid = {r["asset_id"]: r for r in d["rows"]}
+    assert set(byid) == {1, 2}                            # sólo activos objetivo
+    for aid in (1, 2):
+        assert byid[aid]["real_w"] == pytest.approx(0.0)
+        assert byid[aid]["target_w"] == pytest.approx(0.5)
+        assert byid[aid]["diff"] == pytest.approx(-0.5)   # diff = -target_w
 
 
 # ── carteras teóricas derivadas de estrategia (top-N por score as-of) ──────────

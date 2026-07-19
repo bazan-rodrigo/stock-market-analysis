@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401 — registra todos los modelos para create_all
 from app.database import Base
+from app.models.price import Price
 from app.services import portfolio_backtest_service as pbs
+from app.services import portfolio_service as ps
 from app.services.portfolio_backtest_service import _in_position, build_panels
 
 
@@ -87,6 +89,79 @@ def test_cross_gap_return_is_earned_by_portfolio():
     assert res["equity"][2] == pytest.approx(1.21)
 
 
+# ── equity de teórica curada (curated_equity_series, nivel C) ─────────────────
+#
+# constant-mix (rebalanceo diario a los pesos objetivo) de los miembros de una
+# cartera curada. Guardas: sin miembros → None; miembros sin precios → None.
+
+
+def test_curated_equity_happy_path():
+    s = _session()
+    p = ps.create_portfolio(s, "Basket", "seg", owner_id=1,
+                            composition_method="curated")
+    ps.set_members(s, p.id, [10, 20])                 # EW 50/50 (sin pesos)
+    d1, d2, d3 = date(2026, 1, 2), date(2026, 1, 3), date(2026, 1, 4)
+    s.add_all([Price(asset_id=10, date=d1, close=100.0),
+               Price(asset_id=10, date=d2, close=110.0),
+               Price(asset_id=10, date=d3, close=121.0),
+               Price(asset_id=20, date=d1, close=50.0),
+               Price(asset_id=20, date=d2, close=55.0),
+               Price(asset_id=20, date=d3, close=60.5)])
+    s.commit()
+
+    out = pbs.curated_equity_series(s, p.id)
+    assert out is not None
+    assert out["dates"] == [d1, d2, d3]
+    # ambos miembros +10% por rueda → constant-mix EW también +10% (equity coincide
+    # con simulate_fixed_weights: [1.0, 1.1, 1.21])
+    assert out["equity"] == pytest.approx([1.0, 1.1, 1.21])
+    # KPIs de portfolio_metrics.summary presentes
+    assert out["total_return"] == pytest.approx(0.21)
+    for k in ("cagr", "sharpe", "sortino", "max_drawdown", "volatility"):
+        assert k in out
+
+
+def test_curated_equity_none_when_no_members():
+    s = _session()
+    p = ps.create_portfolio(s, "Vacia", "seg", owner_id=1,
+                            composition_method="curated")
+    # sin set_members → resolve_membership devuelve [] → guarda de "sin miembros"
+    assert pbs.curated_equity_series(s, p.id) is None
+
+
+def test_curated_equity_none_when_no_prices():
+    s = _session()
+    p = ps.create_portfolio(s, "SinPrecios", "seg", owner_id=1,
+                            composition_method="curated")
+    ps.set_members(s, p.id, [10, 20])                 # miembros SIN precios
+    # ningún miembro con precios → per_asset vacío → guarda de "sin precios"
+    assert pbs.curated_equity_series(s, p.id) is None
+
+
+def test_curated_equity_asset_with_price_gap():
+    s = _session()
+    p = ps.create_portfolio(s, "Gap", "seg", owner_id=1,
+                            composition_method="curated")
+    ps.set_members(s, p.id, [10, 20])                 # EW 50/50
+    d1, d2, d3 = date(2026, 1, 2), date(2026, 1, 3), date(2026, 1, 4)
+    # el activo 20 NO cotiza en d2 (hueco interior respecto del calendario de 10):
+    # build_panels arrastra su tenencia y acredita el retorno que cruza el hueco
+    # (50→60.5 = +21%) en d3 → equity computable, no rompe.
+    s.add_all([Price(asset_id=10, date=d1, close=100.0),
+               Price(asset_id=10, date=d2, close=110.0),
+               Price(asset_id=10, date=d3, close=121.0),
+               Price(asset_id=20, date=d1, close=50.0),
+               Price(asset_id=20, date=d3, close=60.5)])
+    s.commit()
+
+    out = pbs.curated_equity_series(s, p.id)
+    assert out is not None
+    assert out["dates"] == [d1, d2, d3]
+    # d2: sólo el 10 tiene retorno (0.5·10% = +5%); d3: 10 (+10%) y 20 (+21% que
+    # cruzó el hueco) → 0.5·10% + 0.5·21% = +15.5% sobre 1.05
+    assert out["equity"] == pytest.approx([1.0, 1.05, 1.21275])
+
+
 # ── persistencia de corridas (nivel D) ────────────────────────────────────────
 
 def _mini_result(dates, gated_eq, rank_eq, bench_eq):
@@ -111,6 +186,15 @@ def test_save_and_get_portfolio_run_roundtrip():
     assert got["series"]["gated"]["equity"] == [1.0, 1.1]
     assert got["series"]["gated"]["dates"] == [d1, d2]
     assert got["series"]["benchmark"]["equity"] == [1.0, 1.02]
+    # los tres sub-modos de _SUBMODES salen (ranking incluido)
+    assert got["series"]["ranking"]["equity"] == [1.0, 1.05]
+    assert got["series"]["ranking"]["dates"] == [d1, d2]
+    assert got["summary"]["ranking"]["cagr"] == 0.3
+
+
+def test_get_portfolio_run_missing_is_none():
+    s = _session()
+    assert pbs.get_portfolio_run(s, 99999) is None
 
 
 def test_list_portfolio_runs_visibility():

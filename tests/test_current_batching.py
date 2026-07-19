@@ -228,3 +228,45 @@ def test_recompute_current_universo_vacio():
     res = ts.recompute_current_indicators(
         codes=_codes(), asset_ids=[], weights={})
     assert res == {"total": 0, "success": 0, "errors": []}
+
+
+def test_recompute_current_lote_muerto_marca_error(_seeded, monkeypatch):
+    """Un lote que CRASHEA (BrokenProcessPool → _on_dead) deja a SUS activos con
+    IndicatorUpdateLog.success=False (no darlos por actualizados) y los saca en
+    res["errors"] con su ticker; los activos de lotes sanos quedan success=True.
+
+    _current_batch normalmente atrapa todo y devuelve asset_errors; se
+    monkeypatchea para LANZAR en un lote (simula el crash duro del hijo) y
+    devolver limpio en los demás → aísla _on_dead + el mapeo del log/ticker sin
+    depender del pipeline completo sobre sqlite."""
+    from app.models import IndicatorUpdateLog
+    CIV = _seeded  # noqa: F841
+    monkeypatch.setattr(ts, "_MIN_BATCH_ASSETS", 1)   # un lote por activo
+    monkeypatch.setattr(ts, "_POOL_WORKERS", 1)        # escritor secuencial (sqlite)
+
+    _BAD = _A2
+
+    def _flaky(batch, codes, preloaded=None):
+        if _BAD in batch:
+            raise RuntimeError("hijo muerto (BrokenProcessPool)")
+        return {"asset_errors": {}}                    # lote sano
+
+    monkeypatch.setattr(ts, "_current_batch", _flaky)
+
+    res = ts.recompute_current_indicators(
+        codes=_codes(), asset_ids=list(_IDS), weights={aid: 100 for aid in _IDS})
+
+    s = get_session()
+    logs = {r.asset_id: r for r in s.query(IndicatorUpdateLog)
+            .filter(IndicatorUpdateLog.asset_id.in_(_IDS)).all()}
+    assert set(logs) == set(_IDS)                       # log por cada activo
+    assert logs[_BAD].success is False                  # el lote muerto NO se da por hecho
+    for aid in set(_IDS) - {_BAD}:
+        assert logs[aid].success is True                # los sanos, actualizados
+
+    err_tickers = {e["ticker"] for e in res["errors"]}
+    assert f"CB{_BAD}" in err_tickers                   # sale en errors con su ticker
+    assert len(res["errors"]) == 1
+    assert res["total"] == len(_IDS)
+    assert res["success"] == len(_IDS) - len(res["errors"])
+    Session.remove()

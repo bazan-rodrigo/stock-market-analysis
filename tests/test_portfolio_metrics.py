@@ -53,6 +53,11 @@ def test_cagr_invalid_years():
     assert cagr([100.0], years=2) is None
 
 
+def test_cagr_total_loss_is_none():
+    # quiebra total: total_return = -1 → (1+tr) = 0 ≤ 0 → CAGR indefinido (None)
+    assert cagr([100.0, 0.0], years=1) is None
+
+
 # ── volatilidad / sharpe / sortino ────────────────────────────────────────────
 
 def test_annualized_volatility():

@@ -947,3 +947,67 @@ def test_backfill_batch_retry_agota_y_anota(monkeypatch):
     finally:
         _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
         Session.remove()
+
+
+# ── De-dup del progreso a través de reintentos ───────────────────────────────
+# En un reintento del lote, los activos ya contados NO re-emiten asset_tick
+# (evita que el dn acumulado por código pase del total → dn>tn). La de-dup vive
+# en _backfill_batch_worker sobre el callback asset_tick DIRECTO (la Queue IPC
+# es una capa superior aparte), así que se testea sin IPC: se monkeypatchea
+# backfill_indicator para que cuente algunos activos, reviente (deadlock) y al
+# reintentar recorra TODOS los activos del lote.
+
+def test_dedup_progreso_a_traves_de_reintentos(monkeypatch):
+    """El 1er intento tickea 2 de 4 activos y revienta (1213); el reintento
+    recorre los 4. El total de asset_tick emitidos == nº de activos del lote (4),
+    NO la suma de los dos intentos (2+4=6)."""
+    monkeypatch.setattr("time.sleep", lambda *a, **k: None)   # sin backoff real
+    ids = [1, 2, 3, 4]
+    code = "return_daily"
+
+    ticks = {"n": 0}
+
+    def _fake_tick(_c=None):
+        ticks["n"] += 1
+
+    calls = {"n": 0}
+
+    def _flaky(code_arg, **kw):
+        calls["n"] += 1
+        tick = kw.get("asset_tick")            # el wrapper de-dup (_code_tick)
+        aids = kw.get("asset_ids") or []
+        if calls["n"] == 1:
+            for _ in range(2):                 # cuenta 2 activos...
+                if tick:
+                    tick()
+            raise _op_err(1213)                # ...y revienta (deadlock)
+        for _ in aids:                         # reintento: recorre TODOS
+            if tick:
+                tick()
+        return {"inserted": len(aids)}
+
+    monkeypatch.setattr(ts, "backfill_indicator", _flaky)
+
+    out = ts._backfill_batch_worker(0, ids, [code], force=False,
+                                    asset_tick=_fake_tick)
+
+    assert calls["n"] == 2                      # falló una vez y reintentó
+    assert out["errors"] == []                  # el retry exitoso limpió errors
+    assert out["inserted"] == len(ids)
+    assert ticks["n"] == len(ids)               # de-dup: 4, NO 2+4=6
+
+
+# ── Partición con pesos degenerados ──────────────────────────────────────────
+
+def test_partition_pesos_cero_no_rompe():
+    """Pesos todos en 0 (proxy de costo nulo — p.ej. activos sin historia de
+    precios): _partition_assets no divide por cero ni deja lotes vacíos. El
+    balanceo por peso queda degenerado, pero la COBERTURA se mantiene: la unión
+    de los lotes == todos los asset_ids, sin vacíos y sin duplicados."""
+    ids = list(range(1, 12))
+    weights = {i: 0 for i in ids}
+    batches = ts._partition_assets(ids, weights, 4)
+    flat = [a for b in batches for a in b]
+    assert sorted(flat) == ids                  # cobertura exacta (unión == todos)
+    assert all(b for b in batches)              # sin lotes vacíos
+    assert len(flat) == len(set(flat))          # sin duplicados
