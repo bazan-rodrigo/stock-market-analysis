@@ -177,6 +177,21 @@ def test_monthly_return_matrix_length_mismatch():
     assert monthly_return_matrix([date(2020, 1, 1)], [100.0, 110.0]) is None
 
 
+def test_monthly_return_matrix_spans_years():
+    # Cruce de año: los retornos se agrupan por (año, mes), así enero-2021 NO se
+    # mezcla con diciembre-2020 (mismo espacio de meses, distinto año).
+    dates = [date(2020, 12, 15), date(2020, 12, 31), date(2021, 1, 15),
+             date(2021, 1, 31), date(2021, 2, 15)]
+    equity = [100.0, 110.0, 121.0, 133.1, 146.41]        # +10% cada rueda
+    m = monthly_return_matrix(dates, equity)
+    assert set(m) == {2020, 2021}                        # aparecen ambos años
+    assert m[2020][12] == pytest.approx(0.10)            # dic-2020 aislado
+    assert m[2021][1] == pytest.approx(0.21)             # ene-2021 compone sus dos +10%
+    assert m[2021][2] == pytest.approx(0.10)
+    # enero-2021 no colisiona con diciembre-2020, ni al revés
+    assert 1 not in m[2020] and 12 not in m[2021]
+
+
 # ── summary ───────────────────────────────────────────────────────────────────
 
 def test_summary_keys_and_values():

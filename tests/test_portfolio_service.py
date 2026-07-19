@@ -11,6 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.database import Base
+from app.models import signal_store
 from app.models.price import Price
 from app.services import portfolio_service as ps
 from app.services.portfolio_service import (positions_from_transactions,
@@ -288,3 +289,91 @@ def test_tracking_drift_none_when_not_linked():
     s = _session()
     real = ps.create_portfolio(s, "Real", "real", owner_id=1)
     assert ps.tracking_drift(s, real.id) is None
+
+
+# ── carteras teóricas derivadas de estrategia (top-N por score as-of) ──────────
+#
+# `_strategy_topn_members` toma la ÚLTIMA fecha con score (<= as_of) de la tabla
+# dinámica strat_res_{id} (columnas asset_id/date/score), ordena por `score`
+# descendente, corta en top_n y reparte peso equal-weight (1/N).
+#
+# El harness usa un engine sqlite EFÍMERO por test (_session()), no el engine
+# compartido de app.database; por eso la tabla strat_res_{id} se crea sobre la
+# conexión de ESTA sesión (bind=s.connection()), replicando lo que hace el
+# propio servicio al leer. Patrón de siembra tomado de test_backtest_service.
+
+
+def _seed_strat(s, strategy_id, rows):
+    """Siembra strat_res_{id} en el engine del harness.
+
+    `rows`: iterable de (asset_id, date, score). Crea la tabla sobre la conexión
+    de la sesión (engine efímero por test) e inserta las filas.
+    """
+    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    s.execute(rt.insert(), [{"asset_id": a, "date": d, "score": sc}
+                            for a, d, sc in rows])
+    s.commit()
+    return rt
+
+
+def test_resolve_membership_strategy_topn():
+    s = _session()
+    p = ps.create_portfolio(s, "Top2", "seg", owner_id=1,
+                            composition_method="strategy", strategy_id=901,
+                            top_n=2)
+    d1, d2 = date(2026, 1, 5), date(2026, 1, 6)
+    _seed_strat(s, 901, [
+        # fecha vieja: acá el top serían 1, 2 y sobre todo 5 (score altísimo)
+        (1, d1, 100.0), (2, d1, 90.0), (5, d1, 999.0),
+        # última fecha: el top-2 real es 3 y 4
+        (1, d2, 5.0), (2, d2, 8.0), (3, d2, 200.0), (4, d2, 150.0),
+    ])
+    m = dict(ps.resolve_membership(s, p.id))
+    assert set(m) == {3, 4}                        # top-2 de la ÚLTIMA fecha
+    assert m[3] == pytest.approx(0.5)              # equal-weight 1/N
+    assert m[4] == pytest.approx(0.5)
+    # el 5, con score 999 pero SOLO en la fecha vieja, no entra → no mezcla fechas
+    assert 5 not in m and 1 not in m and 2 not in m
+
+
+def test_strategy_topn_asof_picks_last_date_le_asof():
+    s = _session()
+    p = ps.create_portfolio(s, "AsOf", "seg", owner_id=1,
+                            composition_method="strategy", strategy_id=902,
+                            top_n=1)
+    d1, d2, d3 = date(2026, 1, 5), date(2026, 1, 10), date(2026, 1, 15)
+    _seed_strat(s, 902, [
+        (1, d1, 100.0), (2, d1, 1.0),      # d1: gana el activo 1
+        (1, d2, 1.0),   (2, d2, 100.0),    # d2: gana el activo 2
+        (1, d3, 100.0), (2, d3, 1.0),      # d3: gana el activo 1
+    ])
+    # as_of INTERMEDIO (entre d2 y d3) → última fecha <= as_of es d2 → activo 2
+    assert ps.resolve_membership(s, p.id, as_of=date(2026, 1, 12)) == [(2, 1.0)]
+    # as_of posterior a todo → d3 → activo 1 (confirma que avanza a la más nueva)
+    assert ps.resolve_membership(s, p.id, as_of=date(2026, 1, 20)) == [(1, 1.0)]
+    # as_of anterior a todo score → last_date None → []
+    assert ps.resolve_membership(s, p.id, as_of=date(2026, 1, 1)) == []
+
+
+def test_strategy_topn_n_exceeds_universe():
+    s = _session()
+    p = ps.create_portfolio(s, "AllIn", "seg", owner_id=1,
+                            composition_method="strategy", strategy_id=903,
+                            top_n=10)                  # top_n > universo
+    d1 = date(2026, 1, 5)
+    _seed_strat(s, 903, [(1, d1, 30.0), (2, d1, 20.0), (3, d1, 10.0)])
+    m = dict(ps.resolve_membership(s, p.id))
+    assert sorted(m) == [1, 2, 3]                      # devuelve todos
+    assert all(w == pytest.approx(1 / 3) for w in m.values())   # EW sobre los 3
+
+
+def test_strategy_topn_missing_table():
+    s = _session()
+    p = ps.create_portfolio(s, "Huerfana", "seg", owner_id=1,
+                            composition_method="strategy", strategy_id=904,
+                            top_n=5)
+    # No se siembra strat_res_904: la estrategia no tiene historia/tabla poblada.
+    # No debe crashear; devuelve []. (Con sqlite, ensure_strat_table+checkfirst
+    # crea la tabla vacía y el resultado llega a [] por last_date is None, no por
+    # la rama `except`; el resultado observable es el mismo.)
+    assert ps.resolve_membership(s, p.id) == []

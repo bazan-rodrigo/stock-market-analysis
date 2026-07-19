@@ -89,6 +89,38 @@ def test_gated_all_cash_when_none_eligible():
     assert res["equity"] == pytest.approx([1.0, 1.0])   # sin exposición, no gana
 
 
+def test_gated_defers_exit_between_rebalances():
+    # Entre rebalanceos los pesos NO se recalculan: un activo que deja de ser
+    # elegible a mitad de ciclo PERMANECE en cartera hasta el próximo múltiplo de
+    # rebalance_every (rebalanceo cuando i % rebalance_every == 0).
+    d0, d1, d2, d3 = (date(2026, 1, 2), date(2026, 1, 3),
+                      date(2026, 1, 5), date(2026, 1, 6))
+    dates = [d0, d1, d2, d3]
+    scores = {d: {1: 9.0} for d in dates}                 # activo 1 siempre top-1
+    eligible = {d0: {1}, d1: set(), d2: set(), d3: set()}  # elegible sólo en d0
+    rets = {d1: {1: 0.10}, d2: {1: 0.20}, d3: {1: 0.50}}
+
+    res2 = simulate_gated(dates, scores, eligible, rets, top_n=1,
+                          rebalance_every=2)
+    # d0 (i%2==0) forma {1}; d1 (i%2==1) NO rebalancea → el activo 1 sigue en
+    # cartera pese a ser inelegible (egreso diferido); d2 (i%2==0) SÍ es múltiplo
+    # → recién ahí se lo evicta.
+    assert res2["weights"][0] == {1: 1.0}
+    assert res2["weights"][1] == {1: 1.0}     # difiere el egreso en mitad del ciclo
+    assert res2["weights"][2] == {}           # se vende recién en el múltiplo
+    assert res2["weights"][3] == {}
+    # captura el retorno de d1 (0.10) y el de d2 (0.20) por seguir en cartera;
+    # en d3 ya sin posición no gana el 0.50
+    assert res2["equity"] == pytest.approx([1.0, 1.10, 1.32, 1.32])
+
+    # con rebalanceo diario el egreso es inmediato en d1 → no captura el 0.20 de d2
+    res1 = simulate_gated(dates, scores, eligible, rets, top_n=1,
+                          rebalance_every=1)
+    assert res1["weights"][1] == {}
+    assert res1["equity"] == pytest.approx([1.0, 1.10, 1.10, 1.10])
+    assert res2["equity"] != res1["equity"]   # difieren por el egreso diferido
+
+
 def test_simulate_fixed_weights_constant_mix():
     d1, d2, d3 = date(2026, 1, 2), date(2026, 1, 3), date(2026, 1, 4)
     target = {1: 0.5, 2: 0.5}

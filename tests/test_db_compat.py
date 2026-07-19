@@ -95,6 +95,27 @@ def test_upsert_mysql_identico_a_legacy_current_batch():
     assert _sql(nuevo, mysql.dialect()) == _sql(legacy, mysql.dialect())
 
 
+def test_upsert_mysql_no_dedup_lote_clave_repetida():
+    # Paridad byte-idéntica: la rama MySQL hace early-return con on_duplicate_
+    # key_update ANTES de _dedupe_last (que solo corre en PG/sqlite). Un lote
+    # con (asset_id, date) repetido NO se colapsa: MySQL tolera la clave
+    # duplicada dentro del statement (última gana), así que las N filas
+    # originales deben llegar íntegras al VALUES — igual que el SQL histórico.
+    d = date(2026, 1, 2)
+    chunk = [
+        dict(asset_id=1, date=d,                value=1.0),
+        dict(asset_id=2, date=date(2026, 1, 3), value=2.0),
+        dict(asset_id=1, date=d,                value=9.0),  # clave repetida
+    ]
+    legacy = mysql_insert(IND).values(chunk)
+    legacy = legacy.on_duplicate_key_update(value=legacy.inserted.value)
+    nuevo = db_compat.upsert(MYSQL, IND, chunk, {"value": INSERTED})
+    # byte-idéntico al build legacy con las 3 filas (dedup NO corrió)
+    assert _sql(nuevo, mysql.dialect()) == _sql(legacy, mysql.dialect())
+    # y las 3 filas siguen en el VALUES (si _dedupe_last hubiera corrido, 2)
+    assert _sql(nuevo, mysql.dialect()).count("(%s, %s, %s)") == 3
+
+
 # ── upsert() ORM: rama PostgreSQL ─────────────────────────────────────────────
 
 def test_upsert_pg_on_conflict_sobre_pk():

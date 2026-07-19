@@ -832,3 +832,118 @@ def test_backfill_indicator_scopea_lote_y_meta_de_benchmark():
     finally:
         _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
         Session.remove()
+
+
+# ── Retry ante lock InnoDB (1205 lock-timeout / 1213 deadlock) ────────────────
+# El worker por lote escribe CONCURRENTEMENTE las mismas tablas ind_{code} que
+# otros workers del pool: ante un deadlock/lock-timeout reintenta la transacción
+# completa (rollback + backoff) hasta _MAX_LOCK_RETRIES; si agota, anota el error
+# del código y sigue (no aborta la corrida). Mismo patrón que
+# fundamental_service._fund_worker. Un OperationalError se construye con
+# .orig.args[0] == errno para que db_compat.is_retryable_lock_error lo clasifique
+# (ver tests/test_lock_retry_and_purge.py); Exception("boom") NO es reintentable.
+
+def _op_err(errno):
+    """OperationalError de SQLAlchemy con .orig.args[0] = errno de MySQL, para
+    que db_compat.is_retryable_lock_error(exc) la clasifique como reintentable."""
+    from sqlalchemy.exc import OperationalError
+    return OperationalError("stmt", None, Exception(errno))
+
+
+def test_backfill_batch_retry_lock_reintenta_y_completa(monkeypatch):
+    """El trabajo pesado (backfill_indicator) lanza un deadlock (1213) en la 1ª
+    invocación y en la 2ª delega al real → el worker reintenta la transacción y
+    completa: escribe las filas y out["errors"] queda vacío (el retry tuvo
+    éxito)."""
+    import app.models  # noqa: F401
+    from app.database import Base, Session, engine, get_session
+    from app.models import Asset, Price
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_store import ensure_ind_table, get_ind_table
+
+    Base.metadata.create_all(engine)
+    code = "return_daily"
+    ensure_ind_table(code, "num")
+    s = get_session()
+    ids = [_A1, _A2, _A3, _A4]
+    try:
+        caches = _seed_assets(s, Asset, Price, ids)
+        if not s.query(IndicatorDefinition).filter(
+                IndicatorDefinition.code == code).first():
+            s.add(IndicatorDefinition(code=code, name=code, category="test",
+                                      type="num", keep_history=True))
+        s.commit()
+
+        monkeypatch.setattr("time.sleep", lambda *a, **k: None)   # sin backoff real
+
+        real = ts.backfill_indicator
+        calls = {"n": 0}
+
+        def _flaky(*a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _op_err(1213)          # deadlock la 1ª vez
+            return real(*a, **kw)            # éxito al reintentar
+
+        monkeypatch.setattr(ts, "backfill_indicator", _flaky)
+
+        out = ts._backfill_batch_worker(0, ids, [code], force=False,
+                                        price_cache=dict(caches))
+
+        assert calls["n"] == 2               # falló una vez, reintentó y completó
+        assert out["errors"] == []           # el retry exitoso limpia errors
+        assert out["inserted"] > 0
+        t = get_ind_table(code)
+        n = get_session().execute(
+            sa.select(sa.func.count()).select_from(t)
+              .where(t.c.asset_id.in_(ids))).scalar()
+        assert n > 0                         # las filas se escribieron
+    finally:
+        _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
+        Session.remove()
+
+
+def test_backfill_batch_retry_agota_y_anota(monkeypatch):
+    """El trabajo pesado lanza SIEMPRE lock-timeout (1205): tras
+    _MAX_LOCK_RETRIES reintentos el worker DESISTE, anota el error del código en
+    out["errors"] y NO propaga la excepción (la corrida no aborta)."""
+    import app.models  # noqa: F401
+    from app.database import Base, Session, engine, get_session
+    from app.models import Asset, Price
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_store import ensure_ind_table
+
+    Base.metadata.create_all(engine)
+    code = "return_daily"
+    ensure_ind_table(code, "num")
+    s = get_session()
+    ids = [_A1, _A2, _A3, _A4]
+    try:
+        caches = _seed_assets(s, Asset, Price, ids)
+        if not s.query(IndicatorDefinition).filter(
+                IndicatorDefinition.code == code).first():
+            s.add(IndicatorDefinition(code=code, name=code, category="test",
+                                      type="num", keep_history=True))
+        s.commit()
+
+        monkeypatch.setattr("time.sleep", lambda *a, **k: None)
+
+        calls = {"n": 0}
+
+        def _always(*a, **kw):
+            calls["n"] += 1
+            raise _op_err(1205)              # lock-timeout siempre
+
+        monkeypatch.setattr(ts, "backfill_indicator", _always)
+
+        # NO debe propagar: la corrida sigue viva con el error anotado
+        out = ts._backfill_batch_worker(0, ids, [code], force=False,
+                                        price_cache=dict(caches))
+
+        assert calls["n"] == ts._MAX_LOCK_RETRIES + 1   # 1 intento + N reintentos
+        assert len(out["errors"]) == 1                  # anotó el código, sin abortar
+        assert out["errors"][0]["code"] == code
+        assert out["inserted"] == 0                     # nada se escribió
+    finally:
+        _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
+        Session.remove()

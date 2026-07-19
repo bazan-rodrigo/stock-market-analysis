@@ -3,7 +3,7 @@
 Codifican el mapeo trades → barras en posición y el ensamblado del cross-section.
 La función que toca BD (run_portfolio_backtest) se verifica en el Codespace.
 """
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 import sqlalchemy as sa
@@ -184,3 +184,101 @@ def test_wf_score_prefers_steadier_equity():
     assert _wf_score(steady) > _wf_score(volatile)
     assert _wf_score([]) == float("-inf")         # degenerado → nunca elegido
     assert _wf_score([1.0]) == float("-inf")
+    # vol cero → Sharpe indefinido → -inf (camino DISTINTO al de longitud < 2):
+    # retornos CONSTANTES (no vacíos). Se usan potencias de 2 porque sus
+    # cocientes son exactos en float → retornos [1.0, 1.0, 1.0] con desvío 0
+    # (el literal [1.0, 1.1, 1.21, 1.331] del enunciado NO sirve: el redondeo
+    # binario da retornos apenas distintos → desvío ≠ 0 → Sharpe finito enorme).
+    assert _wf_score([1.0, 2.0, 4.0, 8.0]) == float("-inf")
+
+
+# ── walk-forward (orquestación OOS, carga pesada monkeypatcheada) ─────────────
+
+class _DummySession:
+    """Sesión mínima: walk_forward sólo llama session.rollback() tras la carga."""
+
+    def rollback(self):
+        pass
+
+
+_WF_SPEC = {"entries": [{"type": "score", "th": 5}], "score_exits": [],
+            "caps": [], "rearm": False, "cooldown": 0}
+
+
+def _rising_universe(n_dates, asset_ids, scores_val):
+    """{aid: {dates, closes, scores, pcts}} día-completo (sin huecos), precios
+    siempre en alza con retornos variables (alternar +2%/+1%). `scores_val`
+    constante por activo. Todos los activos comparten el mismo camino → la equity
+    OOS no depende de qué top_n se elija (asserts robustos)."""
+    dates = [date(2026, 1, 1) + timedelta(days=i) for i in range(n_dates)]
+    closes = [100.0]
+    for i in range(1, n_dates):
+        closes.append(closes[-1] * (1.02 if i % 2 else 1.01))
+    return dates, {aid: {"dates": dates, "closes": list(closes),
+                         "scores": [scores_val] * n_dates,
+                         "pcts": [None] * n_dates} for aid in asset_ids}
+
+
+def test_walk_forward_concatenates_oos_windows(monkeypatch):
+    # 33 fechas, 2 ventanas → _window_splits: seg=11, tests all_dates[11:22] y
+    # all_dates[22:33]. Activos elegibles (score 9 ≥ th 5) y en alza → siempre
+    # en cartera; la equity OOS crece salvo en la costura (arranque plano).
+    dates, raw = _rising_universe(33, (1, 2, 3), scores_val=9.0)
+    monkeypatch.setattr(pbs, "_load_universe", lambda *a, **k: raw)
+
+    res = pbs.walk_forward(_DummySession(), 7, _WF_SPEC,
+                           topn_grid=(1, 2), trail_grid=(10.0, 20.0), n_windows=2)
+
+    # 1) los tests OOS se concatenan: equity y fechas paralelas, unión de ambas
+    #    ventanas = calendario desde el 1er test.
+    assert len(res["oos_equity"]) == len(res["oos_dates"])
+    assert res["oos_dates"] == dates[11:]
+    assert len(res["windows"]) == 2
+
+    eq = res["oos_equity"]
+    # 2) encadenado monótono: precios siempre en alza → no decrece (costura plana).
+    assert all(eq[i + 1] >= eq[i] - 1e-12 for i in range(len(eq) - 1))
+
+    # 3) carryover: la 2ª ventana arranca fresca (teq[0]=1.0, sin costos) y se
+    #    escala por el `val` acumulado → su 1er punto OOS = último de la 1ª ventana.
+    w0 = res["windows"][0]
+    n0 = sum(1 for d in dates if w0["test"][0] <= d <= w0["test"][1])
+    assert eq[n0] == pytest.approx(eq[n0 - 1])
+    assert eq[n0] > 1.0                         # ya heredó ganancia de la 1ª ventana
+
+    # 4) metadata: config elegida dentro de los grids + Sharpe de train finito
+    #    (universo con retornos variables → no degenerado).
+    for win in res["windows"]:
+        assert win["top_n"] in (1, 2)
+        assert win["trailing"] in (10.0, 20.0)
+        assert win["train_sharpe"] is not None
+        assert win["train"][0] == dates[0]      # train anclado-expansivo (desde el inicio)
+
+
+def test_walk_forward_window_metadata(monkeypatch):
+    # Caso degenerado: scores por DEBAJO del umbral de entrada (1 < th 5) → ningún
+    # activo entra nunca → cartera siempre en cash → equity plana 1.0 → Sharpe de
+    # train indefinido → train_sharpe None (best obj = -inf). Igual reporta la
+    # config (primera de cada grid, sin empate que la supere).
+    dates, raw = _rising_universe(33, (1,), scores_val=1.0)
+    monkeypatch.setattr(pbs, "_load_universe", lambda *a, **k: raw)
+
+    res = pbs.walk_forward(_DummySession(), 7, _WF_SPEC,
+                           topn_grid=(1,), trail_grid=(10.0,), n_windows=2)
+
+    assert len(res["windows"]) == 2
+    for win in res["windows"]:
+        assert win["top_n"] == 1
+        assert win["trailing"] == 10.0
+        assert win["train_sharpe"] is None       # degenerado → -inf → None
+    assert set(res["oos_equity"]) == {1.0}       # nunca invertida → equity plana
+
+
+def test_walk_forward_raises_on_insufficient_history(monkeypatch):
+    # 15 fechas con 2 ventanas → seg=5: el 1er tramo de train queda con 5 ruedas
+    # (< _WF_MIN_SEG_BARS=10) → ValueError (guard de historia insuficiente).
+    _dates, raw = _rising_universe(15, (1,), scores_val=9.0)
+    monkeypatch.setattr(pbs, "_load_universe", lambda *a, **k: raw)
+    with pytest.raises(ValueError):
+        pbs.walk_forward(_DummySession(), 7, _WF_SPEC,
+                         topn_grid=(1,), trail_grid=(10.0,), n_windows=2)

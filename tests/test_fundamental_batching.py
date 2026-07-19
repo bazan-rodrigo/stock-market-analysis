@@ -239,3 +239,82 @@ def test_backfill_all_universo_vacio(_wide, monkeypatch):
     res = fs.backfill_all_fundamental_values()
     assert res["errors"] == []
     assert res["inserted"] == 0
+
+
+# ── Retry ante lock InnoDB (1205 lock-timeout / 1213 deadlock) ────────────────
+# _backfill_fund_batch reintenta la transacción del lote (rollback + backoff)
+# cuando _backfill_fund_quarterly_all/_daily_all chocan con un deadlock/lock-
+# timeout de otro worker escribiendo la misma tabla ancha; si agota
+# _MAX_LOCK_RETRIES, el error del lote se ANOTA (no propaga: el hueco lo sana el
+# próximo delta). El OperationalError se arma con .orig.args[0] == errno para que
+# _is_retryable_lock_error lo clasifique (ver tests/test_lock_retry_and_purge.py).
+
+def _op_err(errno):
+    """OperationalError de SQLAlchemy con .orig.args[0] = errno de MySQL →
+    _is_retryable_lock_error(exc) la clasifica como reintentable."""
+    from sqlalchemy.exc import OperationalError
+    return OperationalError("stmt", None, Exception(errno))
+
+
+def test_backfill_fund_batch_retry_lock_reintenta_y_completa(_seeded, monkeypatch):
+    """_backfill_fund_quarterly_all lanza un deadlock (1213) la 1ª vez y delega
+    al real la 2ª → el lote reintenta y completa: escribe filas y res["errors"]
+    queda vacío."""
+    qcodes = sorted(fs._FUND_QUARTERLY_CODES)
+    dcodes = sorted(fs._FUND_DAILY_CODES)
+    s = _seeded
+
+    # el TRUNCATE del rebuild lo hace el padre (el batch pasa skip_force_reset)
+    fs._fund_force_reset(s, qcodes, dcodes)
+    Session.remove()
+
+    monkeypatch.setattr(fs.time, "sleep", lambda *a, **k: None)   # sin backoff real
+
+    real_q = fs._backfill_fund_quarterly_all
+    calls = {"n": 0}
+
+    def _flaky_q(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _op_err(1213)              # deadlock la 1ª vez
+        return real_q(*a, **kw)             # éxito al reintentar
+
+    monkeypatch.setattr(fs, "_backfill_fund_quarterly_all", _flaky_q)
+
+    res = fs._backfill_fund_batch(_IDS, qcodes, dcodes, force=True)
+
+    assert calls["n"] == 2                    # falló una vez, reintentó y completó
+    assert res["errors"] == []               # el retry exitoso limpia errors
+    assert res["inserted"] > 0
+    snap = _snapshot(get_session())
+    assert snap["fund_quarterly"]            # las filas se escribieron
+    assert snap["fund_daily"]
+
+
+def test_backfill_fund_batch_retry_agota_y_anota(_seeded, monkeypatch):
+    """_backfill_fund_quarterly_all lanza SIEMPRE lock-timeout (1205): tras
+    _MAX_LOCK_RETRIES reintentos el lote DESISTE, anota el error en res["errors"]
+    y NO propaga (la corrida sigue; el hueco lo sana el próximo delta)."""
+    qcodes = sorted(fs._FUND_QUARTERLY_CODES)
+    dcodes = sorted(fs._FUND_DAILY_CODES)
+    s = _seeded
+
+    fs._fund_force_reset(s, qcodes, dcodes)
+    Session.remove()
+
+    monkeypatch.setattr(fs.time, "sleep", lambda *a, **k: None)
+
+    calls = {"n": 0}
+
+    def _always_q(*a, **kw):
+        calls["n"] += 1
+        raise _op_err(1205)                  # lock-timeout siempre
+
+    monkeypatch.setattr(fs, "_backfill_fund_quarterly_all", _always_q)
+
+    # NO debe propagar: devuelve el dict con el error anotado
+    res = fs._backfill_fund_batch(_IDS, qcodes, dcodes, force=True)
+
+    assert calls["n"] == fs._MAX_LOCK_RETRIES + 1   # 1 intento + N reintentos
+    assert len(res["errors"]) == 1                  # anotó el lote, sin abortar
+    assert res["inserted"] == 0                     # nada se escribió
