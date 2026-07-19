@@ -22,12 +22,18 @@ def layout(**kwargs):
 
     return html.Div([
         dcc.Interval(id="bt-interval", interval=1000, disabled=True),
+        dcc.Interval(id="bt-rules-interval", interval=1000, disabled=True),
+        dcc.Interval(id="bt-port-interval", interval=1000, disabled=True),
 
         dbc.Row([
             dbc.Col(html.H4("Backtest de Estrategia", className="mb-0"),
                     width="auto"),
-        ], className="mb-2 align-items-center"),
-        dbc.Alert(_HELP, color="info", className="mb-3 small py-2"),
+        ], className="mb-3 align-items-center"),
+
+        dbc.Tabs([
+          dbc.Tab(label="Señal — calidad del ranking", tab_id="bt-tab-senal",
+                  children=html.Div([
+        dbc.Alert(_HELP, color="info", className="mb-3 mt-3 small py-2"),
 
         # ── Configuración del run ─────────────────────────────────────────
         dbc.Card(dbc.CardBody([
@@ -90,13 +96,10 @@ def layout(**kwargs):
 
         # ── Resultados ────────────────────────────────────────────────────
         dcc.Loading(html.Div(id="bt-results"), type="circle", color="#dee2e6"),
+                  ])),
 
-        # ── Nivel B: Reglas (rendimiento de las reglas sobre el universo) ──
-        html.Hr(className="my-4"),
-        dcc.Interval(id="bt-rules-interval", interval=1000, disabled=True),
-        dbc.Row([dbc.Col(html.H4("Reglas — rendimiento sobre el universo",
-                                 className="mb-0"), width="auto")],
-                className="mb-2"),
+          dbc.Tab(label="Reglas — rendimiento sobre el universo",
+                  tab_id="bt-tab-reglas", children=html.Div([
         dbc.Alert(
             "Corre el simulador de trades con estas reglas sobre TODOS los "
             "activos de la estrategia y agrega: retorno por activo, salidas por "
@@ -153,12 +156,10 @@ def layout(**kwargs):
 
         dcc.Loading(html.Div(id="bt-rules-results"), type="circle",
                     color="#dee2e6"),
+                  ])),
 
-        # ── Nivel C: Cartera (simulación top-N) ───────────────────────────
-        html.Hr(className="my-4"),
-        dcc.Interval(id="bt-port-interval", interval=1000, disabled=True),
-        dbc.Row([dbc.Col(html.H4("Cartera — simulación top-N", className="mb-0"),
-                         width="auto")], className="mb-2"),
+          dbc.Tab(label="Cartera — simulación top-N", tab_id="bt-tab-cartera",
+                  children=html.Div([
         dbc.Alert(
             "Simula una cartera que mantiene el top-N por score. Dos sub-modos "
             "superpuestos: RANKING PURO (rota sólo por score) y GATED (además "
@@ -225,6 +226,8 @@ def layout(**kwargs):
 
         dcc.Loading(html.Div(id="bt-port-results"), type="circle",
                     color="#dee2e6"),
+                  ])),
+        ], className="mb-3"),
 
     ], style={"padding": "0 8px"})
 
