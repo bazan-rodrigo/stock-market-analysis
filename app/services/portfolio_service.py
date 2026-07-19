@@ -173,13 +173,13 @@ def realized_pnl_total(session, portfolio_id, as_of=None):
 def create_portfolio(session, name, ptype, owner_id, *, is_public=False,
                      base_currency=None, benchmark_asset_id=None,
                      linked_portfolio_id=None, composition_method=None,
-                     strategy_id=None, top_n=None, rebalance=None):
+                     strategy_id=None, top_n=None):
     p = Portfolio(name=name, ptype=ptype, owner_id=owner_id,
                   is_public=is_public, base_currency=base_currency,
                   benchmark_asset_id=benchmark_asset_id,
                   linked_portfolio_id=linked_portfolio_id,
                   composition_method=composition_method, strategy_id=strategy_id,
-                  top_n=top_n, rebalance=rebalance)
+                  top_n=top_n)
     session.add(p)
     session.commit()
     return p
@@ -339,7 +339,7 @@ def resolve_membership(session, portfolio_id, as_of=None):
     - 'curated': los PortfolioMember (peso tal cual, normalizado; si ninguno
       tiene peso, equal-weight).
     - 'strategy': top-N por score de la estrategia as-of (equal-weight).
-    - 'rule' / None: [] (la regla dinámica se implementa después).
+    - None / sin método: [].
     """
     p = session.get(Portfolio, portfolio_id)
     if p is None:

@@ -250,16 +250,6 @@ def _confirm_codes(raw_codes: np.ndarray, confirm_bars: int) -> np.ndarray:
     return confirmed
 
 
-def _classify_duration(bars: int, hist: list[int], dur_short_pct: float, dur_long_pct: float) -> str:
-    if len(hist) < 3:
-        return "media"
-    p_short = float(np.percentile(hist, dur_short_pct))
-    p_long  = float(np.percentile(hist, dur_long_pct))
-    if bars <= p_short: return "corta"
-    if bars >= p_long:  return "larga"
-    return "media"
-
-
 def _compute_vol_zones(
     df: pd.DataFrame, atr_period: int, confirm_bars: int,
     pct_low: float, pct_high: float, pct_extreme: float,
@@ -321,8 +311,8 @@ def _compute_vol_zones(
         dur_hist[z["vol_regime"]].append(z["_bars"])
     # Umbrales de percentil una vez por régimen (4), no una vez por zona:
     # todas las zonas de un mismo régimen comparten el mismo dur_hist, así
-    # que _classify_duration recalculaba los mismos percentiles cientos de
-    # veces por activo (uno por zona) en vez de reusarlos.
+    # que calcular el percentil por zona repetía el mismo cómputo cientos de
+    # veces por activo (uno por zona) en vez de reusarlo.
     dur_thresholds: dict[str, tuple[float, float] | None] = {}
     for regime, hist in dur_hist.items():
         if len(hist) < 3:

@@ -1,7 +1,4 @@
-import json
-
 from dash import Input, Output, State, callback, html, no_update
-import dash_bootstrap_components as dbc
 
 import app.services.strategy_service as svc
 from app.pages.screener_signals import _th, _td

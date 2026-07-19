@@ -1,6 +1,6 @@
 import threading
 
-from dash import Input, Output, State, callback, no_update, html
+from dash import Input, Output, State, callback, no_update
 
 import app.services.price_service as svc
 from app.services import run_lock_service as _rl

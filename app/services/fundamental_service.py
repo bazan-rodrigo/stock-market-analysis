@@ -87,7 +87,7 @@ def _latest_price(asset_id: int, s) -> float | None:
 
 
 def _price_1y_ago(asset_id: int, s) -> float | None:
-    from datetime import date, timedelta
+    from datetime import date
     target = date.today() - timedelta(days=365)
     row = (s.query(Price.close)
              .filter(Price.asset_id == asset_id,

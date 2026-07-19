@@ -20,7 +20,7 @@ aplican aguas arriba (en el servicio que arma la serie o los trades), no acá.
 """
 
 from math import sqrt
-from statistics import mean, median, stdev
+from statistics import mean, stdev
 
 TRADING_DAYS = 252  # ruedas por año (anualización por defecto)
 

@@ -245,11 +245,10 @@ def _render_port(res):
     Input("bt-port-promote", "n_clicks"),
     State("bt-port-strategy", "value"),
     State("bt-port-topn", "value"),
-    State("bt-port-rebal", "value"),
     prevent_initial_call=True,
 )
 @safe_callback(lambda exc: (f"Error: {exc}", True, "danger"))
-def promote_to_seguimiento(_, strategy_id, topn, rebal):
+def promote_to_seguimiento(_, strategy_id, topn):
     """Crea una cartera teórica (seguimiento) derivada del top-N de la estrategia
     con la config actual — el 'promover a seguimiento' del rediseño."""
     if not strategy_id:
@@ -265,12 +264,10 @@ def promote_to_seguimiento(_, strategy_id, topn, rebal):
         return "Estrategia no visible.", True, "warning"
 
     top_n = max(1, int(_num(topn) or 20))
-    rebalance = max(1, int(_num(rebal) or 1))
     name = f"Seguimiento: {visible[int(strategy_id)]} · top-{top_n}"
     ps.create_portfolio(get_session(), name, "seg", owner_id=user_id,
                         composition_method="strategy",
-                        strategy_id=int(strategy_id), top_n=top_n,
-                        rebalance=rebalance)
+                        strategy_id=int(strategy_id), top_n=top_n)
     return (f"Cartera de seguimiento «{name}» creada — vela en /carteras.",
             True, "success")
 

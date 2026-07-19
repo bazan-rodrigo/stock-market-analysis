@@ -1,5 +1,4 @@
 import dash
-import dash_bootstrap_components as dbc
 from dash import dash_table, html
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER

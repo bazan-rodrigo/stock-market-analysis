@@ -5,9 +5,7 @@ from dash import dash_table, dcc, html
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 from app.components.ui_constants import (
     GROUP_TYPE_OPTS as _GROUP_TYPE_OPTS,
-    FORMULA_HELP as _FORMULA_HELP,
     CARD_STYLE, STATUS_STYLE,
-    formula_help_card as _help_card,
 )
 
 _SOURCE_OPTS = [

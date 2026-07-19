@@ -56,7 +56,6 @@ from app.models import (
     Asset,
     GroupScore,
     GroupSignalValue,
-    SignalEvalLog,
     Strategy,
 )
 from app.models import signal_store
@@ -73,7 +72,6 @@ from app.services.group_score_service import (
     aggregate_group_scores,
 )
 from app.services.signal_service import (
-    _VIRTUAL_CODES,
     _evaluate_asset_signal_scores,
     _evaluate_group_signal_scores,
     _prepare_signals,
@@ -102,7 +100,7 @@ def _load_derivation_inputs(s):
     recalcular la estrategia de Argentina borraría los grupos que necesita la
     de Brasil sobre la misma señal). Devuelve (strategies, gtypes_by_id,
     gtypes_by_key)."""
-    from app.models import SignalDefinition, Strategy
+    from app.models import SignalDefinition
 
     # {signal_key: set(group_type)} — cada señal de grupo aporta su propio tipo
     gtypes_by_key, gtypes_by_id = {}, {}

@@ -6,8 +6,7 @@ from datetime import date as date_type
 import sqlalchemy as sa
 
 from app.database import get_session
-from app.models import (Asset, SignalDefinition, Strategy, StrategyComponent,
-                        signal_store)
+from app.models import SignalDefinition, Strategy, signal_store
 
 
 def get_asset_signal_history(

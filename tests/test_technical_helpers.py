@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from app.services.technical_service import (
-    _Q_MONTH, _classify_duration, _closest_price_on_or_before,
+    _Q_MONTH, _closest_price_on_or_before,
     _compute_dd_events, _compute_regime_zones, _compute_vol_zones,
     _one_year_before, _pct_change, _rsi, _series_dates_values, _sma_zscore,
     _zones_to_series,
@@ -148,16 +148,6 @@ def test_vol_zones_estructura():
         assert z["vol_regime"] in {"baja", "normal", "alta", "extrema"}
         assert z["dur_regime"] in {"corta", "media", "larga"}
         assert z["start"] <= z["end"]
-
-
-# ── Duración de zonas ─────────────────────────────────────────────────────────
-
-def test_classify_duration():
-    assert _classify_duration(5, [], 33, 67) == "media"          # sin historia
-    hist = [10, 20, 30]
-    assert _classify_duration(10, hist, 33, 67) == "corta"
-    assert _classify_duration(20, hist, 33, 67) == "media"
-    assert _classify_duration(30, hist, 33, 67) == "larga"
 
 
 # ── Series de backfill ────────────────────────────────────────────────────────

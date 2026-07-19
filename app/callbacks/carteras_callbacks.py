@@ -290,8 +290,7 @@ def render_detail(sel_id, _refresh):
     if p.ptype != "real":
         members = svc.resolve_membership(s, sel_id)
         _METHOD = {"curated": "Curada (lista manual)",
-                   "strategy": "Derivada de estrategia",
-                   "rule": "Por regla dinámica"}
+                   "strategy": "Derivada de estrategia"}
         method_lbl = _METHOD.get(p.composition_method,
                                  "Sin composición definida")
         mids = [a for a, _ in members]
@@ -330,10 +329,6 @@ def render_detail(sel_id, _refresh):
                 f"Top-{p.top_n or 20} por score. Para la curva de equity, corré "
                 "esta estrategia en /backtest → Cartera.",
                 className="text-muted d-block"))
-        elif p.composition_method == "rule":
-            extra.append(dbc.Alert(
-                "El método por regla dinámica se implementa próximamente.",
-                color="secondary", className="small py-2 mt-2"))
         return html.Div([
             header,
             html.Div([html.Span("Composición: ", className="text-muted"),

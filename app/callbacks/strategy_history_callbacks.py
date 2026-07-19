@@ -1,7 +1,7 @@
 from datetime import date as dt_date
 
 import plotly.graph_objects as go
-from dash import Input, Output, State, callback, html, no_update, dcc
+from dash import Input, Output, State, callback, html, dcc
 import dash_bootstrap_components as dbc
 
 import app.services.strategy_service as svc

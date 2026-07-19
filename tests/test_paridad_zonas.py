@@ -11,9 +11,23 @@ import pandas as pd
 import pytest
 
 from app.services.technical_service import (
-    _classify_duration, _compute_regime_zones, _compute_vol_zones,
+    _compute_regime_zones, _compute_vol_zones,
     _confirm_codes, _date_str, _regime_detail, _zones_to_series,
 )
+
+
+def _ref_classify_duration(bars, hist, dur_short_pct, dur_long_pct):
+    """Copia literal de la clasificación de duración de la implementación
+    anterior (hoy inlineada en _compute_vol_zones); oráculo de la paridad."""
+    if len(hist) < 3:
+        return "media"
+    p_short = float(np.percentile(hist, dur_short_pct))
+    p_long  = float(np.percentile(hist, dur_long_pct))
+    if bars <= p_short:
+        return "corta"
+    if bars >= p_long:
+        return "larga"
+    return "media"
 
 
 # ── Referencia: máquina de confirmación barra por barra (implementación vieja) ──
@@ -168,7 +182,7 @@ def _ref_vol_zones(df, atr_period, confirm_bars, pct_low, pct_high, pct_extreme,
     for z in zones[:-1]:
         dur_hist[z["vol_regime"]].append(z["_bars"])
     for z in zones:
-        z["dur_regime"] = _classify_duration(
+        z["dur_regime"] = _ref_classify_duration(
             z["_bars"], dur_hist[z["vol_regime"]], dur_short_pct, dur_long_pct)
         z.pop("_bars", None)
     return zones

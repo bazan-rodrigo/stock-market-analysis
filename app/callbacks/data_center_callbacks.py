@@ -1,7 +1,6 @@
 import threading
 from datetime import datetime as _dt
 
-import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, html, no_update
 
 from app.database import get_session, Session as _ScopedSession

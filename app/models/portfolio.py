@@ -40,14 +40,11 @@ class Portfolio(Base):
                                  ForeignKey("portfolio.id", ondelete="SET NULL"))
     # ── Composición (sólo teóricas, ptype='seg') ──
     # composition_method: 'curated' (lista PortfolioMember) | 'strategy' (top-N
-    # de una estrategia) | 'rule' (regla dinámica, rule_json — se implementa
-    # después). strategy_id: Integer plano (sin FK de BD — el servicio tolera que
-    # la estrategia ya no exista). rebalance: cada cuántas ruedas se recalcula.
+    # de una estrategia). strategy_id: Integer plano (sin FK de BD — el servicio
+    # tolera que la estrategia ya no exista).
     composition_method  = Column(String(10))
     strategy_id         = Column(Integer)
     top_n               = Column(Integer)
-    rebalance           = Column(Integer)
-    rule_json           = Column(Text)
     created_at          = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 

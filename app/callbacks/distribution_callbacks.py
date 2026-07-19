@@ -2,7 +2,7 @@ import sqlalchemy as sa
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Input, Output, callback, dcc, html, no_update
+from dash import Input, Output, callback, html, no_update
 import dash_bootstrap_components as dbc
 
 from app.database import get_session
