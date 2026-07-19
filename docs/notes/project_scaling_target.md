@@ -92,3 +92,69 @@ También se corrigió que la barra de progreso de
 pasar de la fase de indicadores vigentes a la de backfill histórico (cada
 fase reportaba su propio total interno); ahora comparten un total
 combinado vía `_run_current_and_backfill`.
+
+## Parte 3 (19-jul-2026) — 7 profilers nuevos + 2 optimizaciones
+
+Commit `b9a0d57` suma 7 scripts al patrón aislado, cubriendo lo que no
+tenía profiling: `profile_walk_forward`, `profile_portfolio_backtest`,
+`profile_regime_zones`, `profile_fullsample_indicators`,
+`profile_fundamental_ratios` (corren LOCAL con datos sintéticos, sin BD) y
+`profile_verification`, `profile_pool_batch` (Codespace, datos reales).
+
+**LECCIÓN METODOLÓGICA (la más importante): cProfile infla ~3.7x en este
+código.** El lote delta medido daba 69.2s con profiler y **18.7s real**
+(`--raw`). Instrumenta cada llamada, así que dispara lo llamado millones de
+veces (`pd.notna` aparecía ~12x más caro que su costo real). **La tabla del
+profiler sirve para saber DÓNDE mirar, nunca CUÁNTO tarda.** Por eso
+`profile_pool_batch.py` tiene el flag `--raw` (wall-clock sin instrumentar):
+las optimizaciones se juzgan contra ese número.
+
+**NO medir en Railway:** contenedores efímeros (cambia el hostname en cada
+sesión) con CPU asignada variable → comparar corridas de sesiones distintas
+es ruido. Además `profile_pool_batch` ESCRIBE (hace backfill real). El
+Codespace es el lugar: contenedor estable, git disponible, base descartable.
+
+**Optimizaciones aplicadas:**
+- `8a73ca4` — máscara `pd.notna` vectorizada una vez en `_pairs_to_write` y
+  `_series_stats` (antes: una llamada escalar por valor de serie, por cada
+  activo×código). Medido local: 0.708 → 0.321 ms/serie de 4570 (2.2x).
+- `d607273` — `_series_checksum` hashea los bytes crudos del array float64
+  en series numéricas (máscara de nulos aparte para que 0.0 real no colisione
+  con NaN). Camino de texto INTACTO, así que `trend_*` no se invalida.
+  Medido local: 1.605 → 0.113 ms (14x).
+
+**PENDIENTE — A/B de `d607273`, hacer en el Codespace:** no hay evidencia en
+entorno real de que el ahorro del checksum se note. El intento en Railway no
+sirvió (cambió el contenedor entre baseline y medición: 18.7s vs 29.7s no son
+comparables). Correr, EN LA MISMA MÁQUINA:
+
+    git checkout 8a73ca4
+    python scripts/profile_pool_batch.py delta --raw   # 1ª reinvalida
+    python scripts/profile_pool_batch.py delta --raw   # 2ª = BASELINE
+    git checkout master
+    python scripts/profile_pool_batch.py delta --raw   # 1ª reinvalida
+    python scripts/profile_pool_batch.py delta --raw   # 2ª = comparable
+
+Las 1ª de cada par pagan la invalidación por el cambio de formato de hash.
+**Criterio acordado: si el nuevo no gana, se revierte `d607273`** — 14x en
+una función que quizá pesa 2-4s del lote no justifica cargar con una
+invalidación única si no se puede demostrar.
+
+**Hot spots encontrados, sin atacar todavía** (de las corridas sintéticas,
+recordar que son magnitudes relativas, no absolutas):
+- `build_panels` domina el backtest y `_panels_for_range` lo RECONSTRUYE una
+  vez por (ventana × trailing) — 12x en un grid de walk-forward → cachear.
+- `run_portfolio_backtest` llama `simulate_topn` 2x (ranking + benchmark EW
+  con `top_n=1e9`, que ordena el cross-section entero por fecha) → atajo: si
+  `top_n >= len(scores)`, pesos equal-weight sin `sorted`.
+- `relative_strength_52w` es ~7x más caro que sus pares full_sample y su
+  costo es casi todo Python puro (`toordinal`, `_one_year_before`,
+  list-comprehensions) → vectorizable.
+- `_compute_regime_zones` y `_confirm_codes` ya están bien vectorizados: NO
+  son cuello, descartar esa hipótesis.
+
+**Contraejemplo útil:** vectorizar la máscara en `_series_checksum` (el mismo
+patrón que ganó 2.2x en `_pairs_to_write`) lo hacía MÁS LENTO (1.603 → 1.689
+ms), porque ahí el chequeo escalar ya era barato (`math.isnan`, C) y el costo
+estaba en `str()`; la conversión a array no amortizaba. Dos patrones que
+parecen idénticos se comportan al revés → medir siempre antes de optimizar.
