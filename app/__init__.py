@@ -303,6 +303,7 @@ def create_app():
         "app.callbacks.backtest_callbacks",
         "app.callbacks.optimizer_callbacks",
         "app.callbacks.carteras_callbacks",
+        "app.callbacks.rules_backtest_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))

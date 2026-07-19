@@ -91,6 +91,69 @@ def layout(**kwargs):
         # ── Resultados ────────────────────────────────────────────────────
         dcc.Loading(html.Div(id="bt-results"), type="circle", color="#dee2e6"),
 
+        # ── Nivel B: Reglas (rendimiento de las reglas sobre el universo) ──
+        html.Hr(className="my-4"),
+        dcc.Interval(id="bt-rules-interval", interval=1000, disabled=True),
+        dbc.Row([dbc.Col(html.H4("Reglas — rendimiento sobre el universo",
+                                 className="mb-0"), width="auto")],
+                className="mb-2"),
+        dbc.Alert(
+            "Corre el simulador de trades con estas reglas sobre TODOS los "
+            "activos de la estrategia y agrega: retorno por activo, salidas por "
+            "motivo y ranking. Responde \"¿qué tan buenas son las reglas en "
+            "promedio?\" (a diferencia del análisis por cuantiles de arriba).",
+            color="info", className="mb-3 small py-2"),
+        dbc.Card(dbc.CardBody([
+            dbc.Row([
+                dbc.Col([dbc.Label("Estrategia", style=_LBL),
+                         dcc.Dropdown(id="bt-rules-strategy",
+                                      placeholder="Seleccionar…", style=_IN)], md=3),
+                dbc.Col([dbc.Label("Entrada Score ≥", style=_LBL),
+                         dbc.Input(id="bt-rules-score", type="number", value=20,
+                                   style=_IN)], md=2),
+                dbc.Col([dbc.Label("Entrada Percentil ≥", style=_LBL),
+                         dbc.Input(id="bt-rules-pct", type="number", style=_IN)], md=2),
+                dbc.Col([dbc.Label("Salida Score <", style=_LBL),
+                         dbc.Input(id="bt-rules-exit-score", type="number",
+                                   style=_IN)], md=2),
+            ], className="g-2 mb-2"),
+            dbc.Row([
+                dbc.Col([dbc.Label("SL %", style=_LBL),
+                         dbc.Input(id="bt-rules-sl", type="number", value=10,
+                                   style=_IN)], md=2),
+                dbc.Col([dbc.Label("TP %", style=_LBL),
+                         dbc.Input(id="bt-rules-tp", type="number", value=20,
+                                   style=_IN)], md=2),
+                dbc.Col([dbc.Label("Trailing %", style=_LBL),
+                         dbc.Input(id="bt-rules-ts", type="number", value=15,
+                                   style=_IN)], md=2),
+                dbc.Col([dbc.Label("Máx ruedas", style=_LBL),
+                         dbc.Input(id="bt-rules-maxbars", type="number", value=60,
+                                   style=_IN)], md=2),
+                dbc.Col([dbc.Label("Enfriamiento", style=_LBL),
+                         dbc.Input(id="bt-rules-cooldown", type="number", value=5,
+                                   style=_IN)], md=1),
+                dbc.Col([dbc.Label("Rearm", style=_LBL),
+                         dbc.Switch(id="bt-rules-rearm", value=True)], md=1,
+                        className="d-flex flex-column"),
+                dbc.Col([dbc.Label(" ", style=_LBL),
+                         dbc.Button("Correr reglas", id="bt-rules-run",
+                                    color="primary", size="sm",
+                                    style={"display": "block"})], md=2,
+                        className="d-flex flex-column"),
+            ], className="g-2"),
+            dbc.Progress(id="bt-rules-progress", value=0, striped=True,
+                         animated=True, className="mt-2",
+                         style={"display": "none", "height": "16px",
+                                "fontSize": "0.72rem"}),
+            dbc.Alert(id="bt-rules-alert", is_open=False, dismissable=True,
+                      className="mt-2 small py-1"),
+        ]), className="mb-3",
+            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+
+        dcc.Loading(html.Div(id="bt-rules-results"), type="circle",
+                    color="#dee2e6"),
+
     ], style={"padding": "0 8px"})
 
 
