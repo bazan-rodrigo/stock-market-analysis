@@ -24,17 +24,16 @@ igual, calculando ambos el mismo valor incorrecto).
 Y desde la extensión a fundamentales: mismo patrón para
 _compute_quarterly_ratios/_compute_daily_ratios (ind_fundamental_*), con
 el mismo motivo pero un riesgo distinto — el delta de fundamentales
-(_backfill_fund_indicator) no tiene el caché sofisticado de indicadores
-técnicos, así que no puede repetir esos bugs, pero tampoco vuelve a
-calcular una fecha ya escrita si el trimestre correspondiente se revisa
-más tarde (salvo el último trimestre, tratado como "preliminar").
+(_backfill_fund_quarterly_all/_backfill_fund_daily_all) no tiene el caché
+sofisticado de indicadores técnicos, así que no puede repetir esos bugs;
+reescribe la fila ancha COMPLETA de cada fecha "dirty" (nueva, último
+período, o una donde algún código todavía no tenía valor), así que una
+revisión de la fuente en esas fechas sí se propaga.
 
 Dos consumidores comparten esta lógica: scripts/verify_delta_correctness.py
 (CLI) y app/callbacks/admin_verify_callbacks.py (panel /admin/verify).
 """
 import random
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as _date_type, timedelta
 
 import numpy as np
@@ -56,8 +55,8 @@ from app.services.fundamental_service import (
 # el particionador — la unidad de trabajo pasa de "un activo" a "un lote".
 from app.services.technical_service import (
     _BACKFILL_FNS, _DELTA_TAIL_MODE, _get_regime_config,
-    _get_volatility_config, _n_batches, _partition_assets, _resample_ohlc,
-    _series_dates_values, _use_process_pool,
+    _get_volatility_config, _resample_ohlc, _series_dates_values,
+    _use_process_pool, run_asset_batches,
 )
 
 # Mismo criterio que _UPDATE_WORKERS en fundamental_service.py: cada activo
@@ -323,45 +322,32 @@ def _run_batched(asset_ids: list, codes: list, ticker_map: dict, batch_fn,
     results.
 
     Un lote que falla (incluido BrokenProcessPool) PROPAGA y corta la corrida
-    —no se traga— para que update_flags_for_assets nunca marque como
-    'verificados sin hallazgos' activos que en realidad no se procesaron."""
+    —no se traga (on_dead=None en run_asset_batches)— para que
+    update_flags_for_assets nunca marque como 'verificados sin hallazgos'
+    activos que en realidad no se procesaron."""
     n = len(asset_ids)
     if n == 0:
         return []
     use_procs, n_procs = _use_process_pool(n)
-    workers = n_procs if use_procs else _VERIFY_WORKERS
-    batches = _partition_assets(asset_ids, {aid: 1 for aid in asset_ids},
-                                _n_batches(n, workers))
     results: list = []
     done = [0]
-    lock = threading.Lock()
 
-    def _consume(out: dict) -> None:
+    def _consume(out: dict, batch: list) -> None:
+        # Serializado por run_asset_batches (as_completed en el padre) → sin lock.
         if not out:
             return
         results.extend(out.get("results", []))
-        with lock:
-            done[0] += out.get("n_assets", 0) * len(codes)
-            d = done[0]
+        done[0] += out.get("n_assets", 0) * len(codes)
         if progress_cb:
-            progress_cb(d, max(total_work, 1), "")
+            progress_cb(done[0], max(total_work, 1), "")
 
-    def _tm(b):
-        return {aid: ticker_map.get(aid, "?") for aid in b}
-
-    if use_procs:
-        from app.config import BASE_DIR, Config
-        from app.services import process_pool as _pp
-        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
-                               Config.IND_CHILD_DB_POOL, Config.LOG_LEVEL) as pool:
-            futures = [pool.submit(batch_fn, b, _tm(b), codes) for b in batches]
-            for f in as_completed(futures):
-                _consume(f.result())   # propaga si el lote/hijo falló
-    else:
-        with ThreadPoolExecutor(max_workers=min(len(batches), _VERIFY_WORKERS)) as pool:
-            futures = [pool.submit(batch_fn, b, _tm(b), codes) for b in batches]
-            for f in as_completed(futures):
-                _consume(f.result())
+    run_asset_batches(
+        asset_ids, {aid: 1 for aid in asset_ids},
+        use_procs=use_procs, n_procs=n_procs, thread_workers=_VERIFY_WORKERS,
+        batch_fn=batch_fn,
+        batch_args=lambda b: ({aid: ticker_map.get(aid, "?") for aid in b}, codes),
+        consume=_consume, on_dead=None,   # None = propaga (no borra flags)
+    )
     return results
 
 

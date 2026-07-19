@@ -196,6 +196,32 @@ def test_recompute_current_preloaded_equivale_a_selfload(_seeded, monkeypatch):
     assert snap_pre == snap_self
 
 
+def test_save_indicator_logs_bulk_insert_y_update(_seeded):
+    """_save_indicator_logs_bulk: primera corrida INSERTa (con/sin error), la
+    segunda UPDATEa el mismo registro (no duplica), en UN commit."""
+    from app.models import IndicatorUpdateLog
+    _CIV = _seeded  # noqa: F841 (el fixture crea los assets para el FK)
+    s = get_session()
+    ids = list(_IDS)
+
+    ts._save_indicator_logs_bulk(ids, {ids[0]: ["boom", "bad"]}, s)
+    rows = {r.asset_id: r for r in s.query(IndicatorUpdateLog)
+            .filter(IndicatorUpdateLog.asset_id.in_(ids)).all()}
+    assert set(rows) == set(ids)
+    assert rows[ids[0]].success is False and "boom" in rows[ids[0]].error_detail
+    assert rows[ids[1]].success is True and rows[ids[1]].error_detail is None
+
+    # segunda corrida: ahora ids[1] falla y ids[0] sale limpio → UPDATE
+    ts._save_indicator_logs_bulk(ids, {ids[1]: ["oops"]}, s)
+    s.expire_all()
+    rows2 = {r.asset_id: r for r in s.query(IndicatorUpdateLog)
+             .filter(IndicatorUpdateLog.asset_id.in_(ids)).all()}
+    assert len(rows2) == len(ids)                    # no duplicó (UPDATE, no INSERT)
+    assert rows2[ids[0]].success is True and rows2[ids[0]].error_detail is None
+    assert rows2[ids[1]].success is False and "oops" in rows2[ids[1]].error_detail
+    Session.remove()
+
+
 def test_recompute_current_universo_vacio():
     Base.metadata.create_all(engine)
     Session.remove()

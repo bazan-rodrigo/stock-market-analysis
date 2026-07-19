@@ -81,6 +81,58 @@ def test_partition_es_deterministica():
     assert a == b
 
 
+# ── run_asset_batches: helper compartido (verificación/fundamental/vigentes) ──
+
+def test_run_asset_batches_cubre_todo_y_serializa(monkeypatch):
+    """El helper corre batch_fn(batch, *batch_args(batch)) por lote y llama
+    consume(out, batch) por cada uno; cubre cada activo exactamente una vez."""
+    monkeypatch.setattr(ts, "_MIN_BATCH_ASSETS", 1)   # varios lotes
+    ids = list(range(1, 10))
+    seen = []
+
+    def _bf(batch, tag):
+        return {"ids": sorted(batch), "tag": tag}
+
+    def _consume(out, batch):
+        seen.append((tuple(out["ids"]), out["tag"]))
+
+    ts.run_asset_batches(ids, {i: 1 for i in ids}, use_procs=False, n_procs=0,
+                         thread_workers=1, batch_fn=_bf,
+                         batch_args=lambda b: ("X",), consume=_consume, on_dead=None)
+    covered = sorted(a for out, _ in seen for a in out)
+    assert covered == ids                       # cada activo una vez
+    assert all(tag == "X" for _, tag in seen)   # batch_args llegó a cada lote
+
+
+def test_run_asset_batches_on_dead_propaga_o_traga(monkeypatch):
+    """on_dead=None re-lanza (corta la corrida, como la verificación); pasarlo
+    hace que la corrida siga anotando cada lote muerto (backfill re-corrible)."""
+    monkeypatch.setattr(ts, "_MIN_BATCH_ASSETS", 1)
+    ids = [1, 2, 3]
+
+    def _boom(batch):
+        raise RuntimeError("lote roto")
+
+    import pytest
+    with pytest.raises(RuntimeError):
+        ts.run_asset_batches(ids, {i: 1 for i in ids}, use_procs=False, n_procs=0,
+                             thread_workers=1, batch_fn=_boom, batch_args=lambda b: (),
+                             consume=lambda o, b: None, on_dead=None)
+
+    dead = []
+    ts.run_asset_batches(ids, {i: 1 for i in ids}, use_procs=False, n_procs=0,
+                         thread_workers=1, batch_fn=_boom, batch_args=lambda b: (),
+                         consume=lambda o, b: None,
+                         on_dead=lambda exc, b: dead.extend(b))
+    assert sorted(dead) == ids                  # tragó y corrió todos los lotes
+
+
+def test_run_asset_batches_universo_vacio():
+    assert ts.run_asset_batches([], {}, use_procs=False, n_procs=0,
+                                thread_workers=1, batch_fn=lambda b: None,
+                                batch_args=lambda b: (), consume=lambda o, b: None) == []
+
+
 # ── Seam de resolución por código ────────────────────────────────────────────
 
 def test_resolve_backfill_fn_conocido_y_desconocido():

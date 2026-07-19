@@ -266,8 +266,8 @@ def backfill_asset_fund_history(asset_id: int) -> dict:
     Pensado para después de un redescargo puntual de fundamentales
     (ver redownload_all_fundamentals con selección): como los trimestrales
     son enteramente nuevos, conviene recalcular todo en vez de confiar en
-    el atajo delta de _backfill_fund_indicator (que solo completa fechas
-    faltantes)."""
+    el atajo delta del backfill (_backfill_fund_quarterly_all/_daily_all, que
+    solo completan fechas faltantes + el último período)."""
     s = get_session()
     quarters = _load_all_quarters(s, [asset_id]).get(asset_id, [])
     if not quarters:
@@ -962,146 +962,6 @@ def _price_asof_from_cache(prices: list, max_date=None) -> float | None:
     return prices[idx][1] if idx >= 0 else None
 
 
-def _backfill_fund_indicator(
-    code: str,
-    asset_ids: list,
-    *,
-    force: bool = False,
-    skip_force_reset: bool = False,
-    asset_tick=None,
-    quarters_cache: dict | None = None,
-    price_cache: dict | None = None,
-) -> dict:
-    """Backfill de un indicador fundamental para todos los activos.
-
-    skip_force_reset: en rebuild, NO truncar acá —el padre ya lo hizo una vez
-    antes del pool (ver _fund_force_reset / _backfill_fund_batch)—; solo aplica
-    la semántica force (target = toda la historia, sin leer existentes)."""
-    import sqlalchemy as sa
-    from app.models.indicator_store import _WIDE, use_wide_ind_tables
-    s        = get_session()
-    wide     = use_wide_ind_tables() and code in _WIDE
-    t        = get_ind_table(code)
-    is_daily = code in _FUND_DAILY_CODES
-    inserted = 0
-    if wide:
-        from app.services.technical_service import (_null_wide_column,
-                                                    upsert_ind_cadence)
-        _wt, _column, _cadence = _WIDE[code]
-
-    if force and not skip_force_reset:
-        # TRUNCATE: instantáneo y sin undo log (vs DELETE por activo)
-        if wide:
-            # comparte tabla con los otros códigos de la cadencia → no truncar:
-            # nullear SOLO esta columna (todos los activos).
-            _null_wide_column(s, _cadence, _column)
-        else:
-            s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
-        s.commit()
-
-    for c0 in range(0, len(asset_ids), _EXISTING_CHUNK):
-        chunk = asset_ids[c0:c0 + _EXISTING_CHUNK]
-
-        # Fechas existentes del chunk en una sola query (evita 1 por activo)
-        existing_by_asset: dict[int, set] = {}
-        if not force:
-            _pq = sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
-            if wide:
-                _pq = _pq.where(t.c.value.isnot(None))
-            for aid, d in s.execute(_pq).fetchall():
-                existing_by_asset.setdefault(aid, set()).add(d)
-
-        for asset_id in chunk:
-            quarters = quarters_cache.get(asset_id) if quarters_cache else [
-                _Quarter(**{f: getattr(q, f) for f in _Quarter._fields})
-                for q in s.query(FundamentalQuarterly)
-                          .filter_by(asset_id=asset_id)
-                          .order_by(FundamentalQuarterly.period_date.asc())
-                          .all()
-            ]
-            if not quarters:
-                if asset_tick:
-                    asset_tick()
-                continue
-
-            q_ords   = np.array([q.period_date.toordinal() for q in quarters])
-            existing = existing_by_asset.get(asset_id, set())
-
-            if is_daily:
-                price_rows = price_cache.get(asset_id) if price_cache else [
-                    (r[0], r[1]) for r in
-                    s.query(Price.date, Price.close)
-                     .filter(Price.asset_id == asset_id, Price.close.isnot(None))
-                     .order_by(Price.date.asc())
-                     .all()
-                ]
-                if not price_rows:
-                    if asset_tick:
-                        asset_tick()
-                    continue
-
-                price_dates_ord = np.array([r[0].toordinal() for r in price_rows])
-                price_closes    = np.array([float(r[1]) for r in price_rows])
-
-                if force:
-                    target = set(r[0] for r in price_rows)
-                else:
-                    target = {r[0] for r in price_rows} - existing
-                    # El último precio es preliminar: su ratio se recalcula siempre
-                    target.add(price_rows[-1][0])
-
-                dates_seq = [r[0] for r in price_rows]
-                series = _daily_ratio_series(quarters, q_ords, dates_seq,
-                                             price_dates_ord, price_closes)
-                batch = [
-                    {"asset_id": asset_id, "date": d, "value": float(v)}
-                    for d, v in zip(dates_seq, series[code])
-                    if d in target and not np.isnan(v)
-                ]
-                if batch:
-                    if wide:
-                        upsert_ind_cadence(s, _cadence, [_column],
-                                           [(b["asset_id"], b["date"], b["value"])
-                                            for b in batch])
-                    else:
-                        s.execute(db_compat.upsert(s, t, batch, {"value": INSERTED}))
-                    inserted += len(batch)
-            else:
-                if force:
-                    target = {q.period_date for q in quarters}
-                else:
-                    target = {q.period_date for q in quarters} - existing
-                    # El último trimestre puede haber sido revisado por la fuente
-                    target.add(quarters[-1].period_date)
-
-                batch = []
-                for idx, q in enumerate(quarters):
-                    if q.period_date not in target:
-                        continue
-                    ratios = _compute_quarterly_ratios(quarters, idx)
-                    val = ratios.get(code)
-                    if val is not None:
-                        batch.append({"asset_id": asset_id, "date": q.period_date,
-                                      "value": float(val)})
-                if batch:
-                    if wide:
-                        upsert_ind_cadence(s, _cadence, [_column],
-                                           [(b["asset_id"], b["date"], b["value"])
-                                            for b in batch])
-                    else:
-                        s.execute(db_compat.upsert(s, t, batch, {"value": INSERTED}))
-                    inserted += len(batch)
-
-            if asset_tick:
-                asset_tick()
-
-        # Commit por chunk de activos: un fsync por activo es puro overhead
-        # (los ratios trimestrales son ~decenas de filas por activo)
-        s.commit()
-
-    return {"inserted": inserted, "code": code}
-
-
 def _fund_asset_ids(s) -> list:
     """asset_ids con fundamentales (universo del backfill), ordenados. Se usa
     cuando el caller no pasó quarters_cache (el orden ascendente importa: los
@@ -1256,15 +1116,123 @@ def _backfill_fund_daily_all(
     return {"inserted": inserted, "codes": daily_codes}
 
 
+def _backfill_fund_quarterly_all(
+    quarterly_codes: list, asset_ids: list, *,
+    force: bool, skip_force_reset: bool = False,
+    quarters_cache: dict,
+) -> dict:
+    """Procesa todos los códigos TRIMESTRALES en un único pass por activo×trimestre
+    (espejo de _backfill_fund_daily_all para el diario). Dos ganancias sobre el
+    viejo camino por-código: (1) llama _compute_quarterly_ratios UNA vez por
+    (activo, trimestre) —no una vez por código, 8x menos cómputo—; (2) en la tabla
+    ancha escribe la FILA COMPLETA por (activo, fecha) con las 8 columnas juntas,
+    sin los UPDATE por-columna repetidos que hacían bloat (ver design_ind_wide_tables.md).
+
+    Igual que el daily: en delta, una fecha con un código estructuralmente None
+    (p.ej. los *_growth_yoy en los primeros 4 trimestres) queda perpetuamente en
+    el target de ese código, así que su fila se reescribe en cada corrida. Es
+    idempotente (mismos valores → UPDATE no-op en MySQL), y de paso una revisión
+    de la fuente en esas fechas sí se propaga.
+
+    skip_force_reset: en rebuild, NO truncar acá —el padre ya lo hizo (ver
+    _fund_force_reset / _backfill_fund_batch)."""
+    import sqlalchemy as sa
+    from app.models.indicator_store import (_WIDE, _WIDE_CADENCE_TABLE,
+                                            use_wide_ind_tables)
+    s      = get_session()
+    wide   = use_wide_ind_tables() and all(c in _WIDE for c in quarterly_codes)
+    tables = {code: get_ind_table(code) for code in quarterly_codes}
+    inserted = 0
+
+    if force and not skip_force_reset:
+        if wide:
+            # los 8 trimestrales comparten ind_fundamental_quarterly → truncar UNA vez
+            db_compat.wipe_table(s, _WIDE_CADENCE_TABLE[_WIDE[quarterly_codes[0]][2]])
+        else:
+            for t in tables.values():
+                s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
+        s.commit()
+
+    for c0 in range(0, len(asset_ids), _EXISTING_CHUNK):
+        chunk = asset_ids[c0:c0 + _EXISTING_CHUNK]
+
+        # Fechas existentes por código para todo el chunk (una query por código)
+        existing_by_code: dict[str, dict[int, set]] = {c: {} for c in quarterly_codes}
+        if not force:
+            for code, t in tables.items():
+                q = sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
+                if wide:
+                    q = q.where(t.c.value.isnot(None))
+                for aid, d in s.execute(q).fetchall():
+                    existing_by_code[code].setdefault(aid, set()).add(d)
+
+        for asset_id in chunk:
+            quarters = quarters_cache.get(asset_id, [])
+            if not quarters:
+                continue
+
+            q_dates = [q.period_date for q in quarters]
+            if force:
+                all_dates = set(q_dates)
+                targets   = {code: all_dates for code in quarterly_codes}
+            else:
+                targets = {
+                    code: set(q_dates) - existing_by_code[code].get(asset_id, set())
+                    for code in quarterly_codes
+                }
+                # El último trimestre puede haber sido revisado por la fuente
+                last_d = q_dates[-1]
+                for code in quarterly_codes:
+                    targets[code].add(last_d)
+
+            dirty = set().union(*(targets[c] for c in quarterly_codes))
+            # ratios por trimestre dirty, calculados UNA sola vez cada uno
+            ratios_by_date = {
+                q.period_date: _compute_quarterly_ratios(quarters, idx)
+                for idx, q in enumerate(quarters) if q.period_date in dirty
+            }
+
+            if wide:
+                # Fila COMPLETA por (activo,trimestre) con las 8 columnas juntas.
+                from app.services.technical_service import upsert_ind_cadence
+                cadence = _WIDE[quarterly_codes[0]][2]
+                cols = [_WIDE[c][1] for c in quarterly_codes]
+                rows = []
+                for d, ratios in ratios_by_date.items():
+                    vals = [None if ratios.get(c) is None else float(ratios[c])
+                            for c in quarterly_codes]
+                    if any(v is not None for v in vals):
+                        rows.append((asset_id, d, *vals))
+                if rows:
+                    inserted += upsert_ind_cadence(s, cadence, cols, rows)
+            else:
+                for code in quarterly_codes:
+                    batch = [
+                        {"asset_id": asset_id, "date": d,
+                         "value": float(ratios_by_date[d][code])}
+                        for d in targets[code]
+                        if d in ratios_by_date and ratios_by_date[d].get(code) is not None
+                    ]
+                    if batch:
+                        t    = tables[code]
+                        s.execute(db_compat.upsert(s, t, batch, {"value": INSERTED}))
+                        inserted += len(batch)
+
+            s.commit()
+
+    return {"inserted": inserted, "codes": quarterly_codes}
+
+
 def _backfill_fund_batch(batch_asset_ids: list, quarterly_codes: list,
                          daily_codes: list, force: bool) -> dict:
     """Unidad de trabajo del pool: TODOS los códigos fundamentales para un LOTE
     de activos (antes la unidad era 'un código para todos los activos'). Es
     AUTO-CONTENIDO —carga su propio slice de quarters/precios— para poder correr
-    en un proceso hijo (argumentos picklables). Reusa _backfill_fund_indicator /
-    _backfill_fund_daily_all ESCOPADOS a los activos del lote: la lógica de
-    delta/wide/narrow queda intacta y la equivalencia es por-activo (ver
-    tests/test_fundamental_batching.py).
+    en un proceso hijo (argumentos picklables). Reusa _backfill_fund_quarterly_all
+    (trimestrales) y _backfill_fund_daily_all (diarios) ESCOPADOS a los activos del
+    lote: cada uno computa sus ratios UNA vez por (activo, período) y escribe la
+    FILA ANCHA completa; la lógica delta/wide/narrow queda intacta y la
+    equivalencia es por-activo (ver tests/test_fundamental_batching.py).
 
     force: el TRUNCATE ya lo hizo el padre (_fund_force_reset) → skip_force_reset.
 
@@ -1285,10 +1253,10 @@ def _backfill_fund_batch(batch_asset_ids: list, quarterly_codes: list,
         for attempt in range(_MAX_LOCK_RETRIES + 1):
             try:
                 inserted = 0
-                for code in quarterly_codes:
-                    inserted += _backfill_fund_indicator(
-                        code, ids, force=force, skip_force_reset=True,
-                        quarters_cache=quarters_cache, price_cache=price_cache,
+                if quarterly_codes:
+                    inserted += _backfill_fund_quarterly_all(
+                        quarterly_codes, ids, force=force, skip_force_reset=True,
+                        quarters_cache=quarters_cache,
                     ).get("inserted", 0)
                 if daily_codes:
                     inserted += _backfill_fund_daily_all(
@@ -1335,8 +1303,9 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
     compatibilidad con el caller, que lo comparte con recompute_all_ratios.
     (En el camino de threads esto re-lee lo que el padre ya tenía en RAM: costo
     asumido a cambio de que el mismo lote sirva para threads y para procesos.)"""
-    from app.services.technical_service import (_n_batches, _partition_assets,
-                                                _POOL_WORKERS, _use_process_pool)
+    from app.services.technical_service import (_POOL_WORKERS,
+                                                _use_process_pool,
+                                                run_asset_batches)
     s               = get_session()
     fund_codes      = sorted(_ALL_FUND_CODES)
     daily_codes     = sorted(c for c in fund_codes if c in _FUND_DAILY_CODES)
@@ -1361,24 +1330,20 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
     _ScopedSession.remove()   # soltar la conexión del padre antes del pool
 
     use_procs, n_procs = _use_process_pool(n_assets)
-    workers = n_procs if use_procs else _POOL_WORKERS
-    batches = _partition_assets(asset_ids, {aid: 1 for aid in asset_ids},
-                                _n_batches(n_assets, workers))
 
     inserted = 0
     errors:  list[dict] = []
     assets_done = [0]
-    lock        = threading.Lock()
 
-    def _consume(out: dict, n_batch_assets: int) -> None:
+    def _consume(out: dict, batch: list) -> None:
+        # Serializado por run_asset_batches (as_completed en el padre) → sin lock.
         nonlocal inserted
         if out:
             inserted += out.get("inserted", 0)
             for e in out.get("errors", []):
                 errors.append({"code": "lote", "error": e})
-        with lock:
-            assets_done[0] += n_batch_assets
-            d = assets_done[0]
+        assets_done[0] += len(batch)
+        d = assets_done[0]
         # Progreso GRUESO por lote: en este eje TODOS los códigos avanzan juntos
         # (un lote computa todos los códigos para sus activos), así que cada fila
         # por-código del panel avanza al mismo conteo de activos. Al terminar el
@@ -1388,36 +1353,24 @@ def backfill_all_fundamental_values(progress_cb=None, *, force: bool = False,
                 progress_cb(d * n_ind, max(total_work, 1),
                             f"{code}: {d}/{n_assets}")
 
-    def _drain(futures: dict) -> None:
-        for f in as_completed(futures):
-            n_b = futures[f]
-            try:
-                out = f.result()
-            except Exception as exc:
-                # Crash duro del hijo (OOM/segfault → BrokenProcessPool): anotar
-                # el lote como no corrido y SEGUIR drenando —igual que
-                # technical_service._drain—; el hueco lo sana el próximo delta.
-                logger.warning("Fund backfill lote muerto: %s", exc)
-                errors.append({"code": "lote", "error": str(exc)})
-                _consume(None, n_b)   # avanzar la barra; sin sumar inserted
-                continue
-            _consume(out, n_b)
+    def _on_dead(exc, batch) -> None:
+        # Crash duro del hijo (OOM/segfault → BrokenProcessPool): anotar el lote
+        # como no corrido y SEGUIR (el hueco lo sana el próximo delta). Sin avanzar
+        # la barra —las filas quedan cortas, señal de fallo (como vigentes/backfill).
+        logger.warning("Fund backfill lote muerto: %s", exc)
+        errors.append({"code": "lote", "error": str(exc)})
 
     if progress_cb:
         progress_cb(0, max(total_work, 1),
                     f"__init__:{n_assets}:{','.join(fund_codes)}")
 
-    if use_procs:
-        from app.config import BASE_DIR, Config
-        from app.services import process_pool as _pp
-        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
-                               Config.IND_CHILD_DB_POOL, Config.LOG_LEVEL) as pool:
-            _drain({pool.submit(_backfill_fund_batch, b, quarterly_codes,
-                                daily_codes, force): len(b) for b in batches})
-    else:
-        with ThreadPoolExecutor(max_workers=min(len(batches), workers)) as pool:
-            _drain({pool.submit(_backfill_fund_batch, b, quarterly_codes,
-                                daily_codes, force): len(b) for b in batches})
+    run_asset_batches(
+        asset_ids, {aid: 1 for aid in asset_ids},
+        use_procs=use_procs, n_procs=n_procs, thread_workers=_POOL_WORKERS,
+        batch_fn=_backfill_fund_batch,
+        batch_args=lambda b: (quarterly_codes, daily_codes, force),
+        consume=_consume, on_dead=_on_dead,
+    )
 
     # success: n_ind cuenta INDICADORES pero errors es por-LOTE (otra unidad) →
     # este success es aproximado. _run_ratios_and_backfill lo recalcula con su

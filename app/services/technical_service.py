@@ -1509,6 +1509,58 @@ def _slice_by_assets(d: dict | None, asset_ids: list) -> dict:
     return {aid: d[aid] for aid in asset_ids if aid in d}
 
 
+def run_asset_batches(asset_ids: list, weights: dict, *, use_procs: bool,
+                      n_procs: int, thread_workers: int, batch_fn, batch_args,
+                      consume, on_dead=None) -> list:
+    """Orquestador COMPARTIDO del pool por-lotes-de-activos (ProcessPool etapa 5),
+    reusado por la verificación, el backfill fundamental y la fase de vigentes
+    (el backfill de indicadores tiene su propio loop por el canal IPC de progreso
+    vivo). Particiona asset_ids en rangos CONTIGUOS por peso (_partition_assets),
+    corre batch_fn en threads o procesos, y llama consume(out, batch) por cada
+    lote completado, SERIALIZADO en el thread del padre (as_completed) → consume
+    NO necesita lock para sus agregados.
+
+    El modo (use_procs/n_procs) lo decide el CALLER y lo pasa: lo necesita antes
+    para armar sus caches (p.ej. la fase de vigentes deriva `preloaded` solo en
+    threads). thread_workers: cantidad de workers en modo threads.
+
+    batch_fn: función a nivel de módulo (picklable). Se invoca como
+      batch_fn(batch, *batch_args(batch)). batch_args(batch) devuelve la tupla de
+      args extra —PICKLABLES— por lote; se evalúa en el PADRE (la closure no se
+      picklea, solo su resultado). on_dead(exc, batch): maneja un lote muerto
+      (BrokenProcessPool); default None = re-lanza (corta la corrida, como la
+      verificación), pasarlo para que la corrida siga (backfill re-corrible).
+    Devuelve la lista de lotes."""
+    n = len(asset_ids)
+    if n == 0:
+        return []
+    workers = n_procs if use_procs else thread_workers
+    batches = _partition_assets(asset_ids, weights, _n_batches(n, workers))
+
+    def _drain(futures: dict) -> None:
+        for f in as_completed(futures):
+            batch = futures[f]
+            try:
+                out = f.result()
+            except Exception as exc:
+                if on_dead is None:
+                    raise
+                on_dead(exc, batch)
+                continue
+            consume(out, batch)
+
+    if use_procs:
+        from app.config import BASE_DIR, Config
+        from app.services import process_pool as _pp
+        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
+                               Config.IND_CHILD_DB_POOL, Config.LOG_LEVEL) as pool:
+            _drain({pool.submit(batch_fn, b, *batch_args(b)): b for b in batches})
+    else:
+        with _TPE(max_workers=min(len(batches), workers)) as pool:
+            _drain({pool.submit(batch_fn, b, *batch_args(b)): b for b in batches})
+    return batches
+
+
 def _force_reset_ind_tables(s, codes: list) -> list[dict]:
     """Reset del rebuild (force) IZADO al padre del pool: TRUNCATE de cada
     ind_{code} + limpieza de su caché de ind_asset_meta, UNA vez y ANTES de
@@ -2604,6 +2656,38 @@ def _save_indicator_log(asset_id: int, success: bool, error: str | None, session
     s.commit()
 
 
+def _save_indicator_logs_bulk(asset_ids: list, asset_errors: dict, session) -> None:
+    """indicator_update_log para MUCHOS activos en UN commit — la versión de lote
+    de _save_indicator_log (que hace SELECT+UPSERT+COMMIT por activo: a 10k eran
+    10k fsyncs seriales en el padre tras el pool de vigentes). Un SELECT de los ids
+    existentes (chuncado) + bulk insert/update + un commit. asset_errors:
+    {asset_id: [errores]} (ausente/vacío = éxito)."""
+    from app.models import IndicatorUpdateLog
+    now = datetime.utcnow()
+    existing: dict = {}   # asset_id -> id (PK) del log existente
+    for i in range(0, len(asset_ids), 5000):
+        for _id, aid in (session.query(IndicatorUpdateLog.id, IndicatorUpdateLog.asset_id)
+                         .filter(IndicatorUpdateLog.asset_id.in_(asset_ids[i:i + 5000]))
+                         .all()):
+            existing[aid] = _id
+    new_rows, upd_rows = [], []
+    for aid in asset_ids:
+        errs = asset_errors.get(aid)
+        fields = {"success": not errs,
+                  "error_detail": "; ".join(errs) if errs else None,
+                  "last_attempt_at": now}
+        log_id = existing.get(aid)
+        if log_id is None:
+            new_rows.append({"asset_id": aid, **fields})
+        else:
+            upd_rows.append({"id": log_id, **fields})
+    if new_rows:
+        session.bulk_insert_mappings(IndicatorUpdateLog, new_rows)
+    if upd_rows:
+        session.bulk_update_mappings(IndicatorUpdateLog, upd_rows)
+    session.commit()
+
+
 # ── compute_current_indicators ─────────────────────────────────────────────────
 
 def compute_current_indicators(
@@ -3223,8 +3307,6 @@ def recompute_current_indicators(progress_cb=None, *, codes=None,
         return {"total": 0, "success": 0, "errors": []}
 
     use_procs, n_procs = _use_process_pool(n_assets)
-    workers = n_procs if use_procs else _POOL_WORKERS
-    batches = _partition_assets(asset_ids, weights, _n_batches(n_assets, workers))
 
     # Pre-asegurar las configs (regime/vol/sr) UNA vez en el padre: cada lote
     # las lee, y _get_*_config crea un default si falta → sin esto, lotes
@@ -3252,15 +3334,15 @@ def recompute_current_indicators(progress_cb=None, *, codes=None,
 
     asset_errors: dict = {}   # asset_id -> [errores de cualquier código]
     done = [0]
-    lock = threading.Lock()
 
     def _consume(out: dict, batch: list) -> None:
+        # Serializado por run_asset_batches (as_completed en el thread del padre)
+        # → sin lock.
         if out:
             for aid, errs in out.get("asset_errors", {}).items():
                 asset_errors.setdefault(aid, []).extend(errs)
-        with lock:
-            done[0] += len(batch)
-            d = done[0]
+        done[0] += len(batch)
+        d = done[0]
         # Progreso GRUESO por lote: todos los códigos avanzan juntos (un lote los
         # computa todos para sus activos) → cada fila por-código del panel avanza
         # al mismo conteo. Al terminar el último lote, d == n_assets → filas con ✓.
@@ -3268,47 +3350,30 @@ def recompute_current_indicators(progress_cb=None, *, codes=None,
             for code in current_codes:
                 progress_cb(d * n_ind, max(total_work, 1), f"{code}: {d}/{n_assets}")
 
-    def _drain(futures: dict) -> None:
-        for f in as_completed(futures):
-            batch = futures[f]
-            try:
-                out = f.result()
-            except Exception as exc:
-                # Crash duro del hijo (BrokenProcessPool): marcar TODO el lote como
-                # error (así indicator_update_log no lo da por exitoso) y SEGUIR.
-                # NO se avanza el progreso (como technical._drain del backfill): las
-                # filas del panel quedan cortas → señal visible de que algo falló.
-                logger.warning("Current lote muerto: %s", exc)
-                for aid in batch:
-                    asset_errors.setdefault(aid, []).append(f"lote: {exc}")
-                continue
-            _consume(out, batch)
+    def _on_dead(exc, batch) -> None:
+        # Crash duro del hijo (BrokenProcessPool): marcar el lote como error (así
+        # indicator_update_log no lo da por exitoso) SIN avanzar el progreso —las
+        # filas del panel quedan cortas, señal visible de fallo (como el backfill).
+        logger.warning("Current lote muerto: %s", exc)
+        for aid in batch:
+            asset_errors.setdefault(aid, []).append(f"lote: {exc}")
 
     if progress_cb:
         progress_cb(0, max(total_work, 1),
                     f"__init__:{n_assets}:{','.join(current_codes)}")
 
-    if use_procs:
-        from app.config import BASE_DIR, Config
-        from app.services import process_pool as _pp
-        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
-                               Config.IND_CHILD_DB_POOL, Config.LOG_LEVEL) as pool:
-            _drain({pool.submit(_current_batch, b, current_codes): b for b in batches})
-    else:
-        with _TPE(max_workers=min(len(batches), workers)) as pool:
-            _drain({pool.submit(_current_batch, b, current_codes, preloaded): b
-                    for b in batches})
+    run_asset_batches(
+        asset_ids, weights, use_procs=use_procs, n_procs=n_procs,
+        thread_workers=_POOL_WORKERS, batch_fn=_current_batch,
+        batch_args=lambda b: (current_codes, preloaded),
+        consume=_consume, on_dead=_on_dead,
+    )
 
     # Un registro por activo en indicator_update_log, agregando errores de todos
-    # los códigos (igual que antes, en el padre tras juntar los lotes).
+    # los códigos (en el padre tras juntar los lotes). En bloque: un solo commit
+    # en vez de uno por activo (a 10k activos eran 10k fsyncs seriales).
     log_session = get_session()
-    for aid in asset_ids:
-        errs = asset_errors.get(aid)
-        _save_indicator_log(
-            aid, success=not errs,
-            error="; ".join(errs) if errs else None,
-            session=log_session,
-        )
+    _save_indicator_logs_bulk(asset_ids, asset_errors, log_session)
 
     ticker_map = {
         r[0]: r[1] for r in log_session.query(Asset.id, Asset.ticker)
