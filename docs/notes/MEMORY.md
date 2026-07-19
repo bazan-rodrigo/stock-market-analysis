@@ -1,6 +1,8 @@
 # Memoria del proyecto
 
+- [Guía de deploy — Codespace y Railway](guide_deploy.md) — Cómo levantar cada entorno + casos: traer el head, armar staging manual, conectar a otra base, apagar sin perder datos, recrear la base, auto-deploy
 - [Módulo de backtesting](project_backtest.md) — MVP deciles+IC hecho (14-jul, migración 0070); gate de lectura contra scores as-of; fases 2/3 pendientes
+- [Rediseño Backtest + Carteras](design_backtest_carteras_rediseno.md) — 18-jul: 2 módulos (Backtest niveles A-D + Carteras biblioteca de N reales/teóricas), motor y vistas compartidos; plan en 6 fases (migraciones 0078+); Fase 0 (motor de métricas puro) en progreso
 
 - [Proyecto: Stock Market Analysis](project_overview.md) — App web Dash+Flask para análisis técnico de activos financieros, con admin y analistas
 - [Decisiones técnicas acordadas](project_decisions.md) — APScheduler proceso único, Alembic, screener pre-calculado (nomenclatura current/history/scores), Yahoo Finance only, admin hardcoded
@@ -19,3 +21,4 @@
 - [Popup calendario DatePicker — no tocar](feedback_calendar_popup.md) — Fondo blanco del popup no resuelto tras múltiples intentos; usuario decidió dejarlo
 - [Migración futura a PostgreSQL](project_postgresql_migracion.md) — Plan a futuro sin fecha; ver puntos MySQL-específicos a migrar (ON DUPLICATE KEY UPDATE, driver)
 - [ProcessPool con partición por activos](project_processpool_particion_activos.md) — Diseño elegido para escalar el pool de indicadores (resuelve GIL + caché a 10k activos); se encara junto con PostgreSQL
+- [Tablas anchas de indicadores por cadencia](design_ind_wide_tables.md) — Reduce footprint (~5× lo diario) agrupando ind_{code} en ind_daily/weekly/monthly, lossless y compute-positivo; Fase 1 en progreso (jul-2026, mapping+migración 0077); riesgo: as-of con columnas NULL
