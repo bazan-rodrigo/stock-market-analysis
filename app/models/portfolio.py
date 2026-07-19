@@ -102,3 +102,33 @@ class PortfolioMember(Base):
                           ForeignKey("assets.id", ondelete="CASCADE"),
                           nullable=False)
     weight       = Column(Float)
+
+
+class PortfolioRun(Base):
+    """Snapshot inmutable de una corrida de backtest de cartera (nivel C) —
+    para poder compararlas lado a lado (nivel D)."""
+
+    __tablename__ = "portfolio_run"
+
+    id          = Column(Integer, primary_key=True)
+    owner_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    strategy_id = Column(Integer)
+    name        = Column(String(120))
+    config      = Column(Text)      # JSON: top_n / rebalance / cost / spec
+    summary     = Column(Text)      # JSON: KPIs por sub-modo
+    created_at  = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class PortfolioRunPoint(Base):
+    """Punto de la serie de equity de una corrida, por sub-modo
+    ('gated' | 'ranking' | 'benchmark')."""
+
+    __tablename__ = "portfolio_run_point"
+
+    id      = Column(Integer, primary_key=True)
+    run_id  = Column(Integer,
+                     ForeignKey("portfolio_run.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    submode = Column(String(12))
+    date    = Column(Date, nullable=False)
+    value   = Column(Float)

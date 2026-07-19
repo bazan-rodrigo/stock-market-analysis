@@ -186,3 +186,64 @@ def curated_equity_series(session, portfolio_id):
     res = eng.simulate_fixed_weights(dates, target, rets, rebalance_every=1)
     return {"dates": dates, "equity": res["equity"],
             **pm.summary(res["equity"], dates=dates)}
+
+
+# ── Persistencia de corridas (nivel D — comparar) ─────────────────────────────
+
+_SUBMODES = (("gated", "gated"), ("ranking", "ranking"),
+             ("benchmark", "benchmark_ew"))
+
+
+def save_portfolio_run(session, owner_id, strategy_id, name, config, result):
+    """Persiste una corrida de cartera (result de run_portfolio_backtest) como
+    snapshot inmutable: portfolio_run (config + KPIs) + puntos de equity por
+    sub-modo. Devuelve el PortfolioRun."""
+    import json
+
+    from app.models import PortfolioRun, PortfolioRunPoint
+
+    def _kpis(d):
+        return {k: d.get(k) for k in ("total_return", "cagr", "sharpe",
+                                      "sortino", "max_drawdown", "volatility")}
+    summary = {sm: _kpis(result[key]) for sm, key in _SUBMODES}
+    run = PortfolioRun(owner_id=owner_id, strategy_id=strategy_id, name=name,
+                       config=json.dumps(config), summary=json.dumps(summary))
+    session.add(run)
+    session.flush()
+    dates = result["dates"]
+    points = [{"run_id": run.id, "submode": sm, "date": d, "value": v}
+              for sm, key in _SUBMODES
+              for d, v in zip(dates, result[key]["equity"])]
+    if points:
+        session.bulk_insert_mappings(PortfolioRunPoint, points)
+    session.commit()
+    return run
+
+
+def list_portfolio_runs(session, user_id, is_admin, limit=50):
+    """Corridas guardadas visibles (propias; admin: todas), más reciente primero."""
+    from app.models import PortfolioRun
+    q = session.query(PortfolioRun)
+    if not is_admin:
+        q = q.filter(PortfolioRun.owner_id == user_id)
+    return q.order_by(PortfolioRun.created_at.desc()).limit(limit).all()
+
+
+def get_portfolio_run(session, run_id):
+    """Reconstruye una corrida: {'run', 'config', 'summary', 'series'} donde
+    series = {submode: {'dates': [...], 'equity': [...]}}. None si no existe."""
+    import json
+
+    from app.models import PortfolioRun, PortfolioRunPoint
+    run = session.get(PortfolioRun, run_id)
+    if run is None:
+        return None
+    series = {}
+    for p in (session.query(PortfolioRunPoint)
+              .filter(PortfolioRunPoint.run_id == run_id)
+              .order_by(PortfolioRunPoint.date).all()):
+        sm = series.setdefault(p.submode, {"dates": [], "equity": []})
+        sm["dates"].append(p.date)
+        sm["equity"].append(p.value)
+    return {"run": run, "config": json.loads(run.config or "{}"),
+            "summary": json.loads(run.summary or "{}"), "series": series}

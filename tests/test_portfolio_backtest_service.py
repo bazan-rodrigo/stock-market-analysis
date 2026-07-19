@@ -6,8 +6,19 @@ La función que toca BD (run_portfolio_backtest) se verifica en el Codespace.
 from datetime import date
 
 import pytest
+import sqlalchemy as sa
+from sqlalchemy.orm import Session
 
+import app.models  # noqa: F401 — registra todos los modelos para create_all
+from app.database import Base
+from app.services import portfolio_backtest_service as pbs
 from app.services.portfolio_backtest_service import _in_position, build_panels
+
+
+def _session():
+    eng = sa.create_engine("sqlite://")
+    Base.metadata.create_all(eng)
+    return Session(eng)
 
 
 def test_in_position_maps_trades_to_bars():
@@ -74,3 +85,38 @@ def test_cross_gap_return_is_earned_by_portfolio():
     # y gana el retorno que lo cruza (+21%) — sin el arrastre, se perdería
     assert res["weights"][0] == {1: 1.0} and res["weights"][1] == {1: 1.0}
     assert res["equity"][2] == pytest.approx(1.21)
+
+
+# ── persistencia de corridas (nivel D) ────────────────────────────────────────
+
+def _mini_result(dates, gated_eq, rank_eq, bench_eq):
+    def sub(eq, cagr):
+        return {"equity": eq, "total_return": (eq[-1] - 1) if eq else None,
+                "cagr": cagr, "sharpe": 1.0, "sortino": 1.0,
+                "max_drawdown": -0.1, "volatility": 0.2}
+    return {"dates": dates, "gated": sub(gated_eq, 0.5),
+            "ranking": sub(rank_eq, 0.3), "benchmark_ew": sub(bench_eq, 0.1)}
+
+
+def test_save_and_get_portfolio_run_roundtrip():
+    s = _session()
+    d1, d2 = date(2026, 1, 2), date(2026, 1, 3)
+    result = _mini_result([d1, d2], [1.0, 1.1], [1.0, 1.05], [1.0, 1.02])
+    run = pbs.save_portfolio_run(s, owner_id=1, strategy_id=7, name="Test",
+                                 config={"top_n": 20}, result=result)
+    got = pbs.get_portfolio_run(s, run.id)
+    assert got["run"].name == "Test"
+    assert got["config"]["top_n"] == 20
+    assert got["summary"]["gated"]["cagr"] == 0.5
+    assert got["series"]["gated"]["equity"] == [1.0, 1.1]
+    assert got["series"]["gated"]["dates"] == [d1, d2]
+    assert got["series"]["benchmark"]["equity"] == [1.0, 1.02]
+
+
+def test_list_portfolio_runs_visibility():
+    s = _session()
+    empty = _mini_result([], [], [], [])
+    pbs.save_portfolio_run(s, 1, 7, "Mia", {}, empty)
+    pbs.save_portfolio_run(s, 2, 7, "Ajena", {}, empty)
+    assert {r.name for r in pbs.list_portfolio_runs(s, 1, False)} == {"Mia"}
+    assert len(pbs.list_portfolio_runs(s, 1, True)) == 2
