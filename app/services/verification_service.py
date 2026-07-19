@@ -51,9 +51,13 @@ from app.services.fundamental_service import (
     _ALL_FUND_CODES, _FUND_DAILY_CODES, _Quarter, _compute_daily_ratios,
     _compute_quarterly_ratios, _daily_ratio_series, _ref_1y_ord,
 )
+# Harness compartido del pool por lotes de activos (ver technical_service /
+# process_pool): la verificación reusa la misma decisión threads/procesos y
+# el particionador — la unidad de trabajo pasa de "un activo" a "un lote".
 from app.services.technical_service import (
     _BACKFILL_FNS, _DELTA_TAIL_MODE, _get_regime_config,
-    _get_volatility_config, _resample_ohlc, _series_dates_values,
+    _get_volatility_config, _n_batches, _partition_assets, _resample_ohlc,
+    _series_dates_values, _use_process_pool,
 )
 
 # Mismo criterio que _UPDATE_WORKERS en fundamental_service.py: cada activo
@@ -248,14 +252,18 @@ def ids_from_tickers(session, tickers: list) -> tuple[list, list]:
 
 
 def _verify_one_asset(asset_id: int, ticker: str, codes: list,
-                      regime_cfg, vol_cfg, stored_by_code: dict) -> list:
-    """Corre en su propio thread/sesión (ver _VERIFY_WORKERS): verifica
-    TODOS los codes para un único activo. regime_cfg/vol_cfg son de solo
-    lectura, se comparten sin problema entre threads; stored_by_code viene
-    prefetcheado por run_verification (ver _prefetch_stored) — evita una
-    query por código acá. df_w/df_m se resamplean una sola vez por activo,
-    no una vez por código (antes verify_asset_code lo repetía)."""
-    s = get_session()
+                      regime_cfg, vol_cfg, stored_by_code: dict,
+                      session=None) -> list:
+    """Verifica TODOS los codes para un único activo. df_w/df_m se resamplean
+    una sola vez por activo, no una vez por código (antes verify_asset_code
+    lo repetía).
+
+    session: si se pasa (desde _verify_batch), NO abre ni cierra sesión
+    propia — el LOTE la administra (una sola sesión por lote, para que
+    regime_cfg/vol_cfg sigan vivos y no se reabra por activo). Sin session
+    (uso directo, p.ej. tests) abre y libera su propia sesión."""
+    own = session is None
+    s = session or get_session()
     try:
         df = _load_price_df(s, asset_id)
         if df.empty:
@@ -272,8 +280,89 @@ def _verify_one_asset(asset_id: int, ticker: str, codes: list,
                            "ticker": ticker, "diffs": diffs})
         return out
     finally:
-        from app.database import Session as _ScopedSession
+        if own:
+            from app.database import Session as _ScopedSession
+            _ScopedSession.remove()
+
+
+def _verify_batch(batch_asset_ids: list, ticker_map: dict, codes: list) -> dict:
+    """Unidad de trabajo del pool: verifica un LOTE de activos (todos los
+    códigos). Auto-contenido — carga sus PROPIOS regime/vol cfg y el prefetch
+    del lote — así corre idéntico en un thread del padre o en un proceso hijo
+    (spawn), sin recibir cachés completos por pickle ni objetos ORM. Una sola
+    sesión para todo el lote.
+
+    A propósito NO atrapa excepciones: un error debe PROPAGAR y cortar toda
+    la corrida (como el código por-activo anterior), no devolver resultados
+    vacíos. Si no, update_flags_for_assets leería "sin resultados" como "sin
+    hallazgos" y BORRARÍA la marca de activos que en realidad no se
+    verificaron. Mejor una corrida abortada (marcas intactas) que marcas
+    silenciosamente incorrectas."""
+    from app.database import Session as _ScopedSession
+    s = get_session()
+    try:
+        regime_cfg = _get_regime_config()
+        vol_cfg    = _get_volatility_config()
+        stored_by_code = _prefetch_stored(s, codes, batch_asset_ids)
+        out = []
+        for aid in batch_asset_ids:
+            out.extend(_verify_one_asset(
+                aid, ticker_map.get(aid, "?"), codes,
+                regime_cfg, vol_cfg, stored_by_code, session=s))
+        return {"results": out, "n_assets": len(batch_asset_ids)}
+    finally:
         _ScopedSession.remove()
+
+
+def _run_batched(asset_ids: list, codes: list, ticker_map: dict, batch_fn,
+                 progress_cb, total_work: int) -> list:
+    """Corre batch_fn sobre LOTES de asset_ids, en threads o procesos según
+    _use_process_pool (mismo criterio y harness que el backfill de
+    indicadores). Cada lote es auto-contenido; el padre solo particiona y
+    agrega. Progreso GRUESO por lote completado. Devuelve la lista plana de
+    results.
+
+    Un lote que falla (incluido BrokenProcessPool) PROPAGA y corta la corrida
+    —no se traga— para que update_flags_for_assets nunca marque como
+    'verificados sin hallazgos' activos que en realidad no se procesaron."""
+    n = len(asset_ids)
+    if n == 0:
+        return []
+    use_procs, n_procs = _use_process_pool(n)
+    workers = n_procs if use_procs else _VERIFY_WORKERS
+    batches = _partition_assets(asset_ids, {aid: 1 for aid in asset_ids},
+                                _n_batches(n, workers))
+    results: list = []
+    done = [0]
+    lock = threading.Lock()
+
+    def _consume(out: dict) -> None:
+        if not out:
+            return
+        results.extend(out.get("results", []))
+        with lock:
+            done[0] += out.get("n_assets", 0) * len(codes)
+            d = done[0]
+        if progress_cb:
+            progress_cb(d, max(total_work, 1), "")
+
+    def _tm(b):
+        return {aid: ticker_map.get(aid, "?") for aid in b}
+
+    if use_procs:
+        from app.config import BASE_DIR, Config
+        from app.services import process_pool as _pp
+        with _pp.make_executor(min(len(batches), n_procs), str(BASE_DIR),
+                               Config.IND_CHILD_DB_POOL, Config.LOG_LEVEL) as pool:
+            futures = [pool.submit(batch_fn, b, _tm(b), codes) for b in batches]
+            for f in as_completed(futures):
+                _consume(f.result())   # propaga si el lote/hijo falló
+    else:
+        with ThreadPoolExecutor(max_workers=min(len(batches), _VERIFY_WORKERS)) as pool:
+            futures = [pool.submit(batch_fn, b, _tm(b), codes) for b in batches]
+            for f in as_completed(futures):
+                _consume(f.result())
+    return results
 
 
 def run_verification(codes: list | None = None, sample: int | None = 30,
@@ -304,33 +393,21 @@ def run_verification(codes: list | None = None, sample: int | None = 30,
     else:
         asset_ids = pick_sample_ids(s, sample)
 
-    regime_cfg = _get_regime_config()
-    vol_cfg    = _get_volatility_config()
     ticker_map = {a.id: a.ticker for a in
                   s.query(Asset).filter(Asset.id.in_(asset_ids)).all()}
-    stored_by_code = _prefetch_stored(s, codes, asset_ids)
 
     total_work = len(codes) * len(asset_ids)
-    done = 0
-    results = []
-
     if progress_cb:
         progress_cb(0, max(total_work, 1), "")
 
-    lock = threading.Lock()
-    with ThreadPoolExecutor(max_workers=_VERIFY_WORKERS) as pool:
-        futures = {
-            pool.submit(_verify_one_asset, aid, ticker_map.get(aid, "?"),
-                       codes, regime_cfg, vol_cfg, stored_by_code): aid
-            for aid in asset_ids
-        }
-        for future in as_completed(futures):
-            aid = futures[future]
-            results.extend(future.result())
-            with lock:
-                done += len(codes)
-            if progress_cb:
-                progress_cb(done, max(total_work, 1), ticker_map.get(aid, "?"))
+    # El prefetch de valores guardados ya NO se carga acá (era un dict enorme
+    # en el padre): cada lote carga su propio slice. Pero SÍ se aseguran las
+    # filas de regime/vol config una sola vez —_get_*_config crea un default
+    # si falta— para que los lotes concurrentes no choquen al crearlo cada uno.
+    _get_regime_config()
+    _get_volatility_config()
+    results = _run_batched(asset_ids, codes, ticker_map, _verify_batch,
+                           progress_cb, total_work)
 
     return {
         "codes": codes, "asset_ids": asset_ids,
@@ -491,12 +568,13 @@ def pick_fund_sample_ids(session, sample: int | None) -> list:
 
 
 def _verify_one_fund_asset(asset_id: int, ticker: str, codes: list,
-                           stored_by_code: dict) -> list:
+                           stored_by_code: dict, session=None) -> list:
     """Equivalente a _verify_one_asset, para ratios fundamentales.
     quarterly_by_idx/daily_series/current_ratios se calculan una sola vez
-    acá (no por cada código, ver verify_asset_ratio_code); stored_by_code
-    viene prefetcheado por run_fund_verification (ver _prefetch_stored)."""
-    s = get_session()
+    acá (no por cada código, ver verify_asset_ratio_code). session: ver
+    _verify_one_asset (el lote administra la sesión si se pasa)."""
+    own = session is None
+    s = session or get_session()
     try:
         quarters   = _load_quarters(s, asset_id)
         price_rows = _load_fund_price_rows(s, asset_id)
@@ -516,7 +594,26 @@ def _verify_one_fund_asset(asset_id: int, ticker: str, codes: list,
                            "ticker": ticker, "diffs": diffs})
         return out
     finally:
-        from app.database import Session as _ScopedSession
+        if own:
+            from app.database import Session as _ScopedSession
+            _ScopedSession.remove()
+
+
+def _verify_fund_batch(batch_asset_ids: list, ticker_map: dict, codes: list) -> dict:
+    """Unidad de trabajo del pool para fundamentales (ver _verify_batch): un
+    LOTE de activos, auto-contenido, una sola sesión. NO atrapa excepciones a
+    propósito (ver _verify_batch: propagar evita marcas incorrectas)."""
+    from app.database import Session as _ScopedSession
+    s = get_session()
+    try:
+        stored_by_code = _prefetch_stored(s, codes, batch_asset_ids)
+        out = []
+        for aid in batch_asset_ids:
+            out.extend(_verify_one_fund_asset(
+                aid, ticker_map.get(aid, "?"), codes,
+                stored_by_code, session=s))
+        return {"results": out, "n_assets": len(batch_asset_ids)}
+    finally:
         _ScopedSession.remove()
 
 
@@ -539,29 +636,13 @@ def run_fund_verification(codes: list | None = None, sample: int | None = 30,
 
     ticker_map = {a.id: a.ticker for a in
                   s.query(Asset).filter(Asset.id.in_(asset_ids)).all()}
-    stored_by_code = _prefetch_stored(s, codes, asset_ids)
 
     total_work = len(codes) * len(asset_ids)
-    done = 0
-    results = []
-
     if progress_cb:
         progress_cb(0, max(total_work, 1), "")
 
-    lock = threading.Lock()
-    with ThreadPoolExecutor(max_workers=_VERIFY_WORKERS) as pool:
-        futures = {
-            pool.submit(_verify_one_fund_asset, aid, ticker_map.get(aid, "?"),
-                       codes, stored_by_code): aid
-            for aid in asset_ids
-        }
-        for future in as_completed(futures):
-            aid = futures[future]
-            results.extend(future.result())
-            with lock:
-                done += len(codes)
-            if progress_cb:
-                progress_cb(done, max(total_work, 1), ticker_map.get(aid, "?"))
+    results = _run_batched(asset_ids, codes, ticker_map, _verify_fund_batch,
+                           progress_cb, total_work)
 
     return {
         "codes": codes, "asset_ids": asset_ids,
