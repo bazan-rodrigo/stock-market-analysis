@@ -7,7 +7,8 @@ from datetime import date
 
 import pytest
 
-from app.services.portfolio_sim_engine import (simulate_gated, simulate_topn,
+from app.services.portfolio_sim_engine import (simulate_fixed_weights,
+                                               simulate_gated, simulate_topn,
                                                topn_weights)
 
 
@@ -86,3 +87,13 @@ def test_gated_all_cash_when_none_eligible():
                          rebalance_every=10)
     assert res["weights"][0] == {}
     assert res["equity"] == pytest.approx([1.0, 1.0])   # sin exposición, no gana
+
+
+def test_simulate_fixed_weights_constant_mix():
+    d1, d2, d3 = date(2026, 1, 2), date(2026, 1, 3), date(2026, 1, 4)
+    target = {1: 0.5, 2: 0.5}
+    rets = {d2: {1: 0.10, 2: 0.20}, d3: {1: 0.0, 2: 0.0}}
+    res = simulate_fixed_weights([d1, d2, d3], target, rets, rebalance_every=1)
+    assert res["weights"][0] == {1: 0.5, 2: 0.5}
+    # d2: 0.5·10% + 0.5·20% = 15% ; d3: 0
+    assert res["equity"] == pytest.approx([1.0, 1.15, 1.15])

@@ -299,12 +299,32 @@ def render_detail(sel_id, _refresh):
         else:
             body = html.Small("Sin miembros vigentes todavía.",
                               className="text-muted")
-        extra = []
-        if p.composition_method == "strategy":
+        extra, chart = [], html.Div()
+        if p.composition_method == "curated":
+            from app.services.portfolio_backtest_service import (
+                curated_equity_series)
+            es = curated_equity_series(s, sel_id)
+            if es and es["dates"]:
+                tiles = pv.kpi_tiles([
+                    {"label": "Retorno total",
+                     "value": pv.fmt_mult(es["total_return"])},
+                    {"label": "CAGR", "value": pv.fmt_pct(es["cagr"], signed=True),
+                     "good": (es["cagr"] or 0) >= 0},
+                    {"label": "Sharpe", "value": pv.fmt_ratio(es["sharpe"])},
+                    {"label": "Máx drawdown",
+                     "value": pv.fmt_pct(es["max_drawdown"]), "good": False},
+                ])
+                fig = pv.equity_figure(
+                    [{"name": "Equity (constant-mix)",
+                      "values": [v * 100 for v in es["equity"]]}], x=es["dates"])
+                chart = html.Div([tiles, dcc.Graph(
+                    figure=fig, config=pv.graph_config())], className="mt-2")
+        elif p.composition_method == "strategy":
             extra.append(html.Small(
-                f"Top-{p.top_n or 20} por score de la estrategia.",
+                f"Top-{p.top_n or 20} por score. Para la curva de equity, corré "
+                "esta estrategia en /backtest → Cartera.",
                 className="text-muted d-block"))
-        if p.composition_method == "rule":
+        elif p.composition_method == "rule":
             extra.append(dbc.Alert(
                 "El método por regla dinámica se implementa próximamente.",
                 color="secondary", className="small py-2 mt-2"))
@@ -313,6 +333,7 @@ def render_detail(sel_id, _refresh):
             html.Div([html.Span("Composición: ", className="text-muted"),
                       dbc.Badge(method_lbl, color="info")], className="mb-2"),
             *extra,
+            chart,
             html.H6("Miembros vigentes", className="mt-2"),
             body,
         ])

@@ -155,3 +155,34 @@ def run_portfolio_backtest(strategy_id, spec, *, top_n, rebalance_every=1,
 
     return {"dates": dates, "ranking": _pack(ranking), "gated": _pack(gated),
             "benchmark_ew": _pack(bench)}
+
+
+def curated_equity_series(session, portfolio_id):
+    """Equity de una cartera teórica CURADA: constant-mix de sus miembros
+    (rebalanceo diario a los pesos objetivo). Devuelve {'dates','equity', **KPIs}
+    o None si no hay miembros con precios. Es sincrónica (pocos miembros)."""
+    from app.models import Price
+    from app.services import portfolio_metrics as pm
+    from app.services import portfolio_sim_engine as eng
+    from app.services.portfolio_service import resolve_membership
+
+    members = resolve_membership(session, portfolio_id)
+    if not members:
+        return None
+    target = {aid: w for aid, w in members}
+    per_asset = {}
+    for aid in target:
+        prows = (session.query(Price.date, Price.close)
+                 .filter(Price.asset_id == aid, Price.close.isnot(None))
+                 .order_by(Price.date).all())
+        if not prows:
+            continue
+        per_asset[aid] = {"dates": [d for d, _ in prows],
+                          "closes": [float(c) for _, c in prows],
+                          "scores": [None] * len(prows), "in_position": set()}
+    if not per_asset:
+        return None
+    dates, _sc, rets, _el = build_panels(per_asset)
+    res = eng.simulate_fixed_weights(dates, target, rets, rebalance_every=1)
+    return {"dates": dates, "equity": res["equity"],
+            **pm.summary(res["equity"], dates=dates)}

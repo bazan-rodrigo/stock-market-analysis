@@ -65,6 +65,34 @@ def simulate_topn(dates, scores, rets, *, top_n, rebalance_every=1,
             "weights": weights_hist, "turnover": turnovers}
 
 
+def simulate_fixed_weights(dates, target, rets, *, rebalance_every=1,
+                           cost_bps=0.0):
+    """Mantiene pesos OBJETIVO fijos (constant-mix; rebalanceo a `target`).
+
+    `target`: {asset_id: peso} (deberían sumar 1). Para la equity de una cartera
+    teórica curada (canasta de miembros). Mismo formato de salida que
+    `simulate_topn` (sin look-ahead; costos sobre turnover).
+    """
+    equity, weights_hist, turnovers = [], [], []
+    w, val = {}, 1.0
+    for i, d in enumerate(dates):
+        day_rets = rets.get(d, {})
+        r = sum(wi * day_rets.get(a, 0.0) for a, wi in w.items())
+        val *= (1.0 + r)
+        to = 0.0
+        if i % rebalance_every == 0:
+            new_w = dict(target)
+            to = 0.5 * sum(abs(new_w.get(a, 0.0) - w.get(a, 0.0))
+                           for a in set(new_w) | set(w))
+            val *= (1.0 - cost_bps / 10000.0 * to)
+            w = new_w
+        equity.append(val)
+        weights_hist.append(dict(w))
+        turnovers.append(to)
+    return {"dates": list(dates), "equity": equity,
+            "weights": weights_hist, "turnover": turnovers}
+
+
 def simulate_gated(dates, scores, eligible, rets, *, top_n, rebalance_every=1,
                    cost_bps=0.0):
     """Sub-modo 'gated': mantiene los del top-N por score QUE ADEMÁS son elegibles.
