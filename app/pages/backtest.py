@@ -154,6 +154,78 @@ def layout(**kwargs):
         dcc.Loading(html.Div(id="bt-rules-results"), type="circle",
                     color="#dee2e6"),
 
+        # ── Nivel C: Cartera (simulación top-N) ───────────────────────────
+        html.Hr(className="my-4"),
+        dcc.Interval(id="bt-port-interval", interval=1000, disabled=True),
+        dbc.Row([dbc.Col(html.H4("Cartera — simulación top-N", className="mb-0"),
+                         width="auto")], className="mb-2"),
+        dbc.Alert(
+            "Simula una cartera que mantiene el top-N por score. Dos sub-modos "
+            "superpuestos: RANKING PURO (rota sólo por score) y GATED (además "
+            "respeta las reglas de entrada/salida) — la distancia entre las "
+            "curvas es cuánto aportan los stops. Se compara contra el EW del "
+            "universo. Nota: con rebalanceo > 1 rueda, las salidas se aplican "
+            "recién en el próximo rebalanceo; usá rebalanceo = 1 para stops "
+            "inmediatos.", color="info", className="mb-3 small py-2"),
+        dbc.Card(dbc.CardBody([
+            dbc.Row([
+                dbc.Col([dbc.Label("Estrategia", style=_LBL),
+                         dcc.Dropdown(id="bt-port-strategy",
+                                      placeholder="Seleccionar…", style=_IN)], md=3),
+                dbc.Col([dbc.Label("Top-N", style=_LBL),
+                         dbc.Input(id="bt-port-topn", type="number", value=20,
+                                   min=1, style=_IN)], md=2),
+                dbc.Col([dbc.Label("Rebalanceo (ruedas)", style=_LBL),
+                         dbc.Input(id="bt-port-rebal", type="number", value=5,
+                                   min=1, style=_IN)], md=2),
+                dbc.Col([dbc.Label("Costos (bps/lado)", style=_LBL),
+                         dbc.Input(id="bt-port-cost", type="number", value=10,
+                                   min=0, style=_IN)], md=2),
+            ], className="g-2 mb-2"),
+            dbc.Row([
+                dbc.Col([dbc.Label("Entrada Score ≥", style=_LBL),
+                         dbc.Input(id="bt-port-score", type="number", value=20,
+                                   style=_IN)], md=2),
+                dbc.Col([dbc.Label("Percentil ≥", style=_LBL),
+                         dbc.Input(id="bt-port-pct", type="number", style=_IN)], md=1),
+                dbc.Col([dbc.Label("Salida Score <", style=_LBL),
+                         dbc.Input(id="bt-port-exit-score", type="number",
+                                   style=_IN)], md=2),
+                dbc.Col([dbc.Label("SL %", style=_LBL),
+                         dbc.Input(id="bt-port-sl", type="number", value=10,
+                                   style=_IN)], md=1),
+                dbc.Col([dbc.Label("TP %", style=_LBL),
+                         dbc.Input(id="bt-port-tp", type="number", value=20,
+                                   style=_IN)], md=1),
+                dbc.Col([dbc.Label("Trail %", style=_LBL),
+                         dbc.Input(id="bt-port-ts", type="number", value=15,
+                                   style=_IN)], md=1),
+                dbc.Col([dbc.Label("Máx r.", style=_LBL),
+                         dbc.Input(id="bt-port-maxbars", type="number", value=60,
+                                   style=_IN)], md=1),
+                dbc.Col([dbc.Label("Enfr.", style=_LBL),
+                         dbc.Input(id="bt-port-cooldown", type="number", value=5,
+                                   style=_IN)], md=1),
+                dbc.Col([dbc.Label("Rearm", style=_LBL),
+                         dbc.Switch(id="bt-port-rearm", value=True)], md=1,
+                        className="d-flex flex-column"),
+                dbc.Col([dbc.Label(" ", style=_LBL),
+                         dbc.Button("Correr", id="bt-port-run", color="primary",
+                                    size="sm", style={"display": "block"})], md=1,
+                        className="d-flex flex-column"),
+            ], className="g-2"),
+            dbc.Progress(id="bt-port-progress", value=0, striped=True,
+                         animated=True, className="mt-2",
+                         style={"display": "none", "height": "16px",
+                                "fontSize": "0.72rem"}),
+            dbc.Alert(id="bt-port-alert", is_open=False, dismissable=True,
+                      className="mt-2 small py-1"),
+        ]), className="mb-3",
+            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+
+        dcc.Loading(html.Div(id="bt-port-results"), type="circle",
+                    color="#dee2e6"),
+
     ], style={"padding": "0 8px"})
 
 

@@ -49,21 +49,44 @@ def build_panels(per_asset):
     "in_position": set(indices)}} — series alineadas a las barras PROPIAS del
     activo. Devuelve (all_dates, scores_by_date, rets_by_date, eligible_by_date):
     - all_dates: unión ordenada de todas las fechas (calendario común).
-    - scores_by_date: {fecha: {activo: score}} (solo scores no-None).
-    - rets_by_date: {fecha: {activo: retorno}} (cierre-a-cierre en fechas propias).
-    - eligible_by_date: {fecha: set(activo)} (in_position mapeado a fechas).
+    - scores_by_date: {fecha: {activo: score}} (score no-None).
+    - rets_by_date: {fecha: {activo: retorno}} (cierre-a-cierre entre barras
+      propias; el retorno que cruza un hueco se registra en la barra de
+      reanudación).
+    - eligible_by_date: {fecha: set(activo)}.
+
+    HUECOS INTERIORES: si un activo no cotiza en una fecha del calendario común
+    (existe porque OTRO activo cotizó) DENTRO de su rango [primera, última barra
+    propia], se ARRASTRA su último score y su elegibilidad a esa fecha. Así el
+    motor no lo evicta en el hueco y el retorno que cruza el hueco se acredita
+    con el activo aún en cartera (si no, se perdía y se pagaba turnover fantasma;
+    ver revisión nivel C). En universos de un solo mercado, día-completos, no hay
+    huecos y el comportamiento es el directo.
     """
     all_dates = sorted({d for a in per_asset.values() for d in a["dates"]})
+    pos = {d: i for i, d in enumerate(all_dates)}
     scores_by_date, rets_by_date, eligible_by_date = {}, {}, {}
     for aid, data in per_asset.items():
         dts, closes, scores = data["dates"], data["closes"], data["scores"]
+        if not dts:
+            continue
         inpos = data.get("in_position", set())
-        for i, d in enumerate(dts):
-            if scores[i] is not None:
-                scores_by_date.setdefault(d, {})[aid] = scores[i]
-            if i > 0 and closes[i - 1]:
-                rets_by_date.setdefault(d, {})[aid] = closes[i] / closes[i - 1] - 1.0
-            if i in inpos:
+        own = {d: k for k, d in enumerate(dts)}
+        last_score, last_elig, prev_close = None, False, None
+        for ci in range(pos[dts[0]], pos[dts[-1]] + 1):
+            d = all_dates[ci]
+            k = own.get(d)
+            if k is not None:                      # barra propia del activo
+                if prev_close:
+                    rets_by_date.setdefault(d, {})[aid] = closes[k] / prev_close - 1.0
+                prev_close = closes[k]
+                if scores[k] is not None:
+                    scores_by_date.setdefault(d, {})[aid] = scores[k]
+                    last_score = scores[k]
+                last_elig = k in inpos
+            elif last_score is not None:           # hueco interior: arrastra score
+                scores_by_date.setdefault(d, {})[aid] = last_score
+            if last_elig:                          # y elegibilidad (para no evictar)
                 eligible_by_date.setdefault(d, set()).add(aid)
     return all_dates, scores_by_date, rets_by_date, eligible_by_date
 
