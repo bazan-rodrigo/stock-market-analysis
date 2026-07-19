@@ -263,6 +263,17 @@ button.dash-dropdown {
     text-align: left !important;
     font-size: 0.82rem !important;
     cursor: pointer !important;
+    /* Igualar altura al .form-control de Bootstrap: sin esto el control
+       conserva el padding propio del componente y se ve más alto que un
+       Input al lado (padding base .form-control = 0.2rem 0.4rem, línea 79). */
+    padding: 0.2rem 0.4rem !important;
+    min-height: 0 !important;
+    line-height: 1.5 !important;
+}
+/* Modal y sidebar del gráfico: el Input compacta a 0.15rem 0.35rem (línea 197) */
+.modal-body button.dash-dropdown,
+#chart-controls button.dash-dropdown {
+    padding: 0.15rem 0.35rem !important;
 }
 button.dash-dropdown:focus,
 button.dash-dropdown:focus-visible,
