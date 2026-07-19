@@ -58,6 +58,12 @@ def layout(**kwargs):
         dbc.Alert(id="cleanup-alert", is_open=False, dismissable=True, className="mt-3"),
 
         html.Hr(className="my-4"),
+        html.H4("Uso de espacio en disco", className="mb-2"),
+        dbc.Button("Actualizar", id="dbsize-refresh", color="secondary",
+                   outline=True, size="sm", className="mb-3"),
+        dcc.Loading(html.Div(id="dbsize-content"), type="default"),
+
+        html.Hr(className="my-4"),
         html.H4("Recuperar espacio (VACUUM)", className="mb-2"),
         dbc.Alert(
             [

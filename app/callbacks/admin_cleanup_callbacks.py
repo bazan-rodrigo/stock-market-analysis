@@ -1,6 +1,6 @@
 import threading
 
-from dash import Input, Output, callback, no_update
+from dash import Input, Output, callback, html, no_update
 
 _state = {"running": False, "result": None, "error": None}
 
@@ -151,3 +151,70 @@ def poll_vacuum(_):
         return {"display": "none"}, True, _vac_state["result"], True, "success", False
 
     return no_update, no_update, no_update, no_update, no_update, no_update
+
+
+# ── Uso de espacio en disco (solo lectura) ────────────────────────────────────
+
+def _pct(part: int, total: int) -> str:
+    return f"{100 * part / total:.1f}%" if total else "—"
+
+
+@callback(
+    Output("dbsize-content", "children"),
+    Input("dbsize-refresh", "n_clicks"),
+)
+def render_db_size(_n):
+    import dash_bootstrap_components as dbc
+    from app.services import maintenance_service as ms
+
+    try:
+        rep = ms.database_size_report()
+    except Exception as exc:  # noqa: BLE001 — mostrar el error, no romper la página
+        return dbc.Alert(f"No se pudo leer el uso de espacio: {exc}",
+                         color="danger", className="mb-0")
+
+    total = rep["total_bytes"]
+    fam_rows = [
+        html.Tr([
+            html.Td(r["family"]),
+            html.Td(r["count"], className="text-end"),
+            html.Td(ms.format_bytes(r["bytes"]), className="text-end"),
+            html.Td(_pct(r["bytes"], total), className="text-end"),
+        ])
+        for r in rep["by_family"]
+    ]
+    tbl_rows = [
+        html.Tr([
+            html.Td(name),
+            html.Td(ms.format_bytes(size), className="text-end"),
+        ])
+        for name, size in rep["tables"]
+    ]
+
+    return html.Div([
+        html.P([
+            "Tamaño total de la base: ",
+            html.Strong(ms.format_bytes(total)),
+            html.Span(f"  ({rep['dialect']})", className="text-muted small"),
+        ], className="mb-2"),
+
+        html.H6("Por familia", className="mb-1"),
+        dbc.Table([
+            html.Thead(html.Tr([
+                html.Th("Familia"),
+                html.Th("Tablas", className="text-end"),
+                html.Th("Tamaño", className="text-end"),
+                html.Th("% total", className="text-end"),
+            ])),
+            html.Tbody(fam_rows),
+        ], bordered=True, size="sm", hover=True, className="w-auto mb-4"),
+
+        html.H6("Tablas más grandes", className="mb-1"),
+        dbc.Table([
+            html.Thead(html.Tr([
+                html.Th("Tabla"),
+                html.Th("Tamaño", className="text-end"),
+            ])),
+            html.Tbody(tbl_rows),
+        ], bordered=True, size="sm", hover=True, className="w-auto"),
+    ])

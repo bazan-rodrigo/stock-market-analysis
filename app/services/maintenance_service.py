@@ -89,3 +89,97 @@ def vacuum_tables(tables: list[str]) -> dict:
 def vacuum_bloat_tables() -> dict:
     """Compacta las tablas propensas a bloat del pipeline (ver bloat_tables)."""
     return vacuum_tables(bloat_tables())
+
+
+# ── Reporte de uso de espacio ─────────────────────────────────────────────────
+
+def format_bytes(n) -> str:
+    """Bytes → texto legible ('181.0 MB', '4.1 GB'). Puro (testeable)."""
+    x = float(n or 0)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if x < 1024 or unit == "TB":
+            return f"{int(x)} {unit}" if unit == "B" else f"{x:.1f} {unit}"
+        x /= 1024
+
+
+def classify_table(name: str) -> str:
+    """Familia a la que pertenece una tabla, para el desglose de espacio.
+    Puro (testeable): fija que ind_dist_sma50 → Indicadores, sig_3 → Señales,
+    strat_res_2 → Estrategias, etc. El orden de los chequeos importa."""
+    n = name.lower()
+    if n == "prices":
+        return "Precios"
+    if n.startswith("ind_") or n in (
+            "current_indicator_values", "indicator_definitions",
+            "indicator_update_log"):
+        return "Indicadores"
+    if n.startswith("sig_") or n in (
+            "signal", "signal_value", "group_signal_value", "signal_eval_log"):
+        return "Señales"
+    if n.startswith("strat_res_") or n in (
+            "strategy", "strategy_component", "strategy_result"):
+        return "Estrategias"
+    if n == "group_scores":
+        return "Scores de grupo"
+    if n.startswith("fundamental"):
+        return "Fundamentales"
+    if n.startswith("backtest") or n.startswith("portfolio"):
+        return "Backtest / Carteras"
+    return "Otras"
+
+
+def group_by_family(tables: list[tuple[str, int]]) -> list[dict]:
+    """Agrupa (tabla, bytes) por familia → filas {family, count, bytes}
+    ordenadas por bytes desc. Puro (testeable)."""
+    acc: dict[str, dict] = {}
+    for name, size in tables:
+        fam = classify_table(name)
+        row = acc.setdefault(fam, {"family": fam, "count": 0, "bytes": 0})
+        row["count"] += 1
+        row["bytes"] += int(size or 0)
+    return sorted(acc.values(), key=lambda r: r["bytes"], reverse=True)
+
+
+def _all_table_sizes(conn) -> list[tuple[str, int]]:
+    """(tabla, bytes) de todas las tablas base del esquema actual."""
+    if db_compat.is_postgres(conn):
+        rows = conn.execute(sa.text(
+            "SELECT c.relname, pg_total_relation_size(c.oid) "
+            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r'"))
+        return [(r[0], int(r[1] or 0)) for r in rows]
+    if db_compat.is_mysql(conn):
+        rows = conn.execute(sa.text(
+            "SELECT table_name, COALESCE(data_length + index_length, 0) "
+            "FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'"))
+        return [(r[0], int(r[1] or 0)) for r in rows]
+    return []  # sqlite (tests): sin tamaño por tabla
+
+
+def database_size_report(top_n: int = 25) -> dict:
+    """Uso de espacio de la base: total, desglose por familia y top-N tablas.
+
+    Devuelve {"total_bytes", "by_family": [{family,count,bytes}],
+    "tables": [(nombre, bytes)], "dialect"}. Solo lectura (metadata)."""
+    dialect = engine.dialect.name
+    with engine.connect() as conn:
+        if db_compat.is_postgres(conn):
+            total = int(conn.execute(sa.text(
+                "SELECT pg_database_size(current_database())")).scalar() or 0)
+        elif db_compat.is_mysql(conn):
+            total = int(conn.execute(sa.text(
+                "SELECT COALESCE(SUM(data_length + index_length), 0) "
+                "FROM information_schema.tables "
+                "WHERE table_schema = DATABASE()")).scalar() or 0)
+        else:
+            total = 0
+        tables = _all_table_sizes(conn)
+
+    tables.sort(key=lambda t: t[1], reverse=True)
+    return {
+        "total_bytes": total,
+        "by_family": group_by_family(tables),
+        "tables": tables[:top_n],
+        "dialect": dialect,
+    }
