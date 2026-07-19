@@ -121,8 +121,16 @@ def _upsert_quarterly(asset_id: int, quarters: list[dict], s) -> None:
 def _upsert_fund_value(code: str, asset_id: int, target_date, val: float, s) -> None:
     if val is None:
         return
+    v = float(val)
+    # Fundamentales diarios anchos (design_ind_wide_tables.md): rutear a la
+    # columna de ind_fundamental_daily. Los trimestrales siguen per-código.
+    from app.models.indicator_store import _WIDE, use_wide_ind_tables
+    if use_wide_ind_tables() and code in _WIDE:
+        from app.services.technical_service import upsert_ind_cadence
+        _t, column, cadence = _WIDE[code]
+        upsert_ind_cadence(s, cadence, [column], [(asset_id, target_date, v)])
+        return
     t    = get_ind_table(code)
-    v    = float(val)
     stmt = db_compat.upsert(
         s, t, dict(asset_id=asset_id, date=target_date, value=v),
         {"value": v})
@@ -267,10 +275,18 @@ def backfill_asset_fund_history(asset_id: int) -> dict:
     q_ords = np.array([q.period_date.toordinal() for q in quarters])
     price_rows = _load_fund_prices(s, [asset_id]).get(asset_id, [])
 
+    from app.models.indicator_store import _WIDE, use_wide_ind_tables
     inserted = 0
     for code in sorted(_ALL_FUND_CODES):
-        t = get_ind_table(code)
-        s.execute(t.delete().where(t.c.asset_id == asset_id))
+        wide = use_wide_ind_tables() and code in _WIDE
+        t = None
+        if wide:
+            from app.services.technical_service import _null_wide_column
+            _t, _column, _cadence = _WIDE[code]
+            _null_wide_column(s, _cadence, _column, asset_id=asset_id)
+        else:
+            t = get_ind_table(code)
+            s.execute(t.delete().where(t.c.asset_id == asset_id))
 
         if code in _FUND_DAILY_CODES:
             if not price_rows:
@@ -291,8 +307,14 @@ def backfill_asset_fund_history(asset_id: int) -> dict:
                                   "value": float(val)})
 
         if batch:
-            stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
-            s.execute(stmt)
+            if wide:
+                from app.services.technical_service import upsert_ind_cadence
+                upsert_ind_cadence(
+                    s, _cadence, [_column],
+                    [(b["asset_id"], b["date"], b["value"]) for b in batch])
+            else:
+                stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
+                s.execute(stmt)
             inserted += len(batch)
 
     s.commit()
@@ -945,14 +967,25 @@ def _backfill_fund_indicator(
 ) -> dict:
     """Backfill de un indicador fundamental para todos los activos."""
     import sqlalchemy as sa
+    from app.models.indicator_store import _WIDE, use_wide_ind_tables
     s        = get_session()
+    wide     = use_wide_ind_tables() and code in _WIDE
     t        = get_ind_table(code)
     is_daily = code in _FUND_DAILY_CODES
     inserted = 0
+    if wide:
+        from app.services.technical_service import (_null_wide_column,
+                                                    upsert_ind_cadence)
+        _wt, _column, _cadence = _WIDE[code]
 
     if force:
         # TRUNCATE: instantáneo y sin undo log (vs DELETE por activo)
-        s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
+        if wide:
+            # comparte tabla con los otros códigos de la cadencia → no truncar:
+            # nullear SOLO esta columna (todos los activos).
+            _null_wide_column(s, _cadence, _column)
+        else:
+            s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
         s.commit()
 
     for c0 in range(0, len(asset_ids), _EXISTING_CHUNK):
@@ -961,9 +994,10 @@ def _backfill_fund_indicator(
         # Fechas existentes del chunk en una sola query (evita 1 por activo)
         existing_by_asset: dict[int, set] = {}
         if not force:
-            for aid, d in s.execute(
-                sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
-            ).fetchall():
+            _pq = sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
+            if wide:
+                _pq = _pq.where(t.c.value.isnot(None))
+            for aid, d in s.execute(_pq).fetchall():
                 existing_by_asset.setdefault(aid, set()).add(d)
 
         for asset_id in chunk:
@@ -1014,8 +1048,12 @@ def _backfill_fund_indicator(
                     if d in target and not np.isnan(v)
                 ]
                 if batch:
-                    stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
-                    s.execute(stmt)
+                    if wide:
+                        upsert_ind_cadence(s, _cadence, [_column],
+                                           [(b["asset_id"], b["date"], b["value"])
+                                            for b in batch])
+                    else:
+                        s.execute(db_compat.upsert(s, t, batch, {"value": INSERTED}))
                     inserted += len(batch)
             else:
                 if force:
@@ -1035,8 +1073,12 @@ def _backfill_fund_indicator(
                         batch.append({"asset_id": asset_id, "date": q.period_date,
                                       "value": float(val)})
                 if batch:
-                    stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
-                    s.execute(stmt)
+                    if wide:
+                        upsert_ind_cadence(s, _cadence, [_column],
+                                           [(b["asset_id"], b["date"], b["value"])
+                                            for b in batch])
+                    else:
+                        s.execute(db_compat.upsert(s, t, batch, {"value": INSERTED}))
                     inserted += len(batch)
 
             if asset_tick:
@@ -1081,14 +1123,21 @@ def _backfill_fund_daily_all(
     una vez por código, eliminando 4x de cómputo redundante.
     """
     import sqlalchemy as sa
+    from app.models.indicator_store import (_WIDE, _WIDE_CADENCE_TABLE,
+                                            use_wide_ind_tables)
     s      = get_session()
+    wide   = use_wide_ind_tables() and all(c in _WIDE for c in daily_codes)
     tables = {code: get_ind_table(code) for code in daily_codes}
     inserted = 0
 
     if force:
         # TRUNCATE: instantáneo y sin undo log (vs DELETE por activo)
-        for t in tables.values():
-            s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
+        if wide:
+            # los 4 diarios comparten ind_fundamental_daily → truncar UNA vez
+            db_compat.wipe_table(s, _WIDE_CADENCE_TABLE[_WIDE[daily_codes[0]][2]])
+        else:
+            for t in tables.values():
+                s.execute(sa.text(f"TRUNCATE TABLE {t.name}"))
         s.commit()
 
     for c0 in range(0, len(asset_ids), _EXISTING_CHUNK):
@@ -1098,9 +1147,11 @@ def _backfill_fund_daily_all(
         existing_by_code: dict[str, dict[int, set]] = {c: {} for c in daily_codes}
         if not force:
             for code, t in tables.items():
-                for aid, d in s.execute(
-                    sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
-                ).fetchall():
+                q = sa.select(t.c.asset_id, t.c.date).where(t.c.asset_id.in_(chunk))
+                if wide:
+                    # en la ancha "fecha existente" = esta columna no es NULL
+                    q = q.where(t.c.value.isnot(None))
+                for aid, d in s.execute(q).fetchall():
                     existing_by_code[code].setdefault(aid, set()).add(d)
 
         for asset_id in chunk:
@@ -1137,21 +1188,40 @@ def _backfill_fund_daily_all(
             dates_seq = [r[0] for r in price_rows]
             series = _daily_ratio_series(quarters, q_ords, dates_seq,
                                          price_dates_ord, price_closes)
-            batches = {
-                code: [
-                    {"asset_id": asset_id, "date": d, "value": float(v)}
-                    for d, v in zip(dates_seq, series[code])
-                    if d in targets[code] and not np.isnan(v)
-                ]
-                for code in daily_codes
-            }
-
-            for code, batch in batches.items():
-                if batch:
-                    t    = tables[code]
-                    stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
-                    s.execute(stmt)
-                    inserted += len(batch)
+            if wide:
+                # Fila COMPLETA por (activo,fecha) con los 4 diarios juntos →
+                # sin updates repetidos (sin bloat). Ver design_ind_wide_tables.md.
+                from app.services.technical_service import upsert_ind_cadence
+                cadence = _WIDE[daily_codes[0]][2]
+                cols = [_WIDE[c][1] for c in daily_codes]
+                idx_by_date = {d: i for i, d in enumerate(dates_seq)}
+                dirty = set().union(*(targets[c] for c in daily_codes))
+                rows = []
+                for d in dirty:
+                    i = idx_by_date.get(d)
+                    if i is None:
+                        continue
+                    vals = [None if np.isnan(series[c][i]) else float(series[c][i])
+                            for c in daily_codes]
+                    if any(v is not None for v in vals):
+                        rows.append((asset_id, d, *vals))
+                if rows:
+                    inserted += upsert_ind_cadence(s, cadence, cols, rows)
+            else:
+                batches = {
+                    code: [
+                        {"asset_id": asset_id, "date": d, "value": float(v)}
+                        for d, v in zip(dates_seq, series[code])
+                        if d in targets[code] and not np.isnan(v)
+                    ]
+                    for code in daily_codes
+                }
+                for code, batch in batches.items():
+                    if batch:
+                        t    = tables[code]
+                        stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
+                        s.execute(stmt)
+                        inserted += len(batch)
 
             s.commit()
             for code in daily_codes:

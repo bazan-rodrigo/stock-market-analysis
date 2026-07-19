@@ -43,6 +43,19 @@ _WIDE_MONTHLY = [
     "trend_monthly", "volatility_monthly", "atr_percentile_monthly",
     "rsi_monthly", "dist_optimal_sma_monthly",
 ]
+# Fundamentales, los escribe fundamental_service. DIARIOS (dependen del precio,
+# densos) → ind_fundamental_daily. TRIMESTRALES (ralos, grilla de fin de trimestre)
+# → ind_fundamental_quarterly. Todos num (FLOAT).
+_WIDE_FUND_DAILY = [
+    "fundamental_pe_ttm", "fundamental_pb", "fundamental_ps_ttm",
+    "fundamental_pe_growth_yoy",
+]
+_WIDE_FUND_QUARTERLY = [
+    "fundamental_net_margin", "fundamental_gross_margin",
+    "fundamental_operating_margin", "fundamental_debt_to_equity",
+    "fundamental_revenue_growth_yoy", "fundamental_eps_growth_yoy",
+    "fundamental_net_income_growth_yoy", "fundamental_roic",
+]
 # Columnas categóricas (VARCHAR(50)); el resto son FLOAT.
 _WIDE_STR_CODES = frozenset({
     "trend_daily", "trend_weekly", "trend_monthly",
@@ -51,9 +64,12 @@ _WIDE_STR_CODES = frozenset({
 
 _WIDE_CADENCE_COLUMNS = {
     "daily": _WIDE_DAILY, "weekly": _WIDE_WEEKLY, "monthly": _WIDE_MONTHLY,
+    "fund_daily": _WIDE_FUND_DAILY, "fund_quarterly": _WIDE_FUND_QUARTERLY,
 }
 _WIDE_CADENCE_TABLE = {
     "daily": "ind_daily", "weekly": "ind_weekly", "monthly": "ind_monthly",
+    "fund_daily": "ind_fundamental_daily",
+    "fund_quarterly": "ind_fundamental_quarterly",
 }
 
 # code -> (tabla_ancha, columna, cadencia). Fuente única de la clasificación de
