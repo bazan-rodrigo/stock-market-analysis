@@ -214,10 +214,15 @@ def _render_port(res):
                     row("EW universo", bw)])],
         bordered=False, hover=True, size="sm", className="small")
 
+    heat = (dcc.Graph(figure=pv.monthly_heatmap_figure(
+        g["monthly_returns"], title="Retornos mensuales (gated)"),
+        config=pv.graph_config()) if g.get("monthly_returns") else html.Div())
+
     return html.Div([
         tiles,
         dcc.Graph(figure=equity_fig, config=pv.graph_config(), className="mt-2"),
         dcc.Graph(figure=dd_fig, config=pv.graph_config()),
+        heat,
         html.H6("Comparación", className="mt-2"),
         table,
     ])
