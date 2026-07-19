@@ -25,8 +25,8 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   app con **MariaDB** (`sudo service mariadb start`, no `mysql`) — o PostgreSQL
   con `DB_ENGINE=postgres|both` en el setup (`sudo service postgresql start`).
   Recordarle al usuario el `git pull` tras cada push.
-- **`git push` actualiza TRES remotes a la vez** (bazan-rodrigo, rodrigoqw33,
-  rodrigoba77). Si falla en uno, revisar el PAT de esa cuenta (`git remote -v`).
+- **`git push` actualiza DOS remotes a la vez** (bazan-rodrigo, rodrigoqw33).
+  Si falla en uno, revisar el PAT de esa cuenta (`git remote -v`).
 - **Verificación:** esta PC no levanta la app (sin MariaDB/yfinance). La red de
   seguridad automatizada es pytest. Todo lo que toca la app viva (callbacks Dash,
   migraciones, corridas reales) se prueba en el Codespace — dejarlo anotado.
