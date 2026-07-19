@@ -16,9 +16,17 @@ Decomposición:
 
 Simplificaciones de la v1 (documentadas): el retorno de un activo en una fecha
 del calendario común donde ese activo no cotizó se toma como 0 (gate a fechas
-propias); el loteo de precios (como backtest_service, _ASSET_BATCH=200) es la
-optimización pendiente para 10k activos.
+propias). La carga de precios/scores es BATCHEADA (`_load_raw`, IN por lotes de
+_ASSET_BATCH, como backtest_service) para acotar round-trips a escala 10k — la
+comparten nivel C (`run_portfolio_backtest`) y el walk-forward (`_load_universe`).
 """
+
+_ASSET_BATCH = 200   # activos por query (acota round-trips/memoria a 10k)
+
+
+def _chunks(seq, n):
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
 
 
 def _in_position(trades, n_bars):
@@ -102,7 +110,7 @@ def run_portfolio_backtest(strategy_id, spec, *, top_n, rebalance_every=1,
     import sqlalchemy as sa
 
     from app.database import get_session
-    from app.models import Price, signal_store
+    from app.models import signal_store
     from app.services import portfolio_metrics as pm
     from app.services import portfolio_sim_engine as eng
     from app.services.trade_simulator import simulate_trades
@@ -116,26 +124,14 @@ def run_portfolio_backtest(strategy_id, spec, *, top_n, rebalance_every=1,
             "La estrategia no tiene historia calculada. Corré 'Recalcular "
             "completo' en Centro de Datos → Señales y Estrategias.")
 
+    raw = _load_raw(s, rt, asset_ids, progress_cb=progress_cb)
     per_asset = {}
-    for k, aid in enumerate(asset_ids):
-        prows = (s.query(Price.date, Price.close)
-                 .filter(Price.asset_id == aid, Price.close.isnot(None))
-                 .order_by(Price.date).all())
-        if not prows:
-            continue
-        srows = s.execute(sa.select(rt.c.date, rt.c.score, rt.c.pct)
-                          .where(rt.c.asset_id == aid)).all()
-        sc = {d: (float(x) if x is not None else None,
-                  float(p) if p is not None else None) for d, x, p in srows}
-        dates = [d for d, _ in prows]
-        closes = [float(c) for _, c in prows]
-        scores = [sc.get(d, (None, None))[0] for d in dates]
-        pcts = [sc.get(d, (None, None))[1] for d in dates]
-        trades = simulate_trades(closes, scores, spec, percentiles=pcts)
-        per_asset[aid] = {"dates": dates, "closes": closes, "scores": scores,
-                          "in_position": _in_position(trades, len(closes))}
-        if progress_cb:
-            progress_cb(k + 1, len(asset_ids), "activos")
+    for aid, r in raw.items():
+        trades = simulate_trades(r["closes"], r["scores"], spec,
+                                 percentiles=r["pcts"])
+        per_asset[aid] = {"dates": r["dates"], "closes": r["closes"],
+                          "scores": r["scores"],
+                          "in_position": _in_position(trades, len(r["closes"]))}
 
     dates, scores_by_date, rets_by_date, eligible_by_date = build_panels(per_asset)
 
@@ -323,32 +319,70 @@ def _span_cagr(equity, dates):
     return pm.cagr(equity, years)
 
 
+def _wf_score(equity):
+    """Métrica de selección de config en el train: Sharpe (risk-adjusted). Premia
+    consistencia, no sólo retorno crudo — que favorece la config más suelta que
+    montó la mayor tendencia, sin mirar el riesgo. Equity vacía/degenerada (o vol
+    cero → Sharpe indefinido) → -inf (nunca elegida)."""
+    from app.services import portfolio_metrics as pm
+    if not equity or len(equity) < 2:
+        return float("-inf")
+    sh = pm.sharpe(pm.returns_from_equity(equity), 0.0, pm.TRADING_DAYS)
+    return sh if sh is not None else float("-inf")
+
+
+def _load_raw(session, rt, asset_ids, progress_cb=None):
+    """{aid: {dates, closes, scores, pcts}} para `asset_ids`, con carga BATCHEADA:
+    un par de queries por LOTE (IN de _ASSET_BATCH) — precios de `prices` + scores
+    de la tabla de estrategia `rt` — en vez de dos queries por activo (evita el
+    N+1 a escala 10k). Lo comparten nivel C y el walk-forward."""
+    import sqlalchemy as sa
+    from collections import defaultdict
+
+    from app.models import Price
+    per_asset = {}
+    done = 0
+    for batch in _chunks(asset_ids, _ASSET_BATCH):
+        prows = (session.query(Price.asset_id, Price.date, Price.close)
+                 .filter(Price.asset_id.in_(batch), Price.close.isnot(None))
+                 .order_by(Price.asset_id, Price.date).all())
+        prices = defaultdict(list)
+        for aid, d, c in prows:
+            prices[aid].append((d, float(c)))
+        srows = session.execute(
+            sa.select(rt.c.asset_id, rt.c.date, rt.c.score, rt.c.pct)
+            .where(rt.c.asset_id.in_(batch))).all()
+        scmap = defaultdict(dict)
+        for aid, d, x, p in srows:
+            scmap[aid][d] = (float(x) if x is not None else None,
+                             float(p) if p is not None else None)
+        for aid in batch:
+            series = prices.get(aid)
+            if not series:
+                continue
+            dates = [d for d, _ in series]
+            sc = scmap.get(aid, {})
+            per_asset[aid] = {
+                "dates": dates,
+                "closes": [c for _, c in series],
+                "scores": [sc.get(d, (None, None))[0] for d in dates],
+                "pcts": [sc.get(d, (None, None))[1] for d in dates]}
+        done += len(batch)
+        if progress_cb:
+            progress_cb(done, len(asset_ids), "activos")
+    return per_asset
+
+
 def _load_universe(session, strategy_id):
     """{aid: {dates, closes, scores, pcts}} para todo el universo de la
     estrategia (activos con score). Se carga UNA vez y se reusa por ventana."""
     import sqlalchemy as sa
 
-    from app.models import Price, signal_store
+    from app.models import signal_store
     rt = signal_store.ensure_strat_table(strategy_id, bind=session.connection())
     asset_ids = sorted(r[0] for r in session.execute(
         sa.select(rt.c.asset_id).where(rt.c.score.isnot(None)).distinct()).all())
-    per_asset = {}
-    for aid in asset_ids:
-        prows = (session.query(Price.date, Price.close)
-                 .filter(Price.asset_id == aid, Price.close.isnot(None))
-                 .order_by(Price.date).all())
-        if not prows:
-            continue
-        srows = session.execute(sa.select(rt.c.date, rt.c.score, rt.c.pct)
-                                .where(rt.c.asset_id == aid)).all()
-        sc = {d: (float(x) if x is not None else None,
-                  float(p) if p is not None else None) for d, x, p in srows}
-        dates = [d for d, _ in prows]
-        per_asset[aid] = {"dates": dates,
-                          "closes": [float(c) for _, c in prows],
-                          "scores": [sc.get(d, (None, None))[0] for d in dates],
-                          "pcts": [sc.get(d, (None, None))[1] for d in dates]}
-    return per_asset
+    return _load_raw(session, rt, asset_ids)
 
 
 _WF_MIN_SEG_BARS = 10   # cada tramo (train inicial / test) necesita ≥ esto
@@ -358,7 +392,7 @@ def walk_forward(session, strategy_id, base_spec, *, topn_grid=(10, 20, 30),
                  trail_grid=(10.0, 15.0, 20.0), n_windows=4, rebalance_every=1,
                  cost_bps=0.0, progress_cb=None):
     """Walk-forward de OPTIMIZACIÓN. En cada ventana train busca la mejor
-    (top_n, trailing) por retorno total del gated, la aplica en el test
+    (top_n, trailing) por Sharpe (risk-adjusted) del gated, la aplica en el test
     (out-of-sample, fresco) y concatena los tests → curva OOS. Cada ventana
     reporta CAGR de train y test (comparables entre sí pese al largo distinto).
     Devuelve {oos_dates, oos_equity, windows, **KPIs de portfolio_metrics}.
@@ -404,7 +438,7 @@ def walk_forward(session, strategy_id, base_spec, *, topn_grid=(10, 20, 30),
                     dts, scores_bd, elig_bd, rets_bd, top_n=tn,
                     rebalance_every=rebalance_every, cost_bps=cost_bps)
                 eq = res["equity"]
-                obj = (eq[-1] - 1.0) if eq else float("-inf")
+                obj = _wf_score(eq)          # Sharpe del train (risk-adjusted)
                 if best is None or obj > best[0]:
                     best = (obj, tn, trail, eq, dts)
         _obj, tn, trail, tr_eq, tr_dts = best
@@ -418,7 +452,9 @@ def walk_forward(session, strategy_id, base_spec, *, topn_grid=(10, 20, 30),
         if teq:
             val = val * teq[-1]
         windows.append({"train": [tr_from, tr_to], "test": [te_from, te_to],
-                        "top_n": tn, "trailing": trail, "train_ret": best[0],
+                        "top_n": tn, "trailing": trail,
+                        "train_sharpe": best[0] if best[0] != float("-inf") else None,
+                        "train_ret": (tr_eq[-1] - 1.0) if tr_eq else None,
                         "test_ret": (teq[-1] - 1.0) if teq else None,
                         "train_cagr": _span_cagr(tr_eq, tr_dts),
                         "test_cagr": _span_cagr(teq, td)})

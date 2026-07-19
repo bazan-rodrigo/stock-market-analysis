@@ -174,3 +174,13 @@ def test_span_cagr_annualizes_over_window():
     # sin datos suficientes → None (no comparable)
     assert _span_cagr([], []) is None
     assert _span_cagr([1.0], [date(2025, 1, 1)]) is None
+
+
+def test_wf_score_prefers_steadier_equity():
+    from app.services.portfolio_backtest_service import _wf_score
+    steady = [1.0, 1.01, 1.02, 1.03, 1.04]        # sube parejo → Sharpe alto
+    volatile = [1.0, 1.10, 0.95, 1.12, 1.04]      # ~mismo fin, con vaivenes
+    # el objetivo risk-adjusted prefiere la curva pareja (mismo retorno, - riesgo)
+    assert _wf_score(steady) > _wf_score(volatile)
+    assert _wf_score([]) == float("-inf")         # degenerado → nunca elegido
+    assert _wf_score([1.0]) == float("-inf")

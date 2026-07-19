@@ -262,8 +262,9 @@ def layout(**kwargs):
         dbc.Alert([
             html.B("Optimización robusta out-of-sample. "),
             "En cada ventana de entrenamiento busca la mejor combinación "
-            "(top-N × trailing) por retorno del gated y la aplica en la ventana "
-            "siguiente (test), sobre datos no vistos. Concatena los tests → una "
+            "(top-N × trailing) por Sharpe (riesgo-ajustado) del gated y la "
+            "aplica en la ventana siguiente (test), sobre datos no vistos. "
+            "Concatena los tests → una "
             "curva out-of-sample honesta; la brecha train vs test mide el "
             "sobreajuste. La cartera se re-arma en cada costura de ventana "
             "(OOS conservador, sin arrastre de posiciones)."],

@@ -531,8 +531,9 @@ def _render_wf(res):
         html.H6("Ventanas: config elegida en train vs resultado en test",
                 className="mt-2"),
         table,
-        html.Small("CAGR anualizada para comparar tramos de largo distinto. Si "
-                   "la CAGR de test es consistentemente menor que la de train, "
-                   "parte de la ventaja es sobreajuste.",
+        html.Small("La config se elige por mejor Sharpe en el train; la tabla "
+                   "muestra CAGR anualizada para comparar tramos de largo "
+                   "distinto. Si la CAGR de test es consistentemente menor que "
+                   "la de train, parte de la ventaja es sobreajuste.",
                    className="text-muted"),
     ])
