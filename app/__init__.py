@@ -242,6 +242,7 @@ def create_app():
         "app.pages.admin_data_center",
         "app.pages.admin_verify",
         "app.pages.backtest",
+        "app.pages.carteras",
     ]
 
     import importlib
@@ -301,6 +302,7 @@ def create_app():
         "app.callbacks.admin_verify_callbacks",
         "app.callbacks.backtest_callbacks",
         "app.callbacks.optimizer_callbacks",
+        "app.callbacks.carteras_callbacks",
     ]
 
     logger.info("Cargando %d módulos de callbacks...", len(_CALLBACKS))
