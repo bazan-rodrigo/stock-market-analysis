@@ -82,7 +82,9 @@ def equity_figure(series, x=None, title=None, log=False):
     fig = go.Figure()
     for i, s in enumerate(series):
         vals = s["values"]
-        xs = x if x is not None else list(range(len(vals)))
+        xs = s.get("x")                      # x por-serie (opcional)
+        if xs is None:
+            xs = x if x is not None else list(range(len(vals)))
         fig.add_trace(go.Scatter(
             x=xs, y=vals, name=s["name"], mode="lines",
             line=dict(color=s.get("color") or SERIES[i % len(SERIES)],

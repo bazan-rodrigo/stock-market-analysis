@@ -91,8 +91,10 @@ def start_port_run(_, strategy_id, topn, rebal, cost, score, pct, exit_score,
         return no_update, no_update, "Seleccioná una estrategia.", True, "warning"
     from app.services.strategy_service import get_visible_strategies
     from app.services.visibility import current_viewer
-    if int(strategy_id) not in {s.id for s in
-                                get_visible_strategies(*current_viewer())}:
+    user_id, is_admin = current_viewer()
+    visible = {st.id: st.name
+               for st in get_visible_strategies(user_id, is_admin)}
+    if int(strategy_id) not in visible:
         return no_update, no_update, "Estrategia no visible.", True, "warning"
 
     spec = _build_spec(score, pct, exit_score, sl, tp, ts, maxbars, cooldown,
@@ -111,7 +113,11 @@ def start_port_run(_, strategy_id, topn, rebal, cost, score, pct, exit_score,
                 True, "warning")
 
     _port_state.update({"running": True, "current": 0, "total": 0, "phase": "",
-                        "error": None, "result": None})
+                        "error": None, "result": None, "owner_id": user_id,
+                        "strategy_id": int(strategy_id),
+                        "strategy_name": visible[int(strategy_id)],
+                        "config": {"top_n": top_n, "rebalance": rebalance_every,
+                                   "cost_bps": cost_bps, "spec": spec}})
 
     def _run():
         from app.database import Session
@@ -263,3 +269,102 @@ def promote_to_seguimiento(_, strategy_id, topn, rebal):
                         rebalance=rebalance)
     return (f"Cartera de seguimiento «{name}» creada — vela en /carteras.",
             True, "success")
+
+
+# ── Nivel D: guardar corrida + comparar ───────────────────────────────────────
+
+@callback(
+    Output("bt-port-promote-alert", "children", allow_duplicate=True),
+    Output("bt-port-promote-alert", "is_open", allow_duplicate=True),
+    Output("bt-port-promote-alert", "color", allow_duplicate=True),
+    Output("bt-cmp-reload", "data"),
+    Input("bt-port-save", "n_clicks"),
+    State("bt-cmp-reload", "data"),
+    prevent_initial_call=True,
+)
+@safe_callback(lambda exc: (f"Error: {exc}", True, "danger", no_update))
+def save_port_run(_, reload):
+    if not _port_state.get("result"):
+        return ("Corré una simulación antes de guardar.", True, "warning",
+                no_update)
+    from app.database import get_session
+    from app.services import portfolio_backtest_service as pbs
+    from app.services.visibility import current_viewer
+
+    user_id, _is_admin = current_viewer()
+    # El estado de corrida es global al proceso: sólo puede guardar quien la
+    # produjo (evita persistir la corrida de otro usuario/sesión bajo tu owner).
+    if _port_state.get("owner_id") != user_id:
+        return ("La última simulación no la corriste vos en esta sesión — corré "
+                "una antes de guardar.", True, "warning", no_update)
+    cfg = _port_state.get("config", {})
+    name = (f"{_port_state.get('strategy_name', '?')} · top-{cfg.get('top_n')} "
+            f"· rebal {cfg.get('rebalance')} · {cfg.get('cost_bps')}bps")
+    pbs.save_portfolio_run(get_session(), owner_id=user_id,
+                           strategy_id=_port_state.get("strategy_id"),
+                           name=name, config=cfg, result=_port_state["result"])
+    _port_state["result"] = None      # ya guardada: no re-persistir la misma
+    return (f"Corrida guardada «{name}» — compará en el tab Comparar.", True,
+            "success", (reload or 0) + 1)
+
+
+@callback(
+    Output("bt-cmp-runs", "options"),
+    Input("bt-cmp-reload", "data"),
+)
+@safe_callback(lambda exc: [])
+def load_cmp_options(_reload):
+    from app.database import get_session
+    from app.services import portfolio_backtest_service as pbs
+    from app.services.visibility import current_viewer
+    runs = pbs.list_portfolio_runs(get_session(), *current_viewer())
+    return [{"label": f"#{r.id} · {r.name} · {r.created_at:%Y-%m-%d %H:%M}",
+             "value": r.id} for r in runs]
+
+
+@callback(
+    Output("bt-cmp-results", "children"),
+    Input("bt-cmp-runs", "value"),
+)
+@safe_callback(lambda exc: dbc.Alert(f"Error: {exc}", color="danger",
+                                     className="small py-2"))
+def render_compare(run_ids):
+    if not run_ids:
+        return None
+    from app.database import get_session
+    from app.services import portfolio_backtest_service as pbs
+    from app.services.visibility import current_viewer
+
+    user_id, is_admin = current_viewer()
+    s = get_session()
+    series, rows = [], []
+    for rid in run_ids:
+        got = pbs.get_portfolio_run(s, rid)
+        if not got:
+            continue
+        if not is_admin and got["run"].owner_id != user_id:
+            continue                      # corrida no visible para el usuario
+        gated = got["series"].get("gated")
+        if gated and gated["dates"]:
+            series.append({"name": got["run"].name,
+                           "values": [v * 100 for v in gated["equity"]],
+                           "x": gated["dates"]})
+        sm = got["summary"].get("gated", {})
+        rows.append(html.Tr([
+            html.Td(got["run"].name),
+            html.Td(pv.fmt_pct(sm.get("cagr"), signed=True), className="text-end"),
+            html.Td(pv.fmt_ratio(sm.get("sharpe")), className="text-end"),
+            html.Td(pv.fmt_pct(sm.get("max_drawdown")), className="text-end"),
+            html.Td(pv.fmt_mult(sm.get("total_return")), className="text-end"),
+        ]))
+    chart = (dcc.Graph(figure=pv.equity_figure(series), config=pv.graph_config())
+             if series else html.Small("Sin curvas para mostrar.",
+                                       className="text-muted"))
+    table = dbc.Table([
+        html.Thead(html.Tr([
+            html.Th("Corrida"), html.Th("CAGR", className="text-end"),
+            html.Th("Sharpe", className="text-end"),
+            html.Th("Máx DD", className="text-end"),
+            html.Th("Ret. total", className="text-end")])),
+        html.Tbody(rows)], bordered=False, hover=True, size="sm", className="small")
+    return html.Div([chart, html.H6("KPIs (gated)", className="mt-2"), table])

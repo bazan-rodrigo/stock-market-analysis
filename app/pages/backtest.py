@@ -24,6 +24,7 @@ def layout(**kwargs):
         dcc.Interval(id="bt-interval", interval=1000, disabled=True),
         dcc.Interval(id="bt-rules-interval", interval=1000, disabled=True),
         dcc.Interval(id="bt-port-interval", interval=1000, disabled=True),
+        dcc.Store(id="bt-cmp-reload", data=0),
 
         dbc.Row([
             dbc.Col(html.H4("Backtest de Estrategia", className="mb-0"),
@@ -221,6 +222,11 @@ def layout(**kwargs):
                                 "fontSize": "0.72rem"}),
             dbc.Alert(id="bt-port-alert", is_open=False, dismissable=True,
                       className="mt-2 small py-1"),
+            dbc.Button("💾 Guardar corrida", id="bt-port-save",
+                       color="secondary", outline=True, size="sm",
+                       className="mt-1 me-1",
+                       title="Guarda esta corrida para compararla en el tab "
+                             "Comparar"),
             dbc.Button("↗ Promover a seguimiento", id="bt-port-promote",
                        color="secondary", outline=True, size="sm",
                        className="mt-1",
@@ -232,6 +238,21 @@ def layout(**kwargs):
             style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
 
         dcc.Loading(html.Div(id="bt-port-results"), type="circle",
+                    color="#dee2e6"),
+                  ])),
+
+          dbc.Tab(label="Comparar", tab_id="bt-tab-comparar",
+                  children=html.Div([
+        dbc.Alert("Compará corridas de Cartera guardadas: superpone sus curvas "
+                  "de equity (sub-modo gated, indexadas a 100) y muestra los KPIs "
+                  "lado a lado. Guardá corridas con «Guardar corrida» en el tab "
+                  "Cartera.", color="info", className="mb-3 mt-3 small py-2"),
+        dbc.Row([dbc.Col([
+            dbc.Label("Corridas guardadas", style=_LBL),
+            dcc.Dropdown(id="bt-cmp-runs", multi=True,
+                         placeholder="Elegí corridas para comparar…",
+                         style=_IN)], md=8)], className="mb-2"),
+        dcc.Loading(html.Div(id="bt-cmp-results"), type="circle",
                     color="#dee2e6"),
                   ])),
         ], className="mb-3"),
