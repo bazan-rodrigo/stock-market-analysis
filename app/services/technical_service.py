@@ -26,7 +26,6 @@ from app.models.indicator_store import (CurrentIndicatorValue, IndAssetMeta,
 
 from app.services import db_compat, sr_service
 from app.services.db_compat import INSERTED
-from app.services.db_compat import set_bulk_load_checks as _set_bulk_load_checks
 
 logger = logging.getLogger(__name__)
 
@@ -2016,9 +2015,14 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
     try:
         if wide_buffered:
             _wide_buffer_start()
-        if force:
-            # Bulk-load: sin validación FK/unique por fila durante el rebuild
-            _set_bulk_load_checks(get_session(), False)
+        # NO se desactivan foreign_key_checks/unique_checks en force: el
+        # padre ya trunca las tablas (_force_reset_ind_tables) antes del pool,
+        # así que al insertar están vacías (unique_checks no aporta) y el FK
+        # asset_id→assets es redundante (los ids salen de assets). Desactivarlo
+        # tenía un bug de afinidad de conexión: los commits por volumen
+        # devolvían la conexión al pool COMPARTIDO con los checks apagados,
+        # y en modo threads podía servir escrituras de otros callbacks sin
+        # validar (solo MariaDB; no-op en Postgres/sqlite).
         for code in codes:
             t0 = _time.monotonic()
             res = None
@@ -2104,9 +2108,6 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
     finally:
         if wide_buffered:
             _wide_buffer_clear()
-        if force:
-            # Restaurar SIEMPRE antes de devolver la conexión al pool
-            _set_bulk_load_checks(get_session(), True)
         _DbSession.remove()
     return out
 
