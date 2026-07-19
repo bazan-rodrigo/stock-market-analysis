@@ -113,6 +113,26 @@ def toggle_modal(_add, _cancel, _edit, sel_id, data):
 
 
 @callback(
+    Output("cart-f-strategy", "options"),
+    Output("cart-f-members", "options"),
+    Input("cart-modal", "is_open"),
+)
+def load_composition_options(is_open):
+    if not is_open:
+        return no_update, no_update
+    from app.database import get_session
+    from app.models import Asset
+    from app.services.strategy_service import get_visible_strategies
+    s = get_session()
+    strat = [{"label": st.name, "value": st.id}
+             for st in get_visible_strategies(*current_viewer())]
+    assets = [{"label": tk or f"#{i}", "value": i}
+              for i, tk in s.query(Asset.id, Asset.ticker)
+              .order_by(Asset.ticker).all()]
+    return strat, assets
+
+
+@callback(
     Output("cart-alert", "children"),
     Output("cart-alert", "is_open"),
     Output("cart-modal", "is_open", allow_duplicate=True),
@@ -124,11 +144,16 @@ def toggle_modal(_add, _cancel, _edit, sel_id, data):
     State("cart-f-type", "value"),
     State("cart-f-currency", "value"),
     State("cart-f-public", "value"),
+    State("cart-f-method", "value"),
+    State("cart-f-strategy", "value"),
+    State("cart-f-topn", "value"),
+    State("cart-f-members", "value"),
     State("cart-editing-id", "data"),
     State("cart-reload", "data"),
     prevent_initial_call=True,
 )
-def save(_n, name, ptype, currency, is_public, editing_id, reload):
+def save(_n, name, ptype, currency, is_public, method, strategy_id, topn,
+         members, editing_id, reload):
     def err(msg):
         # El modal NO se cierra ante error: solo se muestra el mensaje.
         return no_update, no_update, no_update, msg, True, no_update
@@ -157,9 +182,19 @@ def save(_n, name, ptype, currency, is_public, editing_id, reload):
             s.commit()
             msg = f"Cartera «{name}» actualizada."
         else:
-            svc.create_portfolio(s, name, ptype, owner_id=user_id,
-                                  is_public=bool(is_public),
-                                  base_currency=currency)
+            comp = (method or None) if ptype == "seg" else None
+            if comp == "strategy" and not strategy_id:
+                return err("Elegí una estrategia para la cartera derivada.")
+            if comp == "curated" and not members:
+                return err("Elegí al menos un activo para la cartera curada.")
+            new_p = svc.create_portfolio(
+                s, name, ptype, owner_id=user_id, is_public=bool(is_public),
+                base_currency=currency, composition_method=comp,
+                strategy_id=(strategy_id if comp == "strategy" else None),
+                top_n=(int(_num(topn))
+                       if comp == "strategy" and _num(topn) else None))
+            if comp == "curated" and members:
+                svc.set_members(s, new_p.id, members)
             msg = f"Cartera «{name}» creada."
     except Exception:
         s.rollback()
@@ -247,10 +282,40 @@ def render_detail(sel_id, _refresh):
     ], className="mb-2")
 
     if p.ptype != "real":
-        return html.Div([header, dbc.Alert(
-            "Cartera de seguimiento (teórica): la composición (curada / por "
-            "regla / derivada de estrategia) se implementa en la próxima etapa.",
-            color="secondary", className="small py-2")])
+        members = svc.resolve_membership(s, sel_id)
+        _METHOD = {"curated": "Curada (lista manual)",
+                   "strategy": "Derivada de estrategia",
+                   "rule": "Por regla dinámica"}
+        method_lbl = _METHOD.get(p.composition_method,
+                                 "Sin composición definida")
+        mids = [a for a, _ in members]
+        mtk = ({i: t for i, t in
+                s.query(Asset.id, Asset.ticker).filter(Asset.id.in_(mids)).all()}
+               if mids else {})
+        if members:
+            body = _table(["Activo", "Peso"],
+                          [[mtk.get(a, f"#{a}"), f"{w * 100:.1f}%"]
+                           for a, w in members])
+        else:
+            body = html.Small("Sin miembros vigentes todavía.",
+                              className="text-muted")
+        extra = []
+        if p.composition_method == "strategy":
+            extra.append(html.Small(
+                f"Top-{p.top_n or 20} por score de la estrategia.",
+                className="text-muted d-block"))
+        if p.composition_method == "rule":
+            extra.append(dbc.Alert(
+                "El método por regla dinámica se implementa próximamente.",
+                color="secondary", className="small py-2 mt-2"))
+        return html.Div([
+            header,
+            html.Div([html.Span("Composición: ", className="text-muted"),
+                      dbc.Badge(method_lbl, color="info")], className="mb-2"),
+            *extra,
+            html.H6("Miembros vigentes", className="mt-2"),
+            body,
+        ])
 
     holdings = svc.resolve_holdings(s, sel_id)
     es = svc.equity_series(s, sel_id)

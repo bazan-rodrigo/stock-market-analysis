@@ -48,6 +48,33 @@ def layout(**kwargs):
                        value=False, style={"fontSize": "0.82rem"}),
             html.Small("Privada: solo vos (y el admin) la ven.",
                        className="text-muted d-block mb-2"),
+
+            html.Hr(className="my-2"),
+            html.Small("Composición (sólo carteras de Seguimiento):",
+                       className="text-muted d-block mb-1"),
+            dbc.Row([
+                dbc.Col([dbc.Label("Método", style={"fontSize": "0.82rem"}),
+                         dcc.Dropdown(id="cart-f-method", options=[
+                             {"label": "Curada (lista manual)", "value": "curated"},
+                             {"label": "Derivada de estrategia",
+                              "value": "strategy"},
+                         ], placeholder="—", style={"fontSize": "0.85rem"})], md=6),
+                dbc.Col([dbc.Label("Top-N (si derivada)",
+                                   style={"fontSize": "0.82rem"}),
+                         dbc.Input(id="cart-f-topn", type="number", value=20,
+                                   min=1, style={"fontSize": "0.85rem"})], md=6),
+            ], className="mb-2 g-2"),
+            dbc.Row([dbc.Col([
+                dbc.Label("Estrategia (si derivada)",
+                          style={"fontSize": "0.82rem"}),
+                dcc.Dropdown(id="cart-f-strategy", placeholder="Estrategia…",
+                             style={"fontSize": "0.85rem"})])], className="mb-2"),
+            dbc.Row([dbc.Col([
+                dbc.Label("Activos (si curada)", style={"fontSize": "0.82rem"}),
+                dcc.Dropdown(id="cart-f-members", multi=True,
+                             placeholder="Elegí activos…",
+                             style={"fontSize": "0.85rem"})])], className="mb-2"),
+
             dbc.Alert(id="cart-modal-error", is_open=False, color="danger",
                       className="mt-2 mb-0 small py-1"),
         ]),
