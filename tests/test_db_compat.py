@@ -350,6 +350,33 @@ def test_upsert_ejecuta_de_verdad_en_sqlite():
     assert [(r[0], r[2]) for r in rows] == [(1, 9.0)]
 
 
+def test_upsert_dedup_lote_clave_repetida_ultima_gana_en_sqlite():
+    # Regresión: la fuente Ámbito (riesgo país) devuelve fechas duplicadas.
+    # Un lote con (asset_id, date) repetido dentro del mismo INSERT hacía que
+    # PG/sqlite abortaran con CardinalityViolation ("ON CONFLICT DO UPDATE
+    # command cannot affect row a second time"); MySQL lo toleraba (última
+    # gana). La rama PG/sqlite ahora deduplica para replicar esa semántica.
+    eng, t = _mem_engine_con_tabla()
+    d = date(2026, 1, 2)
+    chunk = [
+        dict(asset_id=1, date=d,               value=1.0),
+        dict(asset_id=2, date=date(2026, 1, 3), value=2.0),
+        dict(asset_id=1, date=d,               value=9.0),  # pisa a la 1.ª
+    ]
+    with eng.begin() as c:
+        c.execute(db_compat.upsert(eng, t, chunk, {"value": INSERTED}))
+        rows = c.execute(sa.select(t).order_by(t.c.asset_id)).fetchall()
+    assert [(r[0], r[2]) for r in rows] == [(1, 9.0), (2, 2.0)]  # última gana
+
+
+def test_dedupe_last_sin_duplicados_devuelve_la_misma_lista():
+    # Sin duplicados no toca nada (misma instancia, no una copia): el caso
+    # común no paga la reconstrucción de la lista.
+    rows = [{"asset_id": 1, "date": date(2026, 1, 2)},
+            {"asset_id": 1, "date": date(2026, 1, 3)}]
+    assert db_compat._dedupe_last(rows, ["asset_id", "date"]) is rows
+
+
 def test_upsert_sql_crudo_ejecuta_de_verdad_en_sqlite():
     # el camino de _write_ind_series (exec_driver_sql + executemany)
     eng, t = _mem_engine_con_tabla()

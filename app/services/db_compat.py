@@ -71,6 +71,23 @@ def _conflict_cols(table: sa.Table, sample: dict) -> list[str]:
     return pk
 
 
+def _dedupe_last(values: list, keys: list[str]) -> list:
+    """Colapsa filas con la misma clave de conflicto quedándose con la ÚLTIMA
+    (semántica de MySQL ON DUPLICATE KEY: dentro de un mismo statement, la
+    última fila de cada clave gana). PostgreSQL y sqlite, en cambio, ABORTAN
+    con CardinalityViolation ("ON CONFLICT DO UPDATE command cannot affect row
+    a second time") si un INSERT propone dos filas con la misma clave única —
+    así que su rama tiene que deduplicar para replicar lo observable en MySQL.
+    Preserva el orden de primera aparición de cada clave (dict conserva la
+    posición al reasignar). Sin cambios si no hay duplicados."""
+    if not keys:
+        return values
+    seen: dict = {}
+    for row in values:
+        seen[tuple(row[k] for k in keys)] = row
+    return list(seen.values()) if len(seen) < len(values) else values
+
+
 def upsert(bind, target, values, update: dict):
     """INSERT ... upsert portable sobre la clave única de `target`.
 
@@ -78,7 +95,11 @@ def upsert(bind, target, values, update: dict):
     update: {columna: valor} a aplicar cuando la fila ya existe; el sentinel
     INSERTED significa "el valor entrante de esa columna" (VALUES(col) en
     MySQL, EXCLUDED.col en PG/sqlite). En MySQL compila al mismo SQL que el
-    viejo on_duplicate_key_update (paridad fijada en test_db_compat)."""
+    viejo on_duplicate_key_update (paridad fijada en test_db_compat).
+
+    En la rama PG/sqlite un lote con la misma clave de conflicto repetida se
+    deduplica (última gana, ver _dedupe_last) — MySQL lo tolera nativamente,
+    PG/sqlite abortarían el statement entero."""
     name = _bind(bind).dialect.name
     if name in ("mysql", "mariadb"):
         stmt = _mysql_insert(target).values(values)
@@ -86,10 +107,13 @@ def upsert(bind, target, values, update: dict):
             c: (getattr(stmt.inserted, c) if v is INSERTED else v)
             for c, v in update.items()})
     ins = _pg_insert if name == "postgresql" else _sqlite_insert
-    stmt = ins(target).values(values)
     sample = values[0] if isinstance(values, (list, tuple)) else values
+    conflict = _conflict_cols(_table_of(target), sample)
+    if isinstance(values, (list, tuple)):
+        values = _dedupe_last(values, conflict)
+    stmt = ins(target).values(values)
     return stmt.on_conflict_do_update(
-        index_elements=_conflict_cols(_table_of(target), sample),
+        index_elements=conflict,
         set_={c: (getattr(stmt.excluded, c) if v is INSERTED else v)
               for c, v in update.items()})
 
