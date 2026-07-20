@@ -21,6 +21,12 @@ Uso:
     python scripts/profile_verification.py            # activo con mas historia (Codespace)
     python scripts/profile_verification.py TICKER      # activo puntual (Codespace)
     python scripts/profile_verification.py --pure       # solo cómputo puro (corre LOCAL, sin BD)
+    python scripts/profile_verification.py --raw        # wall-clock SIN profiler (numero honesto)
+    python scripts/profile_verification.py TICKER --raw
+
+El flag --raw aplica a TODAS las mediciones del script y es el que hay que
+usar para comparar antes/despues de una optimizacion: el total que imprime el
+modo con profiler esta inflado, y desparejo entre versiones (ver _profile).
 """
 import cProfile
 import io
@@ -64,7 +70,35 @@ from app.services.verification_service import (
 )
 
 
+_RAW = "--raw" in sys.argv
+
+
 def _profile(label: str, fn, n_reps: int) -> None:
+    """Con --raw mide wall-clock SIN instrumentar; sin el flag, perfila.
+
+    Por que existe el modo raw: cProfile cobra por llamada, asi que infla lo
+    que se llama millones de veces. Aca el sesgo es grande y ASIMETRICO —
+    verify_asset_code hacia ~2.5M pd.notna + 2.3M _values_equal + 2.3M
+    check_sanity por activo, mientras compute_fn hace ordenes de magnitud
+    menos. Dos consecuencias:
+
+    1) La tabla del profiler EXAGERA el peso de la comparacion frente al
+       calculo del indicador (de ahi salio el "~85%", que es optimista).
+    2) Comparar dos corridas instrumentadas antes/despues de vectorizar esa
+       comparacion esta SESGADO a favor de la version nueva, que ademas hace
+       ~10x menos llamadas y por lo tanto paga mucho menos overhead.
+
+    Para saber la mejora real end-to-end de verify_asset_code: --raw.
+    """
+    if _RAW:
+        t0 = time.perf_counter()
+        for _ in range(n_reps):
+            fn()
+        elapsed = time.perf_counter() - t0
+        print(f"\n{'=' * 70}\n{label} [SIN profiler]: {elapsed:.3f}s total "
+              f"({n_reps} rep., {elapsed / n_reps * 1000:.1f}ms/rep)\n{'=' * 70}")
+        return
+
     pr = cProfile.Profile()
     t0 = time.perf_counter()
     pr.enable()
