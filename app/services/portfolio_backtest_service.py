@@ -50,6 +50,60 @@ def _in_position(trades, n_bars):
     return out
 
 
+def _score_ret_panels(per_asset):
+    """all_dates, scores_by_date, rets_by_date: la parte del cross-section que
+    NO depende de in_position (o sea, del trailing). Separada de la
+    elegibilidad para poder computarla UNA vez por ventana en el walk-forward y
+    reusarla entre trailings. Misma semántica de hueco interior que
+    build_panels (arrastra el último score en los huecos)."""
+    all_dates = sorted({d for a in per_asset.values() for d in a["dates"]})
+    pos = {d: i for i, d in enumerate(all_dates)}
+    scores_by_date, rets_by_date = {}, {}
+    for aid, data in per_asset.items():
+        dts, closes, scores = data["dates"], data["closes"], data["scores"]
+        if not dts:
+            continue
+        own = {d: k for k, d in enumerate(dts)}
+        last_score, prev_close = None, None
+        for ci in range(pos[dts[0]], pos[dts[-1]] + 1):
+            d = all_dates[ci]
+            k = own.get(d)
+            if k is not None:                      # barra propia del activo
+                if prev_close:
+                    rets_by_date.setdefault(d, {})[aid] = closes[k] / prev_close - 1.0
+                prev_close = closes[k]
+                if scores[k] is not None:
+                    scores_by_date.setdefault(d, {})[aid] = scores[k]
+                    last_score = scores[k]
+            elif last_score is not None:           # hueco interior: arrastra score
+                scores_by_date.setdefault(d, {})[aid] = last_score
+    return all_dates, scores_by_date, rets_by_date
+
+
+def _eligible_by_date(per_asset, all_dates):
+    """eligible_by_date: la parte que SÍ depende de in_position (del trailing).
+    Recibe all_dates ya calculado por _score_ret_panels. Misma semántica de
+    arrastre que build_panels: la elegibilidad se carga en los huecos hasta la
+    próxima barra propia (para no evictar el activo en el hueco)."""
+    pos = {d: i for i, d in enumerate(all_dates)}
+    eligible_by_date = {}
+    for aid, data in per_asset.items():
+        dts = data["dates"]
+        if not dts:
+            continue
+        inpos = data.get("in_position", set())
+        own = {d: k for k, d in enumerate(dts)}
+        last_elig = False
+        for ci in range(pos[dts[0]], pos[dts[-1]] + 1):
+            d = all_dates[ci]
+            k = own.get(d)
+            if k is not None:
+                last_elig = k in inpos
+            if last_elig:
+                eligible_by_date.setdefault(d, set()).add(aid)
+    return eligible_by_date
+
+
 def build_panels(per_asset):
     """Ensambla el cross-section para los motores (lógica pura).
 
@@ -71,31 +125,8 @@ def build_panels(per_asset):
     ver revisión nivel C). En universos de un solo mercado, día-completos, no hay
     huecos y el comportamiento es el directo.
     """
-    all_dates = sorted({d for a in per_asset.values() for d in a["dates"]})
-    pos = {d: i for i, d in enumerate(all_dates)}
-    scores_by_date, rets_by_date, eligible_by_date = {}, {}, {}
-    for aid, data in per_asset.items():
-        dts, closes, scores = data["dates"], data["closes"], data["scores"]
-        if not dts:
-            continue
-        inpos = data.get("in_position", set())
-        own = {d: k for k, d in enumerate(dts)}
-        last_score, last_elig, prev_close = None, False, None
-        for ci in range(pos[dts[0]], pos[dts[-1]] + 1):
-            d = all_dates[ci]
-            k = own.get(d)
-            if k is not None:                      # barra propia del activo
-                if prev_close:
-                    rets_by_date.setdefault(d, {})[aid] = closes[k] / prev_close - 1.0
-                prev_close = closes[k]
-                if scores[k] is not None:
-                    scores_by_date.setdefault(d, {})[aid] = scores[k]
-                    last_score = scores[k]
-                last_elig = k in inpos
-            elif last_score is not None:           # hueco interior: arrastra score
-                scores_by_date.setdefault(d, {})[aid] = last_score
-            if last_elig:                          # y elegibilidad (para no evictar)
-                eligible_by_date.setdefault(d, set()).add(aid)
+    all_dates, scores_by_date, rets_by_date = _score_ret_panels(per_asset)
+    eligible_by_date = _eligible_by_date(per_asset, all_dates)
     return all_dates, scores_by_date, rets_by_date, eligible_by_date
 
 
@@ -271,28 +302,51 @@ def _spec_with_trailing(base_spec, trailing_pct):
     return {**base_spec, "caps": caps}
 
 
+def _range_slice(per_asset_raw, date_from, date_to):
+    """Recorta el universo a [date_from, date_to] por activo (excluye los que no
+    tienen barras propias en el rango). Es la parte NO dependiente del trailing,
+    para computarla una vez por ventana en el walk-forward.
+    {aid: {dates, closes, scores, pcts}}."""
+    base = {}
+    for aid, raw in per_asset_raw.items():
+        idxs = [i for i, d in enumerate(raw["dates"])
+                if date_from <= d <= date_to]
+        if not idxs:
+            continue
+        base[aid] = {
+            "dates":  [raw["dates"][i]  for i in idxs],
+            "closes": [raw["closes"][i] for i in idxs],
+            "scores": [raw["scores"][i] for i in idxs],
+            "pcts":   [raw["pcts"][i]   for i in idxs],
+        }
+    return base
+
+
+def _eligible_for_spec(base, spec, all_dates):
+    """eligible_by_date de un universo YA recortado (`base`) bajo `spec`. Los
+    trades arrancan FRESCOS en el rango. Es la ÚNICA parte del panel que depende
+    del trailing → en el walk-forward se recomputa por trailing mientras el
+    resto (dates/scores/rets) se reusa."""
+    from app.services.trade_simulator import simulate_trades
+    per_asset = {}
+    for aid, r in base.items():
+        trades = simulate_trades(r["closes"], r["scores"], spec,
+                                 percentiles=r["pcts"])
+        per_asset[aid] = {"dates": r["dates"],
+                          "in_position": _in_position(trades, len(r["closes"]))}
+    return _eligible_by_date(per_asset, all_dates)
+
+
 def _panels_for_range(per_asset_raw, spec, date_from, date_to):
     """Panels (dates, scores, rets, eligible) de la cartera sobre [date_from,
     date_to]. Los trades arrancan FRESCOS en el rango (sin carryover del train).
     La elegibilidad depende de la spec (entrada + trailing), NO de top_n → en el
     walk-forward se calcula una vez por trailing y se reusa para todos los
     top_n. `per_asset_raw`: {aid: {dates, closes, scores, pcts}}."""
-    from app.services.trade_simulator import simulate_trades
-
-    per_asset = {}
-    for aid, raw in per_asset_raw.items():
-        idxs = [i for i, d in enumerate(raw["dates"])
-                if date_from <= d <= date_to]
-        if not idxs:
-            continue
-        closes = [raw["closes"][i] for i in idxs]
-        scores = [raw["scores"][i] for i in idxs]
-        pcts = [raw["pcts"][i] for i in idxs]
-        trades = simulate_trades(closes, scores, spec, percentiles=pcts)
-        per_asset[aid] = {"dates": [raw["dates"][i] for i in idxs],
-                          "closes": closes, "scores": scores,
-                          "in_position": _in_position(trades, len(closes))}
-    return build_panels(per_asset)
+    base = _range_slice(per_asset_raw, date_from, date_to)
+    all_dates, scores_bd, rets_bd = _score_ret_panels(base)
+    elig_bd = _eligible_for_spec(base, spec, all_dates)
+    return all_dates, scores_bd, rets_bd, elig_bd
 
 
 def _gated_equity_range(per_asset_raw, spec, top_n, date_from, date_to, *,
@@ -426,13 +480,16 @@ def walk_forward(session, strategy_id, base_spec, *, topn_grid=(10, 20, 30),
     for w, (tr_lo, tr_hi, te_lo, te_hi) in enumerate(splits):
         tr_from, tr_to = all_dates[tr_lo], all_dates[tr_hi]
         te_from, te_to = all_dates[te_lo], all_dates[te_hi]
-        # La elegibilidad (trades) depende sólo del trailing, no de top_n → simulo
-        # los panels una vez por trailing y vario top_n con simulate_gated (barato).
+        # dates/scores/rets NO dependen del trailing → se arman UNA vez por
+        # ventana (antes _panels_for_range los rearmaba por trailing = 3x, y son
+        # el costo dominante del build). Sólo la elegibilidad (simulate_trades)
+        # se recomputa por trailing. top_n se varía con simulate_gated (barato).
+        base = _range_slice(per_asset_raw, tr_from, tr_to)
+        dts, scores_bd, rets_bd = _score_ret_panels(base)
         best = None   # (obj, top_n, trailing, train_eq, train_dates)
         for trail in trail_grid:
             spec = _spec_with_trailing(base_spec, trail)
-            dts, scores_bd, rets_bd, elig_bd = _panels_for_range(
-                per_asset_raw, spec, tr_from, tr_to)
+            elig_bd = _eligible_for_spec(base, spec, dts)
             for tn in topn_grid:
                 res = eng.simulate_gated(
                     dts, scores_bd, elig_bd, rets_bd, top_n=tn,

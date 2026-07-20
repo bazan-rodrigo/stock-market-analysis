@@ -366,3 +366,62 @@ def test_walk_forward_raises_on_insufficient_history(monkeypatch):
     with pytest.raises(ValueError):
         pbs.walk_forward(_DummySession(), 7, _WF_SPEC,
                          topn_grid=(1,), trail_grid=(10.0,), n_windows=2)
+
+
+def _build_panels_ref(per_asset):
+    """Copia LITERAL de la version fusionada previa al split de build_panels en
+    _score_ret_panels + _eligible_by_date. Oraculo para verificar que separar
+    las dos partes no cambio la semantica (arrastre en huecos incluido)."""
+    all_dates = sorted({d for a in per_asset.values() for d in a["dates"]})
+    pos = {d: i for i, d in enumerate(all_dates)}
+    scores_by_date, rets_by_date, eligible_by_date = {}, {}, {}
+    for aid, data in per_asset.items():
+        dts, closes, scores = data["dates"], data["closes"], data["scores"]
+        if not dts:
+            continue
+        inpos = data.get("in_position", set())
+        own = {d: k for k, d in enumerate(dts)}
+        last_score, last_elig, prev_close = None, False, None
+        for ci in range(pos[dts[0]], pos[dts[-1]] + 1):
+            d = all_dates[ci]
+            k = own.get(d)
+            if k is not None:
+                if prev_close:
+                    rets_by_date.setdefault(d, {})[aid] = closes[k] / prev_close - 1.0
+                prev_close = closes[k]
+                if scores[k] is not None:
+                    scores_by_date.setdefault(d, {})[aid] = scores[k]
+                    last_score = scores[k]
+                last_elig = k in inpos
+            elif last_score is not None:
+                scores_by_date.setdefault(d, {})[aid] = last_score
+            if last_elig:
+                eligible_by_date.setdefault(d, set()).add(aid)
+    return all_dates, scores_by_date, rets_by_date, eligible_by_date
+
+
+def test_build_panels_split_identico_al_fusionado():
+    """build_panels (ahora _score_ret_panels + _eligible_by_date) debe dar
+    EXACTAMENTE lo mismo que la version fusionada, incluidos huecos interiores
+    con arrastre de score y elegibilidad."""
+    import random
+    from datetime import date, timedelta
+    rng = random.Random(0)
+    cal = [date(2024, 1, 1) + timedelta(days=i) for i in range(30)]
+    for seed in range(8):
+        r = random.Random(seed)
+        per_asset = {}
+        for aid in range(6):
+            # rango propio [ini, fin] con huecos internos aleatorios
+            ini, fin = r.randint(0, 5), r.randint(20, 29)
+            idxs = [i for i in range(ini, fin + 1) if r.random() > 0.25]
+            if len(idxs) < 2:
+                idxs = [ini, fin]
+            dts = [cal[i] for i in idxs]
+            closes = [round(50 + r.uniform(-5, 5), 3) for _ in idxs]
+            scores = [None if r.random() < 0.1 else round(r.uniform(-100, 100), 2)
+                      for _ in idxs]
+            inpos = {k for k in range(len(idxs)) if r.random() > 0.5}
+            per_asset[aid] = {"dates": dts, "closes": closes, "scores": scores,
+                              "in_position": inpos}
+        assert build_panels(per_asset) == _build_panels_ref(per_asset), f"seed={seed}"
