@@ -15,7 +15,7 @@ El manual de usuario cuenta el mismo encadenamiento desde la pantalla en
 [Cómo se calcula todo](/manual/conceptos-pipeline). Acá va el lado de adentro:
 qué lee y qué escribe cada etapa, qué se midió y qué se resignó.
 
-```
+```text
  prices          →  ind_daily / ind_weekly / ind_monthly
  (+ fundamental)    ind_fundamental_*  +  current_indicator_values
                               │

@@ -66,7 +66,7 @@ levanta `ValueError` en vez de no disparar nunca en silencio. Ojo con el nombre
 
 Por barra se evalúan tres niveles, en orden fijo:
 
-```
+```text
   1. filtro       barra sin score -> cierre forzado, reason "filter"
   2. caps         salidas por PRECIO/TIEMPO, orden de la lista
   3. score_exits  salidas por SENAL, orden de la lista

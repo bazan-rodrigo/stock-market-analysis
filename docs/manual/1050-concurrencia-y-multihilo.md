@@ -229,7 +229,7 @@ resto es el commit a la base, el lock del contador de progreso u otra cosa.
 —los commits por volumen devolvían la conexión al pool compartido con los checks
 apagados— y la función sigue existiendo, con tests, pero sin ningún call site.
 
-El dominio tiene **67 tests** en seis archivos, sobre una suite total de **822**.
+El dominio concentra **decenas de tests propios** en seis archivos dedicados.
 El camino de procesos se valida con un `_InlineExecutor` falso que corre la tarea
 del hijo en el proceso del test pero hace round-trip de pickle sobre el resultado
 — la única forma de atrapar un DataFrame colado en el dict de retorno sin

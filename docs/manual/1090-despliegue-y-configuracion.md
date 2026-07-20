@@ -19,7 +19,7 @@ usar en producción"). `wsgi.py` expone la variable `application` que buscan
 tanto mod_wsgi como gunicorn. `worker.py` corre el scheduler y no sirve HTTP. Y
 el `Procfile` son dos líneas, que es todo el modelo de proceso de producción:
 
-```
+```text
 web:    gunicorn wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 worker: python worker.py
 ```
@@ -35,7 +35,7 @@ veces. El lock de corrida persistido lo deduplicaría, sí, pero esa alternativa
 se descartó por desperdicio: N schedulers, N misfires. Se prefirió separar el
 trabajo.
 
-```
+```text
    Railway
    ├── web     gunicorn  ─ RUN_SCHEDULER=0 ─ sirve HTTP
    ├── worker  worker.py ─ RUN_SCHEDULER=1 ─ solo APScheduler

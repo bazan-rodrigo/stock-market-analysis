@@ -15,12 +15,14 @@ Lo que las une es que ninguna está automatizada por infraestructura. No hay CI,
 no hay pipeline, no hay git hooks. La red es humana: correr la suite antes de
 cada push.
 
-## La suite: 822 tests que nunca tocan la base
+## La suite: cientos de tests que nunca tocan la base
 
-Al día de hoy la suite tiene **822 tests en 64 archivos y corre en 41 segundos**.
-Ese número hay que sacarlo del comando (`pytest --collect-only -q`), no de la
-documentación: `CLAUDE.md` dice "~400" y `docs/notes/project_testing.md` dice
-"710". Los dos están desactualizados, y con valores distintos entre sí.
+La suite supera los **800 tests, repartidos en más de 60 archivos, y corre
+completa en menos de un minuto** en la PC de desarrollo. El número exacto hay
+que sacarlo del comando (`pytest --collect-only -q`), no de la documentación —
+tampoco de esta: `CLAUDE.md` dice "~400" y `docs/notes/project_testing.md` dice
+"710", los dos desactualizados y con valores distintos entre sí. Todo conteo
+escrito envejece; el comando no.
 
 La configuración es deliberadamente mínima. `pytest.ini` tiene tres líneas
 (`testpaths` y `-q`): sin markers, sin plugins, sin cobertura — el proyecto no
@@ -61,7 +63,7 @@ un stub por PID en vez de abortar la colección entera.
 
 > La suite corre con `USE_WIDE_IND_TABLES=0`, o sea por el camino per-código,
 > mientras que producción usa tablas anchas. El camino default de producción
-> **no** es el que ejercitan la mayoría de los 822 tests: solo los de la familia
+> **no** es el que ejercita la mayoría de la suite: solo los de la familia
 > `wide_*` lo revierten con monkeypatch.
 
 ## Los patrones que vale la pena conocer

@@ -12,7 +12,7 @@ crean y se dropean en runtime, una por señal y una por estrategia, y viven fuer
 de `Base.metadata`. Las **anchas** juntan decenas de indicadores en cinco tablas
 por cadencia. Cada una salió de un problema medido.
 
-```
+```text
   FIJAS            DINAMICAS              ANCHAS
   48 tablas        sig_{id}               ind_daily / weekly / monthly
   app/models/      strat_res_{id}         ind_fundamental_daily

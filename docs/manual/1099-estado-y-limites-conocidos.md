@@ -16,7 +16,7 @@ lista como pendiente y está implementado; los "diferidos" de fundamentales y
 verificación están hechos; `design_ind_wide_tables.md` da los fundamentales
 anchos como "pendiente opcional" y ya existen las migraciones 0081 y 0082; un
 bug de `_set_bulk_load_checks` figura como "NO arreglado" y ya no existe.
-`CLAUDE.md` dice ~400 tests y hoy son 822. Verificá antes de repetir.
+`CLAUDE.md` dice ~400 tests y hoy son más del doble. Verificá antes de repetir.
 
 ## La escala: 500 activos contra un objetivo de 10.000
 
@@ -176,8 +176,8 @@ hace falta un recálculo completo, porque el ranking es transversal
 No hay CI: el único control automatizado es correr pytest a mano antes de cada
 push, sobre un stub sqlite que nunca toca la base real. Y esa suite **no valida
 portabilidad de SQL crudo**: ya pasó que un `DELETE FROM "tabla"` con comillas
-dobles —válido en PostgreSQL y sqlite, rechazado por MariaDB— atravesara los
-822 tests sin que nadie lo notara. Lo que protege contra eso es
+dobles —válido en PostgreSQL y sqlite, rechazado por MariaDB— atravesara la
+suite entera sin que nadie lo notara. Lo que protege contra eso es
 `tests/test_bootstrap_portability.py` y `tests/test_db_compat.py`, no la suite
 general.
 

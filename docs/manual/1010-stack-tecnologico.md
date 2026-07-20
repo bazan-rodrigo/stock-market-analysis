@@ -183,8 +183,8 @@ entornos instalados en fechas distintas pueden diferir sin que nada lo detecte.
 
 La PC de desarrollo tampoco tiene **cuatro de las dieciséis dependencias**:
 mysqlclient, psycopg, yfinance y gunicorn. Ahí no se levanta la app contra
-ninguna base, así que la única red automatizada es pytest —822 tests en 64
-archivos, todos de lógica pura contra un stub sqlite—. Que la suite corra sin
+ninguna base, así que la única red automatizada es pytest —una suite de cientos
+de tests, todos de lógica pura contra un stub sqlite—. Que la suite corra sin
 yfinance no es casualidad: ningún test importa `app/services/price_service.py`,
 que hace `import yfinance` a nivel de módulo. Todo lo que toca la app viva se
 verifica en el Codespace; ver

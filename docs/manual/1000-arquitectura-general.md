@@ -20,7 +20,7 @@ asimetría entre deltas, el diseño de concurrencia— se deriva de ahí.
 
 En producción hay dos tipos de proceso, definidos en `Procfile`:
 
-```
+```text
 web:    gunicorn wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 worker: python worker.py
 ```
@@ -44,7 +44,7 @@ las variables de entorno, nunca el código.
 
 ## Las capas y quién llama a quién
 
-```
+```text
 app/pages/       layout puro                    46 modulos
      |
      v
@@ -79,27 +79,27 @@ de una función, porque `signal` es palabra reservada en MariaDB.
 
 ## El recorrido de un dato
 
-```
-Yahoo Finance / Ambito / Calculado    app/sources/registry.py
-        |
-        v
-      prices
-        |
-        v
-  indicadores          por activo, independientes entre si
-  ind_daily/weekly/monthly + current_indicator_values
-        |
-        v
-  group_scores         agregado por sector, mercado,
-        |              industria, pais y tipo
-        v
-  senales              sig_{id} y group_signal_value
-        |
-        v
-  ranking              strat_res_{id} (score, pct)
-        |
-        v
-  pantalla             SELECT indexado
+```text
+Yahoo Finance / Ambito / Calculado     (app/sources/registry.py)
+  |
+  v
+prices
+  |
+  v
+indicadores         por activo, independientes entre si
+  |                 ind_daily / weekly / monthly
+  |                 + current_indicator_values
+  v
+group_scores        agregado por sector, mercado,
+  |                 industria, pais y tipo
+  v
+senales             sig_{id} y group_signal_value
+  |
+  v
+ranking             strat_res_{id} (score, pct)
+  |
+  v
+pantalla            SELECT indexado
 ```
 
 La fuente de precios es un registry extensible (`app/sources/registry.py`) de
