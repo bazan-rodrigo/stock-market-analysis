@@ -116,12 +116,14 @@ una sentencia única sobre millones de filas retiene locks/undo por minutos
 completo es PEOR — cada lote re-escanea desde el inicio los tombstones de los
 lotes anteriores (O(n²), medido 17min+ sin terminar). El patrón LIMIT de
 `purge_assets` solo es tolerable para conjuntos chicos por asset_id.
-El GIL limita paralelizar cómputo con threads (medido); el escalado grande
-pendiente es ProcessPool (ver `docs/notes/project_processpool_particion_activos.md`).
+El GIL limita paralelizar cómputo con threads (medido); por eso el pool de
+indicadores usa **ProcessPool con partición por activos** —ya implementado—
+(`app/services/process_pool.py`, `run_asset_batches` en technical/
+fundamental_service; diseño en `docs/notes/project_processpool_particion_activos.md`).
 
 ## Testing
 
-- `tests/` con pytest (~400 tests de **lógica pura**, nunca tocan la base real).
+- `tests/` con pytest (~740 tests de **lógica pura**, nunca tocan la base real).
 - `tests/conftest.py` apunta `DATABASE_URL` a un stub **sqlite** antes de importar
   `app`. Los tests que necesitan tablas hacen `Base.metadata.create_all(engine)`.
 - Al agregar lógica de cálculo, agregar tests (codifican reglas de negocio:
@@ -133,14 +135,15 @@ pendiente es ProcessPool (ver `docs/notes/project_processpool_particion_activos.
 
 - **Escalar a ~10.000 activos** (hoy ~500 de prueba); priorizar perf de indicadores
   full_sample (ver `docs/notes/project_scaling_target.md`).
-- **Backtest de estrategias — MVP hecho** (`/backtest`, jul-2026): análisis por
-  cuantiles con IC/spread, runs persistidos como snapshots (`backtest_run`,
-  migración 0070), gate de lectura (solo fechas con precio propio, ver
-  `backtest_service.py`). Fase 2 pendiente: simulación de cartera con
-  `trade_simulator` + costos + curva de equity; fase 3: comparación de runs
-  lado a lado + walk-forward.
-- Diferido: migración a **PostgreSQL** (`docs/notes/project_postgresql_migracion.md`),
-  **ProcessPool** para el pool de indicadores, módulo de creación de indicadores
-  por el usuario (plantillas, no fórmula libre).
+- **Backtest de estrategias — niveles A-D hechos** (`/backtest`, jul-2026):
+  A) cuantiles con IC/spread (snapshots en `backtest_run`, migración 0070, gate
+  de lectura por precio propio, `backtest_service.py`); B) reglas
+  (`rules_backtest_service.py`); C) simulación de cartera con costos + curva de
+  equity (`portfolio_backtest_service.py`, `portfolio_sim_engine.py`);
+  D) comparación de runs + **walk-forward** (`walk_forward`). Módulo de
+  **Carteras** (`/carteras`, reales y teóricas) también hecho.
+- Diferido: módulo de creación de indicadores por el usuario (plantillas, no
+  fórmula libre). El **soporte dual MySQL/PostgreSQL ya está** (Railway corre
+  sobre PostgreSQL); el **ProcessPool ya está** — ambos salieron de "diferido".
 - **`docs/notes/project_pendientes.md`** tiene el detalle sesión por sesión y los
   pasos de verificación pendientes en el Codespace.
