@@ -1,34 +1,11 @@
 """
 Limpia datos derivados/operativos de la BD, preservando activos, precios,
-fuentes de precio, catálogos (industrias, mercados, sectores, países,
-monedas, tipos de instrumento) y usuarios.
+fuentes de precio, catálogos, definiciones, carteras y usuarios.
 
-Todo lo que borra es 100% recomputable desde lo que queda (assets + prices
-+ fórmulas de sintéticos ya cargadas) vía los botones "Recalcular completo"
-de cada tarjeta del Centro de Datos — indicadores técnicos, ratios
-fundamentales, valores de sintéticos, logs de recálculo.
-
-No borra assets/prices/price_sources/catálogos ni synthetic_formula/
-synthetic_component: son datos que no se recrean solos (un activo cargado
-a mano, precios que tardan en redescargarse de una fuente externa, una
-fórmula de sintético armada por el usuario) — antes esta lista SÍ incluía
-assets/prices/catálogos, y una limpieza con FOREIGN_KEY_CHECKS=0 dejó
-huérfanas ~45 tablas relacionadas a activos porque no estaban en la lista
-(ver jul-2026: fundamental_quarterly, current_indicator_values,
-synthetic_formula/component y varias ind_fundamental_* quedaron con filas
-apuntando a activos ya borrados).
-
-Elimina:
-  - tablas ind_{código}/ind_fundamental_{código} e ind_asset_meta:
-    descubiertas desde information_schema (no hace falta mantenerlas a
-    mano, se crean una por indicador — ver get_ind_table).
-  - metadatos/logs de indicadores y fundamentales: current_indicator_values,
-    indicator_update_log, fundamental_quarterly, fundamental_update_log.
-  - señales y resultados de estrategias: tablas sig_{id}/strat_res_{id}
-    (dinámicas por señal/estrategia, ver signal_store — se VACÍAN, no se
-    dropean: la definición sigue existiendo), group_signal_value,
-    group_scores, signal_eval_log.
-  - screener, eventos de mercado, logs de importación, aliases de catálogo.
+Entrada de línea de comandos a `app/services/cleanup_service.py`, que define
+el alcance y lo comparte con la pantalla /admin/cleanup. El alcance NO se
+define acá: las dos entradas tenían su propia lista y divergieron (ver el
+docstring del servicio).
 
 Uso:
     python scripts/clean_data.py
@@ -42,83 +19,26 @@ sys.path.insert(0, str(ROOT))
 
 import logging
 
-from sqlalchemy import text
-
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-# Tablas fijas a limpiar (no dependen de un indicador puntual). synthetic_formula/
-# synthetic_component NO están acá a propósito: son configuración armada a mano,
-# no datos derivados — ver docstring del módulo.
-_TABLES = [
-    "screener_snapshot",
-    "market_event",
-    "import_log",
-    "catalog_aliases",
-    "group_signal_value",
-    "group_scores",
-    # crítico limpiarla junto con las tablas de señales: si quedaran markers
-    # de fechas "ya evaluadas", el delta SALTEARÍA las fechas recién limpiadas
-    "signal_eval_log",
-    "current_indicator_values",
-    "indicator_update_log",
-    "fundamental_quarterly",
-    "fundamental_update_log",
-]
-
-
-def _dynamic_tables(conn) -> list[str]:
-    """Tablas ind_{code}/ind_fundamental_{code} (una por indicador, ver
-    get_ind_table) y sig_{id}/strat_res_{id} (una por señal/estrategia, ver
-    signal_store), sin modelo Python fijo — se listan desde el catálogo en
-    vez de mantenerlas a mano acá, para no volver a dejar alguna afuera
-    cuando se agregue una nueva."""
-    from app.services import db_compat
-    return db_compat.list_tables_by_prefix(conn, "ind_", "sig_", "strat_res_")
-
-
-def clean_data() -> None:
-    from app.database import engine
-    from app.services import db_compat
-
-    # Desactivar el chequeo de FKs (knob de sesión solo-MySQL) permite
-    # borrar en cualquier orden; en PG/sqlite no hace falta: todas estas
-    # tablas son hijas (nada las referencia).
-    is_mysql = db_compat.is_mysql(engine)
-    with engine.begin() as conn:
-        try:
-            if is_mysql:
-                conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-            tables = _dynamic_tables(conn) + _TABLES
-            total = 0
-            for table in tables:
-                q = db_compat.quote_ident(conn, table)
-                result = conn.execute(text(f"DELETE FROM {q}"))
-                rows = result.rowcount
-                total += rows
-                logger.info("%-35s  %d filas eliminadas", table, rows)
-            if is_mysql:
-                conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-            logger.info(
-                "Listo. Total: %d filas eliminadas. "
-                "Activos, precios, fuentes y catálogos preservados.", total,
-            )
-        except Exception as exc:
-            if is_mysql:
-                conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-            logger.error("Error durante la limpieza: %s", exc)
-            raise
-
 
 if __name__ == "__main__":
-    confirm = "--confirm" in sys.argv
-    if not confirm:
-        print("Esto eliminará indicadores, ratios fundamentales, señales, resultados")
-        print("de estrategias y logs de recálculo. Activos, precios, fuentes de precio,")
-        print("catálogos y fórmulas de sintéticos se conservan.")
+    from app.services import cleanup_service
+
+    if "--confirm" not in sys.argv:
+        print("Esto eliminará indicadores, ratios fundamentales, señales,")
+        print("resultados de estrategias, logs y las corridas guardadas de")
+        print("backtest y cartera. Se conservan activos, precios, fuentes,")
+        print("catálogos, definiciones, carteras y usuarios.")
         resp = input("¿Confirmar? (s/N): ").strip().lower()
         if resp != "s":
             print("Cancelado.")
             sys.exit(0)
 
-    clean_data()
+    try:
+        res = cleanup_service.clean_data()
+    except Exception as exc:
+        logger.error("Error durante la limpieza: %s", exc)
+        raise
+    print(f"Listo. {len(res['tables'])} tablas vaciadas.")

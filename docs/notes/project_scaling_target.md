@@ -175,9 +175,26 @@ fresco-vs-guardado llamaba `_values_equal` y `check_sanity` una vez POR FECHA
 (~48k llamadas escalares por código en una serie de 16k barras), casi todas
 para descubrir que no hay ninguna diferencia. Ahora se resuelve con máscaras
 de array (`_diff_masks`) y, si no hay diffs ni fechas faltantes, se evita
-recorrer la serie entera. Medido en la base real (BA, 16.243 barras):
-**144 ms → 65 ms por activo = 2.23x**, con las 24 listas de diffs
-**idénticas**. A 10.000 activos: 24 min → 11 min single-thread.
+recorrer la serie entera. Medido en la base real (BA, 16.243 barras), con las
+24 listas de diffs **idénticas**:
+
+- **La comparación sola: 144 → 65 ms = 2.23x** (`bench_verify_asset_code.py`).
+- **La función completa: 267.8 → 188.8 ms = 1.42x.** El end-to-end nuevo se
+  midió con `profile_verification.py BA --raw`; el viejo se despeja sin hacer
+  checkout: `compute_fn = 188.8 − 65 = 123.8 ms` (no cambió), luego
+  `viejo = 123.8 + 144 = 267.8 ms`.
+- A 10.000 activos single-thread: **~45 min → ~31 min** (ahorro ~13 min).
+
+**CORRECCIÓN de un overclaim propio:** se había dicho "la comparación es ~85%
+del costo de `verify_asset_code`" y de ahí "24 min → 11 min". Ese 85% salía de
+la tabla de cProfile y estaba inflado: la comparación hacía millones de
+llamadas instrumentadas y `compute_fn` órdenes de magnitud menos, así que el
+profiler exageró su peso. Real: **~54%**.
+
+**Chequeo cruzado del factor de inflación:** el profiler daba 1113 ms para
+esta función; real 268 ms = **4.2x**. Coincide con el **3.7x** medido
+independientemente en el lote del pool (69.2s con profiler vs 18.7s raw). Dos
+mediciones distintas convergen en el mismo orden de distorsión.
 
 **`2a4ed68` — bloat del delta.** El buffer de escritura ancha (fila completa
 en vez de un UPDATE por columna) sólo se activaba en rebuild; el comentario

@@ -2,20 +2,10 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-_TABLES_INFO = [
-    ("prices",            "Historia de precios"),
-    ("price_update_log",  "Logs de actualización de precios"),
-    ("market_event",      "Eventos de mercado"),
-    ("import_log",        "Logs de importación"),
-    ("catalog_aliases",   "Aliases del catálogo"),
-    ("assets",            "Activos"),
-    ("industries",        "Industrias"),
-    ("markets",           "Mercados"),
-    ("instrument_types",  "Tipos de instrumento"),
-    ("sectors",           "Sectores"),
-    ("countries",         "Países"),
-    ("currencies",        "Monedas"),
-]
+# El alcance de la limpieza vive en app/services/cleanup_service.py — única
+# fuente de verdad, compartida con scripts/clean_data.py. No duplicar la lista
+# acá: fue exactamente así como la pantalla quedó desactualizada.
+from app.services.cleanup_service import PRESERVED_INFO, TABLES_INFO
 
 
 def layout(**kwargs):
@@ -24,8 +14,11 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     rows = [
-        html.Tr([html.Td(table), html.Td(label)])
-        for table, label in _TABLES_INFO
+        html.Tr([
+            html.Td(html.Code(table), className="text-nowrap"),
+            html.Td(label),
+        ])
+        for table, label in TABLES_INFO
     ]
 
     # ── Columna izquierda: uso de espacio ─────────────────────────────────
@@ -60,21 +53,30 @@ def layout(**kwargs):
         dbc.Alert(id="vacuum-alert", is_open=False, dismissable=True, className="mt-3"),
 
         html.Hr(className="my-4"),
-        html.H4("Borrado de tablas", className="mb-2"),
+        html.H4("Borrado de datos operativos", className="mb-2"),
         dbc.Alert([
             html.H5("⚠ Esta operación es irreversible", className="alert-heading"),
             html.P(
-                "Se eliminarán permanentemente todos los datos operativos. "
-                "Los usuarios no serán afectados.",
-                className="mb-0",
-            ),
+                "Se eliminarán los datos derivados del pipeline (indicadores, "
+                "señales, estrategias, fundamentales) y las corridas guardadas "
+                "de backtest y cartera.",
+                className="mb-1"),
+            html.P(
+                "Todo lo derivado se regenera con los botones «Recalcular "
+                "completo» del Centro de Datos. Las corridas guardadas NO se "
+                "recalculan: hay que volver a correrlas.",
+                className="mb-0 small"),
         ], color="danger", className="mb-4"),
 
-        html.H6("Tablas que se limpiarán:", className="mb-2"),
+        html.H6("Qué se borra:", className="mb-2"),
         dbc.Table(
             [html.Tbody(rows)],
-            bordered=True, size="sm", className="mb-4 w-auto",
+            bordered=True, size="sm", className="mb-3 w-auto",
         ),
+
+        html.H6("Qué se conserva:", className="mb-2"),
+        html.Ul([html.Li(x) for x in PRESERVED_INFO],
+                className="mb-4 small text-muted"),
 
         dbc.Button(
             "Limpiar datos",
@@ -100,8 +102,11 @@ def layout(**kwargs):
             dbc.ModalHeader(dbc.ModalTitle("⚠ Confirmar limpieza")),
             dbc.ModalBody([
                 html.P("Se eliminarán permanentemente:"),
-                html.Ul([html.Li(label) for _, label in _TABLES_INFO]),
-                html.P("Los usuarios se conservan.", className="fw-bold mt-2"),
+                html.Ul([html.Li(label) for _, label in TABLES_INFO]),
+                html.P(
+                    "Se conservan activos, precios, catálogos, definiciones, "
+                    "carteras y usuarios.",
+                    className="fw-bold mt-2"),
                 html.Hr(),
                 dbc.Checkbox(
                     id="cleanup-check",
