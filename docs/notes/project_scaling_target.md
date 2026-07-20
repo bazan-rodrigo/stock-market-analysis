@@ -264,6 +264,68 @@ a propósito el PEOR caso (sin datos guardados, el atajo nunca dispara) en vez
 de un escenario favorable. **Regla: si se usa un benchmark sintético, que
 modele el peor caso** — así sólo puede sorprender para bien.
 
+## Parte 5 (19-jul-2026) — el bloat real estaba en el backfill POR ACTIVO
+
+**`backfill_asset_history` era la fuente principal del 51%, no el camino que
+se había arreglado primero.** Tiene SEIS callers y está en los caminos vivos:
+`price_service.py:199,361,460` (tras CADA descarga de precios),
+`price_callbacks.py:291`, `synthetic_service.py:287`. No pasaba por el buffer
+—`_wide_buffer_start()` se llamaba en UN solo lugar, `_backfill_batch_worker`.
+
+Y el problema no eran solo las escrituras: con `existing=None`,
+`_write_ind_series` llama `_null_wide_column` POR CÓDIGO — un UPDATE que pone
+esa columna en NULL sobre TODA la historia del activo. Con 14 columnas son
+**~28 versiones de fila por cada fila de historia** (14 nulls + 14 escrituras).
+Un activo de 16k barras genera ~450k versiones; por 144 activos, decenas de
+millones. **Bufferizar solo las escrituras habría arreglado la mitad.**
+
+Fix (`ea5d632`): si los códigos cubren TODAS las columnas de una cadencia
+(verificado: daily 14/14, weekly 5/5, monthly 5/5), se borran las filas del
+activo de esa cadencia UNA vez y las escrituras se bufferizan para volcar fila
+completa → inserts puros. La cobertura se chequea EN RUNTIME porque depende de
+`keep_history` en la BD; si falta alguna columna, fallback al nulleo per-código.
+
+**El camino FUNDAMENTAL tenía el bug idéntico (`b436554`).** Salió de una
+pregunta del usuario: "¿consideraste por igual técnicos y fundamentales?" — la
+respuesta era NO. Se había mirado por encima y etiquetado como "hueco menor".
+`backfill_asset_fund_history` hacía 12 nulls + 12 escrituras por columna.
+Cobertura verificada (fund_daily 4/4, fund_quarterly 8/8) → mismo arreglo.
+
+**Bug de portabilidad propio, en el mismo commit:** `ea5d632` usaba SQL crudo
+`DELETE FROM "tabla"` con comillas dobles — válido en PostgreSQL y sqlite,
+**RECHAZADO por MariaDB** (usa backticks). Como la suite corre sobre sqlite,
+NUNCA lo habría detectado; habría explotado en un deploy MySQL. Reemplazado
+por el objeto `Table` (`_get_wide_table`), que delega el quoting al dialecto.
+**Lección: la suite sobre sqlite no valida portabilidad de SQL crudo.**
+
+**Atajo de `topn_weights` (`1110a5b`):** el sub-modo 'benchmark' llama a
+`simulate_topn` con `top_n=10**9`, así que ordenaba el cross-section completo
+una vez por fecha para después darle a todos el mismo peso. Con `top_n >=
+len(scores)` ahora devuelve equal-weight sin ordenar. Medido: 200 act 1.66x,
+500 act 1.94x (−64 ms), 2000 act 1.93x (−256 ms) — escala con el universo.
+Equivalencia numérica verificada empíricamente (el atajo cambia el orden del
+dict, y `sum()` de floats no es asociativa): equity y turnover bit-idénticos
+en 5 escenarios, incluido uno adverso con magnitudes 1e-18 junto a 5.0.
+
+**MÉTODO que quedó consolidado (4 pasos, no confundirlos):**
+1. **cProfile** → dónde mirar. NUNCA cuánto tarda (infla 3.7-4.2x acá).
+2. **Leer el código** → qué es el desperdicio. Esto es lo que da CERTEZA, y no
+   depende de que la medición sea precisa.
+3. **Medir en la base real** → cuánto vale arreglarlo. Lo único que decide.
+4. **Verificar que no cambie el resultado** — el paso que casi se saltea. En
+   `topn_weights` se había afirmado "idéntico por construcción" y era falso.
+
+Las dos reversiones del día (`d607273`, `2589e2d`) salieron de saltar del
+paso 1 al 3 sin el paso 2.
+
+**LEAD ABIERTO:** `build_panels` se reconstruye 12x en el grid del
+walk-forward (`_panels_for_range`, una vez por ventana × trailing) → cachear
+por ventana. Es el más grande de los que quedan y del tipo ELIMINAR TRABAJO,
+pero también el más invasivo (riesgo de servir paneles de una ventana en
+otra). Ojo con el encuadre: igual que el atajo del benchmark, es del BACKTEST
+—corre bajo demanda— así que para el objetivo de 10k activos pesa menos que
+lo del pipeline diario.
+
 **Hot spots encontrados, sin atacar todavía** (de las corridas sintéticas,
 recordar que son magnitudes relativas, no absolutas):
 - `build_panels` domina el backtest y `_panels_for_range` lo RECONSTRUYE una
