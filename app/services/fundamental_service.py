@@ -275,47 +275,93 @@ def backfill_asset_fund_history(asset_id: int) -> dict:
     q_ords = np.array([q.period_date.toordinal() for q in quarters])
     price_rows = _load_fund_prices(s, [asset_id]).get(asset_id, [])
 
-    from app.models.indicator_store import _WIDE, use_wide_ind_tables
+    from app.models.indicator_store import (_WIDE, _WIDE_CADENCE_COLUMNS,
+                                            _WIDE_CADENCE_TABLE,
+                                            _get_wide_table,
+                                            use_wide_ind_tables)
+    from app.services.technical_service import (
+        _null_wide_column, _wide_buffer_append, _wide_buffer_clear,
+        _wide_buffer_flush, _wide_buffer_start, upsert_ind_cadence)
+
+    # Mismo criterio que backfill_asset_history (technical_service): este
+    # camino nulleaba la columna del activo por CADA código (12 UPDATEs sobre
+    # toda su historia) y después escribía esa columna — ~24 versiones de fila
+    # por fila. Si los códigos cubren TODAS las columnas de una cadencia se
+    # borran las filas del activo de una vez y las escrituras se bufferizan
+    # para volcarse como fila completa → inserts puros, sin tuplas muertas.
+    # La cobertura se chequea en runtime; si falta alguna columna se conserva
+    # el nulleo per-código, que es correcto aunque cueste más.
+    wide_on = use_wide_ind_tables()
+    _por_cad: dict = {}
+    for _c in _ALL_FUND_CODES:
+        if _c in _WIDE:
+            _t2, _col2, _cad2 = _WIDE[_c]
+            _por_cad.setdefault(_cad2, set()).add(_col2)
+    cad_completas = {
+        cad for cad, cols in _por_cad.items()
+        if set(_WIDE_CADENCE_COLUMNS[cad]) == cols
+    } if wide_on else set()
+
+    if cad_completas:
+        for cad in cad_completas:
+            wt = _get_wide_table(_WIDE_CADENCE_TABLE[cad])
+            s.execute(wt.delete().where(wt.c.asset_id == asset_id))
+        s.commit()
+        _wide_buffer_start()
+
     inserted = 0
-    for code in sorted(_ALL_FUND_CODES):
-        wide = use_wide_ind_tables() and code in _WIDE
-        t = None
-        if wide:
-            from app.services.technical_service import _null_wide_column
-            _t, _column, _cadence = _WIDE[code]
-            _null_wide_column(s, _cadence, _column, asset_id=asset_id)
-        else:
-            t = get_ind_table(code)
-            s.execute(t.delete().where(t.c.asset_id == asset_id))
-
-        if code in _FUND_DAILY_CODES:
-            if not price_rows:
-                continue
-            dates_seq       = [d for d, _ in price_rows]
-            price_dates_ord = np.array([d.toordinal() for d, _ in price_rows])
-            price_closes    = np.array([c for _, c in price_rows])
-            series = _daily_ratio_series(quarters, q_ords, dates_seq,
-                                         price_dates_ord, price_closes)
-            batch = [{"asset_id": asset_id, "date": d, "value": float(v)}
-                    for d, v in zip(dates_seq, series[code]) if not np.isnan(v)]
-        else:
-            batch = []
-            for idx, q in enumerate(quarters):
-                val = _compute_quarterly_ratios(quarters, idx).get(code)
-                if val is not None:
-                    batch.append({"asset_id": asset_id, "date": q.period_date,
-                                  "value": float(val)})
-
-        if batch:
+    try:
+        for code in sorted(_ALL_FUND_CODES):
+            wide = wide_on and code in _WIDE
+            t = None
             if wide:
-                from app.services.technical_service import upsert_ind_cadence
-                upsert_ind_cadence(
-                    s, _cadence, [_column],
-                    [(b["asset_id"], b["date"], b["value"]) for b in batch])
+                _t, _column, _cadence = _WIDE[code]
+                if _cadence not in cad_completas:
+                    _null_wide_column(s, _cadence, _column, asset_id=asset_id)
             else:
-                stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
-                s.execute(stmt)
-            inserted += len(batch)
+                t = get_ind_table(code)
+                s.execute(t.delete().where(t.c.asset_id == asset_id))
+
+            if code in _FUND_DAILY_CODES:
+                if not price_rows:
+                    continue
+                dates_seq       = [d for d, _ in price_rows]
+                price_dates_ord = np.array([d.toordinal() for d, _ in price_rows])
+                price_closes    = np.array([c for _, c in price_rows])
+                series = _daily_ratio_series(quarters, q_ords, dates_seq,
+                                             price_dates_ord, price_closes)
+                batch = [{"asset_id": asset_id, "date": d, "value": float(v)}
+                         for d, v in zip(dates_seq, series[code])
+                         if not np.isnan(v)]
+            else:
+                batch = []
+                for idx, q in enumerate(quarters):
+                    val = _compute_quarterly_ratios(quarters, idx).get(code)
+                    if val is not None:
+                        batch.append({"asset_id": asset_id,
+                                      "date": q.period_date,
+                                      "value": float(val)})
+
+            if batch:
+                if wide and _cadence in cad_completas:
+                    # fila completa: acumular y volcar una sola vez al final
+                    for b in batch:
+                        _wide_buffer_append(_cadence, asset_id, b["date"],
+                                            _column, b["value"])
+                elif wide:
+                    upsert_ind_cadence(
+                        s, _cadence, [_column],
+                        [(b["asset_id"], b["date"], b["value"]) for b in batch])
+                else:
+                    stmt = db_compat.upsert(s, t, batch, {"value": INSERTED})
+                    s.execute(stmt)
+                inserted += len(batch)
+
+        if cad_completas:
+            _wide_buffer_flush(s)
+    finally:
+        if cad_completas:
+            _wide_buffer_clear()
 
     s.commit()
     return {"inserted": inserted}

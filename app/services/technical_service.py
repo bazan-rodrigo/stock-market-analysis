@@ -2669,9 +2669,10 @@ def backfill_asset_history(asset_id: int) -> dict:
 
     if cad_completas:
         for cad in cad_completas:
-            tbl = _WIDE_CADENCE_TABLE[cad]
-            s.execute(sa.text(f'DELETE FROM "{tbl}" WHERE asset_id = :a'),
-                      {"a": asset_id})
+            # Objeto Table, no SQL crudo: el quoting del identificador lo
+            # resuelve el dialecto (MariaDB usa backticks, no comillas dobles).
+            wt = _get_wide_table(_WIDE_CADENCE_TABLE[cad])
+            s.execute(wt.delete().where(wt.c.asset_id == asset_id))
         s.commit()
         _wide_buffer_start()
 
