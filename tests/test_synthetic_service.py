@@ -2,7 +2,7 @@
 el calculo escalar original (loop por fecha en Python puro), mas cobertura del
 orden topologico de compute_all_synthetic para sinteticos que dependen de otros
 sinteticos."""
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import numpy as np
@@ -242,3 +242,83 @@ def test_topological_levels_ciclo_no_cuelga():
     levels = _topological_levels([a, b])
     all_ids = sorted(f.asset_id for level in levels for f in level)
     assert all_ids == [1, 2]
+
+
+# ── compute_synthetic_prices: el borrado NO debe perder historia ─────────────
+# La funcion borra los precios del activo y los recalcula. El borrado se
+# commiteaba por separado, asi que un fallo posterior (o un recalculo vacio)
+# dejaba el activo SIN precios y sin vuelta atras. Estos tests fijan que el
+# borrado y la reescritura viven en la MISMA transaccion.
+
+def _seed_sintetico(asset_id=6161, n=5):
+    from app.database import Base, engine, get_session
+    import app.models  # noqa: F401
+    from app.models import Asset, Price, SyntheticFormula
+    from app.models.price_source import PriceSource
+    Base.metadata.create_all(engine)
+    s = get_session()
+    if s.get(PriceSource, 1) is None:
+        s.add(PriceSource(id=1, name="test")); s.flush()
+    if s.get(Asset, asset_id) is None:
+        s.add(Asset(id=asset_id, ticker=f"SY{asset_id}", price_source_id=1))
+    s.add(SyntheticFormula(asset_id=asset_id, formula_type="ratio"))
+    d0 = date(2024, 1, 1)
+    for i in range(n):
+        s.add(Price(asset_id=asset_id, date=d0 + timedelta(days=i),
+                    close=100 + i, high=101 + i, low=99 + i))
+    s.commit()
+    return s, asset_id
+
+
+def _n_precios(s, asset_id):
+    from app.models import Price
+    return s.query(Price).filter(Price.asset_id == asset_id).count()
+
+
+def test_full_conserva_la_historia_si_el_recalculo_revienta(monkeypatch):
+    from app.services import synthetic_service as svc
+    s, aid = _seed_sintetico(6161)
+    assert _n_precios(s, aid) == 5
+
+    def _boom(*a, **kw):
+        raise RuntimeError("componente sin datos")
+    monkeypatch.setattr(svc, "_compute_by_type", _boom)
+
+    with pytest.raises(RuntimeError):
+        svc.compute_synthetic_prices(aid, full=True)
+
+    s.rollback()
+    assert _n_precios(s, aid) == 5      # la historia sobrevivio
+
+
+def test_full_conserva_la_historia_si_el_recalculo_no_produce_nada(monkeypatch):
+    """El caso SILENCIOSO: sin excepcion, pero sin resultados. Antes se
+    commiteaba el vaciado y se logueaba '0 precios' como exito."""
+    from app.services import synthetic_service as svc
+    s, aid = _seed_sintetico(6262)
+    assert _n_precios(s, aid) == 5
+
+    monkeypatch.setattr(svc, "_compute_by_type", lambda *a, **kw: {})
+
+    with pytest.raises(ValueError, match="no produjo ningún precio"):
+        svc.compute_synthetic_prices(aid, full=True)
+
+    s.rollback()
+    assert _n_precios(s, aid) == 5      # NO quedo vacio
+
+
+def test_full_reemplaza_la_historia_en_el_camino_feliz(monkeypatch):
+    from app.services import synthetic_service as svc
+    s, aid = _seed_sintetico(6363)
+    # forma real de _compute_by_type: {fecha: {open, high, low, close}}
+    def _ohlc(v): return {"open": v, "high": v + 1, "low": v - 1, "close": v}
+    nuevas = {date(2025, 3, 1): _ohlc(10.0), date(2025, 3, 2): _ohlc(11.0)}
+    monkeypatch.setattr(svc, "_compute_by_type", lambda *a, **kw: nuevas)
+    monkeypatch.setattr(svc, "compute_current_indicators", lambda *a, **kw: None)
+    monkeypatch.setattr(svc, "backfill_asset_history", lambda *a, **kw: None)
+
+    n = svc.compute_synthetic_prices(aid, full=True)
+
+    s.rollback()
+    assert n == 2
+    assert _n_precios(s, aid) == 2      # reemplazo las 5 viejas por las 2 nuevas

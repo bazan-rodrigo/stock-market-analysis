@@ -233,49 +233,73 @@ def compute_synthetic_prices(asset_id: int, full: bool = False,
     if formula is None:
         raise ValueError(f"Sin fórmula para activo id={asset_id}")
 
-    if full:
-        s.query(Price).filter(Price.asset_id == asset_id).delete()
-        s.commit()
-        start_date = None
-    else:
-        last_date = (s.query(func.max(Price.date))
-                      .filter(Price.asset_id == asset_id).scalar())
-        if last_date:
-            s.query(Price).filter(Price.asset_id == asset_id,
-                                  Price.date >= last_date).delete()
-            s.commit()
-            start_date = last_date
+    # El borrado y la reescritura van en LA MISMA transacción: si el recálculo
+    # falla, el rollback devuelve la historia intacta. Antes el DELETE se
+    # commiteaba por separado, así que cualquier fallo posterior dejaba el
+    # activo SIN precios y sin vuelta atrás — y los callers de
+    # currency_conversion_service se tragan la excepción (loguean y siguen),
+    # así que la corrida terminaba "bien" con activos vaciados. El
+    # s.rollback() de price_service tampoco ayudaba: el DELETE ya estaba
+    # commiteado. Es la misma regla que price_service ya documenta para la
+    # descarga real ("el borrado ocurre dentro de la misma transacción, por lo
+    # que un fallo de descarga no pierde los datos existentes").
+    try:
+        if full:
+            s.query(Price).filter(Price.asset_id == asset_id).delete()
+            borro, start_date = True, None
         else:
-            start_date = None
+            last_date = (s.query(func.max(Price.date))
+                          .filter(Price.asset_id == asset_id).scalar())
+            if last_date:
+                s.query(Price).filter(Price.asset_id == asset_id,
+                                      Price.date >= last_date).delete()
+                borro, start_date = True, last_date
+            else:
+                borro, start_date = False, None
 
-    comps = formula.components
-    all_asset_ids = list({c.asset_id for c in comps})
+        comps = formula.components
+        all_asset_ids = list({c.asset_id for c in comps})
 
-    def _frame(aid):
-        if price_frame_cache is not None:
-            cached = price_frame_cache.get((aid, start_date))
-            if cached is not None:
-                return cached
-        return _load_price_frame(aid, start_date)
+        def _frame(aid):
+            if price_frame_cache is not None:
+                cached = price_frame_cache.get((aid, start_date))
+                if cached is not None:
+                    return cached
+            return _load_price_frame(aid, start_date)
 
-    price_frames = {aid: _frame(aid) for aid in all_asset_ids}
+        price_frames = {aid: _frame(aid) for aid in all_asset_ids}
 
-    base_prices = None
-    if formula.formula_type == "index":
-        # Resuelto aparte de price_frames: en modo incremental (tail-mode)
-        # price_frames no cubre fechas anteriores a start_date, pero base_date sí
-        # puede serlo. Ver _anchor_price.
-        base_prices = {}
-        for aid in all_asset_ids:
-            bp = _anchor_price(aid, formula.base_date, s)
-            if bp is not None:
-                base_prices[aid] = bp
+        base_prices = None
+        if formula.formula_type == "index":
+            # Resuelto aparte de price_frames: en modo incremental (tail-mode)
+            # price_frames no cubre fechas anteriores a start_date, pero base_date sí
+            # puede serlo. Ver _anchor_price.
+            base_prices = {}
+            for aid in all_asset_ids:
+                bp = _anchor_price(aid, formula.base_date, s)
+                if bp is not None:
+                    base_prices[aid] = bp
 
-    results = _compute_by_type(formula, comps, price_frames, base_prices=base_prices)
+        results = _compute_by_type(formula, comps, price_frames,
+                                   base_prices=base_prices)
 
-    count = _bulk_insert_synthetic_prices(s, asset_id, results)
+        # Guarda del caso SILENCIOSO: sin excepción, pero sin resultados. Si se
+        # borró historia y el recálculo no produjo nada (componentes sin fechas
+        # solapadas, base_date irresoluble en formula_type='index'), commitear
+        # dejaría el activo vacío y se loguearía "0 precios" como éxito. Se
+        # aborta para conservar lo que había.
+        if borro and not results:
+            raise ValueError(
+                f"El recálculo del sintético id={asset_id} no produjo ningún "
+                f"precio: se conserva la historia existente. Revisá los "
+                f"componentes de la fórmula ({formula.formula_type}).")
 
-    s.commit()
+        count = _bulk_insert_synthetic_prices(s, asset_id, results)
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+
     logger.info("Sintético id=%d: %d precios (%s, full=%s)", asset_id, count,
                 formula.formula_type, full)
 
