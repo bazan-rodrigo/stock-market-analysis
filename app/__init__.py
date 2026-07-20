@@ -73,7 +73,7 @@ def create_app():
         "/_reload-hash",
         "/assets/",
     )
-    _PUBLIC_PATHS = ("/login", "/do-login", "/")
+    _PUBLIC_PATHS = ("/login", "/do-login", "/", "/acerca")
 
     _LOGIN_TEMPLATE = """<!DOCTYPE html>
 <html lang="es" data-bs-theme="dark">
@@ -112,6 +112,9 @@ def create_app():
             <button type="submit" class="btn btn-primary w-100">Iniciar sesión</button>
           </form>
         </div>
+        <p class="text-center mt-3">
+          <a href="/acerca" class="link-secondary">¿Qué es este sistema? Conocé de qué se trata →</a>
+        </p>
       </div>
     </div>
   </div>
@@ -244,6 +247,7 @@ def create_app():
         "app.pages.backtest",
         "app.pages.carteras",
         "app.pages.manual",
+        "app.pages.brochure",
     ]
 
     import importlib

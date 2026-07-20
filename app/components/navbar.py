@@ -112,6 +112,8 @@ def build_navbar() -> dbc.Navbar:
 
     # El manual lo ve todo el mundo (el índice se filtra por rol adentro)
     manual_item = dbc.NavItem(dbc.NavLink("Manual", href="/manual"))
+    # El brochure también: es la cara pública del sitio (/acerca es ruta pública)
+    acerca_item = dbc.NavItem(dbc.NavLink("Acerca de", href="/acerca"))
 
     is_guest = current_user.is_authenticated and not current_user.username
     if is_guest:
@@ -132,7 +134,7 @@ def build_navbar() -> dbc.Navbar:
             dbc.NavbarBrand("ro.com", href="/"),
             dbc.NavbarToggler(id="navbar-toggler"),
             dbc.Collapse(
-                dbc.Nav(nav_items + [manual_item, user_menu],
+                dbc.Nav(nav_items + [manual_item, acerca_item, user_menu],
                         className="ms-auto", navbar=True),
                 id="navbar-collapse",
                 navbar=True,

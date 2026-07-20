@@ -803,3 +803,29 @@ en verde en cada commit de esta sesión).
     con el aviso de ocupado si hay una corrida del Centro de Datos, y que
     tras un vacuum normal el reporte de espacio siga mostrando los MB
     liberados. El caso (a) solo se reproduce en PostgreSQL.
+
+**Sesión 20-jul-2026: brochure público `/acerca`.** Página de presentación
+del sitio accesible SIN login: `app/pages/brochure.py` (contenido 100%
+estático, sin callbacks ni BD — funciona aunque la base esté caída, igual
+que el login), `/acerca` sumado a `_PUBLIC_PATHS`, link "¿Qué es este
+sistema?" bajo el form de login (`_LOGIN_TEMPLATE` sirve `/` y `/login`),
+item "Acerca de" en la navbar junto a "Manual" (todos los roles), y sección
+`docs/manual/120-acerca-del-sistema.md` (exigida por
+`test_cobertura_de_pantallas`). Los links del brochure a rutas Flask van
+con `external_link=True` (la navegación client-side de Dash saltearía el
+`before_request`).
+
+    **VERIFICAR EN EL CODESPACE:** (a) `/acerca` anónimo renderiza el
+    brochure sin navbar (rama anónima de `serve_layout`, hasta ahora
+    inalcanzable — primera vez que se usa en vivo); (b) el link del login
+    lleva al brochure y el botón "Iniciar sesión" vuelve al login;
+    (c) logueado, `/acerca` se ve CON navbar y el item "Acerca de" navega
+    bien; (d) las demás rutas siguen redirigiendo a `/login` sin sesión.
+
+    Observación de seguridad PREEXISTENTE (no introducida por esto): los
+    prefijos `/_dash-*` son públicos en `before_request`, o sea que
+    `/_dash-update-component` acepta POSTs anónimos con payload arbitrario
+    (callbacks de datos incluidos) desde siempre. El brochure no agrega
+    superficie (no tiene callbacks), pero deja el bundle Dash cargado para
+    anónimos. Si algún día importa, la mitigación es exigir login en
+    `/_dash-update-component` salvo para los callbacks de rutas públicas.
