@@ -318,13 +318,18 @@ en 5 escenarios, incluido uno adverso con magnitudes 1e-18 junto a 5.0.
 Las dos reversiones del día (`d607273`, `2589e2d`) salieron de saltar del
 paso 1 al 3 sin el paso 2.
 
-**LEAD ABIERTO:** `build_panels` se reconstruye 12x en el grid del
-walk-forward (`_panels_for_range`, una vez por ventana × trailing) → cachear
-por ventana. Es el más grande de los que quedan y del tipo ELIMINAR TRABAJO,
-pero también el más invasivo (riesgo de servir paneles de una ventana en
-otra). Ojo con el encuadre: igual que el atajo del benchmark, es del BACKTEST
-—corre bajo demanda— así que para el objetivo de 10k activos pesa menos que
-lo del pipeline diario.
+**LEAD CERRADO (`fc0fb03`):** `build_panels` se reconstruía por trailing en el
+grid del walk-forward. Al leer el código, el diagnóstico "12x" era impreciso:
+`_panels_for_range` se llama una vez por (ventana × trailing) = 12 en total,
+pero de las 4 salidas del panel SOLO `eligible_by_date` depende del trailing
+(vía `simulate_trades`); `dates/scores/rets` son idénticas entre trailings.
+Fix: split de `build_panels` en `_score_ret_panels` (independiente del
+trailing) + `_eligible_by_date` (dependiente); en `walk_forward` se computa el
+primero UNA vez por ventana y solo la elegibilidad por trailing. **Medido fair
+(ambos brazos, walk_forward completo): 1.35x a 500 activos (8.7→6.5s), 1.21-
+1.26x a 100-300, y 0.76x de REGRESIÓN a 40** (el copiado extra no se amortiza
+en universos chicos, pero la corrida es sub-segundo). Bit-idéntico verificado
+por golden-master. Es backtest, bajo demanda — pesa menos que el pipeline.
 
 **Hot spots encontrados, sin atacar todavía** (de las corridas sintéticas,
 recordar que son magnitudes relativas, no absolutas):
