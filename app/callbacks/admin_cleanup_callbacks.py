@@ -2,7 +2,51 @@ import threading
 
 from dash import Input, Output, callback, html, no_update
 
+from app.services import run_lock_service as _rl
+
 _state = {"running": False, "result": None, "error": None}
+
+_BUSY = ("Hay otra operación pesada en curso (Centro de Datos, precios o la "
+         "corrida nocturna). Esperá a que termine antes de lanzar esta.")
+
+
+def _launch_locked(state, work, ok_msg, err_prefix) -> bool:
+    """Toma el lock HEAVY_WRITE y corre `work()` en un thread daemon, con
+    heartbeat mientras dura (heartbeating libera el lock al salir).
+
+    Las dos operaciones de esta pantalla tocan las MISMAS tablas que el
+    pipeline, así que comparten su lock:
+      - la limpieza las vacía: hacerlo con una corrida en curso deja la base a
+        medias (peor: un `signal_eval_log` repoblado a medias hace que el
+        delta SALTEE fechas ya limpiadas);
+      - el VACUUM/OPTIMIZE toma lock exclusivo por tabla — en PostgreSQL
+        ACCESS EXCLUSIVE, que bloquea hasta los SELECT — y dejaría al pipeline
+        esperando (o al revés).
+    Antes solo lo advertía un texto en pantalla, nada lo impedía.
+
+    guarded_acquire es fail-open: sin la migración 0076 procede igual que
+    antes. Devuelve False si otra corrida pesada tiene el lock; el estado
+    queda con el mensaje de ocupado para que lo muestre el poll.
+    """
+    token = _rl.guarded_acquire(_rl.HEAVY_WRITE)
+    if token is None:
+        state.update({"running": False, "result": None, "error": _BUSY})
+        return False
+
+    state.update({"running": True, "result": None, "error": None})
+
+    def _wrapped():
+        try:
+            with _rl.heartbeating(_rl.HEAVY_WRITE, token):
+                res = work()
+            state["result"] = ok_msg(res)
+        except Exception as exc:  # noqa: BLE001 — se muestra en el alert
+            state["error"] = f"{err_prefix}: {exc}"
+        finally:
+            state["running"] = False
+
+    threading.Thread(target=_wrapped, daemon=True).start()
+    return True
 
 
 @callback(
@@ -39,21 +83,16 @@ def toggle_confirm_btn(checked):
 def run_cleanup(_):
     from app.services import cleanup_service
 
-    _state.update({"running": True, "result": None, "error": None})
-
-    def _run():
-        try:
-            res = cleanup_service.clean_data()
-            n = len(res["tables"])
-            _state["result"] = (
-                f"Limpieza completada: {n} tablas vaciadas. "
+    def _ok(res):
+        return (f"Limpieza completada: {len(res['tables'])} tablas vaciadas. "
                 "Regenerá los datos con «Recalcular completo» en el Centro de Datos.")
-        except Exception as exc:
-            _state["error"] = f"Error durante la limpieza: {exc}"
-        finally:
-            _state["running"] = False
 
-    threading.Thread(target=_run, daemon=True).start()
+    started = _launch_locked(_state, cleanup_service.clean_data, _ok,
+                             "Error durante la limpieza")
+    if not started:
+        # Interval habilitado igual: el poll ve running=False + error y muestra
+        # el aviso de ocupado en el mismo alert que los errores.
+        return False, {"display": "none"}, False
     return False, {"display": "block"}, True
 
 
@@ -94,25 +133,16 @@ _vac_state = {"running": False, "result": None, "error": None}
 def run_vacuum(_):
     from app.services import maintenance_service
 
-    _vac_state.update({"running": True, "result": None, "error": None})
+    def _ok(res):
+        if res["dialect"] == "sqlite":
+            return "VACUUM de la base completado (sqlite)."
+        return (f"Espacio recuperado: {res['freed_bytes'] / 1024 / 1024:.1f} MB "
+                f"en {len(res['tables'])} tablas ({res['dialect']}).")
 
-    def _run():
-        try:
-            res = maintenance_service.vacuum_bloat_tables()
-            freed_mb = res["freed_bytes"] / 1024 / 1024
-            n = len(res["tables"])
-            if res["dialect"] == "sqlite":
-                _vac_state["result"] = "VACUUM de la base completado (sqlite)."
-            else:
-                _vac_state["result"] = (
-                    f"Espacio recuperado: {freed_mb:.1f} MB en {n} tablas "
-                    f"({res['dialect']}).")
-        except Exception as exc:
-            _vac_state["error"] = f"Error al recuperar espacio: {exc}"
-        finally:
-            _vac_state["running"] = False
-
-    threading.Thread(target=_run, daemon=True).start()
+    started = _launch_locked(_vac_state, maintenance_service.vacuum_bloat_tables,
+                             _ok, "Error al recuperar espacio")
+    if not started:
+        return False, {"display": "none"}, False
     return False, {"display": "block"}, True
 
 

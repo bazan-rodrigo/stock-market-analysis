@@ -712,3 +712,94 @@ en verde en cada commit de esta sesión).
     persistir `forward_eps` (no encaja en `FundamentalQuarterly`, que es
     tabla de datos trimestrales fijos) y aceptar el costo de la llamada
     extra.
+
+13. **HECHO — la pantalla `/admin/cleanup` estaba desactualizada; alcance
+    unificado en un servicio (19-jul-2026).** El punto 11 arregló
+    `scripts/clean_data.py` pero NO la pantalla, que mantenía su propia
+    lista `_TABLES_INFO` — la vieja, con `assets`/`prices`/catálogos y
+    `SET FOREIGN_KEY_CHECKS = 0`: exactamente la combinación que dejó
+    huérfanas las 49 tablas con FK a `assets.id`. Además no tocaba nada del
+    pipeline (`ind_*`, `sig_*`, `strat_res_*`, `group_scores`,
+    `current_indicator_values`, fundamentales) ni lo agregado después
+    (backtest, carteras). Y ninguna de las dos entradas limpiaba
+    `verification_run_log`, `asset_verification_flag` ni `run_lock`.
+
+    Ahora el alcance vive SOLO en `app/services/cleanup_service.py`, que
+    consumen la pantalla y el script. Decisiones de producto tomadas en la
+    sesión: política fija (un botón, sin checkboxes) y los snapshots de
+    backtest/cartera (`backtest_run`, `portfolio_run` + hijas) SÍ se borran
+    aunque no se recalculen. Se preservan activos, precios, fuentes,
+    catálogos, definiciones, configuración, sintéticos y —clave— las
+    carteras con su registro de operaciones (`portfolio`,
+    `portfolio_member`, `portfolio_transaction`), que son datos cargados a
+    mano.
+
+    Cambios técnicos: sin `FOREIGN_KEY_CHECKS` (con la lista corregida no
+    hace falta, y apagarlo era la causa raíz — MySQL no dispara los
+    `ON DELETE CASCADE`); `db_compat.wipe_table` (TRUNCATE) en vez de
+    `DELETE FROM` crudo, salvo `backtest_run`/`portfolio_run`, que van con
+    DELETE porque MySQL rechaza TRUNCATE sobre una tabla con FKs entrantes
+    aunque la hija esté vacía; las hijas se vacían antes que los padres; y
+    se filtra por tablas existentes (`screener_snapshot` ya no tiene modelo
+    y su DELETE reventaba la corrida en una base nueva).
+
+    Red nueva: `tests/test_cleanup_service.py` (9 casos) fija que no entren
+    tablas curadas, que estén todos los logs, que los prefijos dinámicos
+    lleven `_` (sin él, `ind_` se lleva `industries`/`indicator_definitions`
+    y `sig_` se lleva `signal`), y que ni la página ni el script vuelvan a
+    definir su propia lista. Antes no había NINGÚN test sobre esto: por eso
+    la divergencia pasó desapercibida.
+
+    **VERIFICAR EN EL CODESPACE:** correr la limpieza desde la pantalla
+    contra MariaDB y confirmar (a) que no quedan huérfanos —el chequeo del
+    punto 11 sobre `KEY_COLUMN_USAGE` sirve—, (b) que activos, precios y
+    carteras siguen intactos, y (c) que después de "Recalcular completo" el
+    pipeline reconstruye todo. Probar también con `DB_ENGINE=postgres`: el
+    orden hijas→padres y el TRUNCATE/DELETE mixto es lo que cambia entre
+    motores.
+
+14. **HECHO — dos arreglos en "Recuperar espacio" de `/admin/cleanup`
+    (19-jul-2026).** Salieron de preguntar si el vacuum dejaba sesiones
+    abiertas. **No las dejaba**: `maintenance_service` importa solo `engine`
+    (nunca `Session`), usa `with engine.connect()` —que cierra incluso ante
+    excepción— y `isolation_level="AUTOCOMMIT"`, obligatorio porque PG no
+    permite `VACUUM FULL` dentro de una transacción. Por eso
+    `admin_cleanup_callbacks` era el único módulo con threads sin
+    `Session.remove()` en el `finally`, y estaba bien así (los otros 13 sí lo
+    necesitan: `scoped_session` es thread-local y el `teardown_session` de
+    Flask corre en el thread del request, no en el daemon).
+
+    Pero aparecieron dos problemas reales:
+
+    (a) **Un fallo midiendo tamaño abortaba todo el vacuum, solo en
+    PostgreSQL.** El `try/except ... continue` existe para que una tabla que
+    falla no frene a las demás, pero las dos llamadas a `_table_size_bytes`
+    quedaban FUERA del try. Caso real: `signal_store` dropea
+    `sig_{id}`/`strat_res_{id}` al borrar una señal o estrategia; si eso pasa
+    entre `bloat_tables()` y el vacuum de esa tabla, en PG
+    `pg_total_relation_size()` sobre tabla inexistente LANZA `undefined_table`
+    → se cortaba la corrida y las tablas siguientes quedaban sin compactar. En
+    MySQL no pasaba (la consulta a `information_schema` da NULL y el COALESCE
+    lo vuelve 0). Arreglado moviendo las mediciones dentro del try.
+
+    (b) **Ni el vacuum ni la limpieza tomaban `run_lock`.** Ahora ambos usan
+    `HEAVY_WRITE` vía un helper `_launch_locked` (mismo patrón que
+    `price_callbacks._launch_locked_bg`; `heartbeating` libera el lock al
+    salir, no hace falta `release` aparte). Importa por dos motivos distintos:
+    el VACUUM/OPTIMIZE toma lock exclusivo por tabla —en PG ACCESS EXCLUSIVE,
+    que bloquea hasta los SELECT— y dejaría al pipeline esperando; y la
+    limpieza con una corrida en curso deja la base a medias, con el agravante
+    de que un `signal_eval_log` repoblado parcialmente hace que el delta
+    SALTEE fechas recién limpiadas. Antes solo lo advertía un texto en
+    pantalla. Si el lock está tomado, el botón no arranca y el alert muestra
+    "hay otra operación pesada en curso".
+
+    Nota: `_launch_locked` duplica en espíritu a
+    `price_callbacks._launch_locked_bg`. No se unificó para no tocar precios
+    en este cambio; si aparece un tercer caso, conviene subirlo a un helper
+    compartido.
+
+    **VERIFICAR EN EL CODESPACE:** que el botón "Recuperar espacio" rechace
+    con el aviso de ocupado si hay una corrida del Centro de Datos, y que
+    tras un vacuum normal el reporte de espacio siga mostrando los MB
+    liberados. El caso (a) solo se reproduce en PostgreSQL.

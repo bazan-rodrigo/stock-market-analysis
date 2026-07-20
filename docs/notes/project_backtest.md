@@ -174,3 +174,28 @@ del gráfico". Decisiones tomadas (vía preguntas):
   dividendos/splits; nivel D (comparar runs + walk-forward) + persistencia de
   corridas de cartera (migración); pulido (tabs Señal/Reglas/Cartera en `/backtest`
   en vez de secciones apiladas; "promover a seguimiento").
+
+## Feature futuro: borrar corridas guardadas individualmente
+
+Hoy una corrida guardada (`backtest_run` de nivel A/B, `portfolio_run` de nivel D)
+**no se puede borrar desde la UI**: la única forma de sacarlas es la limpieza
+global de `/admin/cleanup`, que vacía la base operativa entera. Surgió al
+unificar el alcance de la limpieza (19-jul-2026, ver punto 13 de
+`project_pendientes.md`): la limpieza SÍ borra los snapshots, pero es todo o nada.
+
+Por qué importa: los runs son inmutables y no se recalculan
+(`BacktestRun` docstring — "los números de un run no se recalculan nunca: se
+corre uno nuevo"), así que se acumulan. Iterar sobre una estrategia deja
+decenas de corridas fallidas o superadas, y el tab "Comparar" las lista todas.
+
+Alcance estimado (chico, sin migración):
+- `backtest_service.delete_run(run_id)` / `portfolio_backtest_service.delete_run(run_id)`
+  — las hijas (`backtest_ic_point`, `backtest_quantile_stat`,
+  `portfolio_run_point`) caen solas por `ON DELETE CASCADE`.
+- Chequeo de permisos con `visibility.can_edit` sobre `owner_id` — mismo patrón
+  que el resto del módulo; NO alcanza con el filtro de visibilidad de lectura.
+- Botón de borrado en la lista de corridas del tab "Comparar" + confirmación.
+- Opcional: borrado en cascada al eliminar la estrategia. Ojo que `backtest_run`
+  ya tiene FK a `strategy` con CASCADE, pero `portfolio_run.strategy_id` es
+  **Integer plano sin FK** (a propósito: el servicio tolera que la estrategia ya
+  no exista) → esos quedarían huérfanos y hay que barrerlos a mano.

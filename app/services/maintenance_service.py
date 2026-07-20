@@ -67,17 +67,24 @@ def vacuum_tables(tables: list[str]) -> dict:
     freed = 0
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         for t in tables:
-            q = db_compat.quote_ident(conn, t)
-            before = _table_size_bytes(conn, t)
+            # Las MEDICIONES van dentro del try, no solo el VACUUM: la lista de
+            # tablas se arma antes de empezar y las dinámicas pueden
+            # desaparecer mientras corre (signal_store dropea sig_{id}/
+            # strat_res_{id} al borrar una señal o estrategia). En PostgreSQL
+            # pg_total_relation_size() sobre una tabla que ya no existe LANZA
+            # undefined_table — con la medición afuera, eso abortaba la corrida
+            # entera y las tablas siguientes quedaban sin compactar.
             try:
+                q = db_compat.quote_ident(conn, t)
+                before = _table_size_bytes(conn, t)
                 if db_compat.is_postgres(conn):
                     conn.exec_driver_sql(f"VACUUM (FULL, ANALYZE) {q}")
                 else:  # mysql / mariadb
                     conn.exec_driver_sql(f"OPTIMIZE TABLE {q}")
+                after = _table_size_bytes(conn, t)
             except Exception as exc:
                 logger.warning("VACUUM/OPTIMIZE falló en %s: %s", t, exc)
                 continue
-            after = _table_size_bytes(conn, t)
             sizes[t] = (before, after)
             freed += max(0, before - after)
 
