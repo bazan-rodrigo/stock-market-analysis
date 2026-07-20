@@ -147,6 +147,103 @@ def test_buffer_no_pisa_con_null_las_columnas_que_no_trae(wide_tables, wide_on):
     assert row.trend_daily == "alta"    # NO se piso con NULL
 
 
+# trend_* guarda texto; el resto numerico (mismo criterio que ensure_ind_table)
+_WIDE_TYPE = {"trend_daily": "str", "trend_weekly": "str", "trend_monthly": "str",
+              "volatility_daily": "str", "volatility_weekly": "str",
+              "volatility_monthly": "str"}
+
+
+def _seed_asset_para_backfill(s, asset_id, codes, n_barras=300):
+    """Activo con precios + definiciones keep_history, lo mínimo que
+    backfill_asset_history necesita."""
+    from app.database import Base
+    import app.models  # noqa: F401 — registra los modelos en Base.metadata
+    from app.models import Asset, IndicatorDefinition, Price
+    from app.models.price_source import PriceSource
+    import math
+    Base.metadata.create_all(engine)   # el fixture wide_ solo crea las anchas
+    if s.get(PriceSource, 1) is None:
+        s.add(PriceSource(id=1, name="test"))
+        s.flush()
+    s.add(Asset(id=asset_id, ticker=f"BF{asset_id}", price_source_id=1))
+    d0 = dt.date(2020, 1, 1)
+    for i in range(n_barras):
+        c = 100 + 10 * math.sin(i / 20) + i * 0.05
+        s.add(Price(asset_id=asset_id, date=d0 + dt.timedelta(days=i),
+                    close=c, high=c + 1, low=c - 1))
+    for code in codes:
+        # idempotente: las definiciones sobreviven entre tests (el fixture
+        # solo dropea las tablas anchas, no el esquema base)
+        if not s.query(IndicatorDefinition).filter(
+                IndicatorDefinition.code == code).first():
+            s.add(IndicatorDefinition(code=code, name=code, category="test",
+                                      type=_WIDE_TYPE.get(code, "num"),
+                                      keep_history=True))
+    s.commit()
+
+
+def _daily_codes_con_backfill():
+    from app.services.technical_service import _BACKFILL_FNS
+    from app.models.indicator_store import _WIDE
+    return [c for c, (_t, _col, _cad) in _WIDE.items() if c in _BACKFILL_FNS]
+
+
+def test_backfill_asset_history_es_idempotente_y_no_pierde_datos(wide_tables,
+                                                                 wide_on):
+    """backfill_asset_history vacía la cadencia de una vez (en vez de nullear
+    columna por columna) y bufferiza las escrituras. Si ese borrado no
+    reescribiera todo, la SEGUNDA corrida dejaría la fila vacía.
+
+    Es el riesgo concreto del cambio: borra filas. Sin este test, una
+    regresión ahí se lleva la historia de indicadores del activo en silencio.
+    """
+    from app.services.technical_service import backfill_asset_history
+
+    s = get_session()
+    codes = _daily_codes_con_backfill()          # cubre las 3 cadencias enteras
+    _seed_asset_para_backfill(s, 4242, codes)
+
+    r1 = backfill_asset_history(4242)
+    assert r1["inserted"] > 0
+    filas1 = s.execute(sa.text(
+        "SELECT COUNT(*) FROM ind_daily WHERE asset_id = 4242")).scalar()
+    vals1 = s.execute(sa.text(
+        "SELECT date, return_daily FROM ind_daily WHERE asset_id = 4242 "
+        "AND return_daily IS NOT NULL ORDER BY date")).fetchall()
+    assert filas1 > 0 and len(vals1) > 0
+
+    # segunda corrida: mismo resultado, sin perder nada
+    r2 = backfill_asset_history(4242)
+    filas2 = s.execute(sa.text(
+        "SELECT COUNT(*) FROM ind_daily WHERE asset_id = 4242")).scalar()
+    vals2 = s.execute(sa.text(
+        "SELECT date, return_daily FROM ind_daily WHERE asset_id = 4242 "
+        "AND return_daily IS NOT NULL ORDER BY date")).fetchall()
+
+    assert r2["inserted"] == r1["inserted"]
+    assert filas2 == filas1
+    assert vals2 == vals1        # los valores sobreviven al borrado+reescritura
+
+
+def test_backfill_asset_history_no_toca_otros_activos(wide_tables, wide_on):
+    """El DELETE por cadencia debe acotarse al activo: si se llevara puestas
+    las filas de los demás, sería una pérdida masiva y silenciosa."""
+    from app.services.technical_service import backfill_asset_history
+
+    s = get_session()
+    codes = _daily_codes_con_backfill()
+    _seed_asset_para_backfill(s, 5151, codes)
+    # otro activo con una fila ya guardada en la misma tabla ancha
+    _write_ind_series(s, "rsi_daily", 9999, [_D1], [42.0], existing=set())
+    s.commit()
+
+    backfill_asset_history(5151)
+
+    otro = s.execute(sa.text(
+        "SELECT rsi_daily FROM ind_daily WHERE asset_id = 9999")).fetchone()
+    assert otro is not None and otro.rsi_daily == 42.0
+
+
 def test_null_wide_column_acota_por_activo(wide_tables, wide_on):
     s = get_session()
     _upsert_ind(s, "rsi_weekly", 1, _D1, 40.0)

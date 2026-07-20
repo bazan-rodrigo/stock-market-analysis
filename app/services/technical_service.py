@@ -2643,18 +2643,63 @@ def backfill_asset_history(asset_id: int) -> dict:
         if d.code in _BACKFILL_FNS
     ]
 
-    inserted = 0
+    # ── Evitar el bloat: este camino corre por activo tras CADA descarga de
+    # precios (price_service, sintéticos, alta de activo). Con existing=None,
+    # _write_ind_series nulleaba la columna del activo (un UPDATE sobre TODA
+    # su historia) y después escribía esa columna — por cada código. Con 14
+    # columnas en ind_daily son ~28 versiones de fila por fila de historia.
+    #
+    # En su lugar: si los códigos a recalcular cubren TODAS las columnas de
+    # una cadencia, se borran las filas del activo de esa cadencia UNA vez y
+    # las escrituras se bufferizan para volcarse como fila completa → inserts
+    # puros, sin tuplas muertas. La cobertura se chequea en runtime porque
+    # `hist` depende de keep_history en la BD: si una cadencia NO queda
+    # cubierta, se conserva el nulleo per-código, que es correcto aunque
+    # cueste más.
+    por_cadencia: dict = {}
     for code in hist:
-        values = _BACKFILL_FNS[code](
-            df=df, df_w=df_w, df_m=df_m,
-            regime_cfg=regime_cfg, vol_cfg=vol_cfg,
-            session=s, asset_id=asset_id,
-            price_cache=None, best_sma_cache=None,
-        )
-        dates_list, vals_list = _series_dates_values(values, df)
-        inserted += _write_ind_series(s, code, asset_id,
-                                      dates_list, vals_list, existing=None)
-        s.commit()   # un activo: transacción por indicador
+        if code in _WIDE:
+            _t, _col, _cad = _WIDE[code]
+            por_cadencia.setdefault(_cad, set()).add(_col)
+    wide = use_wide_ind_tables()
+    cad_completas = {
+        cad for cad, cols in por_cadencia.items()
+        if set(_WIDE_CADENCE_COLUMNS[cad]) == cols
+    } if wide else set()
+
+    if cad_completas:
+        for cad in cad_completas:
+            tbl = _WIDE_CADENCE_TABLE[cad]
+            s.execute(sa.text(f'DELETE FROM "{tbl}" WHERE asset_id = :a'),
+                      {"a": asset_id})
+        s.commit()
+        _wide_buffer_start()
+
+    inserted = 0
+    try:
+        for code in hist:
+            values = _BACKFILL_FNS[code](
+                df=df, df_w=df_w, df_m=df_m,
+                regime_cfg=regime_cfg, vol_cfg=vol_cfg,
+                session=s, asset_id=asset_id,
+                price_cache=None, best_sma_cache=None,
+            )
+            dates_list, vals_list = _series_dates_values(values, df)
+            # La cadencia ya se vació arriba: existing=set() escribe todo sin
+            # volver a nullear la columna (existing=None sí lo haría).
+            ya_vaciada = (wide and code in _WIDE
+                          and _WIDE[code][2] in cad_completas)
+            inserted += _write_ind_series(
+                s, code, asset_id, dates_list, vals_list,
+                existing=set() if ya_vaciada else None)
+            if not cad_completas:
+                s.commit()   # un activo: transacción por indicador
+        if cad_completas:
+            _wide_buffer_flush(s)
+            s.commit()
+    finally:
+        if cad_completas:
+            _wide_buffer_clear()
 
     logger.info("Backfill por activo id=%d: %d valores en %d indicadores",
                 asset_id, inserted, len(hist))
