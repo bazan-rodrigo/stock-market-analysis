@@ -167,6 +167,48 @@ acordado, así que se revirtió.
    mayormente nulas. Al tocar una función con varios caminos, medir TODOS,
    no solo el que se quiso optimizar.
 
+## Parte 4 (19-jul-2026) — verificación vectorizada + bloat del delta
+
+**`c589a6e` — `verify_asset_code` vectorizado: QUEDA, validado sobre datos
+reales** con `scripts/bench_verify_asset_code.py`. La comparación
+fresco-vs-guardado llamaba `_values_equal` y `check_sanity` una vez POR FECHA
+(~48k llamadas escalares por código en una serie de 16k barras), casi todas
+para descubrir que no hay ninguna diferencia. Ahora se resuelve con máscaras
+de array (`_diff_masks`) y, si no hay diffs ni fechas faltantes, se evita
+recorrer la serie entera. Medido en la base real (BA, 16.243 barras):
+**144 ms → 65 ms por activo = 2.23x**, con las 24 listas de diffs
+**idénticas**. A 10.000 activos: 24 min → 11 min single-thread.
+
+**`2a4ed68` — bloat del delta.** El buffer de escritura ancha (fila completa
+en vez de un UPDATE por columna) sólo se activaba en rebuild; el comentario
+asumía que el bloat del delta era chico. Medido: **51.1% de tuplas muertas en
+`ind_daily`** (1.08M muertas vs 1.03M vivas) — un backfill masivo corre como
+delta pero escribe la serie entera columna por columna, y con 14 columnas son
+hasta 13 versiones muertas por fila. En `pg_stat_activity` los INSERT salían
+con `wait_event=ClientRead`: la base esperando al cliente, o sea el costo
+estaba en el ida y vuelta por statement, no en disco.
+Requirió arreglar antes `_wide_buffer_flush`, que volcaba SIEMPRE todas las
+columnas de la cadencia con None en las ausentes: en delta eso habría escrito
+NULL sobre valores guardados. Ahora agrupa por el conjunto de columnas real.
+**Pendiente de confirmar en la base**: correr un delta y mirar que
+`pct_muertas` de `ind_daily` se mantenga bajo.
+
+**`5690052` — pytest podía vaciar la base real.** `conftest` usaba
+`os.environ.setdefault("DATABASE_URL", stub)`: con una URL real en el entorno
+la respetaba y la suite corría contra ESA base (varios fixtures hacen
+`DELETE FROM assets`, y prices e `ind_*` tienen ON DELETE CASCADE). Pasó de
+verdad — la tabla `ind_zz_test_explorer` en Railway sólo puede haberla creado
+pytest. Ahora la URL se fuerza y un hook `pytest_sessionstart` aborta si el
+engine no es sqlite.
+
+**LECCIÓN sobre benchmarks sintéticos.** Hoy fallaron 3 veces, SIEMPRE por
+optimistas (el "23%" leído del profiler, el 14x del checksum, la hipótesis de
+que `None` explicaba la regresión). La excepción fue `verify_asset_code`:
+el sintético dio 1.23x y la realidad 2.23x. La diferencia es que ahí se midió
+a propósito el PEOR caso (sin datos guardados, el atajo nunca dispara) en vez
+de un escenario favorable. **Regla: si se usa un benchmark sintético, que
+modele el peor caso** — así sólo puede sorprender para bien.
+
 **Hot spots encontrados, sin atacar todavía** (de las corridas sintéticas,
 recordar que son magnitudes relativas, no absolutas):
 - `build_panels` domina el backtest y `_panels_for_range` lo RECONSTRUYE una
