@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 _SMA_COLORS  = ["#ff9800", "#e91e63", "#4caf50"]
 _EMA_COLORS  = ["#00bcd4", "#9c27b0", "#ffeb3b"]
 _SMA_DEF     = [20, 50, 200]
@@ -463,6 +465,10 @@ def layout(**kwargs):
                 label_checked_class_name="active",
                 class_name="btn-group btn-group-sm",
             ), className="ind-group"), width="auto"),
+            # Ayuda de la pantalla, al extremo derecho de la toolbar (esta
+            # pantalla no tiene título propio donde colgar el «?»)
+            dbc.Col(help_link("analisis-de-activo"), width="auto",
+                    className="ms-auto"),
         ], className="mb-1 g-2 align-items-center chart-toolbar"),
 
         # ── Simulación de estrategias: sección propia. Tres grupos rotulados

@@ -627,3 +627,229 @@ td.dash-datepicker-calendar-date-inside[aria-disabled="true"] {
     font-size: 0.7rem !important;
     padding: 0 4px !important;
 }
+
+/* ── Manual de usuario (/manual) ─────────────────────────────────────────── */
+
+/* Ícono «?» junto al título de cada pantalla. Badge de texto en vez de un
+   ícono de Font Awesome para no atarse a la versión de FA que traiga dbc. */
+.manual-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 1px solid #4b5563;
+    color: #9ca3af !important;
+    background-color: transparent;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 1;
+    text-decoration: none !important;
+    vertical-align: middle;
+    transition: all 0.12s ease-in-out;
+}
+.manual-help-icon:hover {
+    color: #0b1220 !important;
+    background-color: #38bdf8;
+    border-color: #38bdf8;
+}
+
+/* Índice lateral — sticky, con scroll propio */
+.manual-sidebar {
+    position: sticky;
+    top: 0.5rem;
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+    background-color: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 5px;
+    padding: 10px;
+}
+.manual-search.form-control {
+    background-color: #111827 !important;
+    border-color: #374151 !important;
+    color: #dee2e6 !important;
+    font-size: 0.78rem !important;
+}
+.manual-toc-chapter {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b7280;
+    margin: 12px 0 4px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #374151;
+}
+.manual-toc-chapter:first-child { margin-top: 2px; }
+.manual-toc-item {
+    display: block;
+    padding: 3px 8px;
+    margin: 1px 0;
+    font-size: 0.79rem;
+    color: #b6bec8 !important;
+    text-decoration: none !important;
+    border-left: 2px solid transparent;
+    border-radius: 0 3px 3px 0;
+}
+.manual-toc-item:hover {
+    color: #fff !important;
+    background-color: #273244;
+}
+.manual-toc-item.active {
+    color: #38bdf8 !important;
+    background-color: #172033;
+    border-left-color: #38bdf8;
+    font-weight: 600;
+}
+.manual-toc-badge {
+    margin-left: 5px;
+    padding: 0 4px;
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    color: #facc15;
+    border: 1px solid #facc1544;
+    border-radius: 3px;
+    vertical-align: middle;
+}
+.manual-toc-empty {
+    padding: 10px 4px;
+    font-size: 0.78rem;
+    color: #6b7280;
+}
+
+/* Resultados de búsqueda */
+.manual-hit {
+    display: block;
+    padding: 5px 8px;
+    margin: 2px 0;
+    text-decoration: none !important;
+    border-radius: 3px;
+    border-left: 2px solid transparent;
+}
+.manual-hit:hover { background-color: #273244; border-left-color: #38bdf8; }
+.manual-hit-title { font-size: 0.79rem; color: #38bdf8; font-weight: 600; }
+.manual-hit-snippet {
+    font-size: 0.71rem;
+    color: #8b949e;
+    line-height: 1.35;
+    margin-top: 1px;
+}
+
+/* Contenido */
+.manual-content {
+    background-color: #1a1d21;
+    border: 1px solid #2d3038;
+    border-radius: 5px;
+    padding: 18px 26px 22px;
+    min-height: calc(100vh - 4rem);
+}
+.manual-breadcrumb { font-size: 0.72rem; margin-bottom: 2px; }
+.manual-title {
+    font-size: 1.3rem !important;
+    color: #e6edf3;
+    margin-bottom: 4px;
+}
+.manual-goto {
+    display: inline-block;
+    font-size: 0.72rem;
+    color: #38bdf8 !important;
+    text-decoration: none !important;
+    margin-bottom: 10px;
+}
+.manual-goto:hover { text-decoration: underline !important; }
+
+/* Cuerpo Markdown — el manual se lee, no se escanea: interlineado y ancho
+   de línea cómodos, a diferencia del resto de la app que es densa. */
+.manual-body {
+    font-size: 0.85rem;
+    line-height: 1.65;
+    color: #c9d1d9;
+    max-width: 60rem;
+}
+.manual-body h1 { font-size: 1.2rem !important; }
+.manual-body h2 {
+    font-size: 1.02rem !important;
+    color: #e6edf3;
+    margin: 22px 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #2d3038;
+}
+.manual-body h3 {
+    font-size: 0.92rem !important;
+    color: #dbe3ea;
+    margin: 16px 0 6px;
+}
+.manual-body h4 {
+    font-size: 0.85rem !important;
+    color: #b6bec8;
+    margin: 12px 0 4px;
+}
+.manual-body p { margin-bottom: 10px; }
+.manual-body ul, .manual-body ol { margin-bottom: 10px; padding-left: 22px; }
+.manual-body li { margin-bottom: 3px; }
+.manual-body a { color: #38bdf8; }
+.manual-body strong { color: #e6edf3; }
+.manual-body code {
+    background-color: #111827;
+    color: #7dd3fc;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.78rem;
+}
+.manual-body pre {
+    background-color: #111827;
+    border: 1px solid #2d3038;
+    border-radius: 4px;
+    padding: 10px 12px;
+    overflow-x: auto;
+}
+.manual-body pre code {
+    background-color: transparent;
+    padding: 0;
+    color: #c9d1d9;
+    font-size: 0.75rem;
+}
+.manual-body blockquote {
+    border-left: 3px solid #38bdf8;
+    background-color: #172033;
+    margin: 10px 0;
+    padding: 7px 14px;
+    color: #b6bec8;
+}
+.manual-body blockquote p:last-child { margin-bottom: 0; }
+.manual-body table {
+    width: auto;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 0.79rem;
+}
+.manual-body th {
+    text-align: left;
+    color: #9ca3af;
+    font-weight: 600;
+    padding: 5px 12px 5px 0;
+    border-bottom: 1px solid #374151;
+}
+.manual-body td {
+    padding: 4px 12px 4px 0;
+    border-bottom: 1px solid #23272e;
+    vertical-align: top;
+}
+.manual-body hr { border-color: #2d3038; margin: 18px 0; }
+
+/* Navegación anterior / siguiente */
+.manual-footer-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 26px;
+    padding-top: 12px;
+    border-top: 1px solid #2d3038;
+}
+.manual-nav-link {
+    font-size: 0.78rem;
+    color: #38bdf8 !important;
+    text-decoration: none !important;
+}
+.manual-nav-link:hover { text-decoration: underline !important; }
