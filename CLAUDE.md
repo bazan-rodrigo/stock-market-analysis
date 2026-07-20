@@ -46,6 +46,17 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   registro la ruta da 404. `tests/test_module_registration.py` lo verifica
   (falla la suite si un módulo queda sin registrar). Sumar también el link
   en `app/components/navbar.py`.
+- **Pantalla nueva = documentarla en el manual.** Toda ruta registrada exige su
+  sección en `docs/manual/` (un `.md` con `page: <ruta>` en el front-matter) y
+  su ícono de ayuda: `page_header("Título", "<slug>")` o `help_link("<slug>")`,
+  o `help_slug=` si usa `make_abm_layout`. `tests/test_manual_coverage.py` ata
+  el manual al código y falla la suite si una pantalla queda sin documentar, si
+  un `?` apunta a un slug inexistente, o si un `page:`/enlace apunta a una ruta
+  que no existe. Convenciones del contenido: español rioplatense (vos/tenés),
+  cero menciones a archivos/tablas/IDs de componentes (el lector no programa),
+  y `roles:` jerárquico (`invitado` < `analista` < `admin`; ausente = visible
+  para todos). El servicio y el diseño están en `app/services/manual_service.py`.
+  Rutas utilitarias sin sección van a la lista `excluidas` del test.
 - **Estrategias:** cuando el usuario pide una estrategia, entregarla como archivos
   de import en `strategy_packs/` (`<pack>_senales.xlsx` + `<pack>_estrategia.xlsx`),
   no como pasos manuales. Validar offline con `signal_engine.validate_params` y
