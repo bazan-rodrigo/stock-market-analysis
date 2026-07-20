@@ -166,6 +166,34 @@ def _one_year_before(d: date) -> date:
         return date(d.year - 1, d.month, 28)
 
 
+# Versiones VECTORIZADAS de las conversiones de fecha de relative_strength_52w,
+# que las hacía con list-comprehensions y un loop por barra (medido en el
+# profile: 180k toordinal + 60k _one_year_before por activo). Mismo criterio
+# que la máscara de _pairs_to_write: el costo estaba en el dispatch por
+# elemento, no en la aritmética.
+_ORDINAL_EPOCH = date(1970, 1, 1).toordinal()   # 719163
+
+
+def _dates_to_ordinals(dates) -> np.ndarray:
+    """Equivalente exacto a np.array([d.toordinal() for d in dates])."""
+    dt = pd.to_datetime(pd.Series(list(dates)))
+    return dt.values.astype("datetime64[D]").astype(np.int64) + _ORDINAL_EPOCH
+
+
+def _one_year_before_ordinals(dates) -> np.ndarray:
+    """Equivalente exacto a [_one_year_before(d).toordinal() for d in dates].
+
+    Conserva la regla del 29/2: es el ÚNICO día sin equivalente el año
+    anterior (un año bisiesto nunca sigue a otro, van de 4 en 4), así que
+    basta con mapear 29/2 → 28/2; cualquier otro (mes, día) válido en un año
+    lo es también en el anterior."""
+    dt  = pd.to_datetime(pd.Series(list(dates)))
+    day = np.where((dt.dt.month == 2) & (dt.dt.day == 29), 28, dt.dt.day)
+    ref = pd.to_datetime(pd.DataFrame(
+        {"year": dt.dt.year - 1, "month": dt.dt.month, "day": day}))
+    return ref.values.astype("datetime64[D]").astype(np.int64) + _ORDINAL_EPOCH
+
+
 def _regime_detail(regime: str, bars: int, slope_last: float,
                    threshold_pct: float, nascent_bars: int, strong_mult: float) -> str:
     is_nascent = bars < nascent_bars
@@ -993,15 +1021,13 @@ def _bf_relative_strength_52w(df, df_w, df_m, session, asset_id, price_cache=Non
             return [None] * n
         bm_df = pd.DataFrame(bm_rows, columns=["date", "close"])
 
-    bm_ords   = np.array([d.toordinal() for d in bm_df["date"]])
+    bm_ords   = _dates_to_ordinals(bm_df["date"])
     bm_closes = bm_df["close"].values.astype(float)
-    a_ords    = np.array([d.toordinal() for d in df["date"]])
+    a_ords    = _dates_to_ordinals(df["date"])
     a_cls     = df["close"].values.astype(float)
 
     # Ordinal de referencia (52 semanas atrás) para cada fecha
-    ref_ords = np.empty(n, dtype=np.int64)
-    for i, d in enumerate(df["date"]):
-        ref_ords[i] = _one_year_before(d).toordinal()
+    ref_ords = _one_year_before_ordinals(df["date"])
 
     def _vlkup(ords, closes, targets):
         idx = np.searchsorted(ords, targets, side="right") - 1
