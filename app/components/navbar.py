@@ -18,8 +18,6 @@ def build_navbar() -> dbc.Navbar:
             dbc.DropdownMenuItem("Historial de Señales",  href="/historial-senales"),
             dbc.DropdownMenuItem("Evolución de Estrategia", href="/evolucion-estrategia"),
             dbc.DropdownMenuItem("Backtest de Estrategia",  href="/backtest"),
-            dbc.DropdownMenuItem(divider=True),
-            dbc.DropdownMenuItem("Carteras",                href="/carteras"),
         ],
         nav=True, in_navbar=True,
     )
@@ -64,6 +62,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Señales",              href="/admin/signals"),
                     dbc.DropdownMenuItem("Estrategias",          href="/admin/strategies"),
+                    dbc.DropdownMenuItem("Carteras",             href="/carteras"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Indicadores",          href="/admin/indicators"),
                     dbc.DropdownMenuItem("Fuentes de datos",     href="/admin/price-sources"),
@@ -105,6 +104,7 @@ def build_navbar() -> dbc.Navbar:
                 children=[
                     dbc.DropdownMenuItem("Señales",     href="/admin/signals"),
                     dbc.DropdownMenuItem("Estrategias", href="/admin/strategies"),
+                    dbc.DropdownMenuItem("Carteras",    href="/carteras"),
                 ],
                 nav=True, in_navbar=True,
             ))
