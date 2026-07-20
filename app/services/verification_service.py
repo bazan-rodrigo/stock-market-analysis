@@ -197,6 +197,67 @@ def _values_equal(fresh, stored) -> bool:
     return diff <= _TOL or diff <= _REL_TOL * max(abs(f), abs(s))
 
 
+def _diff_masks(code: str, fresh: dict, stored: dict) -> tuple:
+    """(fechas_con_valor_distinto, {fecha: motivo_de_sanidad}).
+
+    Equivalente EXACTO a llamar _values_equal y check_sanity una vez por
+    fecha, pero resuelto con operaciones de array. Motivo: en una serie de
+    16k barras esas dos funciones se llamaban ~16k veces cada una sólo para
+    descubrir que no hay ninguna diferencia (el caso normal).
+
+    Si los valores no son convertibles a float (códigos categóricos, o una
+    mezcla) cae al camino escalar original, que sigue siendo la referencia
+    de semántica.
+    """
+    # ── valores distintos: sólo las fechas presentes en AMBOS lados ──
+    common = [d for d in fresh if d in stored]
+    neq: set = set()
+    if common:
+        try:
+            f = np.asarray([fresh[d] for d in common], dtype=float)
+            s = np.asarray([stored[d] for d in common], dtype=float)
+        except (TypeError, ValueError):
+            f = None
+        if f is None:
+            # algún valor no es numérico: _values_equal compara como texto
+            neq = {d for d in common if not _values_equal(fresh[d], stored[d])}
+        else:
+            # mismas operaciones que _values_equal, vectorizadas
+            diff = np.abs(f - s)
+            eq = ((diff <= _TOL)
+                  | (diff <= _REL_TOL * np.maximum(np.abs(f), np.abs(s))))
+            neq = {d for d, ok in zip(common, eq) if not ok}
+
+    # ── sanidad: sólo sobre los valores frescos ──
+    sanity: dict = {}
+    if code in _CATEGORICAL_VALUES:
+        allowed = _CATEGORICAL_VALUES[code]
+        for d, v in fresh.items():
+            if str(v) not in allowed:
+                sanity[d] = f"categoría desconocida para {code}: {v!r}"
+    else:
+        bounds = _NUMERIC_BOUNDS.get(code)
+        # sin bounds, check_sanity siempre devuelve None: no hay nada que ver
+        if bounds is not None and fresh:
+            lo, hi = bounds
+            dates = list(fresh)
+            try:
+                arr = np.asarray([fresh[d] for d in dates], dtype=float)
+            except (TypeError, ValueError):
+                arr = None
+            if arr is None:
+                for d, v in fresh.items():
+                    msg = check_sanity(code, v)
+                    if msg:
+                        sanity[d] = msg
+            else:
+                # sólo se itera sobre las violaciones (normalmente ninguna)
+                for i in np.flatnonzero(~((arr >= lo) & (arr <= hi))):
+                    sanity[dates[i]] = (
+                        f"fuera de rango [{lo},{hi}] para {code}: {float(arr[i])}")
+    return neq, sanity
+
+
 def verify_asset_code(session, code: str, asset_id: int, df, df_w, df_m,
                       regime_cfg, vol_cfg, stored: dict) -> list:
     """Devuelve la lista de diferencias (fecha, motivo, guardado, fresco,
@@ -210,7 +271,26 @@ def verify_asset_code(session, code: str, asset_id: int, df, df_w, df_m,
         price_cache=None, best_sma_cache=None,
     )
     dates_list, vals_list = _series_dates_values(values, df)
-    fresh = {d: v for d, v in zip(dates_list, vals_list) if pd.notna(v)}
+    return _diffs_for_series(code, dates_list, vals_list, stored)
+
+
+def _diffs_for_series(code: str, dates_list: list, vals_list: list,
+                      stored: dict) -> list:
+    """La parte de verify_asset_code posterior al cálculo de la serie:
+    compara lo fresco contra lo guardado. Separada para poder medirla y
+    testearla sin recomputar el indicador (ver scripts/bench_verify_asset_code.py)."""
+    # máscara vectorizada en vez de un pd.notna por valor (mismo criterio que
+    # _pairs_to_write en technical_service)
+    notna_mask = pd.notna(vals_list) if vals_list else ()
+    fresh = {d: v for d, v, ok in zip(dates_list, vals_list, notna_mask) if ok}
+
+    neq, sanity_by_date = _diff_masks(code, fresh, stored)
+
+    # Caso normal: mismas fechas a ambos lados, ningún valor distinto y
+    # ninguno fuera de rango -> no hay nada que reportar, y se evita recorrer
+    # la serie entera para confirmarlo.
+    if not neq and not sanity_by_date and fresh.keys() == stored.keys():
+        return []
 
     diffs = []
     for d in sorted(set(fresh) | set(stored)):
@@ -221,11 +301,11 @@ def verify_asset_code(session, code: str, asset_id: int, df, df_w, df_m,
         elif fv is not None and sv is None:
             kind = "falta en DB (¿el delta no la escribió?)"
             diffs.append((d, kind, sv, fv, _diff_category(kind)))
-        elif not _values_equal(fv, sv):
+        elif d in neq:
             kind = "valor distinto"
             diffs.append((d, kind, sv, fv, _diff_category(kind)))
         if fv is not None:
-            sanity = check_sanity(code, fv)
+            sanity = sanity_by_date.get(d)
             if sanity:
                 diffs.append((d, sanity, sv, fv, _diff_category(sanity)))
     return diffs
