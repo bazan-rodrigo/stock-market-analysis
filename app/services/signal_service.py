@@ -680,7 +680,7 @@ def import_signals_excel(file_bytes: bytes,
     """Importación todo-o-nada en dos pasadas: primero se valida el archivo
     completo sin tocar la base; solo si no hay errores se escribe todo.
 
-    La columna `publica` (sí/no; ausente = sí) define la visibilidad de
+    La columna `publica` (sí/no; ausente = PRIVADA) define la visibilidad de
     cada fila. owner_id = quien importa: queda como dueño de las señales
     NUEVAS (las existentes conservan su dueño)."""
     import openpyxl
@@ -722,7 +722,7 @@ def import_signals_excel(file_bytes: bytes,
         group_type    = str(data.get("group_type") or "").strip()
         error = None
         params = None
-        is_public = True
+        is_public = False   # solo se usa si parse_publica lanza; default privado
         try:
             is_public = parse_publica(data.get("publica"))
         except ValueError as exc:

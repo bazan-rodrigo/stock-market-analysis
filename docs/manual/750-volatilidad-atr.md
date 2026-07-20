@@ -34,9 +34,14 @@ del tiempo, no para comparar activos entre sí. Para eso último está el valor
 numérico del percentil, que sí es comparable porque todos están en la misma
 escala 0-100.
 
-Los cortes se recalculan sobre **toda la historia disponible**, no sobre una
-ventana móvil. Una franja marcada "alta" en 2008 es alta contra la historia
-completa del activo, la de hoy incluida.
+Los cortes se recalculan sobre **toda la historia disponible** del activo, no
+sobre una ventana móvil: una franja marcada "alta" en 2008 es alta contra la
+historia completa, la de hoy incluida.
+
+La excepción es el valor **vigente**, el que muestra el screener: ese se calcula
+solo sobre los últimos cuatro años de cotizaciones aproximadamente. En un activo
+con historia muy larga, el régimen que ves en el screener y el de la última
+franja del gráfico pueden no coincidir.
 
 ---
 
@@ -70,9 +75,10 @@ es en realidad la banda **entre P_alto y P_extremo**: si los ponés muy juntos
 | **Duración corta (%)** | 10 a 49 | Tramos cuya duración queda en ese percentil o menos → **corta**. |
 | **Duración larga (%)** | 51 a 95 | Tramos que llegan a ese percentil o más → **larga**. En el medio → **media**. |
 
-Al guardar se validan dos condiciones: **P_bajo < P_alto < P_extremo** y
-**duración corta < duración larga**. Si no se cumplen, la pantalla avisa y no
-guarda nada.
+Al guardar se valida primero que **no falte ningún campo**, y después dos
+condiciones de orden: **P_bajo < P_alto < P_extremo** y **duración corta <
+duración larga**. Si algo de eso no se cumple, la pantalla avisa y no guarda
+nada.
 
 ---
 
@@ -125,9 +131,9 @@ según el régimen vigente en cada tramo, siguiendo la frecuencia elegida (D/W/M
 | **baja** | azul |
 
 Al lado del control aparece la **etiqueta del régimen vigente** con su duración
-(por ejemplo *Alta | Larga*), en el color del régimen. Y pasando el mouse sobre
-una franja se ve el detalle de ese tramo: régimen, duración y el percentil de
-ATR al cierre del tramo, anotado como `85p`.
+(por ejemplo *Alta | Larga*), en el color del régimen. El sombreado no trae
+detalle por tramo: el percentil de ATR de cada franja no se muestra en el
+gráfico.
 
 **En el resto del sistema**, como indicadores calculados que podés usar en
 señales, filtros y estrategias:
@@ -143,10 +149,17 @@ señales, filtros y estrategias:
 
 ## Después de guardar
 
-> Guardar **no recalcula nada**. Los parámetros nuevos no se aplican hasta que
-> corras la actualización de indicadores técnicos desde el
-> [Centro de Datos](/manual/centro-de-datos). Hasta entonces el gráfico y el
-> screener siguen mostrando la clasificación vieja.
+> Guardar **no recalcula los indicadores**. El sombreado del gráfico técnico es
+> la única excepción: se arma en el momento con los parámetros vigentes, así que
+> muestra los valores nuevos apenas recargás la pantalla. La **etiqueta del
+> régimen vigente**, el screener y todo lo que consuma *Volatility* o *ATR
+> Percentile* siguen con la clasificación vieja hasta que corras la
+> actualización de indicadores técnicos desde el
+> [Centro de Datos](/manual/centro-de-datos).
+
+> Ojo con el efecto secundario: justo después de guardar, y hasta que recalcules,
+> el sombreado del gráfico y la etiqueta que está al lado pueden **contradecirse**
+> — uno ya usa los parámetros nuevos y la otra todavía no.
 
 Como cambiar estos parámetros reescribe la historia **completa** de los
 indicadores de volatilidad —no solo el último día—, tené en cuenta el efecto

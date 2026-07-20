@@ -465,3 +465,56 @@ def test_strategy_topn_missing_table():
     # crea la tabla vacía y el resultado llega a [] por last_date is None, no por
     # la rama `except`; el resultado observable es el mismo.)
     assert ps.resolve_membership(s, p.id) == []
+
+
+# ── Regla de referencias: cartera pública no deriva de estrategia privada ──────
+
+def _mk_strategy(s, sid, *, is_public):
+    from app.models import Strategy
+    s.add(Strategy(id=sid, name=f"E{sid}", is_public=is_public, owner_id=1))
+    s.commit()
+
+
+def test_cartera_publica_no_puede_derivar_de_estrategia_privada():
+    s = _session()
+    _mk_strategy(s, 501, is_public=False)
+    with pytest.raises(ValueError, match="privada"):
+        ps.create_portfolio(s, "Pub", "seg", owner_id=1, is_public=True,
+                            composition_method="strategy", strategy_id=501)
+
+
+def test_cartera_publica_si_puede_derivar_de_estrategia_publica():
+    s = _session()
+    _mk_strategy(s, 502, is_public=True)
+    p = ps.create_portfolio(s, "Pub", "seg", owner_id=1, is_public=True,
+                            composition_method="strategy", strategy_id=502)
+    assert p.id is not None
+
+
+def test_cartera_privada_puede_derivar_de_estrategia_privada():
+    s = _session()
+    _mk_strategy(s, 503, is_public=False)
+    p = ps.create_portfolio(s, "Priv", "seg", owner_id=1, is_public=False,
+                            composition_method="strategy", strategy_id=503)
+    assert p.id is not None
+
+
+def test_cartera_curada_publica_no_se_ve_afectada_por_la_regla():
+    """La regla solo aplica a carteras derivadas de estrategia."""
+    s = _session()
+    p = ps.create_portfolio(s, "Curada", "seg", owner_id=1, is_public=True,
+                            composition_method="curated")
+    assert p.id is not None
+
+
+def test_public_ref_error_es_pura_y_tolera_estrategia_inexistente():
+    s = _session()
+    # Estrategia que no existe: se tolera (igual que el resto del servicio)
+    assert ps.public_ref_error(s, is_public=True,
+                               composition_method="strategy",
+                               strategy_id=9999) is None
+    # Cartera privada: nunca es problema
+    _mk_strategy(s, 504, is_public=False)
+    assert ps.public_ref_error(s, is_public=False,
+                               composition_method="strategy",
+                               strategy_id=504) is None

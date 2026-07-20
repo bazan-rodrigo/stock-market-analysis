@@ -28,9 +28,9 @@ resistencia si su **máximo** es el más alto de todo su entorno, contando
 **mínimo** más bajo. Con ventana 5, el máximo de esa rueda tiene que ser el más
 alto entre las 5 anteriores, ella misma y las 5 posteriores: 11 barras en total.
 
-**3. Se agrupan los pivotes cercanos en zonas.** Dos pivotes que estén a menos
-de **Agrupamiento %** de distancia se fusionan en un solo nivel, cuyo precio es
-el promedio de los pivotes que lo componen. Las zonas que no llegan a **Mín.
+**3. Se agrupan los pivotes cercanos en zonas.** Dos pivotes separados por hasta
+**Agrupamiento %** de distancia —el valor exacto incluido— se fusionan en un solo
+nivel, cuyo precio es el promedio de los pivotes que lo componen. Las zonas que no llegan a **Mín.
 toques** se descartan y no se dibujan.
 
 ## Los parámetros
@@ -117,9 +117,11 @@ debajo de eso no se dibuja ningún nivel y las distancias quedan vacías.
 > Análisis de Activo calcula los niveles en el momento, así que refleja los
 > valores nuevos apenas lo abrís. En cambio, los indicadores de distancia a
 > soporte y a resistencia que consumen el screener y las señales quedan con los
-> parámetros viejos hasta que **recalcules los indicadores**. Hasta entonces vas
-> a ver el gráfico y el screener en desacuerdo — el propio mensaje de guardado te
-> lo recuerda.
+> parámetros viejos hasta el **próximo recálculo de indicadores**: el que
+> disparás a mano desde **Actualización de Precios**, o el que corre solo cada
+> vez que se actualizan los precios de un activo. Hasta entonces vas a ver el
+> gráfico y el screener en desacuerdo — el propio mensaje de guardado te lo
+> recuerda.
 
 > **El lookback muy largo no se traslada entero al indicador.** El valor vigente
 > que usan screener y señales se calcula sobre una ventana acotada a

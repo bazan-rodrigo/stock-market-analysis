@@ -285,8 +285,11 @@ def layout(**kwargs):
                      dbc.Input(id="bt-wf-cost", type="number", value=0, min=0,
                                size="sm", style=_IN)], md=2),
         ], className="g-2"),
+        # Decía "por retorno del gated", contradiciendo al recuadro de arriba
+        # (que dice Sharpe). El criterio real es Sharpe: _wf_score() en
+        # portfolio_backtest_service usa portfolio_metrics.sharpe.
         html.Small("Optimiza top-N ∈ {10, 20, 30} × trailing ∈ {10, 15, 20}% "
-                   "por retorno del gated en cada train.",
+                   "por Sharpe del gated en cada train.",
                    className="text-muted"),
         html.Div(dbc.Button("Correr walk-forward", id="bt-wf-run",
                             color="primary", size="sm"), className="mt-2"),

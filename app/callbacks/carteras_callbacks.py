@@ -180,6 +180,14 @@ def save(_n, name, ptype, currency, is_public, method, strategy_id, topn,
                 return err("La cartera ya no existe.")
             if not can_edit(p.owner_id, user_id, is_admin):
                 return err("No tenés permiso para editar esta cartera.")
+            # Marcar pública una cartera derivada de una estrategia privada
+            # filtraría esa estrategia: misma regla que estrategia→señal.
+            ref_err = svc.public_ref_error(
+                s, is_public=bool(is_public),
+                composition_method=p.composition_method,
+                strategy_id=p.strategy_id)
+            if ref_err:
+                return err(ref_err)
             p.name = name
             p.ptype = ptype
             p.base_currency = currency
@@ -192,6 +200,11 @@ def save(_n, name, ptype, currency, is_public, method, strategy_id, topn,
                 return err("Elegí una estrategia para la cartera derivada.")
             if comp == "curated" and not members:
                 return err("Elegí al menos un activo para la cartera curada.")
+            ref_err = svc.public_ref_error(
+                s, is_public=bool(is_public), composition_method=comp,
+                strategy_id=(strategy_id if comp == "strategy" else None))
+            if ref_err:
+                return err(ref_err)
             new_p = svc.create_portfolio(
                 s, name, ptype, owner_id=user_id, is_public=bool(is_public),
                 base_currency=currency, composition_method=comp,

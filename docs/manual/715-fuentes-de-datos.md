@@ -25,7 +25,7 @@ Cada tarjeta trae una descripción y estos datos:
 | Dato de la tarjeta | Qué dice |
 |---|---|
 | **Mecanismo** | Cómo obtiene los datos: una librería, una API pública o un cálculo interno. |
-| **Notas** | Restricciones de la fuente — qué tickers acepta, qué tipo de activos cubre. |
+| **Notas** | Solo en precios: restricciones de la fuente — qué tickers acepta, qué tipo de activos cubre. |
 | **Campos** | Solo en fundamentales: qué conceptos de balance trae. |
 
 Acá no se da de alta, ni se edita, ni se borra nada: es informativa. Sirve para
@@ -58,18 +58,26 @@ responder, antes de cargar un activo, **"¿de dónde puedo sacar esto?"**.
 
 En la importación, el nombre de la fuente tiene que coincidir **exactamente** con
 el que muestra esta pantalla; si no coincide, la fila se rechaza con el error
-"Fuente no encontrada". Ojo con la asimetría: si el nombre que no coincide es el
-de la **fuente de fundamentales**, la fila **se importa igual** y el activo queda
-sin fuente de fundamentales, sin ningún aviso. Después de importar conviene
+"Fuente 'lo-que-hayas-escrito' no encontrada" —el nombre que pusiste aparece
+entre comillas dentro del mensaje—. Ojo con la asimetría: si el nombre que no
+coincide es el de la **fuente de fundamentales**, la fila **se importa igual** y
+el activo queda sin fuente de fundamentales, sin ningún aviso. Después de importar conviene
 revisar esa columna en el listado de activos.
 
 ### Autocompletar y validación del ticker
 
 El botón **Autocompletar desde fuente** del alta le pregunta a la fuente elegida
 si el ticker existe y trae los datos que tenga (nombre, país, moneda, mercado,
-sector, industria). Sirve como validación previa: si la fuente no reconoce el
-ticker, avisa y no completa nada. La importación hace esa misma verificación en
-cada fila.
+tipo de instrumento, sector, industria). Sirve como validación previa: si la
+fuente no reconoce el ticker, avisa y no completa nada. La importación hace esa
+misma verificación en cada fila.
+
+> **El autocompletado no es una consulta inocua: puede dar de alta valores de
+> referencia.** Si el país, la moneda, el mercado, el tipo de instrumento, el
+> sector o la industria que devuelve la fuente todavía no existen en el sistema,
+> los crea en el momento y te los lista en el mensaje de confirmación
+> ("Creados: …"). Leé ese mensaje: es la única señal de que se agregó algo nuevo
+> a esas listas.
 
 > **Con la fuente Calculado, el autocompletado siempre dice que sí y no completa
 > nada.** No hay proveedor externo al que preguntarle, así que no valida ni trae
@@ -93,8 +101,11 @@ tiene la fuente asignada — ver
 ## Qué pasa cuando una fuente falla
 
 Las fallas son **por activo y no cortan la corrida**: los demás siguen
-actualizándose normalmente. Cada intento queda registrado con su resultado y el
-motivo exacto en [Actualización de precios](/manual/actualizacion-de-precios).
+actualizándose normalmente. El **último intento** de cada activo queda registrado
+con su resultado y el motivo exacto en
+[Actualización de precios](/manual/actualizacion-de-precios). Tené en cuenta que
+cada corrida pisa el registro anterior: no hay historial de intentos previos, así
+que si necesitás el detalle de una falla, miralo antes de volver a correr.
 
 Lo importante es que **una descarga fallida no destruye lo que ya tenías**: el
 borrado del historial y la escritura de los datos nuevos ocurren juntos, así que
@@ -110,9 +121,11 @@ Los errores más comunes y qué significan:
 | "Sin fórmula" en un activo **Calculado** | El activo quedó marcado como calculado pero nunca se le definió la fórmula. Va a fallar en cada actualización hasta que se la crees. |
 
 Cuando la caída es del proveedor y no del ticker (una demora, un bloqueo por
-exceso de pedidos), la actualización general **reintenta esos activos uno por
-uno** después de la descarga en bloque. Por eso una corrida puede terminar bien
-aunque en el momento hubiera habido intermitencia.
+exceso de pedidos), la actualización general **reintenta uno por uno** los
+activos de Yahoo Finance que la descarga en bloque no haya traído. Por eso una
+corrida puede terminar bien aunque en el momento hubiera habido intermitencia.
+Ambito y Calculado no se descargan en bloque: ahí hay un solo intento por
+corrida.
 
 ## Dos sutilezas que sorprenden
 
@@ -121,8 +134,10 @@ llega corregida por splits y dividendos, o sea que un precio de hace cinco años
 puede cambiar hoy si el activo pagó un dividendo o dividió su acción. La
 actualización diaria no lo detecta: solo mira desde el último día guardado hacia
 adelante. Cuando sospeches que la fuente reescribió la historia, la única forma
-de alinearla es **Redescargar completo** sobre ese activo, que es la operación
-más pesada de la pantalla de precios — usala sobre una selección chica.
+de alinearla es **Redescargar completo (seleccionados)** sobre ese activo, que es
+la operación más pesada de la pantalla de precios — usala sobre una selección
+chica. No la confundas con **Redescargar completo** del Centro de Datos, que
+corre sobre todos los activos.
 
 **Cambiarle la fuente a un activo que ya tiene historia no borra esa historia.**
 La próxima actualización sigue desde el último día guardado, pero pidiéndoselo al

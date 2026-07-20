@@ -7,9 +7,7 @@ roles: invitado
 page: /scatter
 ---
 
-> Esta pantalla está disponible pero **no tiene enlace en el menú de
-> navegación**: se llega escribiendo la dirección `/scatter` en el navegador.
-> Conviene guardarla en favoritos si la vas a usar seguido.
+Se llega desde **Análisis → Correlación de Precios**.
 
 Enfrenta **dos activos en un gráfico de dispersión**: cada punto es un día, con
 el precio de cierre del primer activo en el eje horizontal y el del segundo en
@@ -106,27 +104,28 @@ el origen.
 ## Las estadísticas del pie, y cómo no malinterpretarlas
 
 Debajo del gráfico se informan la cantidad de puntos, el rango de fechas
-cubierto y la **correlación** entre las dos series (solo si hay más de dos
-puntos). Va de −1 a +1: +1 es relación positiva perfecta, −1 inversa perfecta,
-0 ninguna relación lineal.
+cubierto y la **correlación de los retornos diarios** entre los dos activos
+(solo si hay más de dos puntos). Va de −1 a +1: +1 es relación positiva
+perfecta, −1 inversa perfecta, 0 ninguna relación lineal.
 
-Ese número merece dos advertencias, y son importantes.
-
-> **La correlación se calcula sobre los precios, no sobre los retornos.** Dos
-> activos que simplemente subieron a lo largo de los años van a dar una
-> correlación altísima aunque no tengan absolutamente nada que ver entre sí:
-> lo que comparten es la tendencia, no el comportamiento. Este número mide
-> "¿estuvieron caros al mismo tiempo?", que es una pregunta distinta de
-> "¿se mueven juntos día a día?". Para la segunda, la nube y su forma dicen
-> mucho más que el coeficiente.
+> **La correlación se mide sobre los retornos, no sobre los niveles de precio.**
+> Es una distinción que importa: dos activos que simplemente subieron a lo
+> largo de los años comparten la tendencia, y si se los correlacionara por
+> precio darían casi 1 aunque su comportamiento diario no tenga nada que ver.
+> Al calcularla sobre las variaciones diarias, el coeficiente responde la
+> pregunta que realmente interesa —"¿se mueven juntos día a día?"— y no la
+> engañosa "¿estuvieron caros al mismo tiempo?".
+>
+> Ojo entonces con la nube: **la nube es de precios** (cada punto es el par de
+> cierres de un día), pero **el coeficiente es de retornos**. Miden cosas
+> distintas a propósito, y por eso una nube que sube prolija puede venir
+> acompañada de una correlación baja.
 
 > **Correlación no es causalidad.** Que dos series se muevan juntas no dice cuál
 > mueve a cuál, ni descarta que un tercer factor mueva a las dos. Un R² alto es
 > un punto de partida para investigar, nunca una conclusión.
 
-Una correlación de precios cercana a 1 entre un activo y su índice, entonces,
-es casi lo esperable y no informa demasiado. Lo informativo suele ser lo
-contrario: una nube que se **parte en dos zonas**, o un tramo reciente de color
-claro que se aleja de la diagonal que siguieron todos los años anteriores. Eso
-es un cambio de régimen en la relación, y se ve a ojo mucho antes que en
-cualquier número.
+Lo más informativo suele ser lo que rompe el patrón: una nube que se **parte en
+dos zonas**, o un tramo reciente de color claro que se aleja de la diagonal que
+siguieron todos los años anteriores. Eso es un cambio de régimen en la relación,
+y se ve a ojo mucho antes que en cualquier número.

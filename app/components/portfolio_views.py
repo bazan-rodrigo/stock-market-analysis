@@ -116,12 +116,36 @@ def distribution_figure(rets, bins=21, title=None):
     return _layout(fig, title, "# trades", "", height=260)
 
 
+# Etiquetas de los motivos de salida del simulador (trade_simulator._close_trade).
+# El gráfico mostraba las claves crudas en inglés y con guiones bajos
+# ("stop_loss", "absolute") en medio de una interfaz en español; "absolute" era
+# especialmente opaco porque no dice que corresponde a la salida por Score <.
+EXIT_REASON_LABELS = {
+    "filter":         "Dejó de ser elegible",
+    "max_bars":       "Máximo de ruedas",
+    "stop_loss":      "Stop loss (SL%)",
+    "trailing_stop":  "Trailing stop (TS%)",
+    "take_profit":    "Take profit (TP%)",
+    "absolute":       "Score bajo el nivel",
+    "absolute_above": "Score sobre el nivel",
+    "delta_entry":    "Score cayó Δ desde la entrada",
+    "trailing_score": "Score cayó Δ desde el máximo",
+    "score_ma":       "Score bajo su media",
+    "percentile":     "Percentil bajo el umbral",
+}
+
+
+def exit_reason_label(reason):
+    """Etiqueta legible de un motivo de salida; si es desconocido, la clave."""
+    return EXIT_REASON_LABELS.get(reason, reason)
+
+
 def exit_reason_figure(breakdown, title=None):
     """Barras horizontales: cantidad de cierres por motivo de salida."""
     reasons = list(breakdown.keys())
     counts = [breakdown[r]["count"] for r in reasons]
-    fig = go.Figure(go.Bar(x=counts, y=reasons, orientation="h",
-                           marker_color=SERIES[1]))
+    fig = go.Figure(go.Bar(x=counts, y=[exit_reason_label(r) for r in reasons],
+                           orientation="h", marker_color=SERIES[1]))
     return _layout(fig, title, None, height=max(160, 34 * len(reasons) + 60))
 
 

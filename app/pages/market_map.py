@@ -182,16 +182,21 @@ def _legend_card():
                     className="mb-2", style={"fontSize": "0.85rem", "color": "#9ca3af"}),
             html.P([
                 html.Strong("Score de tendencia (−100 a +100): ", style={"color": "#e5e7eb"}),
-                "Promedio de los scores de régimen de todos los activos activos del grupo. "
-                "Cada activo recibe un score según su régimen técnico: "
-                "Alcista fuerte = +100, Alcista = +60, Lateral = 0, Bajista = −60, Bajista fuerte = −100.",
+                "Promedio de los scores de régimen de todos los activos del grupo. "
+                "Cada activo recibe un score según su régimen técnico, en diez "
+                "niveles: Alcista fuerte = +100, Alcista = +60, Lateral = 0, "
+                "Bajista = −60, Bajista fuerte = −100, más los cinco niveles "
+                "«nacientes» intermedios (±75, ±40 y +5) para los regímenes que "
+                "recién se están formando.",
             ], style=_st),
             html.P([
                 html.Strong("Columnas D / S / M: ", style={"color": "#e5e7eb"}),
                 "Score calculado sobre el régimen ",
-                html.Strong("D", style={"color": "#e5e7eb"}), "iario (EMA 200), ",
-                html.Strong("S", style={"color": "#e5e7eb"}), "emanal (EMA 50) y ",
-                html.Strong("M", style={"color": "#e5e7eb"}), "ensual (EMA 20) de cada activo.",
+                html.Strong("D", style={"color": "#e5e7eb"}), "iario, ",
+                html.Strong("S", style={"color": "#e5e7eb"}), "emanal y ",
+                html.Strong("M", style={"color": "#e5e7eb"}), "ensual de cada "
+                "activo. Cada frecuencia usa la media móvil de referencia que "
+                "fije la configuración de Régimen de Tendencia.",
             ], style=_st),
             html.P([
                 html.Strong("Categorías: ", style={"color": "#e5e7eb"}),

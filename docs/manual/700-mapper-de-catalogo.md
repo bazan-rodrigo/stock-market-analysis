@@ -22,18 +22,23 @@ tu catálogo. Lo hace en tres pasos, y se queda con el primero que funcione:
 
 | Paso | Qué busca | Resultado |
 |---|---|---|
-| 1 | Un **alias** ya registrado para ese texto exacto | Usa la entidad a la que el alias apunta. Nada nuevo se crea. |
+| 1 | Un **alias** ya registrado para ese texto | Usa la entidad a la que el alias apunta. Nada nuevo se crea. |
 | 2 | Una entidad del catálogo que se llame **igual** | La usa, y de paso registra el alias para la próxima vez. |
 | 3 | Nada de lo anterior | **Crea una entidad nueva** con ese texto como nombre, y registra el alias. |
 
-El paso 2 ignora mayúsculas y minúsculas: *Technology* y *technology* se
-consideran el mismo nombre. Pero **solo** eso. Cualquier otra diferencia —una
-traducción, una abreviatura, un punto de más— cae en el paso 3.
+Ni el paso 1 ni el paso 2 distinguen mayúsculas de minúsculas: *Technology* y
+*technology* se consideran el mismo texto. Los espacios sobrantes al principio y
+al final tampoco cuentan: se recortan antes de comparar. Fuera de eso, **casi
+cualquier otra diferencia** —una traducción, una abreviatura, un punto de más—
+cae en el paso 3.
 
 ## Qué pasa con un alias sin mapear
 
-Que el sistema no falla ni te avisa: crea una entidad nueva y sigue. El costo no
-se ve en el momento, se ve después. Terminás con *Technology* y *Tecnología* como
+Que el sistema no falla: crea una entidad nueva y sigue. Si venís del
+autocompletado de un activo, el aviso de la pantalla te lista lo que creó
+(*Creados: sector 'Technology'…*); si venís de una importación de lote, no te
+avisa nada. En los dos casos el costo no se ve en el momento, se ve después.
+Terminás con *Technology* y *Tecnología* como
 dos sectores distintos, cada uno con la mitad de los activos. Y como los
 agregados de grupo del [pipeline](/manual/conceptos-pipeline) se calculan por
 sector, mercado, industria, país y tipo de instrumento, un catálogo partido
@@ -70,7 +75,8 @@ recién al confirmar se ejecuta. Soltar una entidad sobre sí misma no hace nada
 
 La fusión hace tres cosas en un solo paso:
 
-1. **Reasigna** todo lo que dependía de la entidad de origen.
+1. **Reasigna** los activos y las relaciones que se listan abajo — no todo lo
+   que menciona a la entidad de origen.
 2. **Registra el nombre de la entidad de origen como alias** de la de destino,
    para que la próxima vez que la fuente mande ese texto se resuelva sola.
 3. **Elimina** la entidad de origen del catálogo.
@@ -117,6 +123,11 @@ entidad correcta.
 > catálogo; si esa entrada fue la que se eliminó, el filtro deja de seleccionar
 > activos y la estrategia se queda sin universo. Reapuntalo a la entidad que
 > sobrevivió.
+
+> **Si fusionaste países, revisá los eventos de mercado de ese país.** Los
+> eventos con alcance de país no viajan en la fusión: quedan atados al país que
+> se eliminó y dejan de aparecer en los gráficos de cualquier activo. Editalos y
+> reapuntalos al país que sobrevivió.
 
 > **La historia ya calculada no se rehace sola.** Los agregados de grupo y los
 > rankings guardados se calcularon con la agrupación anterior. Para que la

@@ -18,19 +18,64 @@ def get_asset_label(asset_id: int) -> str:
     return f"{a.ticker} — {a.name}" if a else str(asset_id)
 
 
-def get_paired_prices(asset1_id: int, asset2_id: int) -> list[dict]:
-    s = get_session()
-    p1 = s.query(Price.date, Price.close).filter(Price.asset_id == asset1_id).all()
-    p2 = s.query(Price.date, Price.close).filter(Price.asset_id == asset2_id).all()
+def get_paired_prices(asset1_id: int, asset2_id: int,
+                      date_from=None, date_to=None) -> list[dict]:
+    """Cierres de ambos activos en sus fechas en común, opcionalmente
+    acotados al rango.
 
-    df1 = pd.DataFrame(p1, columns=["date", "p1"]).set_index("date")
-    df2 = pd.DataFrame(p2, columns=["date", "p2"]).set_index("date")
+    El rango es opt-in: sin fechas devuelve la historia completa (es lo que
+    espera /scatter, que no tiene selector de fechas). Análisis de Pares sí
+    las pasa — antes no, y su solapa Correlación ignoraba en silencio el
+    rango que el usuario había elegido para las otras dos solapas.
+    """
+    s = get_session()
+    q1 = s.query(Price.date, Price.close).filter(Price.asset_id == asset1_id)
+    q2 = s.query(Price.date, Price.close).filter(Price.asset_id == asset2_id)
+    if date_from:
+        q1 = q1.filter(Price.date >= date_from)
+        q2 = q2.filter(Price.date >= date_from)
+    if date_to:
+        q1 = q1.filter(Price.date <= date_to)
+        q2 = q2.filter(Price.date <= date_to)
+
+    df1 = pd.DataFrame(q1.all(), columns=["date", "p1"]).set_index("date")
+    df2 = pd.DataFrame(q2.all(), columns=["date", "p2"]).set_index("date")
 
     df = df1.join(df2, how="inner").dropna().sort_index()
     return [
         {"date": str(row.Index), "p1": float(row.p1), "p2": float(row.p2)}
         for row in df.itertuples()
     ]
+
+
+def returns_correlation(xs: list[float], ys: list[float]) -> float | None:
+    """Correlación de Pearson sobre las VARIACIONES, no sobre los niveles.
+
+    Correlacionar precios mide recorrido compartido: dos activos que
+    simplemente subieron con el mercado dan coeficientes altísimos aunque sus
+    movimientos diarios no tengan nada que ver. Sobre retornos se mide lo que
+    la palabra "correlación" promete — si se mueven juntos.
+
+    Devuelve None si no hay suficientes puntos o si alguna serie es constante
+    (correlación indefinida: numpy devolvería nan con un warning).
+    """
+    import numpy as np
+
+    if not xs or not ys or len(xs) != len(ys) or len(xs) < 3:
+        return None
+    a = np.asarray(xs, dtype=float)
+    b = np.asarray(ys, dtype=float)
+    # Retorno simple entre cierres consecutivos; se descartan los pasos con
+    # precio previo cero o no positivo (un cero en la serie daría inf).
+    validos = (a[:-1] > 0) & (b[:-1] > 0)
+    if validos.sum() < 3:
+        return None
+    ra = (a[1:] / a[:-1] - 1.0)[validos]
+    rb = (b[1:] / b[:-1] - 1.0)[validos]
+    if ra.std() == 0 or rb.std() == 0:
+        return None
+    corr = float(np.corrcoef(ra, rb)[0, 1])
+    return None if corr != corr else corr        # descarta nan
 
 
 def get_events_with_coords(asset1_id: int, asset2_id: int,

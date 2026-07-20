@@ -115,23 +115,27 @@ el mismo que el de ahora.
 Debajo del gráfico queda la línea de resumen: cuántos puntos entraron, el rango
 de fechas y el **coeficiente de correlación** del par.
 
-### Dos advertencias sobre este número
+### Cómo leer el coeficiente
 
-> **La solapa Correlación ignora el rango de fechas y el botón Analizar.** Se
-> recalcula sola apenas cambiás alguno de los dos activos, y lo hace sobre
-> **toda la historia común disponible**, no sobre el período que elegiste
-> arriba. Las fechas que muestra la línea de resumen son las que realmente se
-> usaron: son esas y no las del panel.
+El **coeficiente de correlación** se calcula sobre los **retornos diarios** de
+los dos activos, no sobre sus niveles de precio. Es la medida de si se mueven
+juntos día a día: +1 en la misma dirección, −1 en sentidos opuestos, 0 sin
+relación. Respeta el rango de fechas y el botón **Analizar** igual que las otras
+dos solapas.
 
-La segunda advertencia es conceptual y pesa más. La correlación y el R² de esta
-solapa se calculan sobre **precios**, no sobre variaciones. Dos activos que
-simplemente subieron durante años dan correlación altísima aunque no tengan nada
-que ver entre sí: lo que comparten es la tendencia general, no el
-comportamiento. Leelo como *"estos precios acompañaron su recorrido"* y nunca
-como *"si uno se mueve, el otro lo sigue"*. Para esa segunda afirmación —la que
-de verdad importa para cubrirse o para diversificar— hace falta mirar
-variaciones diarias, que no es lo que esta pantalla muestra.
+> **La nube es de precios; el coeficiente es de retornos.** Miran cosas
+> distintas a propósito. La nube muestra si los precios recorrieron caminos
+> parecidos; el número, si las variaciones diarias van de la mano. Por eso una
+> nube que sube prolija —dos activos que simplemente subieron durante años—
+> puede venir con una correlación baja: comparten la tendencia, no el
+> comportamiento diario, y es este último el que importa para cubrirse o
+> diversificar.
 
-Un R² alto, entonces, dice sobre todo que ambos recorrieron caminos parecidos en
-el período. Es información útil para elegir pares candidatos, y un mal argumento
-para decidir una posición.
+> **Correlación no es causalidad.** Que se muevan juntos no dice cuál mueve a
+> cuál, ni descarta un tercer factor detrás de ambos. Un coeficiente alto es un
+> punto de partida para investigar, no una conclusión.
+
+El **R²** de la línea de tendencia, en cambio, se calcula sobre la nube (los
+precios): mide qué tan bien la curva describe esa relación de niveles. Un R²
+alto dice sobre todo que ambos recorrieron caminos parecidos en el período —
+útil para elegir pares candidatos, flojo para decidir una posición.

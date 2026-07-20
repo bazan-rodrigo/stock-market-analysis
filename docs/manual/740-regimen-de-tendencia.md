@@ -14,10 +14,11 @@ mensual). No se calcula al abrir una pantalla: es un indicador más del
 todas las fechas. Esta pantalla define **con qué reglas** se calcula, para todo
 el sistema a la vez — no hay configuración por activo ni por cartera.
 
-Lo que dependa de acá: el coloreado **Régimen** del gráfico y la solapa
-**Panel de Indicadores** del [Análisis de Activo](/manual/analisis-de-activo),
-el [Mapa de Tendencia](/manual/mapa-de-tendencia), las señales que usan la
-tendencia como insumo (y por lo tanto el
+Lo que dependa de acá: el coloreado **Régimen de Tendencia** del gráfico y la
+solapa **Panel de Indicadores** del
+[Análisis de Activo](/manual/analisis-de-activo), el
+[Mapa de Tendencia de Mercado](/manual/mapa-de-tendencia), las señales que
+usan la tendencia como insumo (y por lo tanto el
 [Screener](/manual/screener-de-senales) y los rankings de estrategia) y los
 agregados de tendencia por sector, mercado, industria, país y tipo de
 instrumento.
@@ -81,8 +82,11 @@ el nuevo régimen se sostenga la cantidad de barras configurada. Es el freno
 anti-serrucho, y la barra que confirma ya cuenta como parte del régimen nuevo.
 
 Por último, sobre la zona ya confirmada se deciden los matices: es **naciente**
-si dura menos que las barras configuradas, y **fuerte** si la pendiente supera
-al umbral multiplicado por el multiplicador.
+si dura menos que las barras configuradas, y **fuerte** si la pendiente, *en
+valor absoluto*, supera al umbral multiplicado por el multiplicador. Que se mida
+en valor absoluto es lo que hace que el matiz sirva para las dos direcciones:
+con umbral 0,5 % y multiplicador 2, una pendiente de −1,5 % califica como fuerte
+igual que una de +1,5 % — por eso existe el *Bajista Fuerte*.
 
 ## Los controles
 
@@ -144,12 +148,12 @@ un error. Es un pariente cercano de la regla de que
 **guardar no recalcula nada**, y hasta que recalcules conviven dos verdades
 distintas en la app.
 
-> **El gráfico te va a mentir apenas guardes.** El coloreado **Régimen** del
-> Análisis de Activo se calcula en el momento, sobre los precios y con la
-> configuración vigente, así que refleja los parámetros nuevos de inmediato.
-> El **Panel de Indicadores**, el Mapa de Tendencia, el Screener y las
-> estrategias leen lo guardado, o sea lo viejo. Ver el gráfico ya actualizado
-> **no** significa que el recálculo esté hecho.
+> **El gráfico te va a mentir apenas guardes.** El coloreado **Régimen de
+> Tendencia** del Análisis de Activo se calcula en el momento, sobre los precios
+> y con la configuración vigente, así que refleja los parámetros nuevos de
+> inmediato. El **Panel de Indicadores**, el Mapa de Tendencia de Mercado, el
+> Screener y las estrategias leen lo guardado, o sea lo viejo. Ver el gráfico
+> ya actualizado **no** significa que el recálculo esté hecho.
 
 > **Cambiar cualquiera de estos valores invalida toda la historia de
 > tendencia, no solo la última fecha.** La media exponencial arrastra toda la

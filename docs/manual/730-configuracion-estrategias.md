@@ -40,7 +40,7 @@ la suma de los pesos.
 | **Señal (key)** | La señal a usar. El desplegable lista solo las señales que podés ver. |
 | **Peso** | Cuánto pesa dentro del promedio. No hace falta que sumen 1: son relativos entre sí, porque siempre se divide por el total. |
 | **Alcance** | Si la señal se lee del activo o de un grupo. |
-| **Tipo grupo** | Aparece solo con alcance de grupo: **Sector**, **Mercado** o **Industria**. |
+| **Tipo grupo** | Solo aplica con alcance de grupo: **Sector**, **Mercado** o **Industria**. |
 
 El **Alcance** tiene tres valores. **Activo directo** es lo normal: el score de
 la señal para ese activo. **Grupo propio** usa el score de esa señal para el
@@ -50,6 +50,13 @@ premiar al activo cuyo sector viene bien, sin importar cuál sea ese sector.
 ofrece dónde elegir *cuál*, así que un componente creado acá con ese alcance no
 llega a resolverse y no aporta al score (solo queda definido si la estrategia
 entra por importación).
+
+> **El campo Tipo grupo no aparece en el momento en que elegís el alcance.** La
+> lista de componentes no se vuelve a dibujar al tocar ese desplegable: el campo
+> se muestra recién cuando la lista se redibuja, o sea al agregar o quitar un
+> componente, o al cerrar y reabrir el editor. Si elegiste **Grupo propio** y no
+> ves dónde cargar el tipo, no está rota la pantalla: agregá un componente (o
+> reabrí el editor) y va a estar ahí, con el alcance que elegiste intacto.
 
 ### La sutileza que más sorprende: los componentes sin dato se saltean
 
@@ -104,10 +111,12 @@ catálogo. Cuando el operando izquierdo es numérico se habilita además el camp
 contra **otro indicador o señal del mismo activo** (por ejemplo, precio contra
 su media); si lo completás, el número se ignora.
 
-> Al cambiar el operando izquierdo se **limpian el operador, el valor y el campo
-> de comparación** —el tipo de dato cambió y lo anterior ya no aplica—, y lo
-> mismo le pasa al valor al pasar de `=` a `in` o al revés. Conviene saberlo
-> antes de perder algo cargado.
+> Al cambiar el operando izquierdo se **borran el valor y el campo de
+> comparación** —el tipo de dato cambió y lo anterior ya no aplica— y el
+> **operador vuelve a un valor por defecto**: `>` si el operando nuevo es
+> numérico y `=` si es categórico. Ojo con eso: el operador no queda vacío
+> esperando que elijas, así que si no lo tocás se guarda el que quedó puesto.
+> Al valor le pasa lo mismo al pasar de `=` a `in` o al revés.
 
 ### Dato faltante = condición NO cumplida
 
@@ -123,15 +132,27 @@ número contra un texto) también da falso, y el editor lo rechaza al guardar.
 
 Los **indicadores** se leen «as-of»: se usa la última fecha disponible menor o
 igual a la evaluada, que es lo que hace que un indicador semanal o mensual siga
-sirviendo cualquier día. Las **señales**, en cambio, se leen con **fecha
-exacta**, igual que en el cálculo del score.
+sirviendo cualquier día. Pero ese arrastre tiene un **tope de antigüedad de unos
+45 días**: si el último valor del indicador quedó más viejo que eso respecto de
+la fecha evaluada, se considera que no hay dato y —por la regla de acá arriba—
+la condición da falso y el activo queda afuera. Es exactamente lo que pasa con
+un indicador que se dejó de calcular, o con un activo que dejó de cotizar. Las
+**señales**, en cambio, se leen con **fecha exacta**, igual que en el cálculo
+del score.
 
-> **Indicadores sin historia.** Algunos indicadores solo guardan su valor
-> vigente. Si usás uno, la condición muestra el aviso «⚠ sin historia» y en
-> fechas pasadas se evalúa **con el valor de hoy**. Eso es sesgo de
-> anticipación: sirve como diagnóstico, **no como backtest**. Al calcular una
-> fecha pasada la pantalla lo vuelve a advertir con un cartel de «Diagnóstico
-> in-sample».
+> **Operandos sin historia.** Algunos indicadores solo guardan su valor vigente,
+> y quedan marcadas también las señales que se apoyan en ellos: en los dos casos
+> la condición muestra el aviso «⚠ sin historia». No significan lo mismo.
+>
+> Con un **indicador** sin historia, en fechas pasadas la condición se evalúa
+> **con el valor de hoy**. Eso es sesgo de anticipación: sirve como diagnóstico,
+> **no como backtest**, y al calcular una fecha pasada la pantalla lo vuelve a
+> advertir con un cartel de «Diagnóstico in-sample».
+>
+> Con una **señal** marcada no pasa eso: se sigue leyendo su score de la fecha
+> exacta, como cualquier otra señal. El aviso está para recordarte que de las
+> fechas anteriores a la creación de la señal no hay score que reconstruir —
+> quedan sin dato, y sin dato la condición no se cumple.
 
 ## La previsualización de la fórmula
 
@@ -159,8 +180,9 @@ condición sin completar o sin valor).
 > definición anterior. Si la estrategia es **nueva**, corré **Calcular
 > historia** para poblar sus resultados. Si la **editaste**, hace falta
 > **Recalcular completo** en el [Centro de Datos](/manual/centro-de-datos) →
-> Señales y Estrategias: Calcular historia no alcanza, porque solo llena fechas
-> sin resultado y las que ya lo tienen quedarían con la definición vieja.
+> Señales y Estrategias: Calcular historia no alcanza, porque llena los huecos y
+> reescribe **únicamente la última fecha** — todas las anteriores que ya tenían
+> resultado quedarían calculadas con la definición vieja.
 
 ## Calcular resultados y Calcular historia
 
@@ -171,7 +193,8 @@ hoy) para las estrategias seleccionadas. Con una sola marcada aparece abajo el
 definición recién tocada antes de comprometerse con la historia entera.
 
 **Calcular historia** llena las fechas pasadas que no tengan resultado de esa
-estrategia. El campo **días** limita a los últimos N; **vacío significa toda la
+estrategia y, además, vuelve a calcular la última (sus precios todavía son
+preliminares). El campo **días** limita a los últimos N; **vacío significa toda la
 historia**. Corre en primer plano y sobre muchos años **puede tardar varios
 minutos**: dejá la pestaña abierta y empezá acotando con pocos días para medir
 cuánto tarda.

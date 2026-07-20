@@ -13,22 +13,28 @@ from app.models import MarketEvent
 
 logger = logging.getLogger(__name__)
 
+# 'ticker' cumple para alcance=asset el mismo rol que 'pais' para
+# alcance=country. Sin esta columna, un evento con alcance=asset se importaba
+# sin activo asignado y quedaba INVISIBLE para siempre: la consulta por activo
+# filtra por id, así que ninguna pantalla lo mostraba nunca.
 TEMPLATE_COLUMNS = [
     "nombre",
     "fecha_inicio",
     "fecha_fin",
     "alcance",
     "pais",
+    "ticker",
     "color",
 ]
 
 
 def generate_template() -> bytes:
     """Exporta los eventos actuales de la BD como Excel descargable."""
-    from app.models import Country
+    from app.models import Asset, Country
     s = get_session()
     events = s.query(MarketEvent).order_by(MarketEvent.start_date).all()
     countries = {c.id: c.name for c in s.query(Country).all()}
+    tickers = {a.id: a.ticker for a in s.query(Asset.id, Asset.ticker).all()}
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -41,6 +47,7 @@ def generate_template() -> bytes:
             e.end_date.isoformat()   if e.end_date   else "",
             e.scope,
             countries.get(e.country_id, "") if e.country_id else "",
+            tickers.get(e.asset_id, "") if e.asset_id else "",
             e.color or "#ff9800",
         ])
     buf = BytesIO()
@@ -110,12 +117,28 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
                 country, _ = get_or_create_country(pais)
                 country_id = country.id
 
+            # A diferencia del país, el activo NO se crea si no existe: dar de
+            # alta un activo por un renglón de eventos traería precios,
+            # indicadores y un lugar en el ranking. Se rechaza la fila.
+            asset_id = None
+            if alcance == "asset":
+                ticker = str(row.get("ticker", "")).strip()
+                if not ticker or ticker.lower() == "nan":
+                    raise ValueError("ticker es obligatorio cuando alcance=asset")
+                from app.models import Asset
+                from app.services.db_compat import ci_equals
+                asset = s.query(Asset).filter(ci_equals(Asset.ticker, ticker)).first()
+                if asset is None:
+                    raise ValueError(f"No existe un activo con ticker '{ticker}'")
+                asset_id = asset.id
+
             event = MarketEvent(
                 name=nombre,
                 start_date=start,
                 end_date=end,
                 scope=alcance,
                 country_id=country_id,
+                asset_id=asset_id,
                 color=color,
             )
             s.add(event)

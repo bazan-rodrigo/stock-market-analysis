@@ -6,14 +6,18 @@ from app.components.help import help_link
 
 _BG = "#111827"
 
+# Los textos dicen días CORRIDOS porque es lo que resta el cálculo
+# (returns_service._range). Decían "5 días hábiles" / "~21 días hábiles":
+# aproximaban bien el efecto, pero prometían un conteo de ruedas que el
+# código no hace — y con feriados largos la ventana efectiva se corre.
 _PERIODS = [
-    ("1D",  "Retorno del último día hábil"),
-    ("1S",  "Retorno de la última semana (5 días hábiles)"),
-    ("1M",  "Retorno del último mes (~21 días hábiles)"),
-    ("3M",  "Retorno de los últimos 3 meses"),
-    ("6M",  "Retorno de los últimos 6 meses"),
+    ("1D",  "Retorno desde el cierre anterior"),
+    ("1S",  "Retorno de los últimos 7 días corridos"),
+    ("1M",  "Retorno de los últimos 30 días corridos"),
+    ("3M",  "Retorno de los últimos 91 días corridos"),
+    ("6M",  "Retorno de los últimos 182 días corridos"),
     ("YTD", "Desde el 1° de enero hasta hoy"),
-    ("1A",  "Retorno de los últimos 12 meses"),
+    ("1A",  "Retorno de los últimos 365 días corridos"),
     ("rng", "Rango personalizado"),
 ]
 

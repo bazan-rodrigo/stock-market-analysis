@@ -1,7 +1,6 @@
 from collections import defaultdict
 from datetime import date as _date
 
-import numpy as np
 from dash import Input, Output, State, callback, clientside_callback, no_update
 import dash_bootstrap_components as dbc
 
@@ -111,10 +110,14 @@ def store_scatter_data(asset1_id, asset2_id, show_events_opt):
         else:
             normal_idx.append(i)
 
-    corr = float(np.corrcoef(xs, ys)[0, 1]) if n > 2 else None
+    # Sobre RETORNOS, no sobre precios (ver scatter_service.returns_correlation):
+    # la nube sigue mostrando niveles, pero el coeficiente mide si se mueven
+    # juntos, que es lo que la palabra "correlación" promete.
+    corr = svc.returns_correlation(xs, ys)
     stats = (
         f"N = {n} puntos  ·  {dates[0]} → {dates[-1]}"
-        + (f"  ·  Correlación: {corr:.3f}" if corr is not None else "")
+        + (f"  ·  Correlación (retornos diarios): {corr:.3f}"
+           if corr is not None else "")
     )
 
     data = {

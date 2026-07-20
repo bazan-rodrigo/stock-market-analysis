@@ -28,9 +28,14 @@ En el sistema, el P&F se ve desde
 opciones del selector de tipo de gráfico:
 
 - **P&F** — las columnas se dibujan sobre el gráfico principal, respetando el
-  eje de tiempo (cada columna queda fechada en la rueda en que terminó).
+  eje de tiempo (cada columna queda fechada en la rueda en que marcó su último
+  extremo —la X más alta o la O más baja—, no en la que se dio vuelta: si una
+  columna hizo su máximo y después estuvo semanas de costado antes de revertir,
+  queda dibujada en el día del máximo).
 - **P&F X/O** — el clásico, con la grilla de cajas y las X y O dibujadas una por
-  una. Sin eje de tiempo.
+  una. Sin eje de tiempo: todas las columnas ocupan el mismo ancho, dure lo que
+  dure cada una. Abajo aparecen algunas fechas, pero son solo una referencia
+  —marcan el arranque de esas columnas—, no una escala temporal.
 
 Esta pantalla define, **para toda la aplicación**, cómo se construyen esas
 columnas. No hay configuración por activo ni por usuario: es una sola
@@ -174,6 +179,7 @@ qué configuración está viendo el gráfico. Pasando el mouse por cada X u O se
 el rango de precios de esa caja y las fechas de inicio y fin de la columna.
 
 Si el activo no tiene historia suficiente como para formar una sola columna, el
-gráfico avisa con «Sin datos suficientes para el P&F». Con cajas muy grandes
-sobre un activo poco volátil, eso puede pasar aun con años de precios: bajá el
-tamaño de caja.
+**P&F X/O** avisa con «Sin datos suficientes para el P&F». La opción **P&F**
+sobre el gráfico principal no muestra ningún aviso: simplemente no dibuja
+ninguna columna. Con cajas muy grandes sobre un activo poco volátil, eso puede
+pasar aun con años de precios: bajá el tamaño de caja.

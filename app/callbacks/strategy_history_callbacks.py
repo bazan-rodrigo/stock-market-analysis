@@ -28,13 +28,24 @@ def load_strategy_opts(_):
     Output("sth-asset-sel",         "value"),
     Output("sth-asset-picker-row",  "style"),
     Input("sth-btn-load",           "n_clicks"),
-    State("sth-strategy-sel",       "value"),
+    # Cambiar de estrategia LIMPIA la selección: los activos cargados son el
+    # top de la estrategia anterior, y "Ver" los toma tal cual. Sin esto,
+    # cambiar de estrategia y apretar Ver directo graficaba los scores de la
+    # estrategia nueva sobre los activos elegidos por la vieja, sin ningún
+    # aviso — un resultado plausible y equivocado.
+    Input("sth-strategy-sel",       "value"),
     State("sth-date-to",            "date"),
     prevent_initial_call=True,
 )
 def load_asset_suggestions(_, strategy_id, date_to_str):
+    from dash import ctx
+
     _hidden  = {"display": "none"}
     _visible = {}
+
+    # Disparado por el cambio de estrategia: limpiar y esperar "Cargar activos"
+    if ctx.triggered_id == "sth-strategy-sel":
+        return [], [], _hidden
 
     if not strategy_id:
         return [], [], _hidden

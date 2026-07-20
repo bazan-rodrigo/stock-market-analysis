@@ -170,10 +170,40 @@ def realized_pnl_total(session, portfolio_id, as_of=None):
 
 # ── CRUD (visibilidad/edición vía visibility.py) ──────────────────────────────
 
+def public_ref_error(session, *, is_public, composition_method,
+                     strategy_id) -> str | None:
+    """Valida la regla de referencias de una cartera derivada de estrategia.
+
+    Una cartera PÚBLICA no puede derivar de una estrategia PRIVADA: cualquiera
+    que la vea podría inferir la composición de una estrategia que no le
+    pertenece. Es la misma regla que estrategia→señal (visibility.can_reference),
+    trasladada a cartera→estrategia, que hasta ahora no se validaba.
+
+    Devuelve un mensaje de error, o None si la referencia es válida. Una
+    cartera privada, o una que no deriva de estrategia, siempre pasa.
+    """
+    if not is_public or composition_method != "strategy" or not strategy_id:
+        return None
+    from app.models import Strategy
+    strat = session.get(Strategy, int(strategy_id))
+    if strat is None:
+        return None    # la estrategia ya no existe: el servicio lo tolera
+    if not strat.is_public:
+        return ("Una cartera pública no puede derivar de una estrategia "
+                "privada. Publicá la estrategia primero, o dejá la cartera "
+                "privada.")
+    return None
+
+
 def create_portfolio(session, name, ptype, owner_id, *, is_public=False,
                      base_currency=None, benchmark_asset_id=None,
                      linked_portfolio_id=None, composition_method=None,
                      strategy_id=None, top_n=None):
+    err = public_ref_error(session, is_public=is_public,
+                           composition_method=composition_method,
+                           strategy_id=strategy_id)
+    if err:
+        raise ValueError(err)
     p = Portfolio(name=name, ptype=ptype, owner_id=owner_id,
                   is_public=is_public, base_currency=base_currency,
                   benchmark_asset_id=benchmark_asset_id,

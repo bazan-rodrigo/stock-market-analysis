@@ -733,7 +733,7 @@ def export_strategies_excel() -> bytes:
 
 def import_strategies_excel(file_bytes: bytes,
                             owner_id: int | None = None) -> list[dict]:
-    """La columna `publica` (sí/no; ausente = sí) define la visibilidad.
+    """La columna `publica` (sí/no; ausente = PRIVADA) define la visibilidad.
     owner_id = quien importa: dueño de las estrategias NUEVAS (las
     existentes conservan el suyo)."""
     import openpyxl
@@ -766,7 +766,7 @@ def import_strategies_excel(file_bytes: bytes,
                 "description": data.get("description") or None,
                 "filter_conditions": filter_conditions,
                 "components": [],
-                "is_public": True,
+                "is_public": False,   # default privado; parse_publica lo confirma
             }
             try:
                 entry["is_public"] = parse_publica(data.get("publica"))

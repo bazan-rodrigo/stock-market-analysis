@@ -1,6 +1,6 @@
 ---
 slug: scheduler
-title: Scheduler de tareas
+title: Scheduler
 chapter: 8. Administración
 order: 810
 roles: admin
@@ -9,9 +9,10 @@ page: /admin/scheduler
 
 El **Scheduler** es el reloj del sistema: lo que hace que los datos se
 actualicen solos, todas las noches, sin que nadie apriete nada. Se llega desde
-**Configuración → Scheduler** y solo lo ven los administradores. Tiene dos
+**Administración → Scheduler** y solo lo ven los administradores. Tiene dos
 bloques independientes, cada uno con su estado, sus controles y su horario:
-la **corrida diaria de precios** y la **verificación semanal de datos**.
+**Scheduler de precios** (la corrida diaria) y **Verificación semanal de
+datos**.
 
 > **Todos los horarios de esta pantalla están en UTC**, no en hora local. Para
 > hora de Argentina hay que restar 3 horas: 18:00 UTC son las 15:00 acá.
@@ -111,12 +112,14 @@ los compara contra lo guardado. Donde hay diferencias marca el activo,
 distinguiendo **discrepancias de cálculo** (lo guardado no coincide con lo
 recalculado) de **posibles errores de datos de origen**.
 
-El resultado son los **⚠️** que aparecen junto a los activos en los selectores de
-[Análisis de Activo](/manual/analisis-de-activo),
+El resultado son los **⚠️** que aparecen delante del código del activo en los
+selectores de [Análisis de Activo](/manual/analisis-de-activo),
 [Rotación Relativa](/manual/rotacion-relativa), [Evolución](/manual/evolucion),
 [Análisis de Pares](/manual/analisis-de-pares) y
-[Comparador de Retornos](/manual/comparador-de-retornos), con el detalle en el
-tooltip.
+[Comparador de Retornos](/manual/comparador-de-retornos). La marca solo avisa
+que ese activo tiene hallazgos; para ver el detalle —cuántas discrepancias de
+cálculo y cuántos posibles errores de origen— hay que entrar a
+[Verificación de datos](/manual/verificacion-de-datos).
 
 > **La verificación marca, no repara.** No corrige ni reescribe ningún dato: un
 > activo marcado se arregla desde el Centro de Datos, típicamente con un
@@ -143,8 +146,9 @@ recálculo completo de indicadores**: es una operación larga y exigente. A
 diferencia de la corrida diaria, **no se saltea si encuentra el sistema
 ocupado**. Programala en una franja tranquila y **lejos del horario de la
 actualización diaria** y de los recálculos manuales — un fin de semana de
-madrugada es buena elección. **Ejecutar ahora** solo está disponible si está
-habilitada y el scheduler corriendo.
+madrugada es buena elección. **Ejecutar ahora** solo funciona si la verificación
+está habilitada y el scheduler corriendo; si no, la pantalla avisa y no dispara
+nada.
 
 ---
 

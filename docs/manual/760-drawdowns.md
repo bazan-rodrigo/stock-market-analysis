@@ -30,13 +30,20 @@ todo lo que después sorprende en el gráfico:
    máximo, empieza a seguir una posible caída.
 2. **Piso.** Mientras el precio siga por debajo del máximo, se va quedando con
    el cierre más bajo alcanzado. Ese es el **piso** de la caída.
-3. **Recuperación.** La caída se da por **terminada solo cuando el precio vuelve
-   a superar el máximo anterior**. Recién ahí se mide la profundidad (del máximo
-   al piso) y se decide si el episodio se registra o se descarta.
+3. **Recuperación.** La caída se cierra cuando el precio vuelve a alcanzar el
+   máximo anterior. Ahí se mide la profundidad (del máximo al piso) y se decide
+   si el episodio se registra o se descarta.
 
 Es decir: la recuperación **no es un parámetro que puedas ajustar**, es la regla
 fija que cierra el evento. Y es una recuperación **total** — volver al máximo
 previo, no "rebotar un poco".
+
+Con una excepción importante: si el activo **todavía no recuperó** el máximo, la
+caída se registra igual como un episodio **en curso**, sin fecha de cierre,
+siempre que ya haya superado el umbral. Su marca aparece en el gráfico como la de
+cualquier otra caída, y su profundidad es la del punto más bajo alcanzado hasta
+hoy — puede seguir creciendo mañana. Por eso todo activo que hoy esté más de un
+umbral por debajo de su máximo ya lleva marca, sin esperar a que se recupere.
 
 ---
 
@@ -117,12 +124,14 @@ activo, que también se pueden usar como insumo de una señal por umbrales
 
 ## Después de cambiar el umbral
 
-Las marcas de **Drawdown Pisos** se calculan en el momento de dibujar el
-gráfico, así que el nuevo umbral se refleja apenas vuelvas a abrir el activo.
+El umbral **solo afecta las marcas de Drawdown Pisos**. Como se calculan en el
+momento de dibujar el gráfico, el nuevo valor se refleja apenas vuelvas a abrir
+el activo: no hay nada que recalcular ni que esperar.
 
-Los valores del screener (drawdown actual y las tres peores lecturas) son
-**pre-calculados** y se refrescan con el pipeline de indicadores, igual que el
-resto: revisá [cómo se calcula todo](/manual/conceptos-pipeline) si no tenés
-presente la diferencia entre actualización incremental y recálculo completo.
-Cambiar este parámetro **no borra ni destruye nada** — no hay historia de
-drawdowns que se pierda, la detección se rehace entera cada vez.
+Los valores del screener (drawdown actual y las tres peores lecturas) **no
+dependen del umbral**: se miden siempre contra el máximo previo, sin filtro de
+profundidad. Cambiar este parámetro no los altera, aunque al guardar la pantalla
+te sugiera recalcular los indicadores.
+
+Cambiar el umbral **no borra ni destruye nada** — no hay historia de drawdowns
+que se pierda, la detección se rehace entera cada vez.

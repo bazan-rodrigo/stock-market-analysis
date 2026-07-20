@@ -1,7 +1,6 @@
 from collections import defaultdict
 from datetime import date as _date
 
-import numpy as np
 from dash import Input, Output, State, callback, clientside_callback, no_update
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
@@ -65,9 +64,17 @@ def _scatter_error(exc):
     Input("pair-asset1",       "value"),
     Input("pair-asset2",       "value"),
     Input("pair-show-events",  "value"),
+    # La solapa Correlación vive bajo el MISMO panel de controles que
+    # Comparación y Ratio: tiene que obedecer al botón y al rango de fechas
+    # como ellas. Antes solo escuchaba los activos y usaba toda la historia,
+    # así que mostraba un período distinto al que el usuario había pedido.
+    Input("pair-btn-analizar", "n_clicks"),
+    State("pair-date-from",    "date"),
+    State("pair-date-to",      "date"),
 )
 @safe_callback(_scatter_error)
-def store_scatter_data(asset1_id, asset2_id, show_events_opt):
+def store_scatter_data(asset1_id, asset2_id, show_events_opt,
+                       _n_clicks, date_from, date_to):
     if not asset1_id or not asset2_id:
         return None, ""
 
@@ -76,9 +83,14 @@ def store_scatter_data(asset1_id, asset2_id, show_events_opt):
                                color="warning", className="mt-2 py-1",
                                style={"fontSize": "0.82rem"})
 
-    pairs = scatter_svc.get_paired_prices(asset1_id, asset2_id)
+    pairs = scatter_svc.get_paired_prices(
+        asset1_id, asset2_id,
+        date_from=_date.fromisoformat(date_from) if date_from else None,
+        date_to=_date.fromisoformat(date_to) if date_to else None,
+    )
     if not pairs:
-        return None, dbc.Alert("Sin precios en común para ambos activos.",
+        return None, dbc.Alert("Sin precios en común para ambos activos "
+                               "en el rango elegido.",
                                color="warning", className="mt-2 py-1",
                                style={"fontSize": "0.82rem"})
 
@@ -117,10 +129,14 @@ def store_scatter_data(asset1_id, asset2_id, show_events_opt):
         else:
             normal_idx.append(i)
 
-    corr = float(np.corrcoef(xs, ys)[0, 1]) if n > 2 else None
+    # Sobre RETORNOS, no sobre precios: correlacionar niveles mide recorrido
+    # compartido y da coeficientes altísimos entre activos que solo subieron
+    # con el mercado. La nube sigue siendo de precios (es lo que se grafica).
+    corr = scatter_svc.returns_correlation(xs, ys)
     stats = (
         f"N = {n} puntos  ·  {dates[0]} → {dates[-1]}"
-        + (f"  ·  Correlación: {corr:.3f}" if corr is not None else "")
+        + (f"  ·  Correlación (retornos diarios): {corr:.3f}"
+           if corr is not None else "")
     )
 
     data = {

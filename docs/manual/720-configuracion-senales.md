@@ -8,10 +8,12 @@ page: /admin/signals
 ---
 
 Una señal convierte un indicador en una **opinión**: traduce "el RSI está en 72"
-o "la tendencia es alcista fuerte" a un puntaje entre −100 y +100. Las
-estrategias no leen indicadores: leen señales. Por eso acá se define el criterio
-de análisis del sistema — todo lo demás es plomería. Si no tenés claro dónde
-encaja este paso, leé antes [cómo se calcula todo](/manual/conceptos-pipeline).
+o "la tendencia es alcista fuerte" a un puntaje entre −100 y +100. El puntaje de
+una estrategia no se arma con indicadores crudos: se arma con señales. (El filtro
+de elegibilidad sí puede mirar indicadores directamente, pero el ranking sale de
+las señales.) Por eso acá se define el criterio de análisis del sistema — todo lo
+demás es plomería. Si no tenés claro dónde encaja este paso, leé antes
+[cómo se calcula todo](/manual/conceptos-pipeline).
 
 ## La lista
 
@@ -25,7 +27,7 @@ Las señales de activo van en celeste y las de grupo en verde.
 | **+ Nueva** | Abre el editor en blanco. |
 | **Editar** | Requiere **una sola** fila seleccionada y que sea tuya (o ser administrador). |
 | **Eliminar** | Borra las seleccionadas. Solo se habilita si podés editarlas todas. |
-| **Calcular historia** | Llena las fechas pasadas sin valor de **esa** señal. El campo **días** acota el horizonte; vacío = toda la historia. |
+| **Calcular historia** | Requiere **una sola** fila seleccionada y que sea tuya (o ser administrador). Llena las fechas pasadas sin valor de **esa** señal. El campo **días** acota el horizonte; vacío = toda la historia. |
 | **Exportar** / **Importar** | Solo administradores. Bajan y suben las definiciones en un Excel. |
 | **Ejecutar pipeline** | Solo administradores. Calcula señales → estrategias para la fecha elegida (vacía = hoy). |
 
@@ -48,10 +50,10 @@ toda la historia puede tardar varios minutos. Es lo que hay que usar después de
 | **Pública** | Visibilidad — ver [visibilidad y permisos](/manual/visibilidad-y-permisos). |
 | **Parámetros** | El editor de la fórmula, con **vista previa** en vivo al costado. |
 
-> **La clave no se puede cambiar al editar.** Aparece bloqueada a propósito: las
-> estrategias referencian las señales por su clave, tanto en los componentes
-> ponderados como en el filtro de elegibilidad, y renombrarla rompería esas
-> referencias en silencio. Si necesitás otra clave, creá una señal nueva.
+> **La clave no se puede cambiar al editar.** Aparece bloqueada a propósito: el
+> filtro de elegibilidad de las estrategias referencia las señales por su clave,
+> y renombrarla rompería esas referencias en silencio. Si necesitás otra clave,
+> creá una señal nueva.
 
 Al crear, la clave tiene que ser única (no distingue mayúsculas de minúsculas).
 Y si algo falla al guardar, **el editor no se cierra**: lo cargado sigue ahí.
@@ -157,8 +159,9 @@ indicador semanal o mensual puntúa todos los días, arrastrando el valor del
 > **Editar una señal ya calculada exige un recálculo completo.** Lo viejo quedó
 > calculado con la definición anterior y la actualización incremental solo toca
 > la última fecha. Al guardar, el sistema lista qué quedó desactualizado —la
-> señal y **todas las estrategias que la usan**— para que corras «Recalcular
-> completo» en el [Centro de Datos](/manual/centro-de-datos). Mientras no lo
+> señal y **las estrategias que la usan**; si son muchas, muestra las primeras y
+> cuántas quedan— para que corras «Recalcular completo» en el
+> [Centro de Datos](/manual/centro-de-datos). Mientras no lo
 > hagas convivís con historia calculada con dos criterios distintos, y un
 > backtest sobre ella no significa nada.
 

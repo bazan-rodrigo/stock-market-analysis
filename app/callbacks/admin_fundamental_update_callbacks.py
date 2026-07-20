@@ -4,11 +4,37 @@ from dash import Input, Output, State, callback, no_update
 from flask_login import current_user
 
 import app.services.fundamental_service as svc
+from app.services import run_lock_service as _rl
 
 _state = {
     "running": False, "current": 0, "total": 0,
     "msg": "", "error": None, "has_errors": False, "phase": "",
 }
+
+# Estas operaciones escriben las MISMAS tablas de ratios que la actualización de
+# precios y el Centro de Datos, así que comparten su lock persistido
+# HEAVY_WRITE. Antes solo se coordinaban con el flag en memoria _state["running"],
+# que es por-proceso: con multi-worker (o contra el scheduler nocturno) dos
+# corridas podían escribir en paralelo. "Actualizar seleccionados" ni siquiera
+# miraba el flag.
+
+
+def _launch_locked_bg(run_fn) -> bool:
+    """Toma HEAVY_WRITE y corre run_fn en un thread con heartbeat; libera al
+    terminar. Devuelve False si otra corrida pesada ya tiene el lock."""
+    token = _rl.guarded_acquire(_rl.HEAVY_WRITE)
+    if token is None:
+        return False
+
+    def _wrapped():
+        try:
+            with _rl.heartbeating(_rl.HEAVY_WRITE, token):
+                run_fn()
+        finally:
+            _state["running"] = False
+
+    threading.Thread(target=_wrapped, daemon=True).start()
+    return True
 
 
 @callback(
@@ -65,7 +91,7 @@ def handle_buttons(n_retry, n_clear):
         _state.update({"running": True, "current": 0, "total": 0,
                         "msg": "", "error": None, "has_errors": False, "phase": "Iniciando..."})
 
-        def _run():
+        def _run():  # noqa: E306  (definido antes de tomar el lock a propósito)
             def _cb(cur, tot, label=""):
                 _state["current"] = cur
                 _state["total"]   = tot
@@ -96,10 +122,14 @@ def handle_buttons(n_retry, n_clear):
                 )
             except Exception as exc:
                 _state["error"] = str(exc)
-            finally:
-                _state["running"] = False
+            # _state["running"] lo baja _launch_locked_bg al terminar el thread.
 
-        threading.Thread(target=_run, daemon=True).start()
+        if not _launch_locked_bg(_run):
+            _state["running"] = False
+            return (True, _no_prog, True,
+                    "Hay otra actualización pesada en curso (precios, "
+                    "fundamentales o Centro de Datos). Esperá a que termine.",
+                    True, "warning", no_update)
         return False, {"display": "block"}, True, "", False, "info", no_update
 
     return no_update, no_update, no_update, no_update, no_update, no_update, no_update
@@ -157,20 +187,31 @@ def update_one(_, sel_rows, data):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
 
+    # Corre síncrono en el hilo del request, pero escribe las tablas de ratios
+    # → toma el mismo lock que el resto. Antes no miraba nada y podía pisar una
+    # corrida de precios o del scheduler.
+    token = _rl.guarded_acquire(_rl.HEAVY_WRITE)
+    if token is None:
+        return ("Hay otra actualización pesada en curso. Esperá a que termine.",
+                True, "warning", no_update)
+
     from app.database import get_session
     from app.models import Asset
     tickers = [data[i]["ticker"] for i in sel_rows]
     successes, errors = [], []
-    for ticker in tickers:
-        asset = get_session().query(Asset).filter_by(ticker=ticker).first()
-        if not asset:
-            errors.append(f"{ticker}: no encontrado")
-            continue
-        try:
-            svc.update_asset_fundamentals(asset.id, force=True)
-            successes.append(ticker)
-        except Exception as exc:
-            errors.append(f"{ticker}: {exc}")
+    try:
+        for ticker in tickers:
+            asset = get_session().query(Asset).filter_by(ticker=ticker).first()
+            if not asset:
+                errors.append(f"{ticker}: no encontrado")
+                continue
+            try:
+                svc.update_asset_fundamentals(asset.id, force=True)
+                successes.append(ticker)
+            except Exception as exc:
+                errors.append(f"{ticker}: {exc}")
+    finally:
+        _rl.release(_rl.HEAVY_WRITE, token)
 
     if not errors:
         msg, color = f"{len(successes)} actualizados correctamente.", "success"
@@ -211,6 +252,8 @@ def redownload_selected(_, sel_rows, data):
         return no_update, no_update, no_update
     if not sel_rows:
         return False, True, {"display": "none"}
+    if _state["running"]:
+        return False, True, {"display": "none"}
 
     from app.database import get_session
     from app.models import Asset
@@ -235,8 +278,13 @@ def redownload_selected(_, sel_rows, data):
             )
         except Exception as exc:
             _state["error"] = str(exc)
-        finally:
-            _state["running"] = False
+        # _state["running"] lo baja _launch_locked_bg al terminar el thread.
 
-    threading.Thread(target=_run, daemon=True).start()
+    if not _launch_locked_bg(_run):
+        # Otra corrida pesada tiene el lock: no arranca, avisa vía error.
+        _state.update({"running": False,
+                       "error": "Hay otra actualización pesada en curso "
+                                "(precios, fundamentales o Centro de Datos). "
+                                "Esperá a que termine."})
+        return False, False, {"display": "none"}
     return False, False, {"display": "block"}  # cierra modal, activa interval

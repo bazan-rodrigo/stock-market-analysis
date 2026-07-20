@@ -181,8 +181,12 @@ def save_event(n_save, editing_id, name, start_date, end_date, scope, color, cou
     try:
         start = date.fromisoformat(start_date[:10])
         end   = date.fromisoformat(end_date[:10])
-        if end <= start:
-            return _modal_error("La fecha de fin debe ser mayor a la de inicio.")
+        # Se permite fin == inicio: un evento de un solo día (una elección, un
+        # anuncio) es válido. Antes se exigía fin > inicio, y como la
+        # importación sí acepta el mismo día, un evento importado de un día no
+        # se podía editar después sin correrle la fecha.
+        if end < start:
+            return _modal_error("La fecha de fin no puede ser anterior a la de inicio.")
         svc.save_event(editing_id, name, start, end, scope, country_id, asset_id, color)
         # Éxito: cerrar modal, limpiar alert interno, mostrar confirmación en página
         return load_events(None), "Guardado correctamente.", "success", True, "", "warning", False, False

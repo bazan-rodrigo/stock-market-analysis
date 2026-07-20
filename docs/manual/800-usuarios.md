@@ -14,6 +14,11 @@ no hay registro público ni autogestión de contraseña (ver
 
 Solo un administrador puede abrirla. A un analista le muestra «Acceso denegado».
 
+> **Si el acceso público está habilitado, el visitante anónimo cuenta como
+> administrador** y también puede abrir esta pantalla y crear, editar o borrar
+> cuentas sin haber iniciado sesión. Esa opción se prende y se apaga desde
+> **Configuración de app**: si administrás usuarios reales, tenela desactivada.
+
 ## La tabla
 
 | Columna | Qué muestra |
@@ -35,17 +40,19 @@ permisos por pantalla ni grupos intermedios.
 
 | Rol | Qué puede hacer |
 |---|---|
-| **Admin** | Todo. Las pantallas de Activos, Datos de Mercado, Configuración y Administración solo aparecen en su menú. Además puede editar señales, estrategias y carteras de cualquier persona. |
-| **Analista** | Consulta de análisis y datos de mercado, y creación de **señales, estrategias y carteras propias**. No ve configuración ni administración. |
+| **Admin** | Todo. Los menús **Activos** y **Administración** aparecen solo en el suyo, y **Datos de Mercado** y **Configuración** los ve completos. Además puede editar señales, estrategias y carteras de cualquier persona. |
+| **Analista** | Consulta de análisis y datos de mercado, y creación de **señales, estrategias y carteras propias**: su menú **Configuración** se reduce a esas tres entradas, y **Datos de Mercado**, a un enlace directo al Visualizador de precios. No ve **Activos** ni **Administración**. |
 
 Un analista ve las definiciones **públicas** más las **propias**, y solo edita
 las propias. El detalle de esa mecánica está en
 [Visibilidad y permisos](/manual/visibilidad-y-permisos).
 
-> **Cambiar el rol no requiere volver a iniciar sesión.** La persona ve el menú
-> nuevo en cuanto abre otra pantalla. Si la degradás de admin a analista
-> mientras está trabajando, las pantallas de administración le desaparecen ahí
-> mismo.
+> **Cambiar el rol no requiere volver a iniciar sesión: el permiso cambia en el
+> acto.** Si degradás a alguien de admin a analista mientras está trabajando,
+> las pantallas de administración le pasan a mostrar «Acceso denegado»
+> enseguida. El **menú**, en cambio, se arma al cargar la página y le queda
+> como estaba: los enlaces viejos siguen ahí hasta que recargue el navegador o
+> vuelva a iniciar sesión, aunque ya no lo lleven a ningún lado.
 
 ## Alta de un usuario
 
@@ -55,7 +62,7 @@ las propias. El detalle de esa mecánica está en
 |---|---|
 | **Usuario** | Obligatorio. Se le quitan los espacios de los extremos. |
 | **Rol** | Viene preseleccionado en **Analista**. |
-| **Contraseña** | **Obligatoria en el alta.** |
+| **Contraseña (dejar vacío para no cambiar)** | **Obligatoria en el alta.** En la edición, vacío = no se toca. |
 | **Activo** | Ver la advertencia de abajo. |
 
 > **En el alta, el interruptor Activo no tiene efecto: la cuenta nace siempre
@@ -122,7 +129,7 @@ Dejá el borrado para cuentas de prueba o creadas por error.
 
 > **Nada te impide desactivarte o eliminarte a vos mismo, ni borrar al último
 > administrador que queda.** La pantalla no valida ese caso. Si te quedás sin
-> ninguna cuenta admin activa, no hay forma de volver a entrar a administrar
-> desde la aplicación. Antes de tocar tu propia cuenta o la de otro admin,
+> ninguna cuenta admin activa, y el acceso público está desactivado, no hay
+> forma de volver a entrar a administrar desde la aplicación. Antes de tocar tu propia cuenta o la de otro admin,
 > asegurate de que quede al menos un administrador activo con contraseña
 > conocida.

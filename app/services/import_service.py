@@ -143,6 +143,12 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
 
             fund_source_name = str(row.get("fuente_fundamentales", "") or "").strip()
             fund_source_id   = fund_sources[fund_source_name].id if fund_source_name in fund_sources else None
+            # A diferencia de fuente_precios (que da error), un nombre de fuente
+            # de fundamentales que no matchea dejaba el activo sin fuente y sin
+            # avisar. La fila se importa igual, pero se anota la advertencia.
+            fund_warn = (f"Fuente de fundamentales '{fund_source_name}' no "
+                         f"encontrada: el activo queda sin fundamentales."
+                         if fund_source_name and fund_source_id is None else None)
 
             asset = Asset(
                 ticker=ticker,
@@ -160,7 +166,8 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             s.flush()
             existing_tickers.add(ticker)  # evita duplicados dentro del mismo archivo
             status = "imported"
-            detail = "Importado correctamente"
+            detail = ("Importado correctamente" if not fund_warn
+                      else f"Importado con advertencia: {fund_warn}")
 
             bm_ticker = _first_nonempty(row.get("benchmark_ticker"))
             if bm_ticker:
@@ -258,8 +265,20 @@ def _first_nonempty(*values) -> str:
 def _resolve_country(name):
     if not _valid(name):
         return None
+    # La columna se llama `pais_iso` y el export escribe el CÓDIGO ISO, pero el
+    # autocompletado de la fuente pasa el NOMBRE. Se intenta primero por código
+    # ISO: sin esto, reimportar una planilla exportada creaba países llamados
+    # "US", "AR"… (el resolver por nombre no encontraba "US" y lo daba de alta).
+    from app.database import get_session
+    from app.models import Country
+    from app.services.db_compat import ci_equals
     from app.services.reference_service import get_or_create_country
-    obj, _ = get_or_create_country(name)
+    value = str(name).strip()
+    s = get_session()
+    by_iso = s.query(Country).filter(ci_equals(Country.iso_code, value)).first()
+    if by_iso is not None:
+        return by_iso.id
+    obj, _ = get_or_create_country(value)
     return obj.id
 
 

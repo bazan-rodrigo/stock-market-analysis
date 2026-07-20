@@ -96,7 +96,7 @@ class TestCanReference:
 # ── Columna `publica` de los xlsx ─────────────────────────────────────────────
 
 class TestParsePublica:
-    @pytest.mark.parametrize("val", [None, "", "si", "sí", "SI", "Sí", "s",
+    @pytest.mark.parametrize("val", ["si", "sí", "SI", "Sí", "s",
                                      "1", 1, "true", "yes", True,
                                      "publica", "pública"])
     def test_valores_publicos(self, val):
@@ -107,9 +107,13 @@ class TestParsePublica:
     def test_valores_privados(self, val):
         assert parse_publica(val) is False
 
-    def test_ausente_es_publica_por_compatibilidad(self):
-        # packs anteriores a la columna: sin `publica` → pública
-        assert parse_publica(None) is True
+    def test_ausente_o_vacio_es_privada(self):
+        # Unificado con el default de la UI: sin columna, o celda vacía, la
+        # definición nace PRIVADA y se publica a mano. Antes era pública "por
+        # compatibilidad con packs viejos", pero eso exponía definiciones sin
+        # que quien importaba lo decidiera.
+        assert parse_publica(None) is False
+        assert parse_publica("") is False
 
     def test_valor_no_reconocido_es_error(self):
         with pytest.raises(ValueError):

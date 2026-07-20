@@ -49,13 +49,19 @@ def can_reference(parent_owner_id, parent_is_public,
 
 def parse_publica(value) -> bool:
     """Columna `publica` de los xlsx de import: sí/no. Ausente o vacía =
-    pública (compatibilidad con packs anteriores a la columna)."""
+    PRIVADA.
+
+    Antes el default era público, para no romper los packs anteriores a la
+    columna. Se unificó con el default de la UI (todo nace privado y se
+    publica a mano): un paquete sin la columna ya no expone sus definiciones
+    a todos los usuarios sin que quien importa lo haya decidido. Publicar es
+    un paso explícito, con la columna en 'si' o desde la pantalla."""
     if value is None:
-        return True
+        return False
     text = str(value).strip().lower()
-    if text in ("", "si", "sí", "s", "1", "true", "yes", "publica", "pública"):
+    if text in ("si", "sí", "s", "1", "true", "yes", "publica", "pública"):
         return True
-    if text in ("no", "n", "0", "false", "privada"):
+    if text in ("", "no", "n", "0", "false", "privada"):
         return False
     raise ValueError(f"valor de columna 'publica' no reconocido: {value!r}")
 
