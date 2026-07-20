@@ -6,6 +6,7 @@ Cada sesión mantiene una conexión SQLAlchemy con una transacción abierta
 mientras hay DML pendiente.
 """
 import io
+import re
 import threading
 import uuid
 from datetime import datetime, timedelta
@@ -29,9 +30,26 @@ _SESSION_TTL_MIN = 30
 # result set — sin esto la consola las trataba como DML y no mostraba nada.
 _READ_ONLY_PREFIXES = ("SELECT", "EXPLAIN", "SHOW", "DESC", "DESCRIBE", "WITH")
 
+# WITH y EXPLAIN pueden ENVOLVER escritura: en PostgreSQL un CTE puede ser
+# data-modifying (`WITH x AS (DELETE ... RETURNING) SELECT ...`) y
+# `EXPLAIN ANALYZE DELETE ...` ejecuta el DELETE de verdad. Si se clasifican
+# como lectura, el camino read-only hace conn.commit() inmediato -> el DML se
+# commitea sin pasar por la red de commit/rollback, y el export lo re-ejecuta.
+_DML_KEYWORDS = re.compile(r"\b(INSERT|UPDATE|DELETE|MERGE)\b", re.IGNORECASE)
+
 
 def _is_read_only(stmt: str) -> bool:
-    return stmt.upper().lstrip().startswith(_READ_ONLY_PREFIXES)
+    s = stmt.upper().lstrip()
+    if not s.startswith(_READ_ONLY_PREFIXES):
+        return False
+    # Para WITH/EXPLAIN, exigir además que no aparezca ninguna keyword de
+    # escritura. Errar hacia "no es lectura" es seguro (el usuario hace
+    # commit/rollback); un falso negativo aquí sería datos perdidos. Un falso
+    # positivo (un SELECT que menciona 'DELETE' en un string o nombre de
+    # columna) solo obliga a un commit/rollback de más, sin riesgo.
+    if s.startswith(("WITH", "EXPLAIN")):
+        return _DML_KEYWORDS.search(stmt) is None
+    return True
 
 
 def _get_conn(session_id: str):
