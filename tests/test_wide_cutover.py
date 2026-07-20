@@ -114,6 +114,39 @@ def test_buffer_rebuild_escribe_fila_completa_una_vez(wide_tables, wide_on):
     assert [(r.rsi_daily, r.trend_daily) for r in rows] == [(55.0, "a"), (60.0, "b")]
 
 
+def test_buffer_no_pisa_con_null_las_columnas_que_no_trae(wide_tables, wide_on):
+    """El buffer tambien se usa en DELTA, donde la fila YA existe y solo se
+    reescribe la cola de algunos codigos. El flush debe tocar unicamente las
+    columnas que trae: si volcara todas las de la cadencia con None en las
+    ausentes, borraria los valores guardados por los otros codigos.
+
+    Es el riesgo concreto que habilita bufferizar el delta — sin este
+    agrupado, activar el buffer fuera del rebuild destruye datos."""
+    from app.services.technical_service import (
+        _wide_buffer_clear, _wide_buffer_flush, _wide_buffer_start,
+    )
+    s = get_session()
+    # estado previo: la fila ya tiene rsi_daily Y trend_daily guardados
+    _write_ind_series(s, "rsi_daily", 7, [_D1], [10.0], existing=set())
+    _write_ind_series(s, "trend_daily", 7, [_D1], ["alta"], existing=set())
+    s.commit()
+
+    # delta: solo rsi_daily recalcula esa fecha; trend_daily no entra al buffer
+    _wide_buffer_start()
+    try:
+        _write_ind_series(s, "rsi_daily", 7, [_D1], [99.0], existing=set())
+        _wide_buffer_flush(s)
+        s.commit()
+    finally:
+        _wide_buffer_clear()
+
+    row = s.execute(sa.text(
+        "SELECT rsi_daily, trend_daily FROM ind_daily "
+        "WHERE asset_id = 7")).fetchone()
+    assert row.rsi_daily == 99.0        # se actualizo
+    assert row.trend_daily == "alta"    # NO se piso con NULL
+
+
 def test_null_wide_column_acota_por_activo(wide_tables, wide_on):
     s = get_session()
     _upsert_ind(s, "rsi_weekly", 1, _D1, 40.0)

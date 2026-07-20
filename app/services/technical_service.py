@@ -850,16 +850,28 @@ def _wide_buffer_append(cadence: str, asset_id: int, date_, column: str,
 
 def _wide_buffer_flush(session) -> None:
     """Vuelca el buffer como filas COMPLETAS (una por (activo,fecha) y
-    cadencia). La tabla fue truncada por el padre → upsert_ind_cadence no
-    dispara conflictos (inserts puros) → sin tuplas muertas."""
+    cadencia), agrupando por el CONJUNTO de columnas realmente presente.
+
+    El agrupado NO es un detalle: volcar siempre TODAS las columnas de la
+    cadencia (con None en las ausentes) escribiría NULL en las que no se
+    calcularon en esta pasada, PISANDO valores ya guardados. En rebuild eso
+    daba igual —la tabla se truncó y corren todos los códigos— pero el delta
+    escribe solo la cola de algunos códigos: ahí un volcado ciego BORRARÍA
+    datos. Agrupando, cada upsert toca únicamente las columnas que trae.
+
+    Para rebuild el resultado es idéntico al anterior: una columna sin valor
+    queda NULL igual, se la escriba explícitamente o no."""
     data = getattr(_WIDE_WRITE_BUFFER, "data", None) or {}
     for cadence, rows_by_key in data.items():
         if not rows_by_key:
             continue
-        cols = _WIDE_CADENCE_COLUMNS[cadence]
-        rows = [(aid, d, *[colvals.get(c) for c in cols])
-                for (aid, d), colvals in rows_by_key.items()]
-        upsert_ind_cadence(session, cadence, cols, rows)
+        by_cols: dict = {}
+        for (aid, d), colvals in rows_by_key.items():
+            cols = tuple(sorted(colvals))
+            by_cols.setdefault(cols, []).append(
+                (aid, d, *[colvals[c] for c in cols]))
+        for cols, rows in by_cols.items():
+            upsert_ind_cadence(session, cadence, cols, rows)
 
 
 def _wide_buffer_clear() -> None:
@@ -2029,9 +2041,16 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
     from sqlalchemy.exc import OperationalError
     from app.database import Session as _DbSession
     out = {"batch": batch_idx, "inserted": 0, "per_code": {}, "errors": []}
-    # Rebuild + wide: bufferizar las escrituras y volcarlas como fila completa
-    # al final (sin bloat). El delta (force=False) NO se bufferiza.
-    wide_buffered = force and use_wide_ind_tables()
+    # Wide: bufferizar las escrituras y volcarlas como fila completa al final.
+    # Antes solo se hacía en rebuild, asumiendo que el bloat del delta era
+    # chico y lo recuperaba autovacuum. Medido en Postgres real: FALSO. Un
+    # backfill masivo (activos nuevos) corre como delta pero escribe la serie
+    # histórica entera columna por columna — con 14 columnas en ind_daily eso
+    # son hasta 13 versiones muertas por fila. Observado: 51% de tuplas
+    # muertas en ind_daily (1.08M muertas vs 1.03M vivas) con el autovacuum
+    # corriendo y sin dar abasto. Bufferizar siempre que la tabla sea ancha.
+    # Seguro en delta gracias al agrupado por columnas de _wide_buffer_flush.
+    wide_buffered = use_wide_ind_tables()
     try:
         if wide_buffered:
             _wide_buffer_start()
