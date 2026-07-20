@@ -138,9 +138,33 @@ def _upsert_fund_value(code: str, asset_id: int, target_date, val: float, s) -> 
 
 
 def _write_fundamental_values(asset_id: int, target_date: _date_type, values: dict, s) -> None:
+    """Escribe los ratios vigentes de un activo para una fecha, AGRUPANDO por
+    cadencia. Con tablas anchas, un upsert por columna actualiza la misma fila
+    N veces (N-1 tuplas muertas por fila); esto hace UN upsert parcial por
+    cadencia con todas sus columnas juntas. upsert_ind_cadence es un upsert
+    PARCIAL (solo toca las columnas pasadas), así que agrupar solo las
+    presentes no pisa las demás. Los códigos no-anchos (o con el flag off)
+    siguen el camino per-código."""
+    from app.models.indicator_store import _WIDE, use_wide_ind_tables
+    wide_on = use_wide_ind_tables()
+
+    por_cad: dict = {}   # cadence -> {column: value}
     for code, val in values.items():
-        if val is not None:
+        if val is None:
+            continue
+        if wide_on and code in _WIDE:
+            _t, column, cadence = _WIDE[code]
+            por_cad.setdefault(cadence, {})[column] = float(val)
+        else:
             _upsert_fund_value(code, asset_id, target_date, val, s)
+
+    if por_cad:
+        from app.services.technical_service import upsert_ind_cadence
+        for cadence, colvals in por_cad.items():
+            cols = list(colvals)
+            upsert_ind_cadence(
+                s, cadence, cols,
+                [(asset_id, target_date, *[colvals[c] for c in cols])])
 
 
 _UNSET = object()

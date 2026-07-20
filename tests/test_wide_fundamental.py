@@ -139,3 +139,54 @@ def test_backfill_fund_history_no_toca_otros_activos(fund_wide, wide_on):
         "SELECT fundamental_roic FROM ind_fundamental_quarterly "
         "WHERE asset_id = 8888")).fetchone()
     assert otro is not None and otro.fundamental_roic == 0.99
+
+
+# ── _write_fundamental_values agrupa por cadencia (menos bloat) ───────────────
+
+def test_write_fundamental_values_agrupa_por_cadencia(fund_wide, wide_on):
+    """Escribe una mezcla de ratios diarios y trimestrales para un activo/fecha.
+    Todos deben aterrizar en su columna, agrupados en UNA fila por cadencia."""
+    from app.services.fundamental_service import _write_fundamental_values
+    s = get_session()
+    d = dt.date(2026, 6, 30)
+    values = {
+        "fundamental_pe_ttm": 15.0, "fundamental_pb": 2.0,   # fund_daily
+        "fundamental_roic": 0.12, "fundamental_net_margin": 0.2,  # fund_quarterly
+    }
+    _write_fundamental_values(1, d, values, s)
+    s.commit()
+
+    fd = s.execute(sa.text(
+        "SELECT fundamental_pe_ttm, fundamental_pb FROM ind_fundamental_daily "
+        "WHERE asset_id = 1")).fetchone()
+    assert (fd.fundamental_pe_ttm, fd.fundamental_pb) == (15.0, 2.0)
+
+    fq = s.execute(sa.text(
+        "SELECT fundamental_roic, fundamental_net_margin "
+        "FROM ind_fundamental_quarterly WHERE asset_id = 1")).fetchone()
+    assert (fq.fundamental_roic, fq.fundamental_net_margin) == (0.12, 0.2)
+
+    # una sola fila por cadencia
+    assert s.execute(sa.text(
+        "SELECT COUNT(*) FROM ind_fundamental_daily WHERE asset_id = 1")).scalar() == 1
+    assert s.execute(sa.text(
+        "SELECT COUNT(*) FROM ind_fundamental_quarterly WHERE asset_id = 1")).scalar() == 1
+
+
+def test_write_fundamental_values_no_pisa_columna_preexistente(fund_wide, wide_on):
+    """El upsert parcial: escribir un subconjunto de columnas no debe nullear
+    las otras de la misma fila."""
+    from app.services.fundamental_service import _write_fundamental_values
+    s = get_session()
+    d = dt.date(2026, 6, 30)
+    _write_fundamental_values(2, d, {"fundamental_roic": 0.5}, s)
+    s.commit()
+    # segunda escritura, otra columna de la MISMA cadencia y fecha
+    _write_fundamental_values(2, d, {"fundamental_net_margin": 0.3}, s)
+    s.commit()
+
+    row = s.execute(sa.text(
+        "SELECT fundamental_roic, fundamental_net_margin "
+        "FROM ind_fundamental_quarterly WHERE asset_id = 2")).fetchone()
+    assert row.fundamental_roic == 0.5        # NO se piso
+    assert row.fundamental_net_margin == 0.3
