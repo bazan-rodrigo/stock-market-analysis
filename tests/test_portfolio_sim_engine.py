@@ -129,3 +129,26 @@ def test_simulate_fixed_weights_constant_mix():
     assert res["weights"][0] == {1: 0.5, 2: 0.5}
     # d2: 0.5·10% + 0.5·20% = 15% ; d3: 0
     assert res["equity"] == pytest.approx([1.0, 1.15, 1.15])
+
+
+def test_topn_weights_atajo_cuando_entran_todos():
+    """Con top_n >= nº de activos entran todos, así que ordenar no cambia
+    nada: todos reciben el mismo peso. El sub-modo 'benchmark' llama con
+    top_n=10**9, y sin el atajo ordenaba el cross-section entero UNA VEZ POR
+    FECHA para nada.
+
+    Fija que el atajo devuelve EXACTAMENTE lo mismo que el camino ordenado.
+    """
+    scores = {5: 0.1, 3: 0.9, 9: 0.5, 1: 0.7}
+    ordenado = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    esperado = {aid: 1.0 / len(ordenado) for aid, _ in ordenado}
+
+    for top_n in (len(scores), len(scores) + 1, 10 ** 9):
+        assert topn_weights(scores, top_n) == esperado
+
+    # el atajo NO debe activarse si de verdad recorta
+    parcial = topn_weights(scores, 2)
+    assert set(parcial) == {3, 1}          # los dos de mayor score
+    assert all(w == 0.5 for w in parcial.values())
+
+    assert topn_weights({}, 10 ** 9) == {}

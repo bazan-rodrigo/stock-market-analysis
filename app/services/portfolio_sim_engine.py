@@ -20,6 +20,16 @@ def topn_weights(scores, top_n):
     Empates: se resuelven por el orden estable de `sorted` (por score desc; ante
     igualdad, el orden de iteración del dict de entrada).
     """
+    if not scores:
+        return {}
+    if top_n >= len(scores):
+        # Entran TODOS: ordenar no cambia nada porque después se les asigna el
+        # mismo peso. No es un caso raro — el sub-modo 'benchmark' (equal-weight
+        # sobre el universo entero) llama con top_n=10**9, así que sin este
+        # atajo se ordena el cross-section completo UNA VEZ POR FECHA para nada.
+        w = 1.0 / len(scores)
+        return {aid: w for aid in scores}
+
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
     if not ranked:
         return {}
