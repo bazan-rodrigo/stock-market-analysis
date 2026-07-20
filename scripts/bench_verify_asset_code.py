@@ -85,6 +85,24 @@ def _pick_asset(session, ticker):
         .order_by(sa.desc("n"))
         .limit(1)
     ).first()
+    if row is None:
+        # Sin filas: en vez de un AttributeError opaco, decir QUE falta.
+        n_prices = session.execute(
+            sa.select(sa.func.count()).select_from(Price)).scalar()
+        n_assets = session.execute(
+            sa.select(sa.func.count()).select_from(Asset)).scalar()
+        n_join = session.execute(
+            sa.select(sa.func.count()).select_from(Price)
+            .join(Asset, Asset.id == Price.asset_id)).scalar()
+        raise SystemExit(
+            "No hay ningun activo con precios en esta base.\n"
+            f"  filas en prices          : {n_prices}\n"
+            f"  filas en assets          : {n_assets}\n"
+            f"  prices JOIN assets       : {n_join}\n"
+            "Si prices tiene filas pero el JOIN da 0, hay precios de activos "
+            "que ya no existen en assets.\n"
+            "Si prices esta vacio, esta base no es la que tiene los datos "
+            "(ojo con a que DATABASE_URL apunta este contenedor).")
     return row.asset_id, row.ticker
 
 
