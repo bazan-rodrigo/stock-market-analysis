@@ -117,7 +117,15 @@ Codespace es el lugar: contenedor estable, git disponible, base descartable.
 **Optimizaciones aplicadas:**
 - `8a73ca4` — máscara `pd.notna` vectorizada una vez en `_pairs_to_write` y
   `_series_stats` (antes: una llamada escalar por valor de serie, por cada
-  activo×código). Medido local: 0.708 → 0.321 ms/serie de 4570 (2.2x).
+  activo×código). **QUEDA, validado sobre datos reales** con
+  `scripts/bench_pairs_to_write.py` (commit `09b6421`): ningún modo
+  regresiona. `_series_stats` 1.60-1.82x; `_pairs_to_write` 1.42-1.55x
+  (None), 1.43-1.47x (set), 1.26-1.34x (dict).
+  Ahorro real por lote ≈ **4.3-5.0 s** — NO se suman los tres modos de
+  `_pairs_to_write` (en cada llamada corre uno solo): es `_series_stats` +
+  UN modo. Contra un lote delta de ~19 s eso es **~25%**. De hecho los
+  18.7 s medidos con `--raw` ya incluían esta optimización; sin ella el
+  lote daba ~24 s.
 - `d607273` — `_series_checksum` por bytes crudos: **PROBADO Y REVERTIDO**
   (ver abajo). No queda en el código.
 
@@ -144,6 +152,14 @@ acordado, así que se revirtió.
    fue 1.2-1.4x. Las series reales son ~3x más largas (10-13k barras vs 4570)
    y tienen otra estructura de nulos. Un benchmark sintético sirve para
    descartar (si no gana ahí, no gana), NUNCA para confirmar.
+
+   **REGLA que sale de comparar los dos casos** (`8a73ca4` ganó 1.3-1.8x en
+   datos reales; `d607273` no ganó nada y regresionó): vectorizar paga cuando
+   la operación por elemento es un DISPATCH CARO (`pd.notna(v)` cuesta ~1.3 µs
+   de maquinaria pandas), y NO paga cuando ya es una operación C barata
+   (`isinstance` + `math.isnan`) — ahí la conversión de lista a array de numpy
+   cuesta más que lo que ahorra. Antes de vectorizar, preguntarse qué se está
+   reemplazando.
 2. **"Salida byte-idéntica" ≠ "performance intacta".** El camino de texto
    conservaba el hash exacto, y aun así **regresó ~2x**: la detección de tipo
    `next((v for v in vals if v is not None), None)`, agregada ANTES de ese
