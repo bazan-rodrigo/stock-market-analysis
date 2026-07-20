@@ -190,8 +190,20 @@ estaba en el ida y vuelta por statement, no en disco.
 Requirió arreglar antes `_wide_buffer_flush`, que volcaba SIEMPRE todas las
 columnas de la cadencia con None en las ausentes: en delta eso habría escrito
 NULL sobre valores guardados. Ahora agrupa por el conjunto de columnas real.
-**Pendiente de confirmar en la base**: correr un delta y mirar que
-`pct_muertas` de `ind_daily` se mantenga bajo.
+**CONFIRMADO en la base real.** Con 144 activos en `ind_daily`, un delta
+—que siempre recalcula la última fecha, o sea toca una fila por activo—
+hizo crecer `n_tup_upd` en exactamente **+144**: UN update por fila. Con el
+código viejo habrían sido ~14 por fila (una por columna de la cadencia) ≈
+2.000. **~14x menos actualizaciones de fila en el camino delta.**
+
+**Cómo medirlo (técnica reusable):** NO usar `n_dead_tup`/`pct_muertas` —
+el autovacuum lo resetea entre la corrida y la medición y da 0% aunque el
+problema siga. Usar `n_tup_upd` de `pg_stat_user_tables`, que es acumulado
+y no se resetea: tomar la lectura antes del delta, correrlo, y comparar
+cuánto creció contra la cantidad de filas tocadas. La proporción
+update/fila es la que delata el patrón columna-por-columna.
+También: 187 MB para 1,03M filas × 14 columnas es el tamaño esperable
+(~144 bytes/fila + índice de la PK), no bloat — no hizo falta VACUUM FULL.
 
 **`5690052` — pytest podía vaciar la base real.** `conftest` usaba
 `os.environ.setdefault("DATABASE_URL", stub)`: con una URL real en el entorno
