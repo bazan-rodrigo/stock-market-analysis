@@ -829,3 +829,10 @@ con `external_link=True` (la navegación client-side de Dash saltearía el
     superficie (no tiene callbacks), pero deja el bundle Dash cargado para
     anónimos. Si algún día importa, la mitigación es exigir login en
     `/_dash-update-component` salvo para los callbacks de rutas públicas.
+
+    Agregado visual posterior (mismo día): diagrama del pipeline
+    Datos→Indicadores→Señales→Estrategias→Ranking→Backtest en HTML/CSS
+    (clases brochure-* en assets/custom.css) + assets/brochure_hero.svg
+    (curva de equity sintética con bandas de cuantiles y benchmark,
+    decorativa). Verificar también que /assets/brochure_hero.svg cargue
+    anónimo (el prefijo /assets/ ya es público).

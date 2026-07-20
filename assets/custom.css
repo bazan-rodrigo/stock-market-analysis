@@ -853,3 +853,36 @@ td.dash-datepicker-calendar-date-inside[aria-disabled="true"] {
     text-decoration: none !important;
 }
 .manual-nav-link:hover { text-decoration: underline !important; }
+
+/* ── Brochure público (/acerca) ──────────────────────────────────────────── */
+.brochure-flow {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 0.3rem;
+}
+.brochure-node {
+    background-color: #2d3338;
+    border: 1px solid #495057;
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.5rem;
+    text-align: center;
+    width: 136px;
+    align-self: stretch;
+}
+.brochure-node .brochure-node-titulo {
+    font-weight: 600;
+    margin-top: 0.4rem;
+    font-size: 0.8rem;
+}
+.brochure-node .brochure-node-detalle {
+    color: #868e96;
+    font-size: 0.7rem;
+    line-height: 1.25;
+    margin-top: 0.15rem;
+}
+.brochure-arrow {
+    color: #6c757d;
+    padding: 0 0.2rem;
+}

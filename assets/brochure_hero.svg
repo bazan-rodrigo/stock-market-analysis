@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 612 220" role="img"
+     aria-label="Curva de equity con bandas de cuantiles (ilustrativa)">
+  <!-- Ilustración del brochure (/acerca): curva de equity sintética con
+       bandas de cuantiles y benchmark. Datos inventados, solo decorativa. -->
+  <g stroke="#ffffff" stroke-opacity="0.06">
+    <line x1="0" y1="40"  x2="612" y2="40"/>
+    <line x1="0" y1="90"  x2="612" y2="90"/>
+    <line x1="0" y1="140" x2="612" y2="140"/>
+    <line x1="0" y1="190" x2="612" y2="190"/>
+  </g>
+  <!-- banda p10–p90 -->
+  <path d="M0,180 L60,166 L120,148 L180,150 L240,128 L300,110 L360,112 L420,85 L480,68 L540,55 L600,38
+           L600,122 L540,135 L480,142 L420,151 L360,168 L300,160 L240,168 L180,180 L120,172 L60,178 Z"
+        fill="#3498db" fill-opacity="0.10"/>
+  <!-- banda p25–p75 -->
+  <path d="M0,180 L60,169 L120,154 L180,157 L240,138 L300,122 L360,126 L420,101 L480,86 L540,75 L600,59
+           L600,101 L540,115 L480,123 L420,134 L360,154 L300,147 L240,158 L180,172 L120,166 L60,175 Z"
+        fill="#3498db" fill-opacity="0.16"/>
+  <!-- benchmark -->
+  <polyline points="0,180 100,176 200,168 300,162 400,150 500,142 600,132"
+            fill="none" stroke="#6c757d" stroke-width="1.5"
+            stroke-dasharray="5 4" stroke-linecap="round"/>
+  <!-- mediana de la estrategia -->
+  <polyline points="0,180 60,172 120,160 180,165 240,148 300,135 360,140 420,118 480,105 540,95 600,80"
+            fill="none" stroke="#3498db" stroke-width="2.5"
+            stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="600" cy="80" r="4" fill="#3498db"/>
+</svg>

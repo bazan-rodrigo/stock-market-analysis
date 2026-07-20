@@ -68,7 +68,45 @@ _HERO = html.Div([
                    color="primary", size="lg"),
         className="text-center",
     ),
+    html.Img(
+        src="/assets/brochure_hero.svg",
+        alt="Curva de equity con bandas de cuantiles (ilustrativa)",
+        className="img-fluid d-block mx-auto mt-4",
+        style={"maxWidth": "720px", "width": "100%"},
+    ),
 ], className="py-5")
+
+
+# ── Diagrama del pipeline ────────────────────────────────────────────────────
+# Estilos en assets/custom.css (sección "Brochure público").
+
+_FLUJO = [
+    ("fa-database",     "Datos de mercado", "precios, fundamentales, eventos"),
+    ("fa-gauge-high",   "Indicadores",      "técnicos y fundamentales"),
+    ("fa-bolt",         "Señales",          "tus fórmulas sobre indicadores"),
+    ("fa-filter",       "Estrategias",      "filtro + score ponderado"),
+    ("fa-ranking-star", "Ranking diario",   "todo el universo, ordenado"),
+    ("fa-flask",        "Backtest",         "validación contra la historia"),
+]
+
+
+def _diagrama_pipeline() -> html.Div:
+    hijos: list = []
+    for i, (icono, titulo, detalle) in enumerate(_FLUJO):
+        if i:
+            hijos.append(html.I(
+                className="fa-solid fa-arrow-right-long brochure-arrow"))
+        hijos.append(html.Div([
+            html.I(className=f"fa-solid {icono} text-info"),
+            html.Div(titulo, className="brochure-node-titulo"),
+            html.Div(detalle, className="brochure-node-detalle"),
+        ], className="brochure-node"))
+    return html.Div([
+        html.Div(hijos, className="brochure-flow"),
+        html.P("Todo pre-calculado una vez por día: las pantallas leen "
+               "resultados, no computan al vuelo.",
+               className="text-muted small text-center mt-3 mb-0"),
+    ], className="mb-5")
 
 
 _PILARES = dbc.Row([
@@ -173,6 +211,7 @@ _CIERRE = dbc.Card(
 
 layout = dbc.Container([
     _HERO,
+    _diagrama_pipeline(),
     html.H3("El corazón del sistema", className="mb-4"),
     _PILARES,
     html.H3("El contexto sobre el que trabajás", className="mt-3 mb-4"),
