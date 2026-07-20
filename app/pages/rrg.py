@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 
 def layout(**kwargs):
     from flask_login import current_user
@@ -46,6 +48,9 @@ def layout(**kwargs):
                     className="mt-3 w-100",
                 ),
             ], md=3),
+            # Ayuda de la pantalla (no tiene titulo propio donde colgar el «?»)
+            dbc.Col(help_link("rotacion-relativa"), width="auto",
+                    className="ms-auto"),
         ], className="mb-3 g-2 align-items-end"),
 
         dbc.Alert(

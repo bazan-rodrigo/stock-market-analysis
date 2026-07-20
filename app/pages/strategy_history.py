@@ -4,6 +4,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 
 def layout(**kwargs):
     from flask_login import current_user
@@ -17,7 +19,7 @@ def layout(**kwargs):
         dcc.Location(id="sth-url", refresh=False),
 
         dbc.Row([
-            dbc.Col(html.H4("Evolución de Estrategia", className="mb-0"), width="auto"),
+            dbc.Col(html.H4(["Evolución de Estrategia ", help_link("evolucion-de-estrategia")], className="mb-0"), width="auto"),
         ], className="mb-3 align-items-center"),
 
         dbc.Card(dbc.CardBody([

@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 _BG = "#111827"
 
 _PERIODS = [
@@ -66,7 +68,7 @@ def layout(**kwargs):
 
     return html.Div([
         dbc.Row([
-            dbc.Col(html.H4("Comparador de Retornos", className="mb-0"), width="auto"),
+            dbc.Col(html.H4(["Comparador de Retornos ", help_link("comparador-de-retornos")], className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small("Comparación de retorno porcentual para un lapso de tiempo.",
                            className="text-muted", style={"fontSize": "0.75rem"}),

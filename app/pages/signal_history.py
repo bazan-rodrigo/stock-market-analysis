@@ -4,6 +4,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 from app.components.ui_constants import TH as _th, TD as _td, CARD_STYLE
 
 
@@ -20,7 +22,7 @@ def layout(**kwargs):
         dcc.Store(id="sh-available-signals", data=[]),
 
         dbc.Row([
-            dbc.Col(html.H4("Historial de Señales", className="mb-0"), width="auto"),
+            dbc.Col(html.H4(["Historial de Señales ", help_link("historial-de-senales")], className="mb-0"), width="auto"),
         ], className="mb-3 align-items-center"),
 
         # ── Filtros ──────────────────────────────────────────────────────────

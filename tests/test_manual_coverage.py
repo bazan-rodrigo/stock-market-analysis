@@ -110,6 +110,34 @@ def test_todo_slug_referenciado_por_una_pantalla_existe():
         f"Creá el .md en docs/manual/ o corregí el slug.")
 
 
+def test_enlaces_internos_apuntan_a_secciones_existentes():
+    """Las secciones se enlazan entre sí con (/manual/slug); un slug mal
+    escrito da una pantalla de 'sección inexistente' en vez de un 404, así que
+    sin este test pasaría inadvertido."""
+    existentes = {s.slug for s in _secciones()}
+    rotos: dict[str, list[str]] = {}
+    for archivo in MANUAL_DIR.glob("*.md"):
+        texto = archivo.read_text(encoding="utf-8")
+        for slug in re.findall(r"\(/manual/([a-z0-9-]+)\)", texto):
+            if slug not in existentes:
+                rotos.setdefault(archivo.name, []).append(slug)
+    assert not rotos, f"Enlaces internos del manual a secciones inexistentes: {rotos}"
+
+
+def test_enlaces_a_pantallas_apuntan_a_rutas_existentes():
+    """Igual que el anterior pero para los enlaces directos a la app."""
+    rutas = _rutas_registradas()
+    rotos: dict[str, list[str]] = {}
+    for archivo in MANUAL_DIR.glob("*.md"):
+        texto = archivo.read_text(encoding="utf-8")
+        for destino in re.findall(r"\]\((/[a-z0-9\-/]+)\)", texto):
+            if destino.startswith("/manual"):
+                continue    # cubierto por el test anterior
+            if destino.rstrip("/") not in rutas:
+                rotos.setdefault(archivo.name, []).append(destino)
+    assert not rotos, f"Enlaces del manual a rutas inexistentes de la app: {rotos}"
+
+
 def test_roles_declarados_son_validos():
     """Un rol mal escrito degrada a 'visible para todos' en silencio: que no
     pase inadvertido en una sección de administración."""

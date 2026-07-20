@@ -3,6 +3,8 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import dcc, html
 
+from app.components.help import help_link
+
 from app.components.ui_constants import TH as _th_base
 
 _DIMS = [
@@ -232,7 +234,7 @@ def layout(**kwargs):
 
     return html.Div([
         dbc.Row([
-            dbc.Col(html.H4("Mapa de Tendencia de Mercado", className="mb-0"), width="auto"),
+            dbc.Col(html.H4(["Mapa de Tendencia de Mercado ", help_link("mapa-de-tendencia")], className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small(
                     "Score de tendencia por grupo. "

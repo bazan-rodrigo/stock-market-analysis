@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 from app.components.ui_constants import TH_NOWRAP as _th, TD as _td, CARD_STYLE
 
 _SORT_OPTS = [
@@ -22,7 +24,7 @@ def layout(**kwargs):
         dcc.Download(id="ss-download"),
 
         dbc.Row([
-            dbc.Col(html.H4("Screener de Señales", className="mb-0"), width="auto"),
+            dbc.Col(html.H4(["Screener de Señales ", help_link("screener-de-senales")], className="mb-0"), width="auto"),
         ], className="mb-3 align-items-center"),
 
         # ── Filtros ──────────────────────────────────────────────────────────

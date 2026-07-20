@@ -4,6 +4,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 
 def layout(**kwargs):
     from flask_login import current_user
@@ -77,6 +79,9 @@ def layout(**kwargs):
                     dbc.Switch(id="evol-show-events", value=False,
                                label="Mostrar eventos"),
                 ], md=2, className="d-flex flex-column justify-content-start"),
+                # Ayuda de la pantalla (no tiene titulo propio donde colgar el «?»)
+                dbc.Col(help_link("evolucion"), width="auto",
+                        className="ms-auto"),
             ], className="g-2 align-items-end"),
         ]), className="mb-3"),
 

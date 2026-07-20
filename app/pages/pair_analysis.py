@@ -4,6 +4,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 _radio_sm = {"fontSize": "0.80rem"}
 
 
@@ -72,6 +74,9 @@ def layout(**kwargs):
                     dbc.Button("Analizar", id="pair-btn-analizar",
                                color="primary", size="sm", className="w-100"),
                 ], width="auto", className="d-flex flex-column justify-content-start"),
+                # Ayuda de la pantalla (no tiene titulo propio donde colgar el «?»)
+                dbc.Col(help_link("analisis-de-pares"), width="auto",
+                        className="ms-auto"),
             ], className="g-2 align-items-end"),
         ]), className="mb-3"),
 
