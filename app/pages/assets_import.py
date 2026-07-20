@@ -1,6 +1,8 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
+
+from app.components.help import help_link
 from app.components.table_styles import FILTER, HEADER, DATA, CELL
 
 _LOG_COLUMNS = [
@@ -17,7 +19,7 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     return html.Div([
-        html.H3("Importar activos desde Excel", className="mb-4"),
+        html.H3(["Importar activos desde Excel ", help_link("importar-activos")], className="mb-4"),
         dbc.Row([
             dbc.Col(dbc.Card(dbc.CardBody([
                 html.H5("1. Descargar template"),

@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import html
 
+from app.components.help import help_link
+
 _CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRadius": "8px"}
 
 
@@ -14,7 +16,7 @@ def layout(**kwargs):
     enabled = is_public_access_enabled()
 
     return html.Div([
-        html.H4("Configuración de la aplicación", className="mb-4"),
+        html.H4(["Configuración de la aplicación ", help_link("configuracion-de-app")], className="mb-4"),
 
         dbc.Alert(id="appsettings-alert", is_open=False, dismissable=True, className="mb-3"),
 

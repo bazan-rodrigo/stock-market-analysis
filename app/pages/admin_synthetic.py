@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
+from app.components.help import help_link
+
 from app.components.table_styles import CELL, DATA, HEADER, SELECTED_ROW
 from app.components.ui_constants import TH as _th, TD as _td, CARD_STYLE
 
@@ -193,7 +195,7 @@ def layout(**kwargs):
 
         # ── Fila 1: creación e importación ────────────────────────────────
         dbc.Row([
-            dbc.Col(html.H4("Activos Sintéticos", className="mb-0"), width="auto"),
+            dbc.Col(html.H4(["Activos Sintéticos ", help_link("activos-sinteticos")], className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nuevo", id="syn-btn-add",
                                color="primary", size="sm"),
                     className="d-flex align-items-center"),

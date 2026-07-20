@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import html
 
+from app.components.help import help_link
+
 _HELP_ALGO = (
     "Calcula la EMA del cierre y mide su pendiente relativa en N barras. "
     "Pendiente > umbral y precio > EMA → Alcista. "
@@ -29,7 +31,7 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     return html.Div([
-        html.H4("Régimen de Tendencia — Configuración", className="mb-2"),
+        html.H4(["Régimen de Tendencia — Configuración ", help_link("regimen-de-tendencia")], className="mb-2"),
         dbc.Alert(_HELP_ALGO, color="info", className="mb-3 small py-2"),
 
         dbc.Card(dbc.CardBody([

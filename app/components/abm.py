@@ -5,6 +5,7 @@ Los callbacks se registran individualmente en cada módulo de callback.
 """
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
+from app.components.help import help_link
 from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 
@@ -14,6 +15,7 @@ def make_abm_layout(
     table_columns: list[dict],
     form_fields: list,
     admin_only: bool = True,
+    help_slug: str | None = None,
 ) -> html.Div:
     """
     Genera un layout ABM estándar.
@@ -22,13 +24,16 @@ def make_abm_layout(
     title       : título de la página
     table_columns: lista de dicts {name, id} para el DataTable
     form_fields : lista de componentes dbc.FormGroup/Row para el modal
+    help_slug   : sección del manual de esta pantalla; agrega el ícono «?»
+                  al lado del título. Sin él, la pantalla no ofrece ayuda.
     """
+    encabezado = [title, " ", help_link(help_slug)] if help_slug else title
     return html.Div(
         [
             dcc.Store(id=f"{entity_id}-editing-id", data=None),
             html.Div(
                 [
-                    html.H3(title, className="d-inline-block me-3"),
+                    html.H3(encabezado, className="d-inline-block me-3"),
                     dbc.Button(
                         "+ Nuevo",
                         id=f"{entity_id}-btn-add",

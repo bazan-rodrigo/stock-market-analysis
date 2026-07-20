@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
+from app.components.help import help_link
+
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 
 _TYPE_OPTS = [
@@ -157,7 +159,7 @@ def layout(**kwargs):
         dcc.Store(id="cart-reload", data=0),
 
         dbc.Row([
-            dbc.Col(html.H4("Carteras", className="mb-0"), width="auto"),
+            dbc.Col(html.H4(["Carteras ", help_link("carteras")], className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nueva cartera", id="cart-btn-add",
                                color="primary", size="sm"),
                     className="d-flex align-items-center"),

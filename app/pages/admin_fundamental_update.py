@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
+from app.components.help import help_link
+
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 
 _LOG_COLUMNS = [
@@ -25,7 +27,7 @@ def layout(**kwargs):
         dcc.Interval(id="fund-upd-interval", interval=800, disabled=True, n_intervals=0),
 
         html.Div([
-            html.H3("Actualización de Fundamentales", className="d-inline-block me-3"),
+            html.H3(["Actualización de Fundamentales ", help_link("actualizacion-de-fundamentales")], className="d-inline-block me-3"),
             dbc.Button("Limpiar log", id="fund-upd-btn-clear",
                        color="link", size="sm"),
         ], className="d-flex align-items-center mb-2"),

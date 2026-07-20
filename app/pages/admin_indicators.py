@@ -1,6 +1,8 @@
 import dash
 from dash import dash_table, html
 
+from app.components.help import help_link
+
 from app.components.table_styles import CELL, DATA, FILTER, HEADER
 
 
@@ -31,7 +33,7 @@ def layout(**kwargs):
     ]
 
     return html.Div([
-        html.H3("Indicadores del Sistema", className="mb-1"),
+        html.H3(["Indicadores del Sistema ", help_link("configuracion-indicadores")], className="mb-1"),
         html.P(
             "Indicadores técnicos disponibles como input para las señales. "
             "Se calculan automáticamente a partir del historial de precios "

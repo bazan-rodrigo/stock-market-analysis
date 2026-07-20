@@ -21,7 +21,8 @@ def layout(**kwargs):
     from flask_login import current_user
     if not current_user.is_authenticated or not current_user.is_admin:
         return html.Div("Acceso denegado", className="text-danger mt-4")
-    return make_abm_layout("industries", "Industrias", _COLUMNS, _FORM)
+    return make_abm_layout("industries", "Industrias", _COLUMNS, _FORM,
+                           help_slug="industrias")
 
 
 dash.register_page(__name__, path="/admin/industries", title="Industrias", layout=layout)

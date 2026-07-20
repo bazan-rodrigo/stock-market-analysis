@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 _CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRadius": "8px"}
 _HEADER = {"backgroundColor": "#111827", "padding": "8px 14px"}
 _BODY   = {"padding": "12px 14px"}
@@ -146,7 +148,7 @@ def layout(**kwargs):
         return html.Div()
 
     return html.Div([
-        html.H4("Centro de Datos", className="mb-1"),
+        html.H4(["Centro de Datos ", help_link("centro-de-datos")], className="mb-1"),
         html.P("Estado de los datos y operaciones de actualización.",
                className="text-muted mb-4", style={"fontSize": "0.8rem"}),
 

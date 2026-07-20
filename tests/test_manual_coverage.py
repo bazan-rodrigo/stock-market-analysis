@@ -16,10 +16,14 @@ ROOT = Path(__file__).resolve().parent.parent
 MANUAL_DIR = ROOT / "docs" / "manual"
 PAGES_DIR = ROOT / "app" / "pages"
 
-# help_link("slug") y page_header("Título", "slug")
+# Las tres formas de referenciar una sección desde una pantalla:
+#   help_link("slug")                      — ícono suelto
+#   page_header("Título", "slug")          — encabezado con ícono
+#   make_abm_layout(..., help_slug="slug") — pantallas ABM genéricas
 _HELP_LINK_RE = re.compile(r"""help_link\(\s*["']([\w-]+)["']""")
 _PAGE_HEADER_RE = re.compile(
     r"""page_header\(\s*["'][^"']*["']\s*,\s*["']([\w-]+)["']""")
+_HELP_SLUG_RE = re.compile(r"""help_slug\s*=\s*["']([\w-]+)["']""")
 _ROUTE_RE = re.compile(r"""path(?:_template)?\s*=\s*["']([^"']+)["']""")
 
 
@@ -50,7 +54,8 @@ def _slugs_referenciados() -> dict[str, list[str]]:
         if archivo.name == "help.py" and archivo.parent.name == "components":
             continue
         src = archivo.read_text(encoding="utf-8")
-        for slug in _HELP_LINK_RE.findall(src) + _PAGE_HEADER_RE.findall(src):
+        for slug in (_HELP_LINK_RE.findall(src) + _PAGE_HEADER_RE.findall(src)
+                     + _HELP_SLUG_RE.findall(src)):
             refs.setdefault(slug, []).append(
                 str(archivo.relative_to(ROOT)).replace("\\", "/"))
     return refs
@@ -154,21 +159,21 @@ def test_roles_declarados_son_validos():
 
 
 def test_cobertura_de_pantallas():
-    """Toda pantalla con ruta propia debería tener su sección en el manual.
+    """Toda pantalla con ruta propia tiene su sección en el manual.
 
-    Mientras se redacta el contenido este test informa el faltante sin romper
-    la suite; al cerrar la última tanda de redacción se saca el skip y queda
-    como red permanente (igual que test_module_registration para _PAGES).
+    Red permanente, en la misma línea que test_module_registration para
+    _PAGES: agregar una pantalla nueva sin documentarla rompe la suite acá y
+    no queda un «?» apuntando al vacío ni una pantalla huérfana del manual.
     """
-    import pytest
-
     documentadas = {s.page.rstrip("/") for s in _secciones() if s.page}
-    # Rutas de detalle o utilitarias que no llevan sección propia
+    # Rutas utilitarias sin sección propia: el manual se documenta a sí mismo
+    # en la introducción, y login/raíz no son pantallas de la aplicación.
     excluidas = {"/manual", "/login", "/"}
     faltantes = sorted(r for r in _rutas_registradas()
                        if r not in documentadas
                        and r not in excluidas
                        and "<" not in r)
-    if faltantes:
-        pytest.skip(f"Manual en redacción: faltan {len(faltantes)} pantallas "
-                    f"por documentar: {faltantes[:5]}…")
+    assert not faltantes, (
+        f"Pantallas sin sección en el manual: {faltantes}. "
+        f"Creá el .md en docs/manual/ con 'page: <ruta>' en el front-matter, "
+        f"o sumá la ruta a las excluidas si de verdad no lleva documentación.")

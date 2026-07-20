@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import html
 
+from app.components.help import help_link
+
 from app.components.ui_constants import BORDER_CARD
 
 _PRICE_META = {
@@ -103,7 +105,7 @@ def layout(**kwargs):
                    for fs in fund_sources]
 
     return html.Div([
-        html.H3("Fuentes de Datos", className="mb-4"),
+        html.H3(["Fuentes de Datos ", help_link("fuentes-de-datos")], className="mb-4"),
 
         html.H5("Fuentes de Precios", className="mb-3", style={"color": "#9ca3af"}),
         dbc.Row(price_cards),

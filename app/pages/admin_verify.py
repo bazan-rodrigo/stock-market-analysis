@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 
 def layout(**kwargs):
     from flask_login import current_user
@@ -32,7 +34,7 @@ def layout(**kwargs):
         )
 
     return html.Div([
-        html.H3("Verificación de Datos", className="mb-3"),
+        html.H3(["Verificación de Datos ", help_link("verificacion-de-datos")], className="mb-3"),
 
         # ── Suite de tests (pytest) ─────────────────────────────────────────
         dbc.Card([

@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 # El alcance de la limpieza vive en app/services/cleanup_service.py — única
 # fuente de verdad, compartida con scripts/clean_data.py. No duplicar la lista
 # acá: fue exactamente así como la pantalla quedó desactualizada.
@@ -91,7 +93,7 @@ def layout(**kwargs):
     ]
 
     return html.Div([
-        html.H3("Limpieza de datos", className="mb-3"),
+        html.H3(["Limpieza de datos ", help_link("limpieza-de-datos")], className="mb-3"),
 
         dbc.Row([
             dbc.Col(col_espacio, md=6),

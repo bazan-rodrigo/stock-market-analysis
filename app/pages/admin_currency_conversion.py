@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 _HELP = (
     "Genera automáticamente activos sintéticos para cada activo en la moneda configurada, "
     "dividiendo su precio por el del activo divisor elegido (CCL, MEP, Blue, etc.). "
@@ -36,7 +38,7 @@ def layout(**kwargs):
             ),
         ], id="ars-remove-modal", is_open=False, centered=True),
 
-        html.H4("Activos en Divisa — Sintéticos Automáticos", className="mb-2"),
+        html.H4(["Activos en Divisa — Sintéticos Automáticos ", help_link("activos-en-divisa")], className="mb-2"),
         dbc.Alert(_HELP, color="info", className="mb-3 small py-2"),
 
         # ── Configuración de divisores ────────────────────────────────────────

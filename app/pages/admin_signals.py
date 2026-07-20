@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
+from app.components.help import help_link
+
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 from app.components.ui_constants import (
     GROUP_TYPE_OPTS as _GROUP_TYPE_OPTS,
@@ -176,7 +178,7 @@ def layout(**kwargs):
         dcc.Download(id="sig-download"),
 
         dbc.Row([
-            dbc.Col(html.H4("Señales", className="mb-0"), width="auto"),
+            dbc.Col(html.H4(["Señales ", help_link("configuracion-senales")], className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nueva", id="sig-btn-add", color="primary", size="sm"),
                     className="d-flex align-items-center"),
         ] + ([

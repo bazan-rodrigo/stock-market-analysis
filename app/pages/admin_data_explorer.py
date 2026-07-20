@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 from app.services.data_explorer_service import DATASETS
 
 # group_type → getter del catálogo de grupos (los 5 tipos del sistema)
@@ -56,7 +58,7 @@ def layout(**kwargs):
         dcc.Store(id="de-data-store"),   # {columns, records, table} para el CSV
         dcc.Download(id="de-download"),
 
-        html.H5("Explorador de datos", className="mb-1"),
+        html.H5(["Explorador de datos ", help_link("explorador-de-datos")], className="mb-1"),
         html.Small(
             "Lectura cruda de las tablas internas (indicadores, fundamentales, "
             "señales, scores). Solo lectura — para inspección sin SQL.",

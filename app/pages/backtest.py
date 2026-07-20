@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 _HELP = (
     "Mide si el ranking de la estrategia predice retornos: cada fecha parte "
     "los activos elegibles en cuantiles por score y mide el retorno posterior "
@@ -28,7 +30,7 @@ def layout(**kwargs):
         dcc.Store(id="bt-cmp-reload", data=0),
 
         dbc.Row([
-            dbc.Col(html.H4("Backtest de Estrategia", className="mb-0"),
+            dbc.Col(html.H4(["Backtest de Estrategia ", help_link("backtest")], className="mb-0"),
                     width="auto"),
         ], className="mb-3 align-items-center"),
 

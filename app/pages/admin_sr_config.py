@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import html
 
+from app.components.help import help_link
+
 _HELP = (
     "Niveles S/R: detecta extremos locales (máximos y mínimos) en el precio y agrupa "
     "niveles cercanos en zonas de soporte y resistencia."
@@ -26,7 +28,7 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     return html.Div([
-        html.H4("Soporte / Resistencia — Configuración", className="mb-2"),
+        html.H4(["Soporte / Resistencia — Configuración ", help_link("soporte-resistencia")], className="mb-2"),
         dbc.Alert(_HELP, color="info", className="mb-3 small py-2"),
 
         dbc.Card(dbc.CardBody([

@@ -1,6 +1,8 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
+
+from app.components.help import help_link
 from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 _LOG_COLUMNS = [
@@ -22,7 +24,7 @@ def layout(**kwargs):
 
     return html.Div([
         html.Div([
-            html.H3("Actualización de precios", className="d-inline-block me-3"),
+            html.H3(["Actualización de precios ", help_link("actualizacion-de-precios")], className="d-inline-block me-3"),
             dbc.Button("Limpiar log", id="prices-btn-clear-log", color="link", size="sm"),
         ], className="d-flex align-items-center mb-2"),
         html.Div([

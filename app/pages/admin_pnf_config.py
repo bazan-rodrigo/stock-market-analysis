@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import html
 
+from app.components.help import help_link
+
 _HELP = (
     "El gráfico Punto y Figura ignora el tiempo: dibuja columnas de X (sube) y O (baja) "
     "en cajas de precio de tamaño fijo. Una columna se revierte cuando el precio retrocede "
@@ -17,7 +19,7 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     return html.Div([
-        html.H4("Punto y Figura — Configuración", className="mb-2"),
+        html.H4(["Punto y Figura — Configuración ", help_link("punto-y-figura")], className="mb-2"),
         dbc.Alert(_HELP, color="info", className="mb-3 small py-2"),
 
         dbc.Card(dbc.CardBody([

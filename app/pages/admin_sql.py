@@ -2,6 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.help import help_link
+
 # Consulta inicial: monitor de queries en ejecución (útil para diagnosticar
 # qué está corriendo contra la base en este momento), por dialecto
 _MYSQL_DEFAULT_QUERY = """\
@@ -34,7 +36,7 @@ def layout(**kwargs):
         dcc.Store(id="sql-session-id"),
         dcc.Download(id="sql-download"),
 
-        html.H5("Consola SQL", className="mb-3"),
+        html.H5(["Consola SQL ", help_link("consola-sql")], className="mb-3"),
 
         # ── Editor ───────────────────────────────────────────────────────────
         dbc.Textarea(
