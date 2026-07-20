@@ -17,7 +17,15 @@ sys.path.insert(0, str(ROOT))
 # recree con el esquema ACTUAL de los modelos (create_all no altera tablas
 # existentes — un stub viejo rompería la suite tras agregar una columna).
 _STUB = ROOT / ".pytest-stub.db"
-_STUB.unlink(missing_ok=True)
+try:
+    _STUB.unlink(missing_ok=True)
+except PermissionError:
+    # Windows: si otro proceso todavía tiene tomado el archivo (dos corridas
+    # de pytest en paralelo, o un handle que quedó colgado de una anterior),
+    # unlink tira WinError 32 y ABORTA la colección entera. Usar un stub
+    # propio del proceso en vez de romper la suite.
+    _STUB = ROOT / f".pytest-stub-{os.getpid()}.db"
+    _STUB.unlink(missing_ok=True)
 
 # FORZADO, no setdefault: si DATABASE_URL ya viene seteada —Codespace,
 # Railway, cualquier entorno con base real— setdefault la respetaría y la
