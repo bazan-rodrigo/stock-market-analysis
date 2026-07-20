@@ -160,6 +160,32 @@ acordado, así que se revirtió.
    (`isinstance` + `math.isnan`) — ahí la conversión de lista a array de numpy
    cuesta más que lo que ahorra. Antes de vectorizar, preguntarse qué se está
    reemplazando.
+
+   **SEGUNDA CONFIRMACIÓN de la regla (y van 2):** se intentó vectorizar las
+   conversiones de fecha de `_bf_relative_strength_52w`
+   (`[d.toordinal() for d in dates]` y el loop de `_one_year_before`, que el
+   profile mostraba como 180k + 60k llamadas por activo). Medido sobre datos
+   reales: **1.58 → 3.33 ms, o sea 2x MÁS LENTO**, y las conversiones eran
+   apenas el **7%** de la función → end-to-end 0.93x. **Revertido.**
+   `date.toordinal()` es un método C barato, del lado de `math.isnan` y no del
+   de `pd.notna`; encima `pd.to_datetime` sobre un DataFrame year/month/day es
+   caro. La regla lo predecía y NO se aplicó: se decidió por el conteo de
+   llamadas del profiler, que es justo la métrica que cProfile infla.
+
+   **HEURÍSTICA MÁS FUERTE, del score completo del día** (3 ganadas,
+   2 perdidas): **eliminar TRABAJO gana siempre; re-expresar trabajo solo gana
+   si lo que se reemplaza es caro.**
+   - Ganaron: buffer del delta (13 updates → 1, **14x**), `verify_asset_code`
+     (evita recorrer 16k fechas cuando no hay diffs, 1.42x), máscara `notna`
+     (elimina dispatch caro, 1.3-1.8x).
+   - Perdieron: checksum por bytes y `toordinal` vectorizado — ambos
+     re-expresaban operaciones C que ya eran baratas.
+
+   Corolario para los leads que quedan: el atajo de `simulate_topn`
+   (`top_n >= len(scores)` → equal-weight sin `sorted`) y el caché de
+   `build_panels` (que hoy se reconstruye 12x en el grid) son del tipo
+   ELIMINAR TRABAJO, no del tipo re-expresar. Son los candidatos con mejor
+   pronóstico.
 2. **"Salida byte-idéntica" ≠ "performance intacta".** El camino de texto
    conservaba el hash exacto, y aun así **regresó ~2x**: la detección de tipo
    `next((v for v in vals if v is not None), None)`, agregada ANTES de ese
