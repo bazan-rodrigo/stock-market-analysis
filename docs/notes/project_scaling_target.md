@@ -118,27 +118,38 @@ Codespace es el lugar: contenedor estable, git disponible, base descartable.
 - `8a73ca4` — máscara `pd.notna` vectorizada una vez en `_pairs_to_write` y
   `_series_stats` (antes: una llamada escalar por valor de serie, por cada
   activo×código). Medido local: 0.708 → 0.321 ms/serie de 4570 (2.2x).
-- `d607273` — `_series_checksum` hashea los bytes crudos del array float64
-  en series numéricas (máscara de nulos aparte para que 0.0 real no colisione
-  con NaN). Camino de texto INTACTO, así que `trend_*` no se invalida.
-  Medido local: 1.605 → 0.113 ms (14x).
+- `d607273` — `_series_checksum` por bytes crudos: **PROBADO Y REVERTIDO**
+  (ver abajo). No queda en el código.
 
-**PENDIENTE — A/B de `d607273`, hacer en el Codespace:** no hay evidencia en
-entorno real de que el ahorro del checksum se note. El intento en Railway no
-sirvió (cambió el contenedor entre baseline y medición: 18.7s vs 29.7s no son
-comparables). Correr, EN LA MISMA MÁQUINA:
+**A/B del checksum: RESUELTO — se revirtió `d607273`.** Se midió con
+`scripts/bench_series_checksum.py` (commit `aa3b659`): cronometra AMBAS
+implementaciones en el mismo proceso sobre series REALES leídas de la base.
+Resuelve el problema de que el A/B por commits exige git + máquina estable
+(imposible en Railway). Es solo-lectura y corre en cualquier entorno.
 
-    git checkout 8a73ca4
-    python scripts/profile_pool_batch.py delta --raw   # 1ª reinvalida
-    python scripts/profile_pool_batch.py delta --raw   # 2ª = BASELINE
-    git checkout master
-    python scripts/profile_pool_batch.py delta --raw   # 1ª reinvalida
-    python scripts/profile_pool_batch.py delta --raw   # 2ª = comparable
+Resultado sobre datos reales (20 y 50 activos, series de 10-13k barras):
 
-Las 1ª de cada par pagan la invalidación por el cambio de formato de hash.
-**Criterio acordado: si el nuevo no gana, se revierte `d607273`** — 14x en
-una función que quizá pesa 2-4s del lote no justifica cargar con una
-invalidación única si no se puede demostrar.
+| | 20 activos | 50 activos |
+|---|---|---|
+| numéricas | 1.19x | 1.40x |
+| **texto (`trend_*`)** | **0.56x** | **0.52x** |
+| ahorro por lote | 0.14 s | 0.44 s |
+
+Contra un lote delta de ~19 s eso es 0.7-2.3%: por debajo del criterio
+acordado, así que se revirtió.
+
+**DOS ERRORES QUE VALE NO REPETIR:**
+
+1. **El micro-benchmark sintético mintió por 10x.** Daba 14x; en datos reales
+   fue 1.2-1.4x. Las series reales son ~3x más largas (10-13k barras vs 4570)
+   y tienen otra estructura de nulos. Un benchmark sintético sirve para
+   descartar (si no gana ahí, no gana), NUNCA para confirmar.
+2. **"Salida byte-idéntica" ≠ "performance intacta".** El camino de texto
+   conservaba el hash exacto, y aun así **regresó ~2x**: la detección de tipo
+   `next((v for v in vals if v is not None), None)`, agregada ANTES de ese
+   camino, escanea hasta el primer no-nulo — carísimo en series largas y
+   mayormente nulas. Al tocar una función con varios caminos, medir TODOS,
+   no solo el que se quiso optimizar.
 
 **Hot spots encontrados, sin atacar todavía** (de las corridas sintéticas,
 recordar que son magnitudes relativas, no absolutas):
