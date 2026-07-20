@@ -36,9 +36,10 @@ ninguna fecha, aparece el aviso correspondiente y no se dibuja nada; lo mismo si
 elegís dos veces el mismo activo.
 
 El orden importa menos de lo que parece: el botón **⇄** no cambia la
-correlación, que es simétrica. Sí cambia la línea de tendencia cuando no es
-lineal, porque un ajuste logarítmico, exponencial o polinómico de Y sobre X no
-es el mismo que el de X sobre Y.
+correlación, que es simétrica. Sí cambia la línea de tendencia —también la
+lineal—, porque lo que se dibuja es siempre el ajuste de Y sobre X, y ese no
+es el mismo que el de X sobre Y; lo único que la simetría deja intacto, además
+de la correlación, es el R² del ajuste lineal.
 
 ---
 
@@ -105,7 +106,8 @@ el origen.
 
 Debajo del gráfico se informan la cantidad de puntos, el rango de fechas
 cubierto y la **correlación de los retornos diarios** entre los dos activos
-(solo si hay más de dos puntos). Va de −1 a +1: +1 es relación positiva
+(solo si hay al menos tres retornos diarios para calcularla, es decir cuatro o
+más días en común con precio válido). Va de −1 a +1: +1 es relación positiva
 perfecta, −1 inversa perfecta, 0 ninguna relación lineal.
 
 > **La correlación se mide sobre los retornos, no sobre los niveles de precio.**

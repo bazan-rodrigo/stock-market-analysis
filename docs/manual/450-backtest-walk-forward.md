@@ -127,8 +127,10 @@ comparables—. Dos cosas para mirar:
 > **La corrida no se guarda** y **corre de a una por vez en todo el sistema.**
 > Vive solo mientras tengas la pantalla abierta: no se archiva ni aparece en
 > [Comparar](/manual/backtest-comparar), así que si el resultado importa,
-> anotalo. Y si otra persona está corriendo una, la tuya espera: es un cálculo
-> pesado y la barra puede quedarse quieta un rato largo entre ventana y ventana.
+> anotalo. Y si otra persona está corriendo una, no vas a poder arrancar la
+> tuya: la pantalla te avisa que ya hay una en curso y tenés que reintentar
+> cuando termine. Una vez que arranca, es un cálculo pesado y la barra puede
+> quedarse quieta un rato largo entre ventana y ventana.
 
 ## Cuándo usarlo
 

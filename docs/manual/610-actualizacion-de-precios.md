@@ -106,7 +106,7 @@ cada fecha a la vez, así que se maneja aparte:
   [Cómo se calcula todo](/manual/conceptos-pipeline).
 
 > **«Limpiar log» tiene un efecto secundario.** Al vaciar el registro, los
-> activos pierden la marca de «ya descargado alguna vez». La opción *solo
-> nuevos* del Centro de Datos los va a tratar a todos como nuevos y les
-> descargará la historia completa. Limpialo solo cuando la tabla esté tan
+> activos pierden la marca de «ya descargado alguna vez». La opción *Solo
+> activos nuevos* del Centro de Datos los va a tratar a todos como nuevos y
+> les descargará la historia completa. Limpialo solo cuando la tabla esté tan
 > sucia que no se pueda leer.

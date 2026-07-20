@@ -42,7 +42,7 @@ orden de las columnas no importa, y las que no uses podés dejarlas vacías.
 | `sector` | No | Busca o crea. |
 | `industria` | No | Busca o crea, colgada del sector de esa misma fila. |
 | `benchmark_ticker` | No | Ticker del activo a usar como benchmark. Ver más abajo. |
-| `fuente_fundamentales` | No | Nombre exacto de una fuente de fundamentales existente. Si no coincide, el activo se importa **sin** fuente de fundamentales y sin avisar. |
+| `fuente_fundamentales` | No | Nombre exacto de una fuente de fundamentales existente. Si no coincide, el activo se importa igual, **sin** fuente de fundamentales, y la columna **Detalle** lo marca como importado con advertencia. |
 
 Dos reglas que conviene tener claras:
 

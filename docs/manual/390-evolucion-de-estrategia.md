@@ -49,11 +49,12 @@ pantalla no te lo va a ofrecer —no hay buscador libre de activos acá—; para
 seguir uno puntual conviene el panel de score de
 [Análisis de Activo](/manual/analisis-de-activo).
 
-> **Si cambiás de estrategia, volvé a tocar «Cargar activos».** El selector no
-> se refresca solo: yendo directo a **Ver** el gráfico dibuja los scores de la
-> estrategia nueva para los activos que había elegido la anterior, que no tienen
-> por qué ser sus mejores. Cambiar solo las fechas, en cambio, sí se resuelve
-> tocando **Ver** de nuevo.
+> **Si cambiás de estrategia, volvé a tocar «Cargar activos».** Al cambiar de
+> estrategia el selector se vacía y se vuelve a esconder solo —justamente para
+> que no mezcles los activos elegidos por una estrategia con los scores de
+> otra—, así que yendo directo a **Ver** no se dibuja nada: aparece
+> «Seleccioná una estrategia y activos». Cambiar solo las fechas, en cambio,
+> sí se resuelve tocando **Ver** de nuevo.
 
 ---
 

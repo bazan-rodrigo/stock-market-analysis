@@ -43,17 +43,19 @@ ni molestan los espacios sobrantes, pero los nombres tienen que ser estos:
 | **fecha_fin** | Sí | Mismos formatos. Puede ser igual a la de inicio, pero nunca anterior. |
 | **alcance** | Sí | Uno de tres valores en inglés y minúscula: `global`, `country` o `asset`. |
 | **pais** | Solo si el alcance es `country` | Nombre del país. Si no existe en el sistema, se crea. |
+| **ticker** | Solo si el alcance es `asset` | Símbolo del activo, que ya tiene que existir en el sistema. A diferencia del país, **no se crea**: si no coincide con ninguno, la fila da error. |
 | **color** | No | Código de color tipo `#ff9800`. Vacío = naranja. |
 
 > Cuidado con los formatos `DD/MM/AAAA` y `MM/DD/AAAA`: el sistema prueba
 > primero el día/mes. Una fecha como `03/07/2024` se va a leer como 3 de julio.
 > Si tenés dudas, usá siempre `AAAA-MM-DD`, que no es ambiguo.
 
-> **La columna `alcance` no soporta eventos por activo desde el archivo.** El
-> valor `asset` se acepta sin error, pero la planilla no tiene ninguna columna
-> para indicar *cuál* activo, así que el evento queda sin activo asignado y no
-> se ve en ningún gráfico. Los eventos de un activo puntual cargalos a mano
-> desde [Eventos de mercado](/manual/eventos-de-mercado).
+> **Eventos por activo (`asset`).** Para un evento de un activo puntual, poné
+> `asset` en la columna **alcance** y el símbolo del activo en la columna
+> **ticker** — funciona igual que `pais` para el alcance `country`. El activo
+> tiene que existir ya en el sistema: si el ticker no coincide con ninguno, la
+> fila queda como error. Si dejás el ticker vacío con alcance `asset`, la fila
+> también se rechaza.
 
 Se ignoran en silencio las filas sin nombre y las que empiezan con `──` o `--`,
 así podés usarlas como separadores visuales para agrupar eventos por país o por
@@ -80,7 +82,7 @@ Al terminar aparece el detalle fila por fila, con filtro y ordenamiento propios:
 |---|---|
 | **imported** (verde) | El evento se creó. |
 | **skipped** | Ya existía un evento con el **mismo nombre y las mismas dos fechas**. No se duplicó ni se pisó nada. |
-| **error** (rojo) | La fila no se pudo cargar. La columna **Detalle** dice por qué: fechas inválidas o faltantes, fecha fin anterior a la de inicio, alcance distinto de los tres válidos, o país vacío con alcance `country`. |
+| **error** (rojo) | La fila no se pudo cargar. La columna **Detalle** dice por qué: fechas inválidas o faltantes, fecha fin anterior a la de inicio, alcance distinto de los tres válidos, país vacío con alcance `country`, o ticker vacío o inexistente con alcance `asset`. |
 
 Arriba, un resumen del estilo "12 importados, 2 errores".
 

@@ -79,8 +79,9 @@ historia de indicadores del sintético. Es lo que corresponde cuando cambiaste l
 fórmula, cambiaste los componentes, o los precios de un componente se
 corrigieron hacia atrás.
 
-Una barra muestra el avance `hechos / total` y los botones quedan
-deshabilitados mientras corre. Al terminar informa cuántos precios se
+Una barra muestra el avance `hechos / total` y los dos botones de cálculo
+—**Calcular Delta** y **Calcular Completo**— quedan deshabilitados mientras
+corre. Al terminar informa cuántos precios se
 insertaron y detalla los que fallaron, si hubo alguno.
 
 > **Calcular Completo sobre muchos sintéticos a la vez puede tardar bastante.**

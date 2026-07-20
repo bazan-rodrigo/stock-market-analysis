@@ -98,11 +98,13 @@ La pantalla **impide lanzar dos veces «Reintentar fallidos»**: si ya hay una
 corrida en marcha te avisa con *«Ya hay una actualización en curso»* y no
 arranca otra.
 
-> **Esa protección no cubre todo.** A diferencia de la pantalla de precios,
-> acá nada te frena si lanzás una actualización mientras corre una operación
-> pesada del Centro de Datos o la corrida nocturna automática. Como ambas
-> escriben sobre los mismos ratios, conviene esperar a que la otra termine
-> antes de tocar estos botones.
+> **La protección va más allá de esta pantalla.** Los tres botones de
+> actualización comparten un candado con las demás operaciones pesadas del
+> sistema: los botones de precios, el Centro de Datos y la corrida nocturna
+> automática. Si alguna de ellas ya está en marcha, la actualización no
+> arranca y te avisa con *«Hay otra actualización pesada en curso (precios,
+> fundamentales o Centro de Datos). Esperá a que termine»*. Como todas
+> escriben sobre los mismos ratios, una sola corre a la vez.
 
 ---
 

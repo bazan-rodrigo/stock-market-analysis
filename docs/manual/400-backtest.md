@@ -91,9 +91,10 @@ la medida del **sobreajuste**.
 tuyas; si sos admin, todas. Es el mismo criterio de
 [Visibilidad y permisos](/manual/visibilidad-y-permisos) del resto del sistema.
 
-**Una corrida por vez.** Las corridas se ejecutan en segundo plano con una barra
-de progreso. Si lanzás una mientras hay otra andando, la pantalla te avisa que
-ya hay un backtest en curso.
+**Una corrida por vez en cada solapa.** Cada solapa corre en segundo plano con
+su propia barra de progreso y no te deja lanzar dos corridas del mismo tipo a la
+vez: si lo intentás, te avisa que ya hay una en curso. Solapas distintas sí
+pueden estar corriendo en paralelo.
 
 **Qué queda guardado y qué no.** No todas las solapas persisten lo que corren:
 

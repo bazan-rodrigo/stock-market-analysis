@@ -14,7 +14,7 @@ Arriba de todo, el selector de activo y tres controles que definen **cómo se ve
 el gráfico** (no son indicadores):
 
 - **D / W / M** — frecuencia de las barras: diaria, semanal o mensual.
-- **Velas / Línea / P&F / P&F X-O** — tipo de gráfico. Las dos últimas son
+- **Velas / Línea / P&F / P&F X/O** — tipo de gráfico. Las dos últimas son
   Punto y Figura: la primera respeta el eje de tiempo, la clásica no.
 - **Arit / Log** — escala del eje de precios. En escala logarítmica un mismo
   porcentaje ocupa la misma distancia visual en cualquier nivel de precio, que
@@ -35,10 +35,10 @@ se ocultan.
 | **SMA 1/2/3** | Medias móviles simples. La etiqueta muestra la distancia % del precio a la media. |
 | **EMA 1/2/3** | Medias móviles exponenciales — como la SMA pero con más peso a lo reciente. |
 | **Bollinger** | Media de N ruedas ± D desvíos estándar. Mide qué tan lejos está el precio de su media en términos de volatilidad. |
-| **Drawdowns** | Marca los pisos de las caídas detectadas, con la profundidad % de cada una. |
-| **Soporte / Resistencia** | Niveles por pivotes, con la cantidad de toques de cada uno y la distancia % al más cercano. |
-| **Régimen** | Colorea la EMA de referencia según el régimen de tendencia detectado (alcista / lateral / bajista y matices). |
-| **Volatilidad** | Sombrea el fondo según el régimen de volatilidad ATR (extrema / alta / normal / baja). |
+| **Drawdown Pisos** | Marca los pisos de las caídas detectadas, con la profundidad % de cada una. |
+| **Soportes / Resistencias** | Niveles por pivotes, con la cantidad de toques de cada uno y la distancia % al más cercano. |
+| **Régimen de Tendencia** | Colorea la EMA de referencia según el régimen de tendencia detectado (alcista / lateral / bajista y matices). |
+| **Régimen de Volatilidad** | Sombrea el fondo según el régimen de volatilidad ATR (extrema / alta / normal / baja). |
 | **Eventos** | Marca los eventos de mercado cargados en el sistema (crisis, elecciones, anuncios). |
 
 ### En paneles propios, debajo del precio
@@ -46,7 +46,7 @@ se ocultan.
 **Volumen**, **RSI** (0-100; clásicamente >70 sobrecompra, <30 sobreventa),
 **MACD** (EMA rápida − EMA lenta, con línea de señal e histograma),
 **Estocástico** (posición del cierre dentro del rango de las últimas N ruedas),
-**ATR** (volatilidad absoluta promedio, en precio) y **Drawdown** (caída %
+**ATR** (volatilidad absoluta promedio, en precio) y **Drawdown %** (caída %
 desde el máximo histórico previo).
 
 ---

@@ -55,7 +55,7 @@ no aparece nunca, o aparece en gráficos donde no tiene nada que ver.
 |---|---|---|
 | **Nombre** | Sí | Es la etiqueta visible. Conviene que sea corto y reconocible: "Crisis financiera 2008", "PASO 2019". |
 | **Fecha inicio** | Sí | Selector de fecha. |
-| **Fecha fin** | Sí | Debe ser **posterior** a la de inicio. Para marcar un hecho de un solo día, poné el día siguiente como fin. |
+| **Fecha fin** | Sí | No puede ser **anterior** a la de inicio. Para marcar un hecho de un solo día, poné la misma fecha en inicio y fin. |
 | **Alcance** | Sí | Ver el cuadro de arriba. Por defecto, Global. |
 | **Color de zona** | Sí | Naranja (por defecto), Rojo, Azul, Verde, Violeta, Amarillo o Cian. |
 | **País** | Solo si el alcance es País | Lista de los países cargados en el sistema. |

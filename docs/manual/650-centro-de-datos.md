@@ -31,9 +31,13 @@ intento responde *"Hay otra operación en curso"*. La exclusión cubre también 
 botones de la pantalla de Actualización de precios y la corrida nocturna, que se
 saltea si encuentra el sistema ocupado.
 
-Mientras tanto, las tarjetas ajenas **congelan su línea de estado** en el último
-valor conocido en lugar de recontar: los números frescos llegan al terminar, así
-que un número que no se mueve no está mal. El avance sí se muestra con detalle
+Mientras tanto, las tres tarjetas de conteo pesado —**Indicadores Técnicos**,
+**Indicadores Fundamentales** y **Señales y Estrategias**— **congelan su línea
+de estado** en el último valor conocido en lugar de recontar: los números
+frescos llegan al terminar, así que un número que no se mueve no está mal. Las
+otras tres (**Actualizar Precios**, **Actualizar Fundamentales** y **Recalcular
+Sintéticos**) siguen mostrando su estado en vivo, porque su consulta es
+liviana. El avance sí se muestra con detalle
 —por cada indicador o etapa, cuántos van, hora de inicio, de fin y duración— y
 al terminar el mensaje queda en verde con el resumen o en rojo con el error.
 

@@ -77,16 +77,17 @@ ninguno:
 
 | Motivo | Qué lo disparó |
 |---|---|
-| **stop_loss** | El SL % |
-| **take_profit** | El TP % |
-| **trailing_stop** | El Trailing % |
-| **max_bars** | Se agotó el Máx ruedas |
-| **absolute** | El Salida Score < |
-| **filter** | El activo dejó de ser elegible para la estrategia |
+| **Stop loss (SL%)** | El SL % |
+| **Take profit (TP%)** | El TP % |
+| **Trailing stop (TS%)** | El Trailing % |
+| **Máximo de ruedas** | Se agotó el Máx ruedas |
+| **Score bajo el nivel** | El Salida Score < |
+| **Dejó de ser elegible** | El activo dejó de ser elegible para la estrategia |
 
-Si casi todo cierra por **max_bars**, tus salidas por precio prácticamente no
-existen y estás midiendo un buy & hold a plazo fijo. Si domina **stop_loss**,
-el stop está demasiado ajustado contra la volatilidad del universo.
+Si casi todo cierra por **Máximo de ruedas**, tus salidas por precio
+prácticamente no existen y estás midiendo un buy & hold a plazo fijo. Si domina
+**Stop loss (SL%)**, el stop está demasiado ajustado contra la volatilidad del
+universo.
 
 **Retorno total por activo** es el histograma de esos retornos. Mirale la forma,
 no solo el centro: una distribución con cola derecha larga y mediana negativa
