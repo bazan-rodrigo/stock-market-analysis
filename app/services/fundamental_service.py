@@ -1157,10 +1157,22 @@ def _backfill_fund_daily_all(
                     i = idx_by_date.get(d)
                     if i is None:
                         continue
+                    # Escribir SOLO si algún código que TARGETEÓ esta fecha
+                    # produjo un valor. Un ratio puede ser NULL para siempre de
+                    # forma legítima (pe_growth_yoy sin año previo): su fecha
+                    # se re-targetea en cada delta (existente = columna
+                    # no-NULL), recalcula NaN de nuevo, y el chequeo viejo
+                    # ("¿ALGÚN código tiene valor?") reescribía la fila entera
+                    # IDÉNTICA porque pe_ttm/pb sí tienen valor guardado —
+                    # medido en producción: ~21.4k updates por corrida, todas
+                    # tuplas muertas, para siempre. Si todos los que pidieron
+                    # la fecha siguen NaN, no hay nada nuevo que escribir.
+                    if not any(d in targets[c] and not np.isnan(series[c][i])
+                               for c in daily_codes):
+                        continue
                     vals = [None if np.isnan(series[c][i]) else float(series[c][i])
                             for c in daily_codes]
-                    if any(v is not None for v in vals):
-                        rows.append((asset_id, d, *vals))
+                    rows.append((asset_id, d, *vals))
                 if rows:
                     inserted += upsert_ind_cadence(s, cadence, cols, rows)
             else:
@@ -1269,10 +1281,17 @@ def _backfill_fund_quarterly_all(
                 cols = [_WIDE[c][1] for c in quarterly_codes]
                 rows = []
                 for d, ratios in ratios_by_date.items():
+                    # Mismo guard que el daily: solo escribir si un código que
+                    # TARGETEÓ este trimestre produjo valor — los growth_yoy de
+                    # los primeros trimestres son NULL para siempre y
+                    # reescribían la fila idéntica en cada delta (+480 updates
+                    # medidos por corrida).
+                    if not any(d in targets[c] and ratios.get(c) is not None
+                               for c in quarterly_codes):
+                        continue
                     vals = [None if ratios.get(c) is None else float(ratios[c])
                             for c in quarterly_codes]
-                    if any(v is not None for v in vals):
-                        rows.append((asset_id, d, *vals))
+                    rows.append((asset_id, d, *vals))
                 if rows:
                     inserted += upsert_ind_cadence(s, cadence, cols, rows)
             else:

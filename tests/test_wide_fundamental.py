@@ -190,3 +190,63 @@ def test_write_fundamental_values_no_pisa_columna_preexistente(fund_wide, wide_o
         "FROM ind_fundamental_quarterly WHERE asset_id = 2")).fetchone()
     assert row.fundamental_roic == 0.5        # NO se piso
     assert row.fundamental_net_margin == 0.3
+
+
+# ── El delta no reescribe fechas cuyo unico "faltante" es un NULL eterno ─────
+# Bug medido en produccion: pe_growth_yoy es NULL el primer año (necesita el
+# trimestre de hace 12 meses) -> esas fechas se re-targeteaban en cada delta
+# (existente = columna no-NULL), recalculaban NaN de nuevo, y la fila entera
+# se reescribia IDENTICA porque pe_ttm/pb si tienen valor: ~21.4k updates por
+# corrida, todos tuplas muertas, para siempre.
+
+def _corre_daily(s, aid):
+    from app.services.fundamental_service import (
+        _FUND_DAILY_CODES, _backfill_fund_daily_all, _load_all_quarters,
+        _load_fund_prices)
+    codes = sorted(_FUND_DAILY_CODES)
+    r = _backfill_fund_daily_all(
+        codes, [aid], force=False,
+        tick_fns={c: (lambda: None) for c in codes},
+        quarters_cache=_load_all_quarters(s, [aid]),
+        price_cache=_load_fund_prices(s, [aid]))
+    return r["inserted"]
+
+
+def test_backfill_daily_segunda_corrida_solo_la_ultima_fecha(fund_wide, wide_on):
+    """Con el seed (200 dias, growth NULL en todos: no hay año previo), la
+    primera corrida escribe la historia; la SEGUNDA solo la ultima fecha
+    (preliminar). Sin el guard, la segunda reescribia TODAS las fechas
+    con growth NULL — el ciclo eterno."""
+    s = get_session()
+    _seed_fund_asset(s, 9393)
+
+    primera = _corre_daily(s, 9393)
+    assert primera > 50            # escribio la historia
+
+    segunda = _corre_daily(s, 9393)
+    assert segunda == 1, (
+        f"la segunda corrida debe escribir SOLO la ultima fecha (preliminar), "
+        f"escribio {segunda} — ¿volvio el re-target de columnas NULL?")
+
+
+def test_backfill_quarterly_segunda_corrida_solo_el_ultimo(fund_wide, wide_on):
+    from app.services.fundamental_service import (
+        _backfill_fund_quarterly_all, _load_all_quarters)
+    from app.models.indicator_store import _WIDE
+    s = get_session()
+    _seed_fund_asset(s, 9494)
+    qcodes = sorted(c for c in _WIDE
+                    if _WIDE[c][2] == "fund_quarterly")
+
+    def _corre():
+        return _backfill_fund_quarterly_all(
+            qcodes, [9494], force=False,
+            quarters_cache=_load_all_quarters(s, [9494]))["inserted"]
+
+    primera = _corre()
+    assert primera >= 4            # los 8 trimestres del seed (o los computables)
+
+    segunda = _corre()
+    assert segunda == 1, (
+        f"la segunda corrida debe escribir SOLO el ultimo trimestre "
+        f"(revisable por la fuente), escribio {segunda}")
