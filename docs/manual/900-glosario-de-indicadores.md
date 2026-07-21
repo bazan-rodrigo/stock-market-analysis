@@ -10,7 +10,7 @@ Material de consulta: qué mide cada indicador que calcula el sistema y cómo se
 lee. El listado vivo, con el tipo y la escala de cada uno, está en
 [Indicadores del sistema](/manual/configuracion-indicadores).
 
-Casi todos vienen en tres versiones —**diaria**, **semanal** y **mensual**—, que
+Muchos vienen en tres versiones —**diaria**, **semanal** y **mensual**—, que
 miden lo mismo sobre barras de distinta duración. La diaria reacciona rápido y
 tiene más ruido; la mensual es estructural y se mueve poco.
 
@@ -20,8 +20,10 @@ tiene más ruido; la mensual es estructural y se mueve poco.
 
 ### Régimen de tendencia
 
-**Es categórico, no numérico**: devuelve una etiqueta. Se calcula comparando el
-precio contra la media móvil que mejor se ajusta a ese activo.
+**Es categórico, no numérico**: devuelve una etiqueta. Se calcula con una media
+exponencial de período fijo —configurable por temporalidad— y su pendiente:
+alcista cuando la media sube más que un umbral y el precio está por encima de
+ella; bajista al revés; lateral en todo lo demás.
 
 Los valores posibles son diez, no cinco:
 
@@ -51,8 +53,8 @@ buena o mala compra.
 
 ### Distancia a la media óptima (en desvíos)
 
-La misma idea, pero contra la media que mejor describe a ese activo en
-particular, y medida en **desvíos estándar** en vez de porcentaje.
+La misma idea, pero contra la **mejor media móvil** de ese activo en particular
+(ver más abajo), y medida en **desvíos estándar** en vez de porcentaje.
 
 Es la versión comparable entre activos: un 5% significa cosas distintas en un
 activo tranquilo y en uno volátil, pero "dos desvíos" significa lo mismo en los
@@ -60,8 +62,9 @@ dos. **Si vas a comparar activos entre sí, usá esta.**
 
 ### Mejor media móvil
 
-Qué período de media móvil describe mejor la tendencia de ese activo, calculado
-por separado para simple y exponencial, y para cada frecuencia.
+Qué período de media móvil funcionó mejor como soporte/resistencia para ese
+activo —la media que más veces sostuvo al precio cuando la tocó—, calculado por
+separado para simple y exponencial, y para cada frecuencia.
 
 > **Este indicador mira toda la historia disponible para decidir cuál es la
 > mejor.** Eso lo hace útil para describir un activo hoy, pero problemático en
@@ -125,18 +128,25 @@ cero. Cero significa que el activo está en su máximo.
 
 ### Drawdowns máximos
 
-Las tres caídas más profundas registradas en la historia del activo. Sirven de
-referencia para dimensionar la caída actual: un −15% es poco en un activo cuyo
-peor drawdown fue −70%, y mucho en uno que nunca cayó más de −20%.
+Las tres lecturas más profundas del drawdown diario en la historia del activo.
+Ojo: no son tres caídas distintas — la segunda y la tercera suelen ser días
+vecinos del mismo fondo. La más profunda sirve de referencia para dimensionar
+la caída actual: un −15% es poco en un activo cuyo peor drawdown fue −70%, y
+mucho en uno que nunca cayó más de −20%.
 
-Se configura en [Drawdowns](/manual/drawdowns).
+Estos indicadores no tienen configuración. La pantalla
+[Drawdowns](/manual/drawdowns) ajusta otra cosa: la profundidad mínima de los
+episodios que se marcan sobre el gráfico de Análisis de Activo.
 
 ---
 
 ## Retornos
 
-Variación porcentual del precio en distintas ventanas: **diaria**, **mensual**,
-**trimestral**, **anual** y **52 semanas**.
+Variación porcentual del precio: **diaria** (contra la rueda anterior),
+**mensual**, **trimestral** y **anual** (desde el inicio del mes, del trimestre
+y del año calendario en curso) y **52 semanas** (móvil: contra el precio de un
+año atrás). La anual no es "los últimos doce meses" — para eso está la de 52
+semanas.
 
 ### Fuerza relativa a 52 semanas
 
@@ -171,6 +181,7 @@ sí, los índices y la mayoría de los sintéticos no.
 | **Deuda / Patrimonio** | Cuánto se apalanca la empresa. |
 | **Crecimiento de ingresos, de ganancia por acción, de ganancia neta (interanual)** | Variación contra el mismo período del año anterior. |
 | **Variación del P/E (interanual)** | Si la empresa se abarató o encareció en términos de múltiplo. |
+| **ROIC** | Retorno sobre el capital invertido, con la ganancia de los últimos doce meses. |
 
 > **Los fundamentales se actualizan por trimestre, no todos los días.** El valor
 > de hoy suele ser el del último balance publicado. Un cambio brusco no

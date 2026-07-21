@@ -26,7 +26,7 @@ aplican:
 | **Indicador** | Estás viendo series de indicadores. Solo lista los que guardan historia. |
 | **Señal** | Estás viendo valores de señales. |
 | **Estrategia** | Estás viendo resultados de estrategias. |
-| **Tipo de grupo** y **Grupo** | Estás viendo agregados de grupo (sector, mercado, industria). |
+| **Tipo de grupo** y **Grupo** | Estás viendo agregados de grupo (sector, mercado, industria, país o tipo de instrumento). |
 | **Activo** | El conjunto es por activo. |
 
 Los filtros que no aplican no se muestran, así que si un control que esperabas
@@ -49,8 +49,9 @@ Casos típicos:
   la estrategia y encontrás cuál está tirando el promedio.
 - **Un indicador se ve mal en el gráfico.** Comparás la serie cruda contra lo
   que dibuja el gráfico para saber si el problema es el dato o la visualización.
-- **Un agregado de sector no coincide con la intuición.** Ves qué activos lo
-  componen y con qué valores.
+- **Un agregado de sector no coincide con la intuición.** Mirás la serie cruda
+  del score del grupo, fecha por fecha, y cuántos activos entraron en el
+  promedio en cada una.
 - **Necesitás los datos afuera.** Exportás a CSV y seguís en una planilla.
 
 ## Cuál elegir: este o la consola SQL

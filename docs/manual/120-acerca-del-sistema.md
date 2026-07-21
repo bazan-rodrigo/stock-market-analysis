@@ -13,9 +13,9 @@ backtesting y seguimiento— y de los datos de contexto sobre los que trabaja
 (precios, fundamentales, eventos, sintéticos y herramientas de análisis).
 
 Es la **única página pública** de la aplicación: se puede ver **sin iniciar
-sesión**. Se llega desde el link *«¿Qué es este sistema?»* de la pantalla de
-login, o desde el item **Acerca de** de la barra de navegación una vez
-logueado. Sirve para mostrarle el sitio a alguien que todavía no tiene
+sesión**. Se llega desde el link *«¿Qué es este sistema? Conocé de qué se
+trata»* de la pantalla de login, o desde el item **Acerca de** de la barra de
+navegación una vez logueado. Sirve para mostrarle el sitio a alguien que todavía no tiene
 usuario.
 
 El contenido es informativo y estático: no muestra datos de mercado ni nada

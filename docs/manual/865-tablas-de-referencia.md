@@ -25,8 +25,9 @@ botón **+ Nuevo** al lado del título.
 
 El borrado admite **varias filas a la vez**, y el mensaje de confirmación te
 dice cuántas vas a eliminar. Si alguna no se puede borrar, el resultado te
-informa cuántas se eliminaron y cuáles fallaron: el borrado múltiple **no es
-todo o nada**, procesa lo que puede.
+informa cuántas se eliminaron y muestra los errores de las que fallaron (que
+siguen apareciendo en la tabla): el borrado múltiple **no es todo o nada**,
+procesa lo que puede.
 
 > **Un elemento en uso no se puede eliminar.** Si hay activos apuntando a ese
 > sector, mercado o moneda, el borrado falla con un mensaje de error. Primero

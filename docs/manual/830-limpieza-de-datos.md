@@ -13,7 +13,8 @@ una **mide** el espacio, otra lo **recupera sin borrar nada**, y la tercera
 
 ## Uso de espacio en disco
 
-Solo informa: muestra cuánto ocupa cada tabla del sistema. **Actualizar**
+Solo informa: muestra el tamaño total de la base, un desglose por familia
+(indicadores, señales, precios…) y las tablas más grandes. **Actualizar**
 recalcula la medición.
 
 Sirve para responder "¿qué está creciendo?" antes de decidir qué hacer. Lo
@@ -31,8 +32,10 @@ ocupar varias veces lo que realmente necesita. Esta operación limpia eso, y es
 la respuesta correcta cuando el disco crece sin que hayan aumentado los datos.
 
 > **Corré esto en un momento tranquilo.** Mientras compacta, bloquea cada tabla
-> que va procesando. Si hay una actualización del pipeline corriendo en
-> paralelo —o la corrida automática nocturna— se van a estorbar entre sí.
+> que va procesando, y quien esté consultando pantallas puede quedar esperando.
+> Si hay una actualización del pipeline en curso —o la corrida automática
+> nocturna—, el botón directamente no arranca: la pantalla avisa que hay otra
+> operación pesada en curso y hay que esperar a que termine.
 
 Es una operación segura de repetir: en el peor caso no recupera nada.
 
@@ -41,10 +44,12 @@ Es una operación segura de repetir: en el peor caso no recupera nada.
 > **Es irreversible y no pide más confirmación que el diálogo que aparece.**
 > Leé esta sección entera antes de apretar el botón.
 
-Borra todo lo que el sistema **calcula**: indicadores, señales, resultados de
-estrategias, datos fundamentales, y las corridas guardadas de backtest y de
-cartera. La pantalla lista en detalle qué se borra y qué se conserva —esa lista
-es la fuente autorizada, miralas antes de ejecutar.
+Borra todo lo que el sistema **calcula** —indicadores, señales, resultados de
+estrategias, datos fundamentales—, las corridas guardadas de backtest y de
+cartera, y además los eventos de mercado, los aliases del catálogo y los
+registros de corridas, que no se calculan pero se pueden volver a descargar o
+importar. La pantalla lista en detalle qué se borra y qué se conserva —esa
+lista es la fuente autorizada, mirala antes de ejecutar.
 
 La distinción que importa es entre lo que se puede regenerar y lo que no:
 
@@ -71,8 +76,9 @@ resuelve la mayoría de los casos sin borrar nada.
 
 ### Después de limpiar
 
-El sistema queda con los activos, los precios y las definiciones, pero sin nada
-calculado: las pantallas de análisis van a aparecer vacías hasta que regeneres.
+El sistema queda con los activos, los precios, las definiciones, las carteras
+con su registro de operaciones y los usuarios, pero sin nada calculado: las
+pantallas de análisis van a aparecer vacías hasta que regeneres.
 El orden de reconstrucción está en el
 [Centro de Datos](/manual/centro-de-datos). Contá con que un recálculo completo
 sobre muchos activos lleva un buen rato.

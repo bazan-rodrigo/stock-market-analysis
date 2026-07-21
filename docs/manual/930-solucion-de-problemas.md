@@ -46,10 +46,10 @@ Qué hacer: un **recálculo completo** desde el
 
 **Causa más probable: el programador de tareas está apagado.**
 
-Qué hacer: revisá [Scheduler de tareas](/manual/scheduler). Si está encendido y
+Qué hacer: revisá [Scheduler](/manual/scheduler). Si está encendido y
 aun así faltan días, mirá el registro de
-[Actualización de precios](/manual/actualizacion-de-precios), que muestra qué
-pasó en cada corrida.
+[Actualización de precios](/manual/actualizacion-de-precios), que muestra,
+activo por activo, cómo le fue en el último intento.
 
 ---
 
@@ -111,8 +111,10 @@ dice cuál.**
 Qué hacer: entrá a [Verificación de datos](/manual/verificacion-de-datos) y
 mirá el detalle.
 
-> Al revés no vale: **la ausencia de la marca no significa que los datos estén
-> bien**, significa que nadie verificó ese activo todavía.
+> Al revés no vale: **la ausencia de la marca no garantiza que los datos estén
+> bien**: puede significar que en la última verificación ese activo salió sin
+> hallazgos — o que nadie lo verificó todavía (la verificación no corre sola
+> salvo que esté habilitada la corrida semanal).
 
 ---
 
@@ -146,7 +148,7 @@ Ver [Visibilidad y permisos](/manual/visibilidad-y-permisos).
 
 ---
 
-## "Ya hay una corrida en curso"
+## "Hay otra operación en curso" / "Hay otra operación pesada en curso"
 
 Las operaciones pesadas admiten **una sola a la vez en todo el sistema**, no una
 por usuario. Puede estar corriendo otra persona, o la actualización automática.

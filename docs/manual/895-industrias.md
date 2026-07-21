@@ -16,7 +16,7 @@ del sector. Funciona con el patrón común descrito en
 | Campo | Obligatorio | Qué es |
 |---|---|---|
 | **Nombre** | Sí | El nombre de la industria (por ejemplo `Consumer Electronics`). |
-| **Sector** | No | El sector al que pertenece, elegido del catálogo de [Sectores](/manual/sectores). |
+| **Sector** | Sí | El sector al que pertenece, elegido del catálogo de [Sectores](/manual/sectores). Toda industria cuelga de un sector. |
 
 ## Sector o industria: cuál conviene usar
 

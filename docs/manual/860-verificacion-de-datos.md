@@ -36,8 +36,11 @@ producción sin riesgo.**
 
 Una diferencia entre lo recalculado y lo guardado significa que el valor
 almacenado quedó mal —típicamente porque una actualización incremental no
-alcanzó a corregir algo—, y se arregla con un recálculo completo de ese activo
-desde el [Centro de Datos](/manual/centro-de-datos).
+alcanzó a corregir algo—, y se arregla recalculando ese activo con
+**Recalcular seleccionados (completo)** desde
+[Actualización de precios](/manual/actualizacion-de-precios) — o, si son muchos,
+con un **Recalcular completo** de todo desde el
+[Centro de Datos](/manual/centro-de-datos).
 
 ## De acá sale el símbolo ⚠️ de los selectores
 
@@ -45,8 +48,10 @@ Cuando corrés la verificación sobre todos los activos, o sobre los ya marcados
 los resultados **quedan registrados**. Ese registro es el que hace aparecer el
 símbolo **⚠️** al lado del nombre de un activo en los selectores de
 [Análisis de Activo](/manual/analisis-de-activo),
-[Rotación Relativa](/manual/rotacion-relativa) y
-[Evolución Relativa](/manual/evolucion).
+[Rotación Relativa](/manual/rotacion-relativa),
+[Evolución Relativa](/manual/evolucion),
+[Análisis de Pares](/manual/analisis-de-pares) y
+[Comparador de Retornos](/manual/comparador-de-retornos).
 
 Es decir: **si nunca corriste la verificación, nunca vas a ver esas marcas**, y
 la ausencia de marcas no significa que los datos estén bien. Significa que nadie
@@ -64,7 +69,7 @@ verificó.
 - **Cuando algo no cierra** en una pantalla de análisis y ya descartaste que sea
   un problema de precios.
 - **De forma periódica**, como control de rutina. El sistema puede correr una
-  verificación semanal automática — ver [Scheduler de tareas](/manual/scheduler).
+  verificación semanal automática — ver [Scheduler](/manual/scheduler).
 
 > Verificar **todos** los activos recalcula mucho y lleva tiempo. Si ya sabés
 > cuál te preocupa, verificá ese solo; y para los controles de rutina, la opción

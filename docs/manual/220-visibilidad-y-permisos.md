@@ -39,16 +39,18 @@ Hay un caso particular: las definiciones **sin dueño**. Son las que se importar
 o se crearon antes de que existiera este modelo. Las ve cualquiera si son
 públicas, pero **solo un administrador puede editarlas**.
 
-Lo que creás nace **privado** salvo que marques lo contrario. La excepción son los
-paquetes de importación: traen la visibilidad indicada en el propio archivo y, si
-no la indican, las definiciones entran como públicas.
+Lo que creás nace **privado** salvo que marques lo contrario, y la importación
+sigue la misma regla: los paquetes traen la visibilidad indicada en el propio
+archivo y, si no la indican, las definiciones entran como **privadas**. Publicar
+es siempre un paso explícito — con la columna del archivo o desde la pantalla.
 
 ## La regla de las referencias
 
 Esta es la parte sutil, y la que más sorprende la primera vez.
 
 Una estrategia no vive sola: **referencia señales**, tanto en sus componentes
-ponderados como en los operandos de su filtro de elegibilidad. Ahí aparece un
+ponderados como en los operandos de su filtro de elegibilidad. Y una cartera
+derivada de una estrategia **referencia esa estrategia**. Ahí aparece un
 riesgo: si una estrategia pública pudiera usar una señal privada, cualquiera que
 abriera esa estrategia estaría viendo —indirectamente— una definición que su
 dueño decidió no compartir.
@@ -66,6 +68,12 @@ existe para vos.
 La consecuencia práctica es directa: **para publicar una estrategia, antes tenés
 que publicar todas las señales que usa**. Si intentás publicarla con una señal
 privada adentro, el sistema no te deja y te dice cuál es.
+
+La misma regla corre un nivel más arriba: **una cartera pública no puede derivar
+de una estrategia privada** — cualquiera que la viera podría inferir la
+composición de una estrategia que su dueño no compartió. Si intentás crearla
+pública, o publicarla después, el sistema te pide publicar la estrategia
+primero, o dejar la cartera privada.
 
 ### Y al revés: no siempre podés despublicar
 

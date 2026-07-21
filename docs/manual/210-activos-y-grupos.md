@@ -99,7 +99,7 @@ Hay exactamente **cinco** dimensiones de agrupación:
 |---|---|
 | **Sector** | El más usado. |
 | **Industria** | Más fina que el sector; cada industria pertenece a un sector. |
-| **Mercado** | Dónde cotiza. Cada mercado pertenece a un país y puede definir un benchmark para todos sus activos. |
+| **Mercado** | Dónde cotiza. Un mercado puede asociarse a un país y puede definir un benchmark para todos sus activos. |
 | **País** | |
 | **Tipo de instrumento** | Acción, índice, ETF, etc. |
 
@@ -134,4 +134,6 @@ Dos detalles de cómo se arma ese promedio:
 > **incorporar activos nuevos**: pasan a integrar los agregados de sus grupos, y
 > eso desactualiza las señales de grupo y las estrategias que las usan en toda la
 > historia. En ambos casos hace falta un **recálculo completo** para que quede
-> consistente; la aplicación te avisa cuándo corresponde.
+> consistente. Al sincronizar conversiones de moneda la aplicación te avisa
+> qué señales y estrategias quedan desactualizadas; si cambiás la agrupación
+> de un activo a mano, el recálculo queda a tu cargo — no hay aviso.

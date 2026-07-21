@@ -23,16 +23,18 @@ Catálogo de países. Funciona con el patrón común descrito en
 alimentar agregados de grupo y servir de criterio en el filtro de elegibilidad
 de una estrategia.
 
-**Le da alcance a los mercados.** Cada mercado pertenece a un país, y el activo
-hereda ese país a través de su mercado.
+**Le da alcance a los mercados.** Cada mercado puede tener un país asignado.
+Es un dato propio del mercado: el activo tiene su **propio** campo País, que se
+carga en su alta o en la importación, independiente del país del mercado.
 
 **Delimita los eventos de mercado.** Un evento cargado con alcance de país se
 muestra sobre los gráficos de los activos de ese país y no sobre los demás —
 ver [Eventos de mercado](/manual/eventos-de-mercado).
 
-> **El código ISO no se usa para hacer coincidir nada al importar.** La
-> importación de activos resuelve el país **por nombre** (o por una equivalencia
-> registrada en el mapper), no por su código. Si en una planilla ponés `US`
-> donde el catálogo dice `Estados Unidos`, y no hay una equivalencia cargada, se
-> crea un país nuevo llamado `US`. Ver
-> [Mapper de catálogo](/manual/mapper-de-catalogo).
+> **El código ISO también sirve para hacer coincidir al importar.** La
+> importación de activos primero busca el país por su **código ISO** y, si no
+> hay coincidencia, lo resuelve **por nombre** (o por una equivalencia
+> registrada en el mapper). Así, una planilla exportada —que trae el código—
+> se reimporta sin crear duplicados. Un texto que no coincide ni como código ni
+> como nombre crea un país nuevo con ese texto; para consolidar variantes está
+> el [Mapper de catálogo](/manual/mapper-de-catalogo).

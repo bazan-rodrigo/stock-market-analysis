@@ -24,9 +24,16 @@ def layout(**kwargs):
             dbc.Row([
                 dbc.Col([
                     html.Div("Acceso sin login", style={"fontWeight": "600", "fontSize": "0.95rem"}),
+                    # Texto alineado con el comportamiento real desde 6c32179
+                    # (GuestUser.is_admin = True con acceso público): el
+                    # visitante opera como administrador. Decía "el menú de
+                    # administración permanece oculto", que era falso y
+                    # minimizaba una decisión de seguridad importante.
                     html.Div(
-                        "Permite navegar todas las pantallas sin iniciar sesión. "
-                        "El menú de administración permanece oculto para visitantes.",
+                        "Permite navegar sin iniciar sesión, con acceso COMPLETO: "
+                        "el visitante ve y opera todas las pantallas, incluida la "
+                        "administración, como si fuera admin. Habilitalo solo en "
+                        "redes de confianza.",
                         className="text-muted", style={"fontSize": "0.8rem", "marginTop": "2px"},
                     ),
                 ]),

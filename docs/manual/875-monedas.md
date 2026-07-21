@@ -24,9 +24,11 @@ mecanismo de conversión: guardar que un activo cotiza en dólares no convierte
 nada por sí solo.
 
 **Es el default del tipo de instrumento.** Cada tipo de instrumento puede
-declarar una moneda por defecto, que es la que se propone al dar de alta un
-activo de ese tipo —ver
-[Tipos de instrumento](/manual/tipos-de-instrumento)—.
+declarar una moneda por defecto —ver
+[Tipos de instrumento](/manual/tipos-de-instrumento)—. Por ahora es un dato
+informativo del catálogo: el alta de un activo no la completa automáticamente;
+la moneda se elige a mano o la trae el autocompletado desde la fuente de
+precios.
 
 **Habilita los activos en divisa.** La pantalla de
 [Activos en Divisa](/manual/activos-en-divisa) genera, por cada activo en una

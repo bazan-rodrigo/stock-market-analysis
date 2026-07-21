@@ -22,8 +22,8 @@ esta pantalla dice qué materia prima hay disponible.
 |---|---|
 | **Código** | El identificador corto del indicador. Es el que vas a elegir al crear una señal. |
 | **Nombre** | El nombre legible. |
-| **Categoría** | La familia a la que pertenece (tendencia, momento, volatilidad…). Sirve para orientarse en una lista larga. |
-| **Tipo** | Si el indicador da un **número** o una **categoría**. Es la columna más importante — ver abajo. |
+| **Categoría** | La familia a la que pertenece (Trend, Momentum, Volatility…). Sirve para orientarse en una lista larga. |
+| **Tipo** | Si el indicador da un **número** (aparece como `num`) o una **categoría** (aparece como `str`). Es la columna más importante — ver abajo. |
 | **Escala** | El rango o la unidad en la que se mueve, cuando aplica. |
 | **Guarda histórico** | Si se conserva la serie completa o solo el valor vigente. |
 | **Descripción** | Qué mide. |
@@ -38,7 +38,7 @@ podés aplicarle**:
 
 | Si el tipo es… | La fórmula que corresponde |
 |---|---|
-| **Categoría** (alcista, lateral, bajista…) | Mapa discreto: asignás un puntaje a cada categoría posible. |
+| **Categoría** (`str`: bullish, lateral, bearish…) | Mapa discreto: asignás un puntaje a cada categoría posible. |
 | **Número** | Umbrales o rango lineal, según quieras tramos o una escala continua. |
 
 Elegir una fórmula que no corresponde al tipo del indicador es el error más
@@ -72,7 +72,10 @@ su pantalla:
 | Régimen de volatilidad | [Volatilidad ATR](/manual/volatilidad-atr) |
 | Drawdowns | [Drawdowns](/manual/drawdowns) |
 | Soportes y resistencias | [Soporte / Resistencia](/manual/soporte-resistencia) |
-| Punto y Figura | [Punto y Figura](/manual/punto-y-figura) |
+
+El [Punto y Figura](/manual/punto-y-figura) también tiene su pantalla de
+configuración en este menú, pero lo que configura es un tipo de gráfico del
+Análisis de Activo, no un indicador de este catálogo.
 
 > **Cambiar cualquiera de esas configuraciones invalida lo ya calculado.** Los
 > valores históricos quedaron computados con los parámetros anteriores, y solo

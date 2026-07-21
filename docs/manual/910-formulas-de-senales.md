@@ -11,7 +11,9 @@ puntaje. Para aprender cuándo conviene cada una, empezá por
 [Señales — crear y editar](/manual/configuracion-senales); esta sección es para
 consultar mientras armás una.
 
-Toda señal produce un puntaje en el rango **−100 a +100**.
+Toda señal produce un puntaje pensado para el rango **−100 a +100** (única
+excepción: un rango lineal con **Recortar** desactivado puede salirse del
+rango — ver más abajo).
 
 ---
 
@@ -47,8 +49,10 @@ Asignás a mano el puntaje de cada categoría posible:
 **Para indicadores numéricos, cuando querés puntajes por tramos.**
 
 Se define una lista de pares límite → puntaje, y **se evalúa de arriba hacia
-abajo: gana el primer límite que el valor supera**. El último tramo, sin límite,
-es el "en cualquier otro caso".
+abajo: gana el primer límite que el valor supera**. Podés cerrar la lista con
+un tramo final sin límite — el campo **en otro caso** — que captura cualquier
+valor que no supere ningún límite. Es opcional: si lo dejás vacío, esos
+valores quedan sin puntaje.
 
 Ejemplo con el drawdown:
 
@@ -57,19 +61,24 @@ Ejemplo con el drawdown:
 | mayor a −5% | 100 |
 | mayor a −15% | 50 |
 | mayor a −30% | 0 |
-| en cualquier otro caso | −50 |
+| en otro caso | −50 |
 
 Un activo con −10% de drawdown no supera el primer límite pero sí el segundo, y
 saca 50.
 
-> **El orden importa y no se corrige solo.** Como gana el primer límite que se
-> cumple, una lista mal ordenada produce resultados silenciosamente incorrectos:
-> si el tramo más permisivo queda arriba, absorbe todos los casos y los de abajo
-> nunca se evalúan. Ordenálos siempre del más exigente al menos exigente.
+> **No hace falta cargar los tramos en orden**: al guardar, el editor los
+> ordena solo de mayor a menor (la propia pantalla lo aclara). La excepción es
+> el modo avanzado y la importación por planilla: ahí la lista queda tal como
+> la escribís, y una lista mal ordenada produce resultados silenciosamente
+> incorrectos — si el tramo más permisivo queda arriba, absorbe todos los
+> casos y los de abajo nunca se evalúan. En esos modos, ordenalos del más
+> exigente al menos exigente.
 
-A diferencia del mapa discreto, **todo valor posible recibe un puntaje**,
-gracias al tramo final sin límite. Es la fórmula más segura cuando no querés
-huecos.
+A diferencia del mapa discreto, acá podés asegurarte de que **todo valor
+posible reciba un puntaje**: alcanza con completar el tramo final **en otro
+caso**. Pero ese tramo es opcional — si lo dejás vacío, un valor que no supere
+ningún límite deja la señal sin valor ese día, el mismo hueco silencioso del
+mapa discreto. Completalo siempre que no quieras huecos.
 
 ---
 
@@ -82,8 +91,8 @@ Definís dos puntos y el resto se interpola en línea recta:
 
 | Parámetro | Qué es |
 |---|---|
-| **Mínimo** | El valor del indicador que vale **−100** |
-| **Máximo** | El valor del indicador que vale **+100** |
+| **Min** | El valor del indicador que vale **−100** |
+| **Max** | El valor del indicador que vale **+100** |
 | **Recortar** | Qué hacer con los valores que quedan fuera del rango |
 
 El punto medio entre mínimo y máximo da 0.

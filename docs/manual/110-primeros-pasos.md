@@ -8,8 +8,10 @@ roles: invitado
 
 ## Iniciar sesión
 
-La aplicación pide usuario y contraseña antes de mostrar cualquier cosa. No hay
-registro público: las cuentas las crea un administrador.
+La aplicación pide usuario y contraseña antes de mostrar cualquier cosa, con
+una excepción: la página **Acerca de**, que es pública — la pantalla de inicio
+de sesión tiene un enlace para verla. No hay registro abierto: las cuentas las
+crea un administrador.
 
 **El nombre de usuario no distingue mayúsculas de minúsculas** — `Ana`, `ana` y
 `ANA` entran a la misma cuenta. La contraseña sí las distingue.
@@ -47,14 +49,15 @@ recuerda entre visitas: cerrar el navegador también te desloguea.
 
 ## Si entraste como invitado
 
-El perfil invitado no tiene usuario propio: es un acceso de solo consulta.
-Podés ver las pantallas de análisis y los datos de mercado, pero no crear
-señales, estrategias ni carteras, y no ves nada de configuración ni de
-administración.
+El perfil invitado no tiene usuario propio: entrás sin credenciales cuando un
+administrador habilita el acceso público. Tenés acceso completo: ves las mismas
+pantallas que un administrador — incluidas Configuración y Administración — y
+podés crear y editar señales, estrategias y carteras. Lo que crees como
+invitado queda sin dueño: después solo un administrador puede modificarlo.
 
 En la barra de navegación vas a ver **Iniciar sesión** en lugar de un nombre de
-usuario. Si tenés una cuenta propia, entrá por ahí — el menú se completa con
-todo lo que tu perfil permita.
+usuario. Si tenés una cuenta propia, entrá por ahí — así lo que crees queda a
+tu nombre y el menú pasa a mostrar lo que corresponde a tu perfil.
 
 ## Qué hacer los primeros días
 

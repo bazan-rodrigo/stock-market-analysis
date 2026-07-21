@@ -28,12 +28,18 @@ vez en el mercado y todas lo toman.
 
 Ese benchmark heredado es el que se usa por defecto en las pantallas que
 comparan un activo contra su referencia: la
-[Rotación Relativa](/manual/rotacion-relativa) y la
-[Evolución Relativa](/manual/evolucion).
+[Rotación Relativa](/manual/rotacion-relativa), la
+[Evolución Relativa](/manual/evolucion) y el modo **Benchmark** del
+[Comparador de Retornos](/manual/comparador-de-retornos).
 
-> **El benchmark no participa del cálculo de señales ni del ranking.** Es una
-> referencia de comparación para las pantallas de análisis. Que un activo le
-> gane o le pierda a su benchmark no entra en su score.
+> **El benchmark del mercado no entra al motor de cálculo.** Solo alimenta las
+> pantallas de comparación. El benchmark cargado en el activo mismo, en cambio,
+> sí alimenta el indicador de
+> [fuerza relativa a 52 semanas](/manual/glosario-de-indicadores), que una
+> señal puede usar como cualquier otro — y por esa vía, ganarle o perderle al
+> benchmark sí puede entrar en el score. Para ese cálculo el activo **no
+> hereda** el benchmark de su mercado: si no tiene uno propio, el indicador
+> queda vacío.
 
 > **Un activo usado como benchmark no se puede eliminar** mientras algún
 > mercado o activo lo esté referenciando. Primero hay que sacarle esa función.
@@ -42,5 +48,8 @@ comparan un activo contra su referencia: la
 
 Es una de las cinco dimensiones de agrupación, así que alimenta agregados de
 grupo y sirve de criterio en el filtro de elegibilidad de una estrategia —ver
-[Activos, sintéticos y grupos](/manual/activos-y-grupos)—. Además, el activo
-toma su país a través del mercado.
+[Activos, sintéticos y grupos](/manual/activos-y-grupos)—. El país del mercado
+es un dato del mercado mismo y no se traslada al activo: cada activo tiene su
+propio campo de **País**, que se carga en
+[Gestión de activos](/manual/gestion-de-activos) o llega en la columna de país
+al [importar](/manual/importar-activos).

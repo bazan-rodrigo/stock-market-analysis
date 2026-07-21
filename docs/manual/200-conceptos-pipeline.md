@@ -33,9 +33,11 @@ Los indicadores **no se calculan cuando abrís la pantalla**: están
 pre-calculados y guardados. Esa es la decisión de diseño que permite rankear
 miles de activos en un instante en vez de recalcular todo en cada consulta.
 
-De cada indicador se guardan dos cosas: la **serie histórica** completa (para
-graficarla y para el backtest) y el **valor vigente** (el del último día, que es
-el que consultan las pantallas de screening).
+De casi todos los indicadores se guardan dos cosas: la **serie histórica**
+completa (para graficarla y para el backtest) y el **valor vigente** (el del
+último día, que es el que consultan las pantallas de screening). Unos pocos
+guardan **solo el valor vigente** — su serie no se puede graficar ni usar hacia
+atrás, y las pantallas que lo necesitan lo avisan.
 
 ## 3. Señales
 
@@ -61,9 +63,9 @@ Una estrategia combina señales y produce el ranking. Tiene dos partes que hacen
 cosas distintas y conviene no confundir:
 
 **El filtro de elegibilidad** decide *quién participa*. Es un árbol de
-condiciones Y/O: "que sea del panel líder **Y** que tenga volumen mínimo **Y**
-(que sea del sector energía **O** del sector bancos)". Un activo que no pasa el
-filtro simplemente no aparece en el ranking de ese día.
+condiciones Y/O: "que sea del panel líder **Y** que el RSI diario no esté
+sobrecomprado **Y** (que sea del sector energía **O** del sector bancos)". Un
+activo que no pasa el filtro simplemente no aparece en el ranking de ese día.
 
 **El score ponderado** decide *en qué orden*. Es una suma de señales, cada una
 con su peso: 40% la señal de tendencia, 30% la de momento, 30% la de valuación.

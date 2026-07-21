@@ -22,8 +22,12 @@ depende del tipo de sentencia:
 
 | Tipo de sentencia | Qué pasa |
 |---|---|
-| **Lectura** (`SELECT`, `WITH`, `EXPLAIN`, `SHOW`, `DESC`) | Se muestran los resultados en una grilla y la operación se cierra sola. |
+| **Lectura** (`SELECT`, `SHOW`, `DESC`, y `WITH` o `EXPLAIN` que no envuelvan una escritura) | Se muestran los resultados en una grilla y la operación se cierra sola. |
 | **Cualquier otra** (modificación, borrado, alta) | Se ejecuta pero **queda pendiente**: te dice cuántas filas afectó y espera tu decisión. |
+
+Un `WITH` o un `EXPLAIN` que contenga una sentencia de modificación se trata
+como modificación: puede ejecutar el cambio de verdad, así que queda pendiente
+de tu **Commit** o **Rollback** como cualquier otra.
 
 Cuando hay una modificación pendiente se habilitan dos botones:
 
@@ -35,10 +39,10 @@ Esa confirmación en dos pasos es la única red de seguridad de la pantalla:
 "18.000 filas afectadas" cuando esperabas 3 es tu señal para apretar
 **Rollback**.
 
-> **Mientras haya una modificación pendiente, no podés ejecutar consultas de
-> lectura para revisar el resultado.** Los botones quedan tomados por la
-> decisión pendiente. Conviene mirar bien el conteo de filas antes de confirmar,
-> o hacer la consulta de verificación *antes* de ejecutar el cambio.
+> **Con una modificación pendiente podés seguir ejecutando consultas de
+> lectura.** Corren dentro de la misma operación, así que ven el resultado del
+> cambio todavía sin confirmar: es la forma de revisar exactamente qué tocaste
+> antes de decidir. **Commit** y **Rollback** siguen disponibles mientras tanto.
 
 ## La consulta que aparece al entrar
 
@@ -53,8 +57,11 @@ una actualización parece colgada — te dice si hay algo bloqueando.
 primeras 5.000 y un indicador de que hay más. El resto no se pierde: acotá la
 consulta.
 
-**Exportar CSV** baja el resultado de la última consulta de lectura. No está
-disponible después de una modificación, para no re-ejecutarla por accidente.
+**Exportar CSV** vuelve a ejecutar la consulta que está escrita en el editor y
+baja el resultado completo (acá sí sin el tope de 5.000 filas). Si editaste el
+texto después de ejecutar, el archivo refleja esa nueva consulta, no la grilla
+que estás viendo. No está disponible después de una modificación, para no
+re-ejecutar el cambio por accidente.
 
 **La sesión se cierra sola a los 30 minutos** de inactividad. Si dejaste algo
 pendiente de confirmar y volvés más tarde, esa modificación se descarta.
