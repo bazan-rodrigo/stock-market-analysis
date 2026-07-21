@@ -116,16 +116,13 @@ Codespace es el lugar: contenedor estable, git disponible, base descartable.
 
 **Optimizaciones aplicadas:**
 - `8a73ca4` — máscara `pd.notna` vectorizada una vez en `_pairs_to_write` y
-  `_series_stats` (antes: una llamada escalar por valor de serie, por cada
-  activo×código). **QUEDA, validado sobre datos reales** con
-  `scripts/bench_pairs_to_write.py` (commit `09b6421`): ningún modo
-  regresiona. `_series_stats` 1.60-1.82x; `_pairs_to_write` 1.42-1.55x
-  (None), 1.43-1.47x (set), 1.26-1.34x (dict).
-  Ahorro real por lote ≈ **4.3-5.0 s** — NO se suman los tres modos de
-  `_pairs_to_write` (en cada llamada corre uno solo): es `_series_stats` +
-  UN modo. Contra un lote delta de ~19 s eso es **~25%**. De hecho los
-  18.7 s medidos con `--raw` ya incluían esta optimización; sin ella el
-  lote daba ~24 s.
+  `_series_stats`. **QUEDA, validado sobre datos reales** con
+  `scripts/bench_pairs_to_write.py` (`09b6421`): ningún modo regresiona.
+  `_series_stats` 1.60-1.82x; `_pairs_to_write` 1.42-1.55x (None), 1.43-1.47x
+  (set), 1.26-1.34x (dict). Ahorro real ≈ **4.3-5.0 s por lote** — NO sumar
+  los tres modos (en cada llamada corre uno solo): es `_series_stats` + UN
+  modo. Contra un lote delta de ~19 s eso es **~25%**; los 18.7 s medidos con
+  `--raw` ya lo incluían (sin la optimización el lote daba ~24 s).
 - `d607273` — `_series_checksum` por bytes crudos: **PROBADO Y REVERTIDO**
   (ver abajo). No queda en el código.
 
@@ -133,18 +130,13 @@ Codespace es el lugar: contenedor estable, git disponible, base descartable.
 `scripts/bench_series_checksum.py` (commit `aa3b659`): cronometra AMBAS
 implementaciones en el mismo proceso sobre series REALES leídas de la base.
 Resuelve el problema de que el A/B por commits exige git + máquina estable
-(imposible en Railway). Es solo-lectura y corre en cualquier entorno.
+(imposible en Railway). Es solo-lectura y corre en cualquier entorno — el
+patrón a reusar para cualquier duda "¿esta optimización se nota de verdad?".
 
 Resultado sobre datos reales (20 y 50 activos, series de 10-13k barras):
-
-| | 20 activos | 50 activos |
-|---|---|---|
-| numéricas | 1.19x | 1.40x |
-| **texto (`trend_*`)** | **0.56x** | **0.52x** |
-| ahorro por lote | 0.14 s | 0.44 s |
-
-Contra un lote delta de ~19 s eso es 0.7-2.3%: por debajo del criterio
-acordado, así que se revirtió.
+numéricas 1.19-1.40x, **texto (`trend_*`) 0.52-0.56x (REGRESIÓN)**, ahorro
+total 0.14-0.44 s contra un lote delta de ~19 s = 0.7-2.3%. Por debajo del
+criterio acordado.
 
 **DOS ERRORES QUE VALE NO REPETIR:**
 
@@ -160,6 +152,83 @@ acordado, así que se revirtió.
    (`isinstance` + `math.isnan`) — ahí la conversión de lista a array de numpy
    cuesta más que lo que ahorra. Antes de vectorizar, preguntarse qué se está
    reemplazando.
+2. **"Salida byte-idéntica" ≠ "performance intacta".** El camino de texto
+   conservaba el hash exacto, y aun así **regresó ~2x**: la detección de tipo
+   `next((v for v in vals if v is not None), None)`, agregada ANTES de ese
+   camino, escanea hasta el primer no-nulo — carísimo en series largas y
+   mayormente nulas. Al tocar una función con varios caminos, medir TODOS,
+   no solo el que se quiso optimizar.
+
+## Parte 4 (19-jul-2026) — verificación vectorizada + bloat del delta
+
+**`c589a6e` — `verify_asset_code` vectorizado: QUEDA, validado sobre datos
+reales** con `scripts/bench_verify_asset_code.py`. La comparación
+fresco-vs-guardado llamaba `_values_equal` y `check_sanity` una vez POR FECHA
+(~48k llamadas escalares por código en una serie de 16k barras), casi todas
+para descubrir que no hay ninguna diferencia. Ahora se resuelve con máscaras
+de array (`_diff_masks`) y, si no hay diffs ni fechas faltantes, se evita
+recorrer la serie entera. Medido en la base real (BA, 16.243 barras), con las
+24 listas de diffs **idénticas**:
+
+- **La comparación sola: 144 → 65 ms = 2.23x** (`bench_verify_asset_code.py`).
+- **La función completa: 267.8 → 188.8 ms = 1.42x.** El end-to-end nuevo se
+  midió con `profile_verification.py BA --raw`; el viejo se despeja sin hacer
+  checkout: `compute_fn = 188.8 − 65 = 123.8 ms` (no cambió), luego
+  `viejo = 123.8 + 144 = 267.8 ms`.
+- A 10.000 activos single-thread: **~45 min → ~31 min** (ahorro ~13 min).
+
+**CORRECCIÓN de un overclaim propio:** se había dicho "la comparación es ~85%
+del costo de `verify_asset_code`" y de ahí "24 min → 11 min". Ese 85% salía de
+la tabla de cProfile y estaba inflado: la comparación hacía millones de
+llamadas instrumentadas y `compute_fn` órdenes de magnitud menos, así que el
+profiler exageró su peso. Real: **~54%**.
+
+**Chequeo cruzado del factor de inflación:** el profiler daba 1113 ms para
+esta función; real 268 ms = **4.2x**. Coincide con el **3.7x** medido
+independientemente en el lote del pool (69.2s con profiler vs 18.7s raw). Dos
+mediciones distintas convergen en el mismo orden de distorsión.
+
+**`2a4ed68` — bloat del delta.** El buffer de escritura ancha (fila completa
+en vez de un UPDATE por columna) sólo se activaba en rebuild; el comentario
+asumía que el bloat del delta era chico. Medido: **51.1% de tuplas muertas en
+`ind_daily`** (1.08M muertas vs 1.03M vivas) — un backfill masivo corre como
+delta pero escribe la serie entera columna por columna, y con 14 columnas son
+hasta 13 versiones muertas por fila. En `pg_stat_activity` los INSERT salían
+con `wait_event=ClientRead`: la base esperando al cliente, o sea el costo
+estaba en el ida y vuelta por statement, no en disco.
+Requirió arreglar antes `_wide_buffer_flush`, que volcaba SIEMPRE todas las
+columnas de la cadencia con None en las ausentes: en delta eso habría escrito
+NULL sobre valores guardados. Ahora agrupa por el conjunto de columnas real.
+**CONFIRMADO en la base real.** Con 144 activos en `ind_daily`, un delta
+—que siempre recalcula la última fecha, o sea toca una fila por activo—
+hizo crecer `n_tup_upd` en exactamente **+144**: UN update por fila. Con el
+código viejo habrían sido ~14 por fila (una por columna de la cadencia) ≈
+2.000. **~14x menos actualizaciones de fila en el camino delta.**
+
+**Cómo medirlo (técnica reusable):** NO usar `n_dead_tup`/`pct_muertas` —
+el autovacuum lo resetea entre la corrida y la medición y da 0% aunque el
+problema siga. Usar `n_tup_upd` de `pg_stat_user_tables`, que es acumulado
+y no se resetea: tomar la lectura antes del delta, correrlo, y comparar
+cuánto creció contra la cantidad de filas tocadas. La proporción
+update/fila es la que delata el patrón columna-por-columna.
+También: 187 MB para 1,03M filas × 14 columnas es el tamaño esperable
+(~144 bytes/fila + índice de la PK), no bloat — no hizo falta VACUUM FULL.
+
+**`5690052` — pytest podía vaciar la base real.** `conftest` usaba
+`os.environ.setdefault("DATABASE_URL", stub)`: con una URL real en el entorno
+la respetaba y la suite corría contra ESA base (varios fixtures hacen
+`DELETE FROM assets`, y prices e `ind_*` tienen ON DELETE CASCADE). Pasó de
+verdad — la tabla `ind_zz_test_explorer` en Railway sólo puede haberla creado
+pytest. Ahora la URL se fuerza y un hook `pytest_sessionstart` aborta si el
+engine no es sqlite.
+
+**LECCIÓN sobre benchmarks sintéticos.** Hoy fallaron 3 veces, SIEMPRE por
+optimistas (el "23%" leído del profiler, el 14x del checksum, la hipótesis de
+que `None` explicaba la regresión). La excepción fue `verify_asset_code`:
+el sintético dio 1.23x y la realidad 2.23x. La diferencia es que ahí se midió
+a propósito el PEOR caso (sin datos guardados, el atajo nunca dispara) en vez
+de un escenario favorable. **Regla: si se usa un benchmark sintético, que
+modele el peor caso** — así sólo puede sorprender para bien.
 
    **SEGUNDA CONFIRMACIÓN de la regla (y van 2):** se intentó vectorizar las
    conversiones de fecha de `_bf_relative_strength_52w`
@@ -318,18 +387,13 @@ en 5 escenarios, incluido uno adverso con magnitudes 1e-18 junto a 5.0.
 Las dos reversiones del día (`d607273`, `2589e2d`) salieron de saltar del
 paso 1 al 3 sin el paso 2.
 
-**LEAD CERRADO (`fc0fb03`):** `build_panels` se reconstruía por trailing en el
-grid del walk-forward. Al leer el código, el diagnóstico "12x" era impreciso:
-`_panels_for_range` se llama una vez por (ventana × trailing) = 12 en total,
-pero de las 4 salidas del panel SOLO `eligible_by_date` depende del trailing
-(vía `simulate_trades`); `dates/scores/rets` son idénticas entre trailings.
-Fix: split de `build_panels` en `_score_ret_panels` (independiente del
-trailing) + `_eligible_by_date` (dependiente); en `walk_forward` se computa el
-primero UNA vez por ventana y solo la elegibilidad por trailing. **Medido fair
-(ambos brazos, walk_forward completo): 1.35x a 500 activos (8.7→6.5s), 1.21-
-1.26x a 100-300, y 0.76x de REGRESIÓN a 40** (el copiado extra no se amortiza
-en universos chicos, pero la corrida es sub-segundo). Bit-idéntico verificado
-por golden-master. Es backtest, bajo demanda — pesa menos que el pipeline.
+**LEAD ABIERTO:** `build_panels` se reconstruye 12x en el grid del
+walk-forward (`_panels_for_range`, una vez por ventana × trailing) → cachear
+por ventana. Es el más grande de los que quedan y del tipo ELIMINAR TRABAJO,
+pero también el más invasivo (riesgo de servir paneles de una ventana en
+otra). Ojo con el encuadre: igual que el atajo del benchmark, es del BACKTEST
+—corre bajo demanda— así que para el objetivo de 10k activos pesa menos que
+lo del pipeline diario.
 
 **Hot spots encontrados, sin atacar todavía** (de las corridas sintéticas,
 recordar que son magnitudes relativas, no absolutas):

@@ -7,6 +7,64 @@ metadata:
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
 ---
 
+**Continuación 16-jul-2026 (3, commits `cd9effa` `cef7ede` `ae623ce`,
+pusheados): iteración post-implementación de las tablas por señal.**
+(1) FIX del arranque de la migración 0075 en el Codespace: `signal` es
+palabra RESERVADA en MariaDB (sentencia SIGNAL) — backticks en el SELECT
+de la migración y del reconciliador (sqlite no la reserva, por eso la
+suite no lo vio; murió en la 1ª sentencia, sin estado a medias — re-correr
+upgrade). (2) Pregunta del usuario "¿tests y cProfile?": test nuevo de la
+rama whole_history (TRUNCATE por tabla sobre pobladas, snapshot idéntico);
+cProfile NO aplica al refactor (no toca cómputo — re-corrido
+profile_signal_pipeline.py: 6.03 ms/fecha vs 5.71 baseline, sin regresión;
+lo afectado es I/O de MariaDB → medir en Codespace). (3) Modal de
+confirmación de "Recalcular completo" (señales) ahora DINÁMICO: dice
+exactamente qué borra/reconstruye según alcance + «Incluir señales» +
+horizonte. (4) BUG encontrado armando el modal: _start_redownload no
+tenía el State del switch → with_sig siempre None → "Recalcular completo"
+IGNORABA «Incluir señales» (solo "Ejecutar" lo respetaba) — arreglado;
+sin esto la medición de strategy_only habría corrido el pipeline entero.
+504 tests.
+
+**Continuación 16-jul-2026 (2, commit `992fe3e`, pusheado): TABLAS POR
+SEÑAL/ESTRATEGIA implementadas** — ver [[tablas-por-senal-diseno]] (el
+detalle completo vive ahí). Resumen: sig_{id}/strat_res_{id} reemplazan a
+signal_value/strategy_result (dropeadas en migración 0075, que COPIA la
+historia — sin recálculo obligatorio); ciclo de vida atado a save/delete
+con orden crash-safe; reconciliador en el arranque; TRUNCATE por tabla en
+todo rebuild whole-history (incluye alcance señal/estrategia);
+strategy_only = TRUNCATE strat_res + lectura de sig_{id}; purge/clean_data
+descubren las tablas nuevas. 504 tests (3 nuevos de ciclo de vida,
+paridad intacta). **PENDIENTE CODESPACE: pull + alembic upgrade head
+(0074+0075) + reiniciar + MEDIR (estrategia con/sin señales, señal
+suelta).** Siguiente etapa acordada: paralelización estilo indicadores
+(escritores por tabla → pool por unidad).
+
+**Continuación 16-jul-2026 (commit `fd9081d`, pusheado): VEREDICTO staging
+= FALLÓ y revertido; reemplazo = modo strategy_only.** La corrida real del
+usuario midió 33min+ (el merge por anti-joins cuesta ∝ tamaño de los
+datos, no del cambio) — peor que el rebuild completo de 12min; se aplicó
+el criterio de aceptación acordado y se revirtió TODO el modo staging
+(migración 0074 dropea las 4 tablas, modelos borrados). Diseño final,
+con directiva explícita del usuario ("debe ser decisión del usuario si
+quiere recalcular solo la estrategia o sumar las señales"): switch
+**"Incluir señales"** en la tarjeta de Señales del Centro de Datos
+(default ON = pipeline completo). OFF + alcance estrategia = modo
+`strategy_only` en run_range: las señales se LEEN de signal_value/
+group_signal_value (no se re-evalúan, no se borran, no se reescriben),
+barridos de indicadores reducidos a lo que consume el filtro, y solo
+strategy_result se limpia por ventanas y se reinserta (escritor
+asíncrono intacto). with_signals cablea también el camino por-fecha en
+signal_service. Red: test de paridad end-to-end (rebuild strategy_only
+reproduce strategy_result byte a byte con sv/gsv/gs intactos), 501
+tests. Se conservó lo que sí demostró valer del arco: TRUNCATE en el
+total, delete_by_ranges en el acotado, escritor asíncrono, fixes de
+arranque. **PENDIENTE CODESPACE: pull + `alembic upgrade head` (0074) +
+reiniciar; recalcular la estrategia con "Incluir señales" APAGADO y
+medir — expectativa ~3-6min; si no baja claramente de los 12min del
+completo, revisar.** Quedó además evaluado (sin decidir) el diseño de
+tablas por señal/estrategia — ver [[tablas-por-senal-diseno]].
+
 **Sesión 14-jul-2026 (4, commits `b7b0ad2` `4bcd715` `bb2ab7e`, pusheados):
 iteración del simulador tras uso real del usuario.** (1) Ayudas en pantalla:
 popover "?" con referencia completa + tooltip por modo. (2) Rediseño de
@@ -19,6 +77,68 @@ al caer bajo el umbral) + cooldown N ruedas — opcionales, apagados por
 default. Contrato homologado en cada paso (31 casos en fixtures).
 **IMPORTANTE (el usuario lo marcó por 3ª vez): NO editar sin proponer y
 esperar el "sí" — ni ante pedidos directos ni reportes de bugs.**
+
+**Iteración staging (commits `76476ba` `e7ca49a`): dos fixes tras corridas
+reales del usuario.** (1) Arranque: el SELECT DISTINCT de `computed` no se
+consulta más en force (18s-minutos tirados; _dates_to_compute lo ignora) y
+_status_signals del panel dejó de escanear signal_value (100s medidos) —
+ahora MAX(date) + conteo sobre signal_eval_log. (2) BUG DE PK: las staging
+tenían date al FINAL de la PK → el merge por ventanas hacía FULL SCAN de
+13M filas POR VENTANA (20min+ solo de merge, peor que el full). Migración
+0073: PK arranca en date (prefijo para las ventanas + inserts cronológicos
+append-only). **PENDIENTE: usuario debe abortar la corrida colgada, pull,
+alembic upgrade head (0073), reiniciar y MEDIR — el veredicto ≤60% del
+completo sigue abierto; si no cumple, se revierte todo el modo staging.**
+
+**DISEÑO DEFINITIVO (commit `cd26107`, pusheado): rebuild acotado vía
+STAGING + merge de diferencias — idea del usuario.** Tras medir que las
+ventanas tampoco alcanzaban (19min vs 12 del completo: insertar en tablas
+POBLADAS es 3-5× más caro que en vacías, y el acotado reescribía 13M de
+filas de señales idénticas), el usuario propuso: insertar en tablas espejo
+vacías y pasar a las oficiales solo los cambios. Implementado: migración
+0072 (4 tablas *_staging, un índice), run_range modo staging (force
+acotado): sin limpieza inicial (oficiales INTACTAS hasta el merge —
+crash-safe), escritor asíncrono inserta en staging, merge final por
+ventanas de 100 fechas (UPDATE in-place null-safe EXACTO — mismo FLOAT
+ambos lados, INSERT nuevos, DELETE obsoletos por alcance). Rebuild total
+conserva TRUNCATE. La paridad sqlite ejercita staging+merge byte a byte.
+**CRITERIO DE ACEPTACIÓN ACORDADO: la corrida real del usuario debe medir
+≤60% del completo o SE REVIERTE. PENDIENTE CODESPACE: alembic upgrade
+head (0072) + repetir el recálculo y medir.** Aclaración didáctica que
+pidió el usuario y quedó validada: el ranking/pct es transversal POR
+FECHA (cross-section completa dentro de su chunk) — no necesita la
+historia completa; solo métricas ENTRE fechas la necesitarían (hoy no
+existen). db_utils.delete_by_ranges queda como convención/utilidad
+(sin consumidor actual; NO usar jamás DELETE..LIMIT sobre rango grande).
+
+**CORRECCIÓN CRÍTICA (commit `d147789`): el loop DELETE..LIMIT del commit
+`a15e530` fue PEOR que la sentencia única (17min+ sin terminar, verificado
+en vivo por el usuario) — cada lote re-escanea desde el inicio del rango
+los tombstones de los lotes anteriores (purge de InnoDB no alcanza),
+O(n²). LECCIÓN PERMANENTE: DELETE masivo = ventanas de rango QUE AVANZAN
+(db_utils.delete_by_ranges, 100 fechas/sentencia, tramo virgen del índice
+por ventana), NUNCA LIMIT sobre el rango completo. delete_in_batches
+eliminado (footgun). El repo ya tenía la advertencia medida (docstring de
+run_range "10s→32s por chunk") y la malinterpreté. El patrón LIMIT de
+purge_assets es tolerable solo por su escala chica — mejora futura.**
+
+**Continuación 15-jul-2026 (6, commit `a15e530`, pusheado): borrado por
+lotes + escritor asíncrono en el backfill de señales.** El usuario reportó
+regresión aparente (recalc de 1 estrategia 27m37s vs 12min del completo);
+el processlist mostró la causa real (no era la compilación de señales): el
+DELETE por rango de la limpieza inicial del rebuild acotado corría 400s+
+en UNA sentencia (26.529 fechas desde 1927). Fix: (1) helper
+db_utils.delete_in_batches + CONVENCIÓN en CLAUDE.md (todo DELETE masivo
+por lotes, siempre — pedido explícito del usuario); (2) pipeline
+productor/escritor en run_range: limpieza + todos los flushes en thread
+escritor con sesión propia (I/O libera GIL → solape real con el cómputo),
+cola acotada maxsize=1 (memoria acotada, pregunta del usuario), barrera
+borrar-antes-de-insertar estructural (mismo thread FIFO), sqlite
+sincrónico (paridad cubre el refactor). Insight anotado: el costo del
+backfill es ∝ fechas×activos, no estrategias — recalcular 1 estrategia
+cuesta ≈ como todas; próximo sospechoso si sigue lento: I/O de inserción.
+**PENDIENTE CODESPACE: repetir el recalc de la estrategia y comparar
+contra 27m37s.** 500 tests.
 
 **Continuación 15-jul-2026 (5, commits `c969212` `dfcbac3`, pusheados):
 profiling a fondo de señales/estrategias (pedido explícito: "lo más
@@ -712,127 +832,3 @@ en verde en cada commit de esta sesión).
     persistir `forward_eps` (no encaja en `FundamentalQuarterly`, que es
     tabla de datos trimestrales fijos) y aceptar el costo de la llamada
     extra.
-
-13. **HECHO — la pantalla `/admin/cleanup` estaba desactualizada; alcance
-    unificado en un servicio (19-jul-2026).** El punto 11 arregló
-    `scripts/clean_data.py` pero NO la pantalla, que mantenía su propia
-    lista `_TABLES_INFO` — la vieja, con `assets`/`prices`/catálogos y
-    `SET FOREIGN_KEY_CHECKS = 0`: exactamente la combinación que dejó
-    huérfanas las 49 tablas con FK a `assets.id`. Además no tocaba nada del
-    pipeline (`ind_*`, `sig_*`, `strat_res_*`, `group_scores`,
-    `current_indicator_values`, fundamentales) ni lo agregado después
-    (backtest, carteras). Y ninguna de las dos entradas limpiaba
-    `verification_run_log`, `asset_verification_flag` ni `run_lock`.
-
-    Ahora el alcance vive SOLO en `app/services/cleanup_service.py`, que
-    consumen la pantalla y el script. Decisiones de producto tomadas en la
-    sesión: política fija (un botón, sin checkboxes) y los snapshots de
-    backtest/cartera (`backtest_run`, `portfolio_run` + hijas) SÍ se borran
-    aunque no se recalculen. Se preservan activos, precios, fuentes,
-    catálogos, definiciones, configuración, sintéticos y —clave— las
-    carteras con su registro de operaciones (`portfolio`,
-    `portfolio_member`, `portfolio_transaction`), que son datos cargados a
-    mano.
-
-    Cambios técnicos: sin `FOREIGN_KEY_CHECKS` (con la lista corregida no
-    hace falta, y apagarlo era la causa raíz — MySQL no dispara los
-    `ON DELETE CASCADE`); `db_compat.wipe_table` (TRUNCATE) en vez de
-    `DELETE FROM` crudo, salvo `backtest_run`/`portfolio_run`, que van con
-    DELETE porque MySQL rechaza TRUNCATE sobre una tabla con FKs entrantes
-    aunque la hija esté vacía; las hijas se vacían antes que los padres; y
-    se filtra por tablas existentes (`screener_snapshot` ya no tiene modelo
-    y su DELETE reventaba la corrida en una base nueva).
-
-    Red nueva: `tests/test_cleanup_service.py` (9 casos) fija que no entren
-    tablas curadas, que estén todos los logs, que los prefijos dinámicos
-    lleven `_` (sin él, `ind_` se lleva `industries`/`indicator_definitions`
-    y `sig_` se lleva `signal`), y que ni la página ni el script vuelvan a
-    definir su propia lista. Antes no había NINGÚN test sobre esto: por eso
-    la divergencia pasó desapercibida.
-
-    **VERIFICAR EN EL CODESPACE:** correr la limpieza desde la pantalla
-    contra MariaDB y confirmar (a) que no quedan huérfanos —el chequeo del
-    punto 11 sobre `KEY_COLUMN_USAGE` sirve—, (b) que activos, precios y
-    carteras siguen intactos, y (c) que después de "Recalcular completo" el
-    pipeline reconstruye todo. Probar también con `DB_ENGINE=postgres`: el
-    orden hijas→padres y el TRUNCATE/DELETE mixto es lo que cambia entre
-    motores.
-
-14. **HECHO — dos arreglos en "Recuperar espacio" de `/admin/cleanup`
-    (19-jul-2026).** Salieron de preguntar si el vacuum dejaba sesiones
-    abiertas. **No las dejaba**: `maintenance_service` importa solo `engine`
-    (nunca `Session`), usa `with engine.connect()` —que cierra incluso ante
-    excepción— y `isolation_level="AUTOCOMMIT"`, obligatorio porque PG no
-    permite `VACUUM FULL` dentro de una transacción. Por eso
-    `admin_cleanup_callbacks` era el único módulo con threads sin
-    `Session.remove()` en el `finally`, y estaba bien así (los otros 13 sí lo
-    necesitan: `scoped_session` es thread-local y el `teardown_session` de
-    Flask corre en el thread del request, no en el daemon).
-
-    Pero aparecieron dos problemas reales:
-
-    (a) **Un fallo midiendo tamaño abortaba todo el vacuum, solo en
-    PostgreSQL.** El `try/except ... continue` existe para que una tabla que
-    falla no frene a las demás, pero las dos llamadas a `_table_size_bytes`
-    quedaban FUERA del try. Caso real: `signal_store` dropea
-    `sig_{id}`/`strat_res_{id}` al borrar una señal o estrategia; si eso pasa
-    entre `bloat_tables()` y el vacuum de esa tabla, en PG
-    `pg_total_relation_size()` sobre tabla inexistente LANZA `undefined_table`
-    → se cortaba la corrida y las tablas siguientes quedaban sin compactar. En
-    MySQL no pasaba (la consulta a `information_schema` da NULL y el COALESCE
-    lo vuelve 0). Arreglado moviendo las mediciones dentro del try.
-
-    (b) **Ni el vacuum ni la limpieza tomaban `run_lock`.** Ahora ambos usan
-    `HEAVY_WRITE` vía un helper `_launch_locked` (mismo patrón que
-    `price_callbacks._launch_locked_bg`; `heartbeating` libera el lock al
-    salir, no hace falta `release` aparte). Importa por dos motivos distintos:
-    el VACUUM/OPTIMIZE toma lock exclusivo por tabla —en PG ACCESS EXCLUSIVE,
-    que bloquea hasta los SELECT— y dejaría al pipeline esperando; y la
-    limpieza con una corrida en curso deja la base a medias, con el agravante
-    de que un `signal_eval_log` repoblado parcialmente hace que el delta
-    SALTEE fechas recién limpiadas. Antes solo lo advertía un texto en
-    pantalla. Si el lock está tomado, el botón no arranca y el alert muestra
-    "hay otra operación pesada en curso".
-
-    Nota: `_launch_locked` duplica en espíritu a
-    `price_callbacks._launch_locked_bg`. No se unificó para no tocar precios
-    en este cambio; si aparece un tercer caso, conviene subirlo a un helper
-    compartido.
-
-    **VERIFICAR EN EL CODESPACE:** que el botón "Recuperar espacio" rechace
-    con el aviso de ocupado si hay una corrida del Centro de Datos, y que
-    tras un vacuum normal el reporte de espacio siga mostrando los MB
-    liberados. El caso (a) solo se reproduce en PostgreSQL.
-
-**Sesión 20-jul-2026: brochure público `/acerca`.** Página de presentación
-del sitio accesible SIN login: `app/pages/brochure.py` (contenido 100%
-estático, sin callbacks ni BD — funciona aunque la base esté caída, igual
-que el login), `/acerca` sumado a `_PUBLIC_PATHS`, link "¿Qué es este
-sistema?" bajo el form de login (`_LOGIN_TEMPLATE` sirve `/` y `/login`),
-item "Acerca de" en la navbar junto a "Manual" (todos los roles), y sección
-`docs/manual/120-acerca-del-sistema.md` (exigida por
-`test_cobertura_de_pantallas`). Los links del brochure a rutas Flask van
-con `external_link=True` (la navegación client-side de Dash saltearía el
-`before_request`).
-
-    **VERIFICAR EN EL CODESPACE:** (a) `/acerca` anónimo renderiza el
-    brochure sin navbar (rama anónima de `serve_layout`, hasta ahora
-    inalcanzable — primera vez que se usa en vivo); (b) el link del login
-    lleva al brochure y el botón "Iniciar sesión" vuelve al login;
-    (c) logueado, `/acerca` se ve CON navbar y el item "Acerca de" navega
-    bien; (d) las demás rutas siguen redirigiendo a `/login` sin sesión.
-
-    Observación de seguridad PREEXISTENTE (no introducida por esto): los
-    prefijos `/_dash-*` son públicos en `before_request`, o sea que
-    `/_dash-update-component` acepta POSTs anónimos con payload arbitrario
-    (callbacks de datos incluidos) desde siempre. El brochure no agrega
-    superficie (no tiene callbacks), pero deja el bundle Dash cargado para
-    anónimos. Si algún día importa, la mitigación es exigir login en
-    `/_dash-update-component` salvo para los callbacks de rutas públicas.
-
-    Agregado visual posterior (mismo día): diagrama del pipeline
-    Datos→Indicadores→Señales→Estrategias→Ranking→Backtest en HTML/CSS
-    (clases brochure-* en assets/custom.css) + assets/brochure_hero.svg
-    (curva de equity sintética con bandas de cuantiles y benchmark,
-    decorativa). Verificar también que /assets/brochure_hero.svg cargue
-    anónimo (el prefijo /assets/ ya es público).

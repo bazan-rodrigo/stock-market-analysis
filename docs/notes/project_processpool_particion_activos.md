@@ -138,6 +138,63 @@ PENDIENTE GLOBAL: verificar en Codespace/Railway con la app viva (correr
 migración 0076; forzar procesos con ind_pool_min_assets=100 e
 ind_pool_procs=2; medir vs baseline 2m11s).
 
+**AVANCE 19-jul (etapa 4 ya verificada por el usuario; sobre modelo ANCHO):**
+- BUG bulk-checks ARREGLADO (commit 17a5df9): se quitó el toggle de
+  FK/unique en el rebuild (las tablas ya se vacían antes → no aporta). Solo
+  afectaba MariaDB (no-op en PG). db_compat.set_bulk_load_checks sigue (lo
+  usa fundamental).
+- ETAPA 5 — VERIFICACIÓN migrada a lotes/procesos (commit 7cee5dc):
+  run_verification/run_fund_verification pasan de submit-por-activo a
+  submit-por-LOTE reusando el harness (_use_process_pool/_partition_assets/
+  make_executor). _verify_batch/_verify_fund_batch + _run_batched;
+  _verify_one_asset/_verify_one_fund_asset con session=None (el lote
+  administra la sesión). Auto-review (los workers de review se cortaron por
+  límite de sesión, revisé yo) encontró y ARREGLÉ: los lotes NO deben tragar
+  excepciones (si no, update_flags_for_assets borra la marca de activos no
+  verificados por un fallo silencioso) → propagan y cortan la corrida como el
+  código viejo; + regime/vol config pre-asegurados en el padre (carrera de
+  creación del default entre lotes). Tests: equivalencia lote≡por-activo +
+  orquestador threads≡procesos-inline. Suite 700. PENDIENTE: spawn real en
+  Codespace a 10k activos (a 561 corre en threads).
+- FUNDAMENTAL — HECHO (19-jul, CON revisión adversarial): `backfill_all_fundamental_values`
+  reejado de "1 thread por código" a "1 lote de activos (todos los códigos)".
+  Enfoque SEGURO (no reescribe la lógica delta/wide): `_backfill_fund_batch`
+  (unidad auto-contenida, picklable, carga su slice de quarters/precios) llama a
+  `_backfill_fund_indicator`/`_backfill_fund_daily_all` ESCOPADOS al lote (agregué
+  `skip_force_reset` a ambas). TRUNCATE izado al padre (`_fund_force_reset`,
+  wipe_table portable). Retry 1205/1213 por lote; NO propaga (resiliente, re-corrible
+  por delta) + `_drain` atrapa BrokenProcessPool como technical_service. Bug espejo
+  del bulk-check ELIMINADO. Endurecí `_load_fund_prices` (coerción date, arreglaba
+  fragilidad sqlite latente de recompute_all_ratios también). Tests nuevos
+  (test_fundamental_batching.py, 4): partición-independiente, DELTA gap-filling real,
+  cobertura procesos-inline≡un-lote, universo-vacío. 3 revisores adversarios
+  (equivalencia/concurrencia/integración): SIN hallazgos ALTA, equivalencia de datos
+  confirmada; arreglé F1 (BrokenProcessPool), F3 (wipe portable), test de delta real,
+  test-vacío determinista, comentarios stale. Suite 705. PENDIENTE: spawn real en
+  Codespace a 10k (a 561 corre en threads).
+- FASE DE VIGENTES — HECHO (19-jul, CON revisión workflow): `recompute_current_indicators`
+  reejada a lote-de-activos. `_current_batch` computa los 12 _CURRENT_ONLY_CODES para su
+  slice reusando `_compute_current_indicator` por código (savepoints + error_collector
+  intactos). Cross-asset (benchmark) los trae `_load_prices_for_assets` (ya existía).
+  Dos modos de caches (patrón price_cache del backfill): PROCESOS self-load (`_load_prices_for_assets`
+  + `_derive_recent_caches`) → **cierra el techo de memoria del padre**; THREADS reciben
+  `preloaded` (el padre deriva UNA vez y comparte por referencia, sin relectura). `_run_current_and_backfill`
+  en procesos ya NO carga la tabla entera (universo/pesos por `_load_price_weights`). Pre-asegura
+  regime/vol/sr en el padre (carrera). `_drain` marca lote muerto sin avanzar progreso (como
+  el backfill). Borré `_load_recent_prices` (código muerto). Tests: test_current_batching.py (5:
+  partición-independiente, threads+log, procesos-inline≡threads, preloaded≡self-load, vacío) +
+  pipeline_order actualizado. Revisión workflow (10 agentes, find→verify): sin ALTA; arreglé el
+  MEDIA (relectura redundante en threads → rama preloaded) + 4 BAJA. Suite 710. Spawn real a escala VERIFICADO en Codespace (19-jul, "probado").
+  **ETAPA 5 COMPLETA Y VERIFICADA** (verificación + fundamental + vigentes + backfill).
+  El plan ProcessPool entero está CERRADO — nada pendiente de este workstream.
+- DEUDA TÉCNICA del batching — LIMPIADA (19-jul, commit a22f16b, revisado por workflow,
+  sin ALTA/MEDIA): (#1) `run_asset_batches` helper compartido (particiona+pool+drain+
+  consume serializado+on_dead) adoptado en verificación/fundamental/vigentes (el backfill
+  de indicadores conserva su loop por el IPC de progreso vivo); (#2) `_save_indicator_logs_bulk`
+  = indicator_update_log en UN commit (antes 1 por activo); (#3) `_backfill_fund_quarterly_all`
+  espejo del daily → _compute_quarterly_ratios 1×/trimestre (8× menos cómputo) + fila ancha
+  completa (sin bloat por-columna); se borró `_backfill_fund_indicator` (sin callers). Suite 714.
+
 **RESUELTO — el modelo cambió a TABLAS ANCHAS (18-jul, OTRA sesión):** lo
 que yo anoté como "dependencia, esperar la decisión" YA se decidió e
 implementó en otra sesión. Los 24 `ind_{code}` fueron DROPEADOS y
