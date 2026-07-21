@@ -349,3 +349,41 @@ patrón que ganó 2.2x en `_pairs_to_write`) lo hacía MÁS LENTO (1.603 → 1.6
 ms), porque ahí el chequeo escalar ya era barato (`math.isnan`, C) y el costo
 estaba en `str()`; la conversión a array no amortizaba. Dos patrones que
 parecen idénticos se comportan al revés → medir siempre antes de optimizar.
+
+## Parte 6 (21-jul-2026) — reporte de escrituras: cierre en verde
+
+Pedido del usuario: "validar el bloat es mucho trabajo para mí" → **card
+"Escrituras por corrida" en el Centro de Datos** (`write_stats_service` +
+`db_compat.table_write_stats`, snapshot automático alrededor de `_run`, el
+chokepoint de todas las corridas). PG-only, registro en memoria, semáforo
+✓/⚠/✗ con el caso real de +8.916 como fixture del nivel ⚠.
+
+**El reporte encontró él solo, en su primer día, dos bugs invisibles:**
+
+1. **Ciclo eterno del delta fundamental (`5c271d4`)**: `pe_growth_yoy` es NULL
+   legítimo el primer año (sin trimestre previo) → esas fechas se
+   re-targeteaban en cada delta ("existente" = columna no-NULL) y la fila se
+   reescribía ENTERA e idéntica porque pe_ttm sí tiene valor. ~21.4k updates
+   por corrida, para siempre. Residuo del cutover a tablas anchas (en
+   per-código el batch filtraba NaN y no escribía). Fix: escribir solo si un
+   código que TARGETEÓ la fecha produjo valor. 21.432 → 153 medido.
+2. **`ind_asset_meta` incondicional (`79c31e7`)**: el caché de
+   stats/checksum/benchmark se persistía entero en cada corrida (+5.331
+   clavados, 66% de un delta limpio). Fix: comparar contra el caché leído (ya
+   en memoria) y persistir solo cambios; centinela para "sin fila" vs
+   "benchmark NULL". 5.331 → 0-4 medido.
+
+**Validación final en producción (21-jul):** corrida repetida de Indicadores
+técnicos → **✓ verde, 1.0 upd/activo**, ind_asset_meta ausente del reporte.
+El fix por-activo (`ea5d632`) también quedó validado: recálculo completo de
+un sintético = ind_daily +5.943 ins / 0 upd (inserts puros; antes ~28
+versiones por fila). Señales: inserts puros de fábrica, corridas repetidas
+escriben 0.
+
+**Reescrituras que QUEDAN y son correctas por diseño (no tocar):** vigentes
+(~1.650/corrida en current_indicator_values), logs por activo, última
+fecha/último trimestre "preliminares" (~310/corrida fundamental), y el
+re-ranking full_sample tras dato nuevo (⚠ legítimo, magnitud variable).
+
+El card queda como detector permanente: una regresión de escrituras aparece
+sola como ✗ sin medición manual.
