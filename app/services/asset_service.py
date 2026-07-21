@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_session
-from app.models import Asset, PriceSource
+from app.models import Asset, PriceSource, SyntheticComponent, SyntheticFormula
 from app.services import db_compat
 from app.sources.registry import get_source
 
@@ -24,6 +24,42 @@ _HIGH_VOLUME_ASSET_TABLES = (
     "current_indicator_values", "fundamental_quarterly", "prices",
 )
 _DELETE_BATCH = 5000
+
+
+def _bloquear_si_es_componente(s, ids: list[int]) -> None:
+    """ValueError si algún id es componente de un sintético fuera del lote.
+
+    El mensaje agrupa por componente y nombra los sintéticos que lo usan, igual
+    que el chequeo de benchmark de delete_asset: el usuario sabe exactamente
+    qué eliminar (o de qué fórmula quitarlo) antes de reintentar."""
+    from sqlalchemy.orm import aliased
+    comp, owner = aliased(Asset), aliased(Asset)
+    filas = (
+        s.query(comp.ticker, owner.ticker)
+         .select_from(SyntheticComponent)
+         .join(SyntheticFormula,
+               SyntheticComponent.formula_id == SyntheticFormula.id)
+         .join(owner, SyntheticFormula.asset_id == owner.id)
+         .join(comp, SyntheticComponent.asset_id == comp.id)
+         .filter(SyntheticComponent.asset_id.in_(ids),
+                 ~SyntheticFormula.asset_id.in_(ids))
+         .distinct()
+         .all()
+    )
+    if not filas:
+        return
+    por_componente: dict[str, set[str]] = {}
+    for comp_ticker, owner_ticker in filas:
+        por_componente.setdefault(comp_ticker, set()).add(owner_ticker)
+    detalle = "; ".join(
+        f"'{c}' es componente de {', '.join(sorted(usos))}"
+        for c, usos in sorted(por_componente.items())
+    )
+    raise ValueError(
+        "No se puede eliminar: " + detalle +
+        ". Eliminá esos sintéticos (o quitá el componente de la fórmula) "
+        "antes de borrar."
+    )
 
 
 def purge_assets(s, asset_ids, progress_cb=None) -> int:
@@ -44,6 +80,15 @@ def purge_assets(s, asset_ids, progress_cb=None) -> int:
     ids = [int(a) for a in asset_ids]
     if not ids:
         return 0
+
+    # Guardia previa a cualquier DELETE: si un id del lote es componente de un
+    # sintético que NO está en el lote, la FK RESTRICT de synthetic_component
+    # rechazaría recién el DELETE final de assets — con la historia del activo
+    # ya borrada y commiteada por lotes (quedaría vivo pero sin señales, y esa
+    # historia solo vuelve con un recálculo completo). Cortar acá, antes de
+    # tocar nada. Borrar el componente JUNTO con su sintético en el mismo lote
+    # sí está permitido.
+    _bloquear_si_es_componente(s, ids)
 
     if db_compat.is_mysql(s):
         # ids validados a int → seguro interpolarlos (IN con N valores); LIMIT

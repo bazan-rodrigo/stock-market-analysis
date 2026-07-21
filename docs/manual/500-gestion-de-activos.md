@@ -108,18 +108,13 @@ lo está usando. Reasigná ese benchmark primero. Si borrás varios de una y alg
 falla, el resto sí se borra y el mensaje detalla cuáles fallaron.
 
 Tampoco se puede borrar un activo que es **componente de un sintético** — un
-ratio, un promedio, un índice (las conversiones de moneda no cuentan: esas se
-borran junto con su base). Pero hay una diferencia importante en *cuándo* llega
-el rechazo:
-
-> El chequeo del benchmark corta **antes** de tocar nada. El rechazo por
-> sintético, en cambio, llega **al final del proceso, cuando la historia propia
-> del activo ya se borró**: el activo queda vivo pero vacío. Sus precios e
-> indicadores se recuperan solos en la próxima actualización (o con
-> **Redescargar completo**), pero su historia de señales y rankings no — hace
-> falta un recálculo completo. Si un activo puede ser componente de algo,
-> quitalo primero de la fórmula desde
-> [Activos sintéticos](/manual/activos-sinteticos).
+ratio, un promedio, un índice. Igual que con el benchmark, el sistema rechaza
+la operación **antes de tocar nada** y el mensaje nombra qué sintéticos lo
+usan: eliminá esos sintéticos, o quitá el componente de la fórmula desde
+[Activos sintéticos](/manual/activos-sinteticos), y reintentá. Las
+**conversiones de moneda** no cuentan: esas se borran solas junto con su base.
+Sí está permitido borrar el componente y su sintético **en la misma
+selección**.
 
 ## Después de dar de alta, reagrupar o eliminar
 
