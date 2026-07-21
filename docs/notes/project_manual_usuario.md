@@ -1,11 +1,11 @@
 ---
 name: project_manual_usuario
-description: "Manual de usuario web en /manual — 60 secciones en docs/manual/*.md, filtrado por rol, con tests que lo atan al código"
+description: "Manual de usuario web en /manual — 72 secciones en docs/manual/*.md (60 de usuario + anexo técnico admin), filtrado por rol, con tests que lo atan al código"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 87013aa9-b8a1-4676-b6de-fce6bdf7294c
-  modified: 2026-07-21T15:43:16.915Z
+  modified: 2026-07-21T20:48:44.024Z
 ---
 
 Manual de usuario completo, implementado el 20-jul-2026 (commits 4d673d4,
@@ -76,6 +76,23 @@ comportamiento pre-fix. **Al tocar código, grepear docs/manual/ por la pantalla
 afectada en el MISMO commit** (es la convención del proyecto y ahora está en
 CLAUDE.md). Todas las pantallas de esas correcciones quedaron al día en el
 commit que siguió a f4fab61.
+
+**ANEXO TÉCNICO (21-jul, b66f18c):** capítulo "Anexo tecnico" para ingenieros
+de producto — 12 secciones `roles: admin`, orders 1000-1099, sin `page:`
+(arquitectura, stack, modelo de datos, motor, deltas/borrado, concurrencia,
+dual-DB, simulador, capa web, deploy, testing, deuda técnica). Convención:
+explica el PORQUÉ con mediciones, nombra archivos/funciones (sin números de
+línea), conteos volátiles en forma CUALITATIVA (7e24ca2), diagramas ASCII en
+bloques ```text (sin lenguaje, highlight.js pinta tokens al azar).
+
+**Auditoría de recorridos end-to-end (21-jul, 85c8aa9):** 10 casos de uso
+auditados contra el manual; 7 completos, 3 cosidos en ese commit (200 era hub
+sin enlaces salientes; purga sin efectos transversales; consola-sql sin la
+advertencia de ind_*; scheduler sin "falla a mitad"; descarga trimestral vs
+ratios diarios). De la auditoría salió un bug real de código: borrar un activo
+componente de un sintético destripaba la historia antes del rechazo de la FK
+RESTRICT — arreglado con guardia previa en purge_assets (1114724,
+test_purge_componente.py).
 
 **Método que funcionó:** agentes en paralelo, uno por pantalla, con instrucción
 de leer el código real (página + callbacks + servicio) y prohibición explícita

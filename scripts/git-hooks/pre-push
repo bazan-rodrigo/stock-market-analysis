@@ -1,0 +1,55 @@
+#!/bin/sh
+# pre-push: frena el push si docs/notes/ quedo desfasado respecto de la
+# memoria de Claude Code.
+#
+# CLAUDE.md define docs/notes/ como COPIA de esa memoria, pero la
+# sincronizacion era manual y se desfasaba (medido: 5 notas nunca subidas y 8
+# desactualizadas al 21-jul-2026). Este hook NO modifica nada (modo aviso):
+# sincronizar sigue siendo una accion deliberada, asi no puede arrastrar
+# archivos de otra sesion al commit.
+#
+# Instalacion (una vez por clon, solo en la PC que tiene la memoria):
+#     cp scripts/git-hooks/pre-push .git/hooks/pre-push
+# En Codespace/Railway no hay memoria -> el hook es un no-op silencioso.
+# Para saltarlo a proposito: git push --no-verify
+
+MEM="$HOME/.claude/projects/c--stock-market-analysis/memory"
+[ -d "$MEM" ] || exit 0
+
+desfasados=""
+
+# memoria -> repo: notas nuevas o distintas (diff tolerante a CRLF/LF)
+for f in "$MEM"/*.md; do
+    [ -f "$f" ] || continue
+    b=$(basename "$f")
+    if [ ! -f "docs/notes/$b" ]; then
+        desfasados="$desfasados
+    $b  (no esta en docs/notes)"
+    elif ! diff -q --strip-trailing-cr "$f" "docs/notes/$b" >/dev/null 2>&1; then
+        desfasados="$desfasados
+    $b  (distinto)"
+    fi
+done
+
+# repo -> memoria: espejos huerfanos (la nota se borro de la memoria).
+# Solo los prefijos que son espejo de memoria — docs/notes tambien tiene
+# documentos propios del repo (design_*, guide_*) que no deben chequearse.
+for f in docs/notes/MEMORY.md docs/notes/project_*.md docs/notes/feedback_*.md; do
+    [ -f "$f" ] || continue
+    b=$(basename "$f")
+    if [ ! -f "$MEM/$b" ]; then
+        desfasados="$desfasados
+    $b  (borrado de la memoria: borrarlo tambien de docs/notes)"
+    fi
+done
+
+if [ -n "$desfasados" ]; then
+    echo ""
+    echo "PUSH FRENADO — docs/notes/ desfasado respecto de la memoria de Claude:"
+    echo "$desfasados"
+    echo ""
+    echo "Sincronizar (copiar de la memoria a docs/notes + commit) y reintentar,"
+    echo "o saltar este chequeo con: git push --no-verify"
+    exit 1
+fi
+exit 0

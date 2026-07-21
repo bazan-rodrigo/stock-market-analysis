@@ -27,6 +27,11 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   Recordarle al usuario el `git pull` tras cada push.
 - **`git push` actualiza DOS remotes a la vez** (bazan-rodrigo, rodrigoqw33).
   Si falla en uno, revisar el PAT de esa cuenta (`git remote -v`).
+- **Hook pre-push** (solo en la PC con la memoria de Claude): frena el push si
+  `docs/notes/` quedó desfasado respecto de la memoria — es modo AVISO, no
+  modifica nada; sincronizar es siempre una acción deliberada. Tras un re-clon,
+  reinstalarlo: `cp scripts/git-hooks/pre-push .git/hooks/pre-push`. En
+  Codespace/Railway es un no-op (no hay memoria). Saltarlo: `--no-verify`.
 - **Verificación:** esta PC no levanta la app (sin MariaDB/yfinance). La red de
   seguridad automatizada es pytest. Todo lo que toca la app viva (callbacks Dash,
   migraciones, corridas reales) se prueba en el Codespace — dejarlo anotado.
