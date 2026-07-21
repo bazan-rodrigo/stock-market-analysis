@@ -1011,3 +1011,51 @@ def test_partition_pesos_cero_no_rompe():
     assert sorted(flat) == ids                  # cobertura exacta (unión == todos)
     assert all(b for b in batches)              # sin lotes vacíos
     assert len(flat) == len(set(flat))          # sin duplicados
+
+
+def test_meta_solo_se_reescribe_si_cambio(monkeypatch):
+    """ind_asset_meta se reescribia ENTERO en cada corrida aunque nada
+    cambiara (+5.331 updates identicos por corrida medidos en produccion, el
+    66% de las escrituras de un delta sin dato nuevo). El filtro compara los
+    stats recien calculados contra el cache leido (ya en memoria) y persiste
+    solo los que cambiaron: la segunda corrida sin datos nuevos debe pasar un
+    dict VACIO al upsert del meta."""
+    import app.models  # noqa: F401
+    from app.database import Base, Session, engine, get_session
+    from app.models import Asset, Price
+    from app.models.indicator_definition import IndicatorDefinition
+    from app.models.indicator_store import ensure_ind_table
+
+    Base.metadata.create_all(engine)
+    code = "rsi_daily"
+    ensure_ind_table(code, "num")
+    s = get_session()
+    ids = [_A1, _A2]
+    try:
+        caches = _seed_assets(s, Asset, Price, ids, days=40)
+        if not s.query(IndicatorDefinition).filter(
+                IndicatorDefinition.code == code).first():
+            s.add(IndicatorDefinition(code=code, name=code, category="test",
+                                      type="num", keep_history=True))
+        s.commit()
+
+        capturas = []
+        real = ts._upsert_ind_stats_meta
+
+        def spy(s_, c_, stats_by_asset):
+            capturas.append(dict(stats_by_asset))
+            return real(s_, c_, stats_by_asset)
+
+        monkeypatch.setattr(ts, "_upsert_ind_stats_meta", spy)
+
+        ts.backfill_indicator(code, asset_ids=ids, price_cache=caches)
+        assert capturas and capturas[-1], \
+            "la primera corrida debe persistir stats (cache vacio)"
+
+        ts.backfill_indicator(code, asset_ids=ids, price_cache=caches)
+        assert capturas[-1] == {}, (
+            f"segunda corrida sin datos nuevos: el meta no cambio y no debe "
+            f"reescribirse — se paso {capturas[-1]}")
+    finally:
+        _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
+        Session.remove()

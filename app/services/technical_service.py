@@ -1155,6 +1155,12 @@ def _delta_tail_start(dates_list: list, stat, mode: str):
 # camino rápido de _delta_tail_start no lo detecta porque no hay huecos.
 _BENCHMARK_DEP_CODES = frozenset({"relative_strength_52w"})
 
+# Centinela para el filtro de escritura del meta: distingue "no hay fila
+# cacheada" (hay que escribirla — sin fila, _stale_bench_assets manda el
+# activo al camino lento en CADA delta) de "fila cacheada con benchmark NULL"
+# (idéntica al valor nuevo None → no reescribir).
+_UNSET_BENCH = object()
+
 
 def _series_stats(dates_list: list, vals_list: list) -> tuple | None:
     """(min_date, max_date, count) de los valores no-nulos de la serie
@@ -1750,6 +1756,7 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
     # activo con benchmark cambiado cae al dict-compare aunque no haya huecos.
     needs_bench   = code in _BENCHMARK_DEP_CODES
     bench_current: dict = {}
+    bench_stored:  dict = {}
     bench_stale:   set  = set()
     if needs_bench:
         bench_q = s.query(Asset.id, Asset.benchmark_id)
@@ -1962,6 +1969,25 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
 
         s.commit()   # cierra el lote al fin de cada chunk de activos
         rows_since_commit = 0
+
+    # Meta: persistir SOLO lo que cambió respecto del caché leído (tail_stats /
+    # checksum_stored / bench_stored ya están en memoria — comparar es gratis).
+    # Antes se reescribían TODAS las filas de ind_asset_meta en cada corrida
+    # aunque nada cambiara: +5.331 updates clavados por corrida medidos en
+    # producción, el 66% de las escrituras de un delta sin dato nuevo, todas
+    # tuplas muertas. En force o sin tail_mode los cachés están vacíos → se
+    # escribe todo, como siempre. Filtrar acá cubre también el camino
+    # defer_meta: los workers devuelven ya filtrado y el padre (único escritor
+    # de ind_asset_meta) upsertea solo los cambios.
+    if tail_eligible:
+        stats_by_asset = {aid: st for aid, st in stats_by_asset.items()
+                          if tuple(tail_stats.get(aid) or ()) != tuple(st)}
+    if needs_checksum:
+        checksum_by_asset = {aid: cs for aid, cs in checksum_by_asset.items()
+                             if checksum_stored.get(aid) != cs}
+    if needs_bench:
+        bench_current = {aid: b for aid, b in bench_current.items()
+                         if bench_stored.get(aid, _UNSET_BENCH) != b}
 
     result = {"inserted": inserted, "code": code, "path_counts": path_counts,
               "slow_asset_ids": slow_asset_ids}
