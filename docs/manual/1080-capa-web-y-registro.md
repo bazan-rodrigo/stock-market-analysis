@@ -55,9 +55,10 @@ nueva. Lo que se resignó es el rol:
 > estar whitelisteado o la app no funcionaría. La única barrera efectiva de un
 > callback es lo que ese callback verifique por su cuenta.
 
-De ahí que el `is_admin` esté repetido a mano: **101 líneas con `is_admin` en 45
-archivos** de `app/pages/` y `app/callbacks/`. En páginas es un early-return
-dentro de `layout()`; en callbacks, un helper tipo `_require_admin()`.
+De ahí que el `is_admin` esté repetido a mano: **hay un centenar de chequeos
+repartidos por la mayoría de los módulos** de `app/pages/` y `app/callbacks/`.
+En páginas es un early-return dentro de `layout()`; en callbacks, un helper
+tipo `_require_admin()`.
 
 > `/health` no está en `_PUBLIC_PATHS`: un GET anónimo con el acceso público
 > deshabilitado recibe un 302 a `/login` en vez del JSON. Un health check externo

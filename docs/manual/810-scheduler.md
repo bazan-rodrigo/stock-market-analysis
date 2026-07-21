@@ -102,6 +102,37 @@ demorados; pasada esa hora se saltea el día. Y nunca corren dos a la vez: si la
 corrida anterior sigue viva cuando llega el próximo disparo, el nuevo no se
 lanza.
 
+### Si la corrida falla a mitad de la cadena
+
+La cadena tiene dos tramos, y fallan distinto:
+
+- **Un activo que falla no corta nada.** La corrida sigue con los demás y el
+  activo queda con su error anotado, ficha por ficha, en
+  [Actualización de precios](/manual/actualizacion-de-precios) o en
+  [Actualización de fundamentales](/manual/actualizacion-de-fundamentales),
+  donde está el botón **Reintentar fallidos**.
+- **Si el tramo de datos** (precios → indicadores → fundamentales) **muere
+  entero**, la corrida termina ahí: esa noche las señales y el ranking ni se
+  intentan.
+- **Si el tramo de señales y estrategias falla**, los precios e indicadores del
+  día ya quedaron guardados, pero el ranking queda en la fecha anterior.
+
+En los dos últimos casos el síntoma visible es el mismo y es engañoso: **las
+pantallas muestran precios de hoy con un ranking de ayer**, sin ningún cartel.
+No hay reintento esa misma noche, pero tampoco hace falta intervenir: la
+corrida siguiente, por ser incremental, detecta las fechas que tienen precio y
+no tienen señales y las completa. Si no querés esperar, el botón **Ejecutar**
+de Señales y Estrategias en el [Centro de Datos](/manual/centro-de-datos) hace
+exactamente eso a mano.
+
+> **No hay una vista única de "qué pasó anoche".** Se reconstruye con tres
+> piezas: el registro por activo de
+> [Actualización de precios](/manual/actualizacion-de-precios) y de
+> [fundamentales](/manual/actualizacion-de-fundamentales), y el mensaje de
+> última corrida de cada tarjeta del
+> [Centro de Datos](/manual/centro-de-datos), que guarda inicio, fin y duración
+> por etapa.
+
 ---
 
 ## Verificación semanal de datos

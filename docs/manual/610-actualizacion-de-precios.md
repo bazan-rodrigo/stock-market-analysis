@@ -39,7 +39,7 @@ descargar (en ese caso los campos muestran «—»).
 | **Ticker** / **Nombre** | El activo. |
 | **Último intento** | Cuándo se intentó descargar por última vez. |
 | **Resultado** | **Éxito** en verde, **Error** en rojo. |
-| **Detalle error** | El motivo exacto de la falla. Es lo primero que hay que leer: casi siempre es un ticker que la fuente no reconoce. |
+| **Detalle error** | El motivo exacto de la falla. Es lo primero que hay que leer: casi siempre es un ticker que la fuente no reconoce — los errores típicos de cada fuente están en [Fuentes de datos](/manual/fuentes-de-datos). |
 | **Último indicador** / **Resultado indicador** / **Detalle error indicador** | Lo mismo, pero para el recálculo de indicadores que sigue a la descarga. Un activo puede tener el precio bien y los indicadores mal. |
 
 Las columnas se ordenan y filtran como en el resto del sistema. Filtrar
@@ -101,8 +101,8 @@ cada fecha a la vez, así que se maneja aparte:
   falta nada más, la corrida nocturna incorpora el cambio.
 - Incorporaste un activo **nuevo** y querés que aparezca en la historia de
   señales y rankings: hace falta un **recálculo completo** de señales y
-  estrategias desde el Centro de Datos. Una actualización incremental no
-  alcanza — el motivo está en
+  estrategias desde el [Centro de Datos](/manual/centro-de-datos). Una
+  actualización incremental no alcanza — el motivo está en
   [Cómo se calcula todo](/manual/conceptos-pipeline).
 
 > **«Limpiar log» tiene un efecto secundario.** Al vaciar el registro, los

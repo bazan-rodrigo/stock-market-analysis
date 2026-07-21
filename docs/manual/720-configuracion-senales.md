@@ -166,7 +166,10 @@ indicador semanal o mensual puntúa todos los días, arrastrando el valor del
 > backtest sobre ella no significa nada.
 
 Al **crear** una señal no hace falta el recálculo completo: alcanza con
-**Calcular historia** sobre esa señal.
+**Calcular historia** sobre esa señal. Para verificar visualmente que la
+historia quedó reconstruida, la pantalla de
+[Historial de señales](/manual/historial-de-senales) muestra la serie de
+puntajes fecha por fecha.
 
 **Eliminar** borra la definición y toda su historia de puntajes, sin deshacer. El
 sistema lo impide si alguna estrategia la usa —en sus componentes o en el

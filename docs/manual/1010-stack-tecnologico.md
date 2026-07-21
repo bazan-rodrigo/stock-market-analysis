@@ -74,7 +74,8 @@ liberación cuelga del `teardown_appcontext` de Flask.
 > El teardown **solo dispara en requests Flask**. Todo thread de background —los
 > de los callbacks, los workers de los pools, los jobs del scheduler— tiene que
 > llamar `Session.remove()` a mano o retiene conexión y objetos indefinidamente.
-> Hay 32 call sites explícitos en `app/`: son obligatorios, no higiene opcional.
+> `app/` está sembrado de más de treinta llamadas explícitas: son obligatorias,
+> no higiene opcional.
 
 Los caminos calientes de escritura **no usan el ORM ni el Core compilado**:
 emiten SQL crudo con `conn.exec_driver_sql(sql, rows)` y tuplas, o sea

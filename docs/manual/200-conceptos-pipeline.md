@@ -83,8 +83,9 @@ activo — se calcula fecha por fecha, con todos los activos juntos.
 Esto tiene una implicancia práctica importante: **cuando agregás un activo
 nuevo, su historia de indicadores se completa sola**, pero para que quede
 incorporado a la historia de señales y rankings hay que pedir un **recálculo
-completo**. Una actualización incremental no alcanza, porque cambiaría el
-ranking de todas las fechas pasadas.
+completo** desde el [Centro de Datos](/manual/centro-de-datos). Una
+actualización incremental no alcanza, porque cambiaría el ranking de todas las
+fechas pasadas.
 
 ### El último día siempre es preliminar
 
@@ -100,8 +101,15 @@ diferencia importa porque uno tarda segundos y el otro puede tardar mucho.
 
 | Modo | Qué hace | Cuándo usarlo |
 |---|---|---|
-| **Incremental** | Llena las fechas faltantes y rehace la última. | El día a día. Es lo que corre solo todas las noches. |
-| **Recálculo completo** | Borra todo y lo calcula de nuevo desde el principio. | Cambiaste la definición de un indicador, una señal o una estrategia; o incorporaste activos nuevos a la historia. |
+| **Incremental** | Llena las fechas faltantes y rehace la última. | El día a día. Es lo que corre solo todas las noches mediante el [Scheduler de tareas](/manual/scheduler). |
+| **Recálculo completo** | Borra todo y lo calcula de nuevo desde el principio. | Cambiaste la definición de un indicador, una señal o una estrategia; incorporaste activos nuevos a la historia; o **eliminaste un activo** que participaba de rankings pasados. |
 
 La regla es simple: **si cambiaste una definición, lo viejo quedó calculado con
 la definición anterior**, y solo el recálculo completo lo corrige.
+
+Las dos operaciones se disparan desde el
+[Centro de Datos](/manual/centro-de-datos); la incremental además corre sola
+cada noche (ver [Scheduler de tareas](/manual/scheduler)). Y si algo no cuadra
+—un valor que cambió, un activo que no aparece donde esperabas— empezá por
+[Solución de problemas](/manual/solucion-de-problemas): recorre los síntomas
+frecuentes y enlaza al remedio de cada uno.

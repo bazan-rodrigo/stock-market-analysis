@@ -26,7 +26,8 @@ los vuelve a descargar cuando se vencen.
   [Análisis de Activo](/manual/analisis-de-activo).
 - Un ratio quedó en un valor absurdo y sospechás que la fuente entregó datos
   incompletos.
-- Configuraste recién la fuente de fundamentales de un activo.
+- Configuraste recién la fuente de fundamentales de un activo (cómo se asigna
+  y qué trae cada fuente está en [Fuentes de datos](/manual/fuentes-de-datos)).
 
 > **Solo aparecen los activos con fuente de fundamentales configurada.** Los
 > índices, los sintéticos y las conversiones de moneda no tienen balance, así
@@ -46,7 +47,13 @@ buscar el balance de un activo si:
 
 Los demás se dan por vigentes y se saltean. Ese es exactamente el hueco que
 llena esta pantalla: **todos sus botones fuerzan la descarga**, esté vencida o
-no. Si una empresa presentó resultados ayer y su último refresco fue hace un
+no.
+
+> No confundas la cadencia de la **descarga** con la de los **ratios**. El
+> balance se descarga por trimestre, pero los ratios que mezclan balance y
+> precio —P/E, P/B, P/S— se recalculan **todos los días**, porque el precio
+> cambia todos los días. Ver el P/E moverse a diario no significa que se esté
+> descargando el balance a diario. Si una empresa presentó resultados ayer y su último refresco fue hace un
 mes, la corrida automática no la va a tocar durante dos meses más — acá la
 actualizás en el momento.
 
@@ -116,8 +123,8 @@ termina, la solapa «Fundamentales» de
 
 Lo que **no** se actualiza son las señales y las estrategias que usan esos
 ratios. Si tus señales fundamentales alimentan un ranking, hace falta correr el
-pipeline de señales y estrategias desde el Centro de Datos para que el cambio
-se refleje en el
+pipeline de señales y estrategias desde el
+[Centro de Datos](/manual/centro-de-datos) para que el cambio se refleje en el
 [Screener de señales](/manual/screener-de-senales). El día a día lo resuelve la
 corrida nocturna; si necesitás verlo ya, lanzalo a mano. La distinción entre
 actualización incremental y recálculo completo está explicada en

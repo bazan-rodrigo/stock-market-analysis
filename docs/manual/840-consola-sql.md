@@ -83,3 +83,19 @@ tiene una pantalla propia:
 
 La consola queda para lo que ninguna de esas resuelve: diagnóstico puntual y
 correcciones quirúrgicas que sepas justificar.
+
+## Si editás datos calculados a mano
+
+Una corrección quirúrgica sobre **precios** es razonable: la próxima
+actualización la respeta o la pisa con el dato de la fuente, y todo lo derivado
+se rehace solo.
+
+> Editar a mano las **tablas de indicadores** es distinto, y es una trampa: la
+> actualización incremental lleva una memoria interna de lo que ya calculó, y
+> una edición directa la desincroniza **sin que nada lo detecte** — el sistema
+> puede seguir salteándose justo el tramo que corregiste. Después de cualquier
+> edición directa sobre datos calculados, pasá por el
+> [Centro de Datos](/manual/centro-de-datos) y corré **Recalcular caché** — o
+> directamente el recálculo completo del dominio que tocaste. El porqué está
+> explicado en
+> [Deltas, recálculos y borrado masivo](/manual/deltas-y-borrado-masivo).

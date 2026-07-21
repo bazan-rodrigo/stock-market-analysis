@@ -107,13 +107,31 @@ mercado **no se puede borrar**: el sistema rechaza la operación y te dice quié
 lo está usando. Reasigná ese benchmark primero. Si borrás varios de una y alguno
 falla, el resto sí se borra y el mensaje detalla cuáles fallaron.
 
-## Después de dar de alta o de reagrupar
+Tampoco se puede borrar un activo que es **componente de un sintético** — un
+ratio, un promedio, un índice (las conversiones de moneda no cuentan: esas se
+borran junto con su base). Pero hay una diferencia importante en *cuándo* llega
+el rechazo:
+
+> El chequeo del benchmark corta **antes** de tocar nada. El rechazo por
+> sintético, en cambio, llega **al final del proceso, cuando la historia propia
+> del activo ya se borró**: el activo queda vivo pero vacío. Sus precios e
+> indicadores se recuperan solos en la próxima actualización (o con
+> **Redescargar completo**), pero su historia de señales y rankings no — hace
+> falta un recálculo completo. Si un activo puede ser componente de algo,
+> quitalo primero de la fórmula desde
+> [Activos sintéticos](/manual/activos-sinteticos).
+
+## Después de dar de alta, reagrupar o eliminar
 
 Los indicadores de un activo nuevo se completan solos. Las **señales de grupo**,
 en cambio, y los **rankings de estrategia** son transversales: incorporar
-activos nuevos, o cambiarles el sector o el mercado, desactualiza la historia ya
-calculada. Para que quede consistente hace falta un **recálculo completo** —
-ver [Cómo se calcula todo](/manual/conceptos-pipeline).
+activos nuevos, cambiarles el sector o el mercado, **o eliminar un activo que
+participaba**, desactualiza la historia ya calculada — los rankings de fechas
+pasadas se calcularon contándolo. Para que quede consistente hace falta un
+**recálculo completo** desde el [Centro de Datos](/manual/centro-de-datos) —
+el porqué está en [Cómo se calcula todo](/manual/conceptos-pipeline), y el
+detalle de por qué un borrado grande tarda minutos, en
+[Deltas, recálculos y borrado masivo](/manual/deltas-y-borrado-masivo).
 
 Para cargar muchos activos de una sola vez, usá
 [Importar activos](/manual/importar-activos).

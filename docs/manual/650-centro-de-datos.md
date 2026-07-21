@@ -117,7 +117,9 @@ es transversal, la actualización incremental no los suma a la historia pasada
 Las operaciones incrementales (**Ejecutar**) suelen resolverse en minutos. Las
 completas escalan con la cantidad de activos y los años de historia: sobre un
 universo grande y sin horizonte pueden llevar **horas**, y durante todo ese
-tiempo el resto del sistema queda bloqueado para escrituras.
+tiempo el resto del sistema queda bloqueado para escrituras. El porqué de esos
+tiempos —qué borra un recálculo, por qué se borra por ventanas— está explicado
+en [Deltas, recálculos y borrado masivo](/manual/deltas-y-borrado-masivo).
 
 1. **Acotá siempre que puedas.** Antes de un recálculo total de señales, probá
    con un horizonte de 90 días o con el alcance puesto en la única estrategia
