@@ -82,7 +82,6 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Usuarios",             href="/admin/users"),
                     dbc.DropdownMenuItem("Scheduler",            href="/admin/scheduler"),
-                    dbc.DropdownMenuItem("Configuración de app", href="/admin/app-settings"),
                     dbc.DropdownMenuItem("Limpieza de datos",    href="/admin/cleanup"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Consola SQL",          href="/admin/sql"),
@@ -93,14 +92,13 @@ def build_navbar() -> dbc.Navbar:
             ),
         ]
     else:
+        # Analistas: análisis + visualizador + gestión de sus señales,
+        # estrategias y carteras (públicas + propias). Sin modo invitado,
+        # todo usuario que llega acá está autenticado con usuario real.
         nav_items = [
             analisis_menu,
             dbc.NavItem(dbc.NavLink("Datos de Mercado", href="/price-viewer")),
-        ]
-        # Analistas gestionan sus señales/estrategias (públicas + propias);
-        # el invitado sin usuario real no
-        if current_user.is_authenticated and current_user.username:
-            nav_items.append(dbc.DropdownMenu(
+            dbc.DropdownMenu(
                 label="Configuración",
                 children=[
                     dbc.DropdownMenuItem("Señales",     href="/admin/signals"),
@@ -108,26 +106,20 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Carteras",    href="/carteras"),
                 ],
                 nav=True, in_navbar=True,
-            ))
+            ),
+        ]
 
-    # El manual lo ve todo el mundo (el índice se filtra por rol adentro)
+    # El manual lo ven todos los perfiles (el índice se filtra por rol adentro)
     manual_item = dbc.NavItem(dbc.NavLink("Manual", href="/manual"))
     # El brochure también: es la cara pública del sitio (/acerca es ruta pública)
     acerca_item = dbc.NavItem(dbc.NavLink("Acerca de", href="/acerca"))
 
-    is_guest = current_user.is_authenticated and not current_user.username
-    if is_guest:
-        user_menu = dbc.Nav([
-            dbc.NavItem(dbc.NavLink("Invitado", className="text-muted", style={"pointerEvents": "none"})),
-            dbc.NavItem(dbc.NavLink("Iniciar sesión", href="/login")),
-        ], navbar=True, className="ms-2")
-    else:
-        username = current_user.username if current_user.is_authenticated else ""
-        user_menu = dbc.DropdownMenu(
-            label=username,
-            children=[dbc.DropdownMenuItem("Cerrar sesión", href="/logout", external_link=True)],
-            nav=True, in_navbar=True, align_end=True,
-        )
+    username = current_user.username if current_user.is_authenticated else ""
+    user_menu = dbc.DropdownMenu(
+        label=username,
+        children=[dbc.DropdownMenuItem("Cerrar sesión", href="/logout", external_link=True)],
+        nav=True, in_navbar=True, align_end=True,
+    )
 
     return dbc.Navbar(
         dbc.Container([

@@ -104,10 +104,9 @@ no está instalado— y falla.
 
 Esa es justamente la segunda capa: **configuración persistida en BD, que
 sobrevive a los deploys**. `scheduler_config` guarda `enabled`, `hour`, `minute`
-y los campos del job semanal; `app_settings` guarda el flag de acceso público,
-que `app_config_service` cachea 30 segundos por proceso para no pegarle a la
-base en cada request (el precio: en multi-proceso, los demás ven el cambio hasta
-30 segundos tarde). La tercera capa es un flag suelto: `USE_WIDE_IND_TABLES` se
+y los campos del job semanal. (Hasta jul-2026 también existía `app_settings`
+con el flag de acceso público; se eliminó junto con el modo invitado,
+migración 0086.) La tercera capa es un flag suelto: `USE_WIDE_IND_TABLES` se
 lee con `os.environ.get` en cada llamada, no pasa por `Config` y por eso no se
 puede poner en `conf.properties`. El admin inicial, en cambio, es literal de
 clase (`admin` / `admin123`): no se puede sobreescribir por entorno, y lo crea

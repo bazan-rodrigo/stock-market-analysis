@@ -47,18 +47,6 @@ así que podés editar el rol o el estado de una cuenta sin tocarle la clave.
 Desde el menú con tu nombre de usuario, arriba a la derecha. La sesión no se
 recuerda entre visitas: cerrar el navegador también te desloguea.
 
-## Si entraste como invitado
-
-El perfil invitado no tiene usuario propio: entrás sin credenciales cuando un
-administrador habilita el acceso público. Tenés acceso completo: ves las mismas
-pantallas que un administrador — incluidas Configuración y Administración — y
-podés crear y editar señales, estrategias y carteras. Lo que crees como
-invitado queda sin dueño: después solo un administrador puede modificarlo.
-
-En la barra de navegación vas a ver **Iniciar sesión** en lugar de un nombre de
-usuario. Si tenés una cuenta propia, entrá por ahí — así lo que crees queda a
-tu nombre y el menú pasa a mostrar lo que corresponde a tu perfil.
-
 ## Qué hacer los primeros días
 
 1. **Recorré [Análisis de Activo](/manual/analisis-de-activo)** con un activo

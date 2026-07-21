@@ -14,11 +14,6 @@ no hay registro público ni autogestión de contraseña (ver
 
 Solo un administrador puede abrirla. A un analista le muestra «Acceso denegado».
 
-> **Si el acceso público está habilitado, el visitante anónimo cuenta como
-> administrador** y también puede abrir esta pantalla y crear, editar o borrar
-> cuentas sin haber iniciado sesión. Esa opción se prende y se apaga desde
-> **Configuración de app**: si administrás usuarios reales, tenela desactivada.
-
 ## La tabla
 
 | Columna | Qué muestra |
@@ -129,7 +124,7 @@ Dejá el borrado para cuentas de prueba o creadas por error.
 
 > **Nada te impide desactivarte o eliminarte a vos mismo, ni borrar al último
 > administrador que queda.** La pantalla no valida ese caso. Si te quedás sin
-> ninguna cuenta admin activa, y el acceso público está desactivado, no hay
-> forma de volver a entrar a administrar desde la aplicación. Antes de tocar tu propia cuenta o la de otro admin,
+> ninguna cuenta admin activa, no hay forma de volver a entrar a administrar
+> desde la aplicación. Antes de tocar tu propia cuenta o la de otro admin,
 > asegurate de que quede al menos un administrador activo con contraseña
 > conocida.

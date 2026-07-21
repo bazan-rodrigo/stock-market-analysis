@@ -111,14 +111,7 @@ De ahí salen dos conclusiones prácticas:
   [recálculo completo](/manual/conceptos-pipeline) solo hace falta cuando
   cambiaste la fórmula.
 
-## Nota sobre el administrador y el acceso público
+## Nota sobre el administrador
 
 Un **administrador** ve y edita todo, sin importar dueño ni visibilidad. Es el
 único que puede tocar las definiciones sin dueño.
-
-Si la instalación tiene habilitado el **acceso público** —el perfil invitado
-descrito en [Qué es esta aplicación](/manual/introduccion)—, ese visitante opera
-con permisos de administrador pero **no tiene un usuario propio**. La consecuencia
-es que puede ver y editar todo, pero **lo que crea queda sin dueño**, y por lo
-tanto después solo lo puede editar un administrador. Si vas a crear señales o
-estrategias que después quieras seguir manteniendo, entrá con tu usuario.

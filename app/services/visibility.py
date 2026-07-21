@@ -75,12 +75,10 @@ def publica_str(is_public) -> str:
 def current_viewer() -> tuple[int | None, bool]:
     """(user_id, is_admin) del usuario actual.
 
-    is_admin se toma de current_user.is_admin tal cual — incluye al
-    GuestUser anónimo cuando el acceso público está habilitado (por diseño
-    de la app ese guest opera como admin en TODAS las pantallas admin; ver
-    app/auth/manager.py). Ese guest no tiene id → user_id None: puede ver
-    y editar todo vía is_admin, y lo que cree queda sin dueño (editable
-    solo por admins), pero nunca es "dueño" de nada."""
+    Siempre hay un usuario real logueado (el modo invitado se eliminó,
+    jul-2026): el anónimo no pasa el before_request. El manejo de user_id
+    None se conserva por robustez — la lógica pura de este módulo lo trata
+    como "no es dueño de nada"."""
     from flask_login import current_user
     if not current_user.is_authenticated:
         return None, False

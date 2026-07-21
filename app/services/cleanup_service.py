@@ -13,8 +13,8 @@ Datos), y los snapshots de backtest/cartera, que NO se recomputan pero se
 borran por decisión de producto: la limpieza deja la base sin datos operativos.
 
 Qué NO borra, nunca: activos, precios, fuentes, catálogos, definiciones
-(indicadores/señales/estrategias), configuración (*_config, scheduler,
-app_settings), fórmulas de sintéticos, divisores de conversión, usuarios y
+(indicadores/señales/estrategias), configuración (*_config, scheduler),
+fórmulas de sintéticos, divisores de conversión, usuarios y
 —lo más irreemplazable— las carteras con su registro de operaciones
 (portfolio / portfolio_member / portfolio_transaction), que son datos
 cargados a mano y no se recrean solos.

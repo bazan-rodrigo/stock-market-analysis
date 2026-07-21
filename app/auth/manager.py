@@ -1,36 +1,21 @@
 import logging
 
-from flask_login import AnonymousUserMixin, LoginManager
+from flask_login import LoginManager
 
 from app.database import get_session
 from app.models import User
 
 logger = logging.getLogger(__name__)
 
-
-class GuestUser(AnonymousUserMixin):
-    """Usuario anónimo que aparece como autenticado cuando el acceso público está habilitado."""
-
-    @property
-    def is_authenticated(self):
-        from app.services.app_config_service import is_public_access_enabled
-        return is_public_access_enabled()
-
-    @property
-    def is_admin(self):
-        from app.services.app_config_service import is_public_access_enabled
-        return is_public_access_enabled()
-
-    @property
-    def username(self):
-        return ""
-
-
+# Sin anonymous_user custom: el modo invitado (GuestUser con acceso público
+# que operaba como admin) se ELIMINÓ a pedido del usuario (jul-2026) — siempre
+# hay que loguearse con un usuario real. El anónimo default de Flask-Login
+# tiene is_authenticated=False, así que before_request (app/__init__.py)
+# redirige toda ruta no pública al login.
 login_manager = LoginManager()
 login_manager.login_view = "/login"
 login_manager.login_message = "Iniciá sesión para acceder."
 login_manager.login_message_category = "warning"
-login_manager.anonymous_user = GuestUser
 
 
 @login_manager.user_loader

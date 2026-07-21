@@ -23,6 +23,9 @@ para leer seis claves.
 roles son jerárquicos (invitado < analista < admin), así que `roles: analista`
 la muestra a analistas Y admins. Si se listan varios separados por coma gana
 el menor — así el autor nunca tiene que acordarse de sumar "admin" a mano.
+"invitado" quedó como nombre del piso "la ve cualquiera" aunque el modo
+invitado de la app se eliminó (jul-2026): renombrarlo tocaría todo el
+front-matter existente sin cambiar ningún comportamiento.
 
 `page` es opcional y ata la sección a una ruta de la app: es lo que permite
 que el ícono «?» de cada pantalla sepa adónde ir, y lo que verifica
@@ -87,8 +90,11 @@ class Section:
 def role_of(is_authenticated: bool, username: str | None, is_admin: bool) -> str:
     """Rol del usuario según el mismo criterio que usa la navbar.
 
-    El invitado es un usuario autenticado SIN username (ver navbar.py); no
-    confundir con el no autenticado, que ni siquiera llega a la página.
+    Desde que se eliminó el modo invitado (jul-2026) todo el que llega a la
+    página está autenticado con usuario real: admin o analista. El nivel
+    "invitado" se conserva como PISO de visibilidad de secciones ("la ve
+    cualquiera"), no como perfil alcanzable — las ramas que lo devuelven
+    quedan por robustez.
     """
     if not is_authenticated:
         return ROLE_GUEST

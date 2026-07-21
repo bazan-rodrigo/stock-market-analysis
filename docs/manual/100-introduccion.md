@@ -31,12 +31,12 @@ que los que puso abajo. Sin esto, una estrategia es solo una opinión.
 
 ## Perfiles de usuario
 
-La aplicación tiene tres perfiles, y lo que ves cambia según cuál te toque —
-incluido este manual, que oculta las secciones que no aplican a tu perfil.
+La aplicación exige **iniciar sesión con un usuario real** — no hay acceso
+anónimo. Hay dos perfiles, y lo que ves cambia según cuál te toque — incluido
+este manual, que oculta las secciones que no aplican a tu perfil.
 
 | Perfil | Puede |
 |---|---|
-| **Invitado** | Entra sin usuario propio cuando el acceso público está habilitado. Ve y opera todas las pantallas, igual que un administrador; lo que crea queda sin dueño y después solo un administrador puede editarlo. |
 | **Analista** | Las pantallas de análisis y el visualizador de precios, más crear y editar sus propias señales, estrategias y carteras (y ver las públicas). |
 | **Administrador** | Todo. Además: alta de activos, actualización manual de datos, tablas de referencia, usuarios, scheduler y herramientas de mantenimiento. |
 

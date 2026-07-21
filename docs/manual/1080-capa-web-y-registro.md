@@ -69,35 +69,23 @@ con `db_compat.ci_equals` y no con `==`, para preservar en PostgreSQL el match
 case-insensitive que la collation de MySQL daba gratis (ver
 [Soportar dos motores de base de datos](/manual/soporte-dual-de-base-de-datos)).
 
-## El invitado no es un lector limitado: es un admin
+## No hay usuario invitado: login siempre
 
-`GuestUser`, en `app/auth/manager.py`, es el `anonymous_user` de Flask-Login.
-Tiene tres properties y dos devuelven exactamente lo mismo: `is_authenticated` e
-`is_admin`, ambas atadas a `is_public_access_enabled()`. La tercera, `username`,
-devuelve `""`.
+El modo invitado **se eliminó** (jul-2026). Antes existía un `GuestUser` como
+`anonymous_user` de Flask-Login que, con el acceso público habilitado
+(`app_settings.public_access`), aparecía autenticado **y como admin** — un
+visitante anónimo operaba todas las pantallas de administración. Se quitó
+completo: la clase, la pantalla Configuración de app, el servicio del flag
+(`app_config_service`) y la tabla `app_settings` (migración 0086).
 
-> Habilitar el acceso público hace que cualquiera sin login **entre como
-> administrador**: `/admin/sql`, `/admin/users`, `/admin/cleanup` y el resto se le
-> abren enteras, porque todas preguntan solo `current_user.is_admin`. Está
-> documentado como decisión en el docstring de `current_viewer()` y fue un fix
-> deliberado, no un descuido.
+Hoy el anónimo es el default de Flask-Login (`is_authenticated = False`), así
+que el `before_request` de `app/__init__.py` redirige toda ruta no pública al
+login. Las únicas rutas públicas son `/login`, `/do-login`, `/` y `/acerca`.
 
-La única señal visual es la etiqueta "Invitado" en la navbar, que sale de
-`is_guest = current_user.is_authenticated and not current_user.username`. También
-ve el capítulo de administradores de este manual: `manual_service.role_of` chequea
-`is_admin` antes que `username`, y hay un test que fija ese comportamiento.
-
-Lo que el invitado crea nace **huérfano**: `current_viewer()` le devuelve
-`(None, True)` porque no tiene fila en `users`, así que queda con `owner_id NULL`
-y solo un admin puede volver a editarlo — ni siquiera el mismo invitado en otra
-sesión, porque nunca es dueño de nada.
-
-El flag se cachea en memoria de proceso con **TTL de 30 segundos**
-(`app/services/app_config_service.py`), porque `is_public_access_enabled()` se
-llama en cada property de `GuestUser`, o sea en cada request anónimo. Apagar el
-acceso público tarda entonces hasta 30 segundos en cualquier proceso que no sea
-el que ejecutó el toggle. El `_load()` falla cerrado: si la base no responde, el
-acceso público queda apagado.
+La lógica de visibilidad conserva el manejo de `user_id None` en
+`current_viewer()` por robustez (un viewer sin id nunca es dueño de nada), y
+las definiciones con `owner_id NULL` que un invitado haya creado en su momento
+siguen la regla de siempre: solo un admin las edita.
 
 ## Visibilidad: dos ejes ortogonales
 

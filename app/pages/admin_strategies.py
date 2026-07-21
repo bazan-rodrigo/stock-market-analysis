@@ -20,8 +20,6 @@ _SCOPE_OPTS = [
 def layout(**kwargs):
     from flask_login import current_user
     # Abierto a analistas (ven públicas + propias, editan solo las propias).
-    # El GuestUser con acceso público habilitado entra como admin — misma
-    # convención que el resto de las pantallas admin (ver auth/manager.py)
     if not current_user.is_authenticated:
         return html.Div()
     is_admin = bool(current_user.is_admin)
