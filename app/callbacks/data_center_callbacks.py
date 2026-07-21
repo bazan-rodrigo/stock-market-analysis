@@ -9,6 +9,7 @@ from app.models import (
     SyntheticFormula,
 )
 from app.services import run_lock_service as _rl
+from app.services import write_stats_service as _ws
 
 _OPS          = ("prices", "fund", "snap", "indicators", "synth", "signals")
 _HAS_NEW_ONLY = {"prices", "fund"}
@@ -230,6 +231,10 @@ def _launch_run(op_id, fn, lock_token):
 def _run(op_id, service_fn, lock_token=_rl.NO_LOCK):
     st = _state[op_id]
     st.update(_blank(), running=True, msg="Iniciando...", start_time=_dt.now())
+    # Reporte de escrituras: contadores del motor antes/después de la corrida
+    # (ver write_stats_service). snapshot() nunca levanta.
+    _stats_before = _ws.snapshot(get_session())
+    result = None
 
     def _cb(cur, tot, label=""):
         st["current"] = cur
@@ -342,6 +347,13 @@ def _run(op_id, service_fn, lock_token=_rl.NO_LOCK):
         st["running"]  = False
         st["done"]     = True
         st["end_time"] = _dt.now()
+        # Cierre del reporte de escrituras (antes del remove: usa la sesión).
+        # record_run nunca levanta — el diagnóstico no puede romper la corrida.
+        _ws.record_run(
+            op_id, getattr(service_fn, "__name__", ""),
+            (result or {}).get("total"),
+            st.get("start_time"), st["end_time"],
+            _stats_before, _ws.snapshot(get_session()))
         _ScopedSession.remove()
 
 
@@ -732,3 +744,57 @@ def sync_buttons_mutex(*_):
     busy = _any_running()
     return tuple([busy] * (2 * len(_OPS) + len(_RECONCILE_OPS)))
 
+
+
+# ── Reporte de escrituras por corrida (diagnóstico) ───────────────────────────
+
+_WRITES_LEVEL_STYLE = {
+    "ok":   ("✓", "#4ade80"),
+    "warn": ("⚠", "#fbbf24"),
+    "high": ("✗", "#f87171"),
+    "na":   ("·", "#9ca3af"),
+}
+
+
+@callback(
+    Output("dc-writes-report", "children"),
+    Input("dc-writes-refresh", "n_clicks"),
+)
+def render_writes_report(_n):
+    runs = _ws.get_runs()
+    if not runs:
+        return html.Small(
+            "Sin corridas registradas desde el último reinicio de la app. "
+            "Ejecutá una operación de esta pantalla y apretá «Actualizar».",
+            className="text-muted")
+
+    mono = {"fontFamily": "monospace", "fontSize": "0.76rem",
+            "whiteSpace": "pre", "marginBottom": "2px"}
+    blocks = []
+    for r in runs:
+        icon, color = _WRITES_LEVEL_STYLE.get(r["level"], ("·", "#9ca3af"))
+        t0 = r["started"].strftime("%H:%M:%S") if r["started"] else "—"
+        t1 = r["finished"].strftime("%H:%M:%S") if r["finished"] else "—"
+        n  = f"{r['n_assets']} activos" if r["n_assets"] else "—"
+        blocks.append(html.Div(
+            f"{icon} {r['kind']:<24} {t0}→{t1}   {n:<12} {r['note']}",
+            style={**mono, "color": color, "marginTop": "6px"}))
+        if r["diff"] is None:
+            continue
+        if not r["diff"]:
+            blocks.append(html.Div("    (sin escrituras)", style=mono))
+        for row in r["diff"][:6]:
+            blocks.append(html.Div(
+                f"    {row['table']:<28} +{row['d_ins']:>8} ins   "
+                f"+{row['d_upd']:>8} upd" +
+                (f"   -{row['d_del']} del" if row["d_del"] else ""),
+                style=mono))
+        if len(r["diff"]) > 6:
+            blocks.append(html.Div(
+                f"    … {len(r['diff']) - 6} tablas más", style=mono))
+
+    blocks.append(html.Small(
+        "✓ ~1-3 upd/activo = normal · ⚠ decenas-cientos = re-ranking tras "
+        "dato nuevo (legítimo) · ✗ miles = posible escritura por columna",
+        className="text-muted d-block mt-2"))
+    return blocks

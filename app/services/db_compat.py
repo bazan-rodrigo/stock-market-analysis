@@ -259,3 +259,23 @@ def approx_table_rows(session, prefix: str) -> dict[str, int]:
         return {r[0]: int(r[1] or 0) for r in rows}
     return {t: session.execute(sa.text(f"SELECT COUNT(*) FROM {t}")).scalar() or 0
             for t in list_tables_by_prefix(b, prefix)}
+
+
+def table_write_stats(session) -> dict[str, tuple[int, int, int]] | None:
+    """{tabla: (n_tup_ins, n_tup_upd, n_tup_del)} — contadores ACUMULADOS de
+    escritura del motor, para el reporte de escrituras por corrida (Centro de
+    Datos): un snapshot antes y otro después de una corrida, restados, dicen
+    cuántas filas insertó/actualizó/borró en cada tabla.
+
+    Solo PostgreSQL (pg_stat_user_tables). MySQL/MariaDB no expone contadores
+    por tabla sin el plugin userstat, y sqlite no los tiene: devuelven None y
+    el reporte muestra "no disponible en este motor" — preferible a un número
+    inventado."""
+    b = _bind(session)
+    if not is_postgres(b):
+        return None
+    rows = session.execute(sa.text(
+        "SELECT relname, n_tup_ins, n_tup_upd, n_tup_del"
+        " FROM pg_stat_user_tables")).fetchall()
+    return {r[0]: (int(r[1] or 0), int(r[2] or 0), int(r[3] or 0))
+            for r in rows}

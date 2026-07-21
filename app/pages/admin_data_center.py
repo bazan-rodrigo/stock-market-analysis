@@ -237,6 +237,25 @@ def layout(**kwargs):
             ),
         ]),
 
+        # Fila 4 — Diagnóstico: escrituras por corrida
+        dbc.Card(dbc.CardBody([
+            html.Div([
+                html.Strong("Escrituras por corrida (diagnóstico) ",
+                            style={"fontSize": "0.85rem"}),
+                dbc.Button("Actualizar", id="dc-writes-refresh", size="sm",
+                           color="secondary", outline=True,
+                           className="ms-2", style={"fontSize": "0.72rem"}),
+            ], className="mb-1"),
+            html.Small(
+                "Cuánto insertó/actualizó cada corrida en la base, medido "
+                "automáticamente con los contadores del motor. Sirve para "
+                "detectar escrituras de más sin consultas manuales. "
+                "Solo PostgreSQL; si dos corridas escriben a la vez, sus "
+                "números se mezclan.",
+                className="text-muted d-block mb-2"),
+            html.Div(id="dc-writes-report"),
+        ]), className="mt-2 mb-3"),
+
         # max_intervals=0: el status se consulta una vez al abrir la pantalla
         # (y al iniciar/terminar operaciones, vía dc-interval-*), no por reloj.
         dcc.Interval(id="dc-status-interval", interval=30_000, n_intervals=0,

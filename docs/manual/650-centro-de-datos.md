@@ -134,3 +134,24 @@ Sintéticos → Indicadores Técnicos → Indicadores Fundamentales → Señales
 Estrategias**: cada paso consume la salida del anterior. Como Precios y
 Fundamentales ya encadenan solos el recálculo incremental de sus indicadores, en
 muchos casos alcanza con correr esos dos y cerrar con Señales y Estrategias.
+
+## Escrituras por corrida (diagnóstico)
+
+Al pie de la pantalla hay un panel que registra, para cada corrida que
+lanzaste, **cuánta información insertó y cuánta actualizó** en la base — medido
+automáticamente, sin que tengas que hacer nada. Cada corrida aparece con su
+horario, la cantidad de activos y un veredicto:
+
+- **✓ normal**: la corrida escribió lo esperable (en una actualización
+  incremental, alrededor de una o dos actualizaciones por activo).
+- **⚠ revisión amplia**: escribió bastante más — pasa de forma legítima cuando
+  llega un precio nuevo y los indicadores que dependen de toda la historia
+  (percentiles, zonas) reclasifican fechas viejas. No es un error.
+- **✗ revisar**: un volumen de actualizaciones desproporcionado, señal de que
+  algo está escribiendo de más. Si aparece seguido, avisale a quien mantiene
+  el sistema.
+
+Dos aclaraciones: el panel funciona solo cuando la base es PostgreSQL (en
+otros motores dice "no disponible"), y si dos procesos escriben a la vez sus
+números se mezclan — mirálo con una corrida por vez. El registro se limpia
+cuando la app se reinicia: es un diagnóstico del momento, no un historial.
