@@ -122,9 +122,10 @@ mensaje te dice cuántos se eliminaron y qué error dio el resto.
 Por eso, ante la duda, **desactivar es casi siempre mejor que eliminar**.
 Dejá el borrado para cuentas de prueba o creadas por error.
 
-> **Nada te impide desactivarte o eliminarte a vos mismo, ni borrar al último
-> administrador que queda.** La pantalla no valida ese caso. Si te quedás sin
-> ninguna cuenta admin activa, no hay forma de volver a entrar a administrar
-> desde la aplicación. Antes de tocar tu propia cuenta o la de otro admin,
-> asegurate de que quede al menos un administrador activo con contraseña
-> conocida.
+> **El último administrador activo está protegido.** La pantalla no deja
+> desactivarlo, pasarlo a analista ni eliminarlo: el guardado falla con el
+> aviso de que el sistema quedaría sin ninguna cuenta que pueda administrar.
+> Para tocar esa cuenta, primero activá o promové a otro administrador. Ojo:
+> un admin **desactivado no cuenta** como respaldo — tiene que haber otro
+> admin **activo**. Y la protección no sabe de contraseñas: que quede un
+> admin activo cuya clave nadie recuerda te deja igual de afuera.

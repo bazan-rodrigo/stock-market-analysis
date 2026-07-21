@@ -309,6 +309,37 @@ def get_users() -> list[User]:
     return get_session().query(User).order_by(User.username).all()
 
 
+# Guardia del último administrador: sin el modo invitado (eliminado jul-2026)
+# no existe puerta de atrás — si el sistema se queda sin ningún admin activo,
+# nadie puede volver a administrar desde la aplicación.
+
+_ULTIMO_ADMIN_MSG = (
+    "Es el último administrador activo: el sistema quedaría sin ninguna "
+    "cuenta que pueda administrar. Antes activá o promové a otro "
+    "administrador."
+)
+
+
+def deja_sin_admins(era_admin_activo: bool, queda_admin_activo: bool,
+                    otros_admins_activos: int) -> bool:
+    """True si la operación dejaría el sistema sin ningún admin activo.
+
+    Lógica pura (testeable sin BD). Solo bloquea cuando el afectado ES hoy un
+    admin activo y dejaría de serlo: tocar analistas o admins inactivos nunca
+    se bloquea, aunque la instalación ya esté (mal) sin admins activos — esa
+    situación no la creó esta operación y bloquear no la arregla.
+    """
+    return era_admin_activo and not queda_admin_activo \
+        and otros_admins_activos == 0
+
+
+def _otros_admins_activos(s, user_id: int) -> int:
+    return (s.query(User)
+            .filter(User.role == "admin", User.active.is_(True),
+                    User.id != user_id)
+            .count())
+
+
 def create_user(username: str, password: str, role: str) -> User:
     s = get_session()
     obj = User(username=username.strip(), role=role)
@@ -328,6 +359,10 @@ def update_user(
 ) -> User:
     s = get_session()
     obj = _get_by_id(User, user_id, s)
+    era = obj.role == "admin" and obj.active
+    queda = role == "admin" and bool(active)
+    if deja_sin_admins(era, queda, _otros_admins_activos(s, obj.id)):
+        raise ValueError(_ULTIMO_ADMIN_MSG)
     obj.username = username.strip()
     obj.role = role
     obj.active = active
@@ -341,6 +376,9 @@ def update_user(
 def delete_user(user_id: int) -> None:
     s = get_session()
     obj = _get_by_id(User, user_id, s)
+    era = obj.role == "admin" and obj.active
+    if deja_sin_admins(era, False, _otros_admins_activos(s, obj.id)):
+        raise ValueError(_ULTIMO_ADMIN_MSG)
     s.delete(obj)
     s.commit()
 
