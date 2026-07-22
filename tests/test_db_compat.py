@@ -253,7 +253,7 @@ def test_retry_sin_orig_no_reintenta():
     assert not db_compat.is_retryable_lock_error(SimpleNamespace())
 
 
-# ── set_bulk_load_checks / wipe_table: SQL emitido por dialecto ──────────────
+# ── wipe_table: SQL emitido por dialecto ─────────────────────────────────────
 
 class _Sess:
     """Session falsa: registra los statements ejecutados."""
@@ -266,22 +266,6 @@ class _Sess:
 
     def execute(self, stmt):
         self.executed.append(str(stmt))
-
-
-def test_bulk_load_checks_emite_solo_en_mysql():
-    s = _Sess(mysql.dialect())
-    db_compat.set_bulk_load_checks(s, False)
-    db_compat.set_bulk_load_checks(s, True)
-    assert s.executed == [
-        "SET SESSION foreign_key_checks = 0, unique_checks = 0",
-        "SET SESSION foreign_key_checks = 1, unique_checks = 1",
-    ]
-    # En PG el parámetro no existe y un statement fallido ABORTA la
-    # transacción: el no-op tiene que decidirse ANTES de emitir SQL
-    for d in (postgresql.dialect(), sqlite.dialect()):
-        s = _Sess(d)
-        db_compat.set_bulk_load_checks(s, False)
-        assert s.executed == []
 
 
 def test_wipe_table_truncate_vs_delete():

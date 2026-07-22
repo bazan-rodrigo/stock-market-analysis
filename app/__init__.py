@@ -147,9 +147,15 @@ def create_app():
             from app.services.db_compat import ci_equals
             s = _db()
             # ci_equals: en MySQL la collation ya era case-insensitive
-            # ('Admin' loguea a 'admin'); esto preserva ese contrato en PG
+            # ('Admin' loguea a 'admin'); esto preserva ese contrato en PG.
+            # order_by: el UNIQUE de la columna SÍ distingue caso en PG, así
+            # que 'Admin' y 'admin' pueden coexistir; sin un orden explícito
+            # el .first() devolvería una u otra según el plan de ejecución y
+            # el login sería no determinista (podría entrar a la cuenta
+            # equivocada, con otro rol). reference_service impide crear el
+            # par, y la migración 0088 lo hará imposible.
             user = s.query(User).filter(
-                ci_equals(User.username, username)).first()
+                ci_equals(User.username, username)).order_by(User.id).first()
         except Exception:
             logger.exception("Error de base de datos en do_login")
             return redirect("/login?error=db")

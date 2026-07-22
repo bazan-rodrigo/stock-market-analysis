@@ -89,8 +89,15 @@ def create_admin_user() -> None:
     from app.database import get_session
     from app.models import User
 
+    from app.services.db_compat import ci_equals
+
     s = get_session()
-    existing = s.query(User).filter(User.username == Config.ADMIN_USERNAME).first()
+    # ci_equals, no ==: en PostgreSQL '=' distingue caso, así que un 'Admin'
+    # ya existente no matchearía y este bootstrap intentaría crear 'admin'.
+    # Tras la migración 0088 (único sobre LOWER(username)) eso aborta el
+    # arranque; sin ella, deja el par ambiguo que el login no puede resolver.
+    existing = s.query(User).filter(
+        ci_equals(User.username, Config.ADMIN_USERNAME)).first()
     if existing is not None:
         logger.info("Usuario admin '%s' ya existe — omitido.", Config.ADMIN_USERNAME)
         return

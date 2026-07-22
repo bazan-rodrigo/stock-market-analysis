@@ -12,6 +12,10 @@ db_password = tu_password_aqui
 # servidor, max_connections=100 default — bajar si hay varios procesos):
 # db_pool_size = 30
 # db_max_overflow = 20
+# Espera maxima por un lock en PostgreSQL. Es lo que permite que una escritura
+# bloqueada FALLE (SQLSTATE 55P03) y la aplicacion la reintente; sin tope se
+# cuelga esperando para siempre. '0' lo desactiva. Sin efecto fuera de PG.
+# db_lock_timeout = 30s
 scheduler_hour = 18
 scheduler_minute = 0
 log_level = INFO

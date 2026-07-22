@@ -168,27 +168,6 @@ def is_retryable_lock_error(exc: BaseException) -> bool:
     return state in _PG_RETRYABLE_SQLSTATES
 
 
-def set_bulk_load_checks(s, enabled: bool) -> None:
-    """Activa/desactiva las validaciones FK/unique de la CONEXIÓN — solo
-    MySQL/MariaDB. En un rebuild, validar el FK de asset_id contra assets en
-    cada una de millones de filas es trabajo tirado (los ids salen de esa
-    misma tabla). El flag es por conexión: SIEMPRE restaurar antes de
-    devolverla al pool.
-
-    El dialecto se chequea ANTES de emitir SQL: en PostgreSQL el parámetro
-    no existe y un statement fallido ABORTA la transacción entera (a
-    diferencia de MySQL/sqlite), así que un try/except genérico alrededor
-    del execute la envenenaría igual — en PG/sqlite esto es un no-op."""
-    if not is_mysql(s):
-        return
-    flag = 1 if enabled else 0
-    try:
-        s.execute(sa.text(
-            f"SET SESSION foreign_key_checks = {flag}, unique_checks = {flag}"))
-    except Exception:
-        pass   # permisos limitados: ignorar
-
-
 def order_desc_nulls_last(col):
     """Claves de ORDER BY para "col DESC con NULLs al final" en todos los
     motores. MySQL ya pone los NULLs al final en DESC, pero PostgreSQL los

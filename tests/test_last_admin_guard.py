@@ -128,3 +128,42 @@ def test_reactivar_o_promover_nunca_se_bloquea(usuarios_limpios):
     svc.update_user(dormido.id, "dormido", "admin", active=True)
     s.refresh(dormido)
     assert dormido.active is True
+
+
+# ── Unicidad del nombre sin distinguir mayúsculas ────────────────────────────
+#
+# El login resuelve con ci_equals (contrato heredado de la collation
+# case-insensitive de MySQL), pero el UNIQUE de la columna SÍ distingue caso en
+# PostgreSQL: sin esta validación, 'Admin' y 'admin' conviven y el login queda
+# resolviendo una u otra según el plan de ejecución.
+
+def test_no_se_puede_crear_un_usuario_que_solo_difiere_en_mayusculas(
+        usuarios_limpios):
+    s = usuarios_limpios
+    _crear(s, "ana", role="analyst")
+    with pytest.raises(ValueError, match="mayúsculas"):
+        svc.create_user("ANA", "x", "analyst")
+    with pytest.raises(ValueError, match="mayúsculas"):
+        svc.create_user("  Ana  ", "x", "analyst")   # se compara ya recortado
+    assert s.query(User).count() == 1
+
+
+def test_no_se_puede_renombrar_pisando_a_otro_usuario(usuarios_limpios):
+    s = usuarios_limpios
+    _crear(s, "admin1")
+    otro = _crear(s, "ana", role="analyst")
+    with pytest.raises(ValueError, match="mayúsculas"):
+        svc.update_user(otro.id, "ADMIN1", "analyst", active=True)
+    s.refresh(otro)
+    assert otro.username == "ana"
+
+
+def test_renombrarse_a_si_mismo_cambiando_el_caso_esta_permitido(
+        usuarios_limpios):
+    """El usuario editado se excluye del chequeo: si no, nadie podría
+    corregirle las mayúsculas a su propio nombre."""
+    s = usuarios_limpios
+    admin = _crear(s, "unico_admin")
+    svc.update_user(admin.id, "Unico_Admin", "admin", active=True)
+    s.refresh(admin)
+    assert admin.username == "Unico_Admin"

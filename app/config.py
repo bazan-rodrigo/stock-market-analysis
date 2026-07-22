@@ -67,6 +67,12 @@ class Config:
     DB_POOL_SIZE: int = int(_get("db_pool_size", "30"))
     DB_MAX_OVERFLOW: int = int(_get("db_max_overflow", "20"))
 
+    # Espera máxima por un lock en PostgreSQL (app/database.py la pasa por la
+    # opción -c de libpq). Es lo que convierte una espera indefinida en un
+    # SQLSTATE 55P03 reintentable; con '0' el timeout se desactiva y una
+    # escritura bloqueada vuelve a colgarse en silencio. Sin efecto fuera de PG.
+    DB_LOCK_TIMEOUT: str = _get("db_lock_timeout", "30s")
+
     # Arranque de APScheduler EN ESTE PROCESO. Con gunicorn multi-worker o
     # réplicas, cada proceso arrancaría su propio scheduler y el job diario
     # se dispararía N veces (el lock persistido lo deduplica, pero es

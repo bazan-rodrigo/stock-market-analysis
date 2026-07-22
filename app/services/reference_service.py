@@ -340,9 +340,36 @@ def _otros_admins_activos(s, user_id: int) -> int:
             .count())
 
 
+_USERNAME_DUPLICADO_MSG = (
+    "Ya existe un usuario con ese nombre. Los nombres de usuario no "
+    "distinguen mayúsculas de minúsculas: no puede haber 'Ana' y 'ana' "
+    "al mismo tiempo."
+)
+
+
+def _username_ocupado(s, username: str, excluir_id: int | None = None) -> bool:
+    """True si ya hay un usuario con ese nombre, SIN distinguir mayúsculas.
+
+    El login resuelve el usuario con ci_equals (contrato heredado de la
+    collation case-insensitive de MySQL), así que dos cuentas que difieren
+    solo en el caso son indistinguibles al entrar. El `unique=True` de la
+    columna no alcanza para impedirlas: en PostgreSQL '=' distingue caso y
+    las deja convivir. Validar acá evita crear el par; la migración 0088
+    (índice único sobre LOWER(username)) lo hará imposible.
+    """
+    from app.services.db_compat import ci_equals
+    q = s.query(User.id).filter(ci_equals(User.username, username))
+    if excluir_id is not None:
+        q = q.filter(User.id != excluir_id)
+    return q.first() is not None
+
+
 def create_user(username: str, password: str, role: str) -> User:
     s = get_session()
-    obj = User(username=username.strip(), role=role)
+    username = username.strip()
+    if _username_ocupado(s, username):
+        raise ValueError(_USERNAME_DUPLICADO_MSG)
+    obj = User(username=username, role=role)
     obj.set_password(password)
     s.add(obj)
     s.commit()
@@ -363,7 +390,10 @@ def update_user(
     queda = role == "admin" and bool(active)
     if deja_sin_admins(era, queda, _otros_admins_activos(s, obj.id)):
         raise ValueError(_ULTIMO_ADMIN_MSG)
-    obj.username = username.strip()
+    username = username.strip()
+    if _username_ocupado(s, username, excluir_id=obj.id):
+        raise ValueError(_USERNAME_DUPLICADO_MSG)
+    obj.username = username
     obj.role = role
     obj.active = active
     if password:

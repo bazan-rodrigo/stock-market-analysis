@@ -151,6 +151,16 @@ psycopg3 por `sqlstate`. Cuatro call sites lo usan, todos con
 retry por (lote, código) de `_backfill_batch_worker`. Los cuatro reintentan la
 transacción completa, idempotente en los cuatro casos.
 
+Sobre PostgreSQL esa red **depende de que haya un `lock_timeout` configurado**.
+Con el nivel de aislamiento por defecto (read committed) el SQLSTATE 40001 no se
+emite nunca, y el 55P03 solo aparece si la espera tiene tope: sin él, una
+escritura bloqueada no falla, no reintenta y espera indefinidamente, mientras el
+latido del lock de corrida sigue reportando la corrida como viva. MySQL daba ese
+tope gratis (`innodb_lock_wait_timeout`, 50s por defecto). Por eso la aplicación
+fija `lock_timeout` al abrir cada conexión, con `db_lock_timeout` (30s por
+defecto) en la configuración; ponerlo en `0` desactiva el tope y devuelve el
+cuelgue silencioso.
+
 > Escribir a claves primarias disjuntas no te protege del deadlock. Los threads
 > de `_fund_worker` escriben cada uno a un `asset_id` distinto y aun así InnoDB
 > deadlockea entre INSERTs concurrentes a la misma tabla, por gap locks y FK
@@ -224,10 +234,10 @@ Queda además una brecha medida sin explicar: incluso con el factor GIL
 confirmado, `volatility_daily` sola tardaba 53-63s de pared con solo ~2s de
 cómputo puro. Un 30x que el GIL no alcanza a explicar, y nunca se aisló si el
 resto es el commit a la base, el lock del contador de progreso u otra cosa.
-`db_compat.set_bulk_load_checks` quedó como código muerto: desactivar
-`foreign_key_checks` en el rebuild se revirtió por un bug de afinidad de conexión
-—los commits por volumen devolvían la conexión al pool compartido con los checks
-apagados— y la función sigue existiendo, con tests, pero sin ningún call site.
+Desactivar la validación de claves foráneas durante el rebuild se intentó y se
+revirtió por un bug de afinidad de conexión: los commits por volumen devolvían la
+conexión al pool compartido con las validaciones apagadas. La función quedó sin
+usarse durante meses y se eliminó en julio de 2026.
 
 El dominio concentra **decenas de tests propios** en seis archivos dedicados.
 El camino de procesos se valida con un `_InlineExecutor` falso que corre la tarea

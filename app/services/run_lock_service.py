@@ -64,7 +64,6 @@ _unavailable = False
 
 _MISSING_TABLE_MARKERS = (
     "does not exist", "doesn't exist", "no such table", "undefinedtable",
-    "1146",  # MySQL: Table doesn't exist
 )
 
 
