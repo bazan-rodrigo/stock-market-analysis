@@ -5,6 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: bade44f4-ff2e-4eca-bcb9-12e503d58c7d
+  modified: 2026-07-22T18:20:09.636Z
 ---
 
 El universo de prueba actual es de 500 activos, pero la app debe soportar
@@ -451,3 +452,45 @@ re-ranking full_sample tras dato nuevo (⚠ legítimo, magnitud variable).
 
 El card queda como detector permanente: una regresión de escrituras aparece
 sola como ✗ sin medición manual.
+
+## Parte 7 (22-jul-2026) — el rebuild es el que se acerca al techo del timeout, no el delta
+
+Disparado por el arreglo de `--timeout 1800` (commit `00e61da`, ver
+[[project_corridas_proceso_web]]): con el timeout viejo (120s) una fase de
+indicadores midió **113s con 499 activos en producción** (delta completo:
+`recompute_current_indicators` + backfill, ProcessPool de 4 procesos
+CONFIRMADO activo en Railway). Quedaba pendiente saber si ese margen aguanta
+a 10.000.
+
+**Medido en el Codespace con `scripts/profile_pool_batch.py --raw`** (1 lote
+inline, 1 solo proceso, sin IPC/pickling — SOLO mide `_backfill_batch_worker`,
+no `recompute_current_indicators`), 499 activos × 24 códigos:
+
+| Modo | Tiempo | s/activo |
+|---|---|---|
+| `rebuild` (historia completa) | 222.783s | 0.4465 |
+| `delta` (solo cola, tail-mode) | 27.749s | 0.0556 |
+
+**El delta es 8x más barato que el rebuild** — confirma que el camino
+tail-mode (Parte 4/5 de esta nota) funciona en la práctica, no solo en el
+diseño. Los dos números NO son comparables 1:1 contra los 113s de Railway
+(ese incluye current_indicators + 4 procesos + overhead de IPC; el de acá es
+1 proceso, solo backfill, sin overhead), pero sirven para separar el riesgo
+real:
+
+- **Delta diario, extrapolado a 10.000 activos:** ~556s a 1 proceso, **~140s
+  con 4 procesos** (asumiendo escalado razonable). Con margen amplio contra
+  1800s — el job automático NO es el riesgo.
+- **Rebuild manual, extrapolado a 10.000 activos:** ~4465s a 1 proceso,
+  **~1116s con 4 procesos** — y eso es SOLO el backfill, sin sumar
+  `recompute_current_indicators` ni la cadena de fundamentales/señales que
+  encadena una corrida real. Se come la mayoría del presupuesto de 1800s.
+  **Es el candidato a cruzar el timeout, no el delta.** Dispara con
+  "Recalcular completo" (redefinir un indicador) o un alta masiva sin
+  camino delta.
+
+**Pendiente:** aislar `recompute_current_indicators` en el mismo patrón
+(`profile_current_indicators.py` ya existe) para completar la proyección del
+rebuild total, y medir el overhead real de IPC/pickling del ProcessPool (el
+docstring de `profile_pool_batch.py` ya avisa que este número no lo incluye)
+corriendo la versión NO inline y comparando wall-clock.
