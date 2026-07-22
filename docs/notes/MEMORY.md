@@ -1,5 +1,6 @@
 # Memoria del proyecto
 
+- [PostgreSQL-only — SE CORTA el soporte dual (estudio + plan)](project_postgres_only_estudio.md) — 22-jul: **MariaDB confirmada fuera de uso, única base es PG en Railway**; orden 0→A(bugs vivos)→B(corte)→C(esquema)→D(cosecha); el corte NO acelera nada por sí solo (la perf está en D), su ahorro grande es cancelar el gate de paridad; 3 bugs vivos a arreglar ANTES (retry inerte sin lock_timeout = cuelgue silencioso, login no determinista, código muerto)
 - [Carga masiva de activos a alto volumen — IMPLEMENTADO](project_carga_masiva_alto_volumen.md) — 21-jul (adcd0bb/ea97fa5): import Excel en 2 fases (validación paralela + salteo del .info con fila completa) y "solo nuevos"/redescarga global por el camino batch compartido; pendiente probar con red real en Codespace
 - [AVISO: módulo de limpieza commiteado por error desde otra sesión](project_cleanup_commiteado_por_error.md) — sus archivos entraron en el commit f626f01 (mensaje engañoso: dice "docs(notes)"); ya desplegado en Railway; NO reescribir historia (decidido); **no usar `git add -A` en este repo, hay sesiones en paralelo**; nota transitoria, borrable al cerrar el módulo
 
