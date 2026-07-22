@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 26b2a194-5f13-4ef4-8a67-87db3554ba16
-  modified: 2026-07-22T12:57:13.512Z
+  modified: 2026-07-22T13:40:45.645Z
 ---
 
 **MariaDB ya NO se usa: la única base es PostgreSQL en Railway** (confirmado por
@@ -17,6 +17,13 @@ pérdida, features PG mapeadas a call sites) y **`docs/notes/plan_corte_pg_only.
 
 **Orden acordado: 0 (precondiciones en Railway) → A (bugs vivos, 0,5 sesión) →
 B (el corte, 1,5-2) → C (esquema PG-only, 1-1,5) → D (cosecha medida, 3-5).**
+
+**ETAPA A HECHA (22-jul)**: lock_timeout configurable con unidad obligatoria
+(la unidad implícita de PG son MILISEGUNDOS: `db_lock_timeout = 30` habría dado
+30 ms), login determinista, unicidad de usuario sin distinguir caso,
+`set_bulk_load_checks` borrada, `"1146"` fuera del run_lock. **Etapa 0 sigue
+PENDIENTE** (es consola en Railway: confirmar `alembic current` = 0086 y buscar
+duplicados case-insensitive en `users` ANTES de la migración 0088 de la etapa C).
 
 **Lo más importante de recordar: el corte NO acelera nada por sí solo.** La
 performance está en la etapa D (COPY, CLUSTER, fillfactor, LATERAL, UNLOGGED), y
@@ -59,6 +66,17 @@ cada edición de camino caliente en D.
 driver; sqlite es el motor de la suite), `_dedupe_last` (su docstring dice
 "semántica de MySQL" pero protege de un bug real de producción, `946fc6d`),
 `_conflict_cols` con su fallback, `is_postgres`.
+
+**Hallazgo grave que salió de revisar la etapa A** (preexistente, ya arreglado):
+en tablas anchas el worker bufferiza y vuelca una vez por lote; si el volcado
+agotaba los reintentos se descartaba el buffer —ninguna fila escrita— pero los
+resultados por código igual llegaban al padre, que consolidaba `ind_asset_meta`
+con checksums calculados EN MEMORIA. El delta siguiente veía los metadatos
+coincidentes, tomaba el camino rápido tail-mode y **el hueco no se rellenaba
+nunca**. Sin `lock_timeout` el flush colgaba para siempre y nunca se llegaba
+ahí; la etapa A lo volvió el modo de falla normal. Lección general: **un
+resultado calculado en memoria no prueba que se haya escrito** — si el commit
+puede fallar después, los metadatos que gobiernan deltas no pueden salir de él.
 
 **Método (repetible):** la v1 del estudio se escribió leyendo `db_compat` + el
 diseño dual, y se verificó DESPUÉS con 8 agentes contra el código. La

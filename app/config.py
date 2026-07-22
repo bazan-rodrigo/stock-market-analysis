@@ -1,5 +1,6 @@
 import os
 import configparser
+import re
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -27,6 +28,35 @@ def _normalize_db_url(url: str) -> str:
     if url.startswith("postgresql://"):
         return "postgresql+psycopg://" + url[len("postgresql://"):]
     return url
+
+
+_LOCK_TIMEOUT_RE = re.compile(r"^\d+(us|ms|s|min|h|d)$")
+
+
+def _validate_lock_timeout(value: str) -> str:
+    """Valida db_lock_timeout y EXIGE unidad explícita.
+
+    La unidad implícita de ``lock_timeout`` en PostgreSQL es el MILISEGUNDO,
+    así que un ``db_lock_timeout = 30`` escrito al lado de ``db_pool_size = 30``
+    no da 30 segundos sino 30 ms: toda espera de lock abortaría al instante y
+    las corridas masivas fallarían por timeouts que nadie pidió. El error va en
+    la dirección más dañina (1000x más corto) y PostgreSQL lo acepta sin
+    chistar, así que el número pelado se rechaza en vez de interpretarse.
+
+    Un valor inválido tumba TODAS las conexiones (el backend rechaza el startup
+    packet) y con create_engine perezoso eso aparece recién en el primer
+    request: por eso se valida acá, al importar la config, y no al conectar.
+    """
+    v = (value or "").strip()
+    if v == "0":
+        return v            # 0 = sin tope (la unidad es irrelevante)
+    if not _LOCK_TIMEOUT_RE.match(v):
+        raise RuntimeError(
+            f"db_lock_timeout inválido: {value!r}. Poné la unidad explícita "
+            f"(ej. '30s', '500ms', '2min') o '0' para desactivar el tope. "
+            f"Sin unidad, PostgreSQL lo interpreta en MILISEGUNDOS."
+        )
+    return v
 
 
 def _get(key: str, default: str | None = None) -> str:
@@ -71,7 +101,7 @@ class Config:
     # opción -c de libpq). Es lo que convierte una espera indefinida en un
     # SQLSTATE 55P03 reintentable; con '0' el timeout se desactiva y una
     # escritura bloqueada vuelve a colgarse en silencio. Sin efecto fuera de PG.
-    DB_LOCK_TIMEOUT: str = _get("db_lock_timeout", "30s")
+    DB_LOCK_TIMEOUT: str = _validate_lock_timeout(_get("db_lock_timeout", "30s"))
 
     # Arranque de APScheduler EN ESTE PROCESO. Con gunicorn multi-worker o
     # réplicas, cada proceso arrancaría su propio scheduler y el job diario

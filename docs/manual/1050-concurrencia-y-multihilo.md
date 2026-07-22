@@ -236,7 +236,7 @@ cómputo puro. Un 30x que el GIL no alcanza a explicar, y nunca se aisló si el
 resto es el commit a la base, el lock del contador de progreso u otra cosa.
 Desactivar la validación de claves foráneas durante el rebuild se intentó y se
 revirtió por un bug de afinidad de conexión: los commits por volumen devolvían la
-conexión al pool compartido con las validaciones apagadas. La función quedó sin
+conexión al pool compartido con las validaciones apagadas. El mecanismo quedó sin
 usarse durante meses y se eliminó en julio de 2026.
 
 El dominio concentra **decenas de tests propios** en seis archivos dedicados.

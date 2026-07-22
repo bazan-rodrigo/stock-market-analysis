@@ -29,7 +29,6 @@ líneas, 18 funciones, consumidas hoy por 18 módulos de `app/`.
 | `upsert` | `ON DUPLICATE KEY UPDATE` ↔ `ON CONFLICT DO UPDATE` |
 | `upsert_sql` | La misma variante como string crudo, para `executemany` |
 | `is_retryable_lock_error` | Errno de InnoDB (1205, 1213) ↔ SQLSTATE de PG (40001, 40P01, 55P03) |
-| `set_bulk_load_checks` | Toggle de FK/unique checks; no-op fuera de MySQL |
 | `order_desc_nulls_last` | Posición de los NULL en un `ORDER BY DESC` |
 | `ci_equals` | Igualdad sin distinguir mayúsculas |
 | `supports_truncate` / `wipe_table` | `TRUNCATE` donde existe, `DELETE FROM` en sqlite |
@@ -92,10 +91,10 @@ sqlite abortan con `CardinalityViolation`. Por eso la rama PG deduplica con
 > hasta que PostgreSQL lo hizo explotar.
 
 **Transacción envenenada.** En PostgreSQL un statement fallido aborta la
-transacción entera. Por eso `set_bulk_load_checks` chequea el dialecto **antes** de
-emitir SQL en vez de intentar y perdonar: cuando el `try/except` captura la
-excepción, la conexión ya está inutilizable hasta el rollback. La misma regla
-obligó a que la consola SQL de administración haga rollback ante error **solo** en
+transacción entera. De ahí la regla de decidir por motor **antes** de emitir el
+SQL en vez de intentar y perdonar: cuando el `try/except` captura la excepción,
+la conexión ya está inutilizable hasta el rollback. La misma regla obligó a que
+la consola SQL de administración haga rollback ante error **solo** en
 PostgreSQL.
 
 **Orden de los NULL.** MySQL los pone al final en `DESC`; PostgreSQL primero. Sin
@@ -218,10 +217,7 @@ de InnoDB al leer series `ind_*`, y `delete_by_ranges` bajo MVCC.
 > "MySQL/MariaDB (producción actual)". Verificar cuál refleja la realidad antes de
 > apoyarse en cualquiera de las dos.
 
-Dos deudas más. `db_compat.set_bulk_load_checks` **no tiene ningún call site de
-producción**: quedó huérfana cuando se quitó el toggle del rebuild de indicadores
-por un bug de afinidad de conexión (los commits por volumen devolvían la conexión
-al pool compartido con los checks apagados). Y `signal_backfill_range.py` conserva
+Queda una deuda. `signal_backfill_range.py` conserva
 una rama por dialecto inline que duplica `db_compat.placeholder` — no es un
 descuido, precede a la capa, pero deja a `placeholder()` sin consumidores externos.
 

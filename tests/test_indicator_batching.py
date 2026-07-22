@@ -944,9 +944,65 @@ def test_backfill_batch_retry_agota_y_anota(monkeypatch):
         assert len(out["errors"]) == 1                  # anotó el código, sin abortar
         assert out["errors"][0]["code"] == code
         assert out["inserted"] == 0                     # nada se escribió
+
     finally:
         _cleanup(s, engine, Asset, Price, IndicatorDefinition, code, ids)
         Session.remove()
+
+
+# ── Flush ancho fallido: el lote NO puede dejar metadatos ────────────────────
+# En tablas anchas el worker no escribe por código: acumula en un buffer y lo
+# vuelca una sola vez al final del lote. Si ese volcado falla (lock agotado),
+# el buffer se descarta y NINGUNA fila del lote llegó a la base — de ningún
+# código. Pero los resultados por código traen checksum/stats calculados EN
+# MEMORIA, así que dejarlos pasar haría que el padre consolide ind_asset_meta
+# de filas inexistentes: el delta siguiente vería los metadatos coincidentes,
+# tomaría el camino rápido tail-mode y el hueco no se rellenaría NUNCA.
+
+def test_flush_ancho_fallido_descarta_los_resultados_del_lote(monkeypatch):
+    """Con el flush ancho roto, el worker anota el error y devuelve el lote
+    VACÍO: sin per_code no hay metadatos que consolidar."""
+    monkeypatch.setattr(ts, "use_wide_ind_tables", lambda: True)
+    monkeypatch.setattr(ts, "_wide_buffer_start", lambda: None)
+    monkeypatch.setattr(ts, "_wide_buffer_clear", lambda: None)
+    monkeypatch.setattr("time.sleep", lambda *a, **k: None)
+
+    def _flush_roto(*a, **kw):
+        raise _op_err(1205)          # lock-timeout: agota los reintentos
+
+    monkeypatch.setattr(ts, "_wide_buffer_flush", _flush_roto)
+    monkeypatch.setattr(ts, "backfill_indicator", lambda *a, **kw: {
+        "inserted": 500,
+        "meta": {"checksum_by_asset": {_A1: "abc"},
+                 "stats_by_asset": {_A1: (1, 2, 3)},
+                 "bench_by_asset": {}},
+    })
+
+    out = ts._backfill_batch_worker(0, [_A1], ["return_daily"], force=False,
+                                    price_cache={})
+
+    assert [e["code"] for e in out["errors"]] == ["wide_flush"]
+    assert out["per_code"] == {}   # sin esto, se consolidaría meta inventada
+    assert out["inserted"] == 0    # no contar filas que no existen
+
+
+def test_flush_ancho_exitoso_conserva_los_resultados(monkeypatch):
+    """Control del test anterior: si el volcado funciona, el lote devuelve sus
+    resultados normalmente (el descarte es del camino de error, no del feliz)."""
+    monkeypatch.setattr(ts, "use_wide_ind_tables", lambda: True)
+    monkeypatch.setattr(ts, "_wide_buffer_start", lambda: None)
+    monkeypatch.setattr(ts, "_wide_buffer_clear", lambda: None)
+    monkeypatch.setattr(ts, "_wide_buffer_flush", lambda *a, **kw: None)
+    monkeypatch.setattr(ts, "backfill_indicator", lambda *a, **kw: {
+        "inserted": 500, "meta": {"checksum_by_asset": {_A1: "abc"}},
+    })
+
+    out = ts._backfill_batch_worker(0, [_A1], ["return_daily"], force=False,
+                                    price_cache={})
+
+    assert out["errors"] == []
+    assert out["inserted"] == 500
+    assert "return_daily" in out["per_code"]
 
 
 # ── De-dup del progreso a través de reintentos ───────────────────────────────

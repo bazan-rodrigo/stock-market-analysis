@@ -6,8 +6,17 @@
 > por una corrida multi-agente (inventario por área + dry-run de la suite +
 > revisión adversarial de qué NO cortar).
 >
-> Nada de esto se programó todavía. Cada etapa es una sesión de trabajo con
-> confirmación previa, según la convención del proyecto.
+> **ESTADO: etapa A HECHA (22-jul, commits d75d7d2 + el de esta revisión).**
+> Etapa 0 pendiente (es consola en Railway, no código). Etapas B, C y D sin
+> empezar; cada una es una sesión de trabajo con confirmación previa.
+>
+> La etapa A se revisó después con una corrida adversarial (4 revisores por
+> dimensión + un escéptico por hallazgo, 30 hallazgos). Sobrevivieron 3 sobre
+> el código nuevo —la unidad implícita en milisegundos de `lock_timeout`, el
+> `options` de la URL pisado en silencio, y el error crudo de psycopg con el
+> hash bcrypt en el modal— más uno **preexistente y grave** que la etapa A
+> volvía alcanzable: ver "Hallazgo del flush ancho" abajo. Los cuatro quedaron
+> arreglados; el resto se refutó.
 
 ## Orden y costo
 
@@ -79,6 +88,24 @@ rojo**. Los pares atómicos obligatorios están marcados con ⚠.
 | A.5 ⚠ | `app/services/db_compat.py:171-189` + `tests/test_db_compat.py:271-285` **mismo commit** | Borrar `set_bulk_load_checks` y su único test (cero call sites de producción; ya declarada muerta en `docs/manual/1050:227`). Retitular el encabezado `tests/test_db_compat.py:256`; **NO borrar** la clase `_Sess` (`:258-269`), la usa `test_wipe_table_truncate_vs_delete` | Borrar la función sin el test = `AttributeError`, suite roja |
 | A.6 | `app/services/run_lock_service.py:67` | Borrar la entrada `"1146"` de `_MISSING_TABLE_MARKERS` | Falso positivo latente: el match es por substring sobre `str(exc).lower()` (`:71-73`) y `_note_error` latchea `_unavailable=True` para **todo el proceso** |
 | A.7 | `alembic/env.py:26-27` | El comentario apunta a `tests/test_migration_portability.py`, **que no existe**; el real es `tests/test_bootstrap_portability.py` | Única pista de dónde se verifica una migración nueva, colgada |
+
+### Hallazgo del flush ancho (salió de la revisión de la etapa A)
+
+En tablas anchas el worker de indicadores no escribe por código: acumula en un
+buffer y lo vuelca una sola vez al final del lote. Si ese volcado agotaba los
+reintentos, el buffer se descartaba —ninguna fila del lote llegaba a la base, de
+ningún código— **pero los resultados por código igual subían al padre**, que
+consolidaba `ind_asset_meta` con checksums y estadísticas calculados en memoria.
+El delta siguiente veía los metadatos coincidentes, tomaba el camino rápido
+tail-mode y **el hueco no se rellenaba nunca**: pérdida de datos silenciosa y
+permanente, contra la invariante que el propio comentario de la consolidación
+documenta.
+
+Es preexistente, pero la etapa A lo convirtió en el modo de falla normal: antes,
+sin `lock_timeout`, el flush bloqueado colgaba para siempre y la consolidación
+nunca se alcanzaba; ahora falla, reintenta y sigue. Arreglado descartando
+`per_code`/`inserted` del lote cuando el volcado no se completa, con dos tests
+(camino de error y camino feliz).
 
 ---
 

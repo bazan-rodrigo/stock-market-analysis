@@ -2151,10 +2151,12 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
                 out["per_code"][code] = res
         if wide_buffered:
             # Volcar el buffer: fila completa por (activo,fecha), una sola vez.
+            flushed = False
             for attempt in range(_MAX_LOCK_RETRIES + 1):
                 try:
                     _wide_buffer_flush(get_session())
                     get_session().commit()
+                    flushed = True
                     break
                 except OperationalError as exc:
                     get_session().rollback()
@@ -2170,6 +2172,18 @@ def _backfill_batch_worker(batch_idx: int, batch_asset_ids: list, codes: list,
                     logger.warning("Flush ancho lote=%d falló: %s", batch_idx, exc)
                     out["errors"].append({"code": "wide_flush", "error": str(exc)})
                     break
+            if not flushed:
+                # El buffer se descarta en el finally: NINGUNA fila de este
+                # lote llegó a la base, de ningún código. Pero los resultados
+                # por código traen checksum/stats calculados EN MEMORIA (no de
+                # lo efectivamente escrito), así que dejarlos pasar haría que
+                # el padre consolide ind_asset_meta de filas inexistentes; el
+                # próximo delta vería los metadatos coincidentes, tomaría el
+                # camino rápido tail-mode y el hueco NO se rellenaría nunca.
+                # Descartarlos mantiene la invariante que documenta la
+                # consolidación: lote fallido = metadatos sin actualizar.
+                out["per_code"] = {}
+                out["inserted"] = 0
     finally:
         if wide_buffered:
             _wide_buffer_clear()

@@ -78,14 +78,17 @@ variable de entorno con el nombre en MAYÚSCULAS, después la clave en minúscul
 bajo `[settings]` de `conf.properties`, después el default del código. Si no hay
 default, levanta un `RuntimeError` que nombra la variable y la clave faltantes.
 
-> Ese último escalón hoy está muerto: las 16 claves pasan un default, así que
+> Ese último escalón hoy está muerto: las 17 claves pasan un default, así que
 > **ninguna variable es obligatoria de verdad**. Una base mal configurada no
-> falla al arrancar con un mensaje claro: falla más tarde, al conectar.
+> falla al arrancar con un mensaje claro: falla más tarde, al conectar. La
+> única excepción es la espera por locks: su valor sí se valida al arrancar,
+> porque un error ahí tumbaría todas las conexiones sin decir por qué.
 
 | Tema | Claves tunables |
 |---|---|
 | Conexión | `secret_key`, `db_host`, `db_port`, `db_name`, `db_user`, `db_password`, `database_url` |
 | Pool | `db_pool_size` (30), `db_max_overflow` (20) |
+| Locks | `db_lock_timeout` (30s) |
 | Proceso | `run_scheduler` (1) |
 | Logging | `log_level` (INFO), `log_file` |
 | ProcessPool | `ind_pool_procs` (0 = auto), `ind_pool_max_procs` (12), `ind_pool_min_assets` (1500), `ind_child_db_pool` (2) |

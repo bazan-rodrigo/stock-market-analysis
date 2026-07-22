@@ -16,10 +16,20 @@ from app.config import Config
 # corrida colgada parece viva. MySQL daba el errno 1205 gratis por su
 # innodb_lock_wait_timeout (50s); PostgreSQL no trae equivalente activo.
 def pg_connect_args(url: str, lock_timeout: str) -> dict:
-    """connect_args de create_engine: vacío fuera de PostgreSQL."""
-    if make_url(url).get_backend_name() != "postgresql":
+    """connect_args de create_engine: vacío fuera de PostgreSQL.
+
+    Conserva el `options` que venga en la URL en vez de pisarlo: SQLAlchemy
+    mete la query de la URL en los parámetros de conexión, pero connect_args
+    GANA sobre ellos y descarta el original en silencio (un `search_path` de
+    la URL desaparecería sin aviso). Con varios `-c` del mismo parámetro
+    libpq aplica el último, así que el propio va al final y sigue mandando.
+    """
+    parsed = make_url(url)
+    if parsed.get_backend_name() != "postgresql":
         return {}
-    return {"options": f"-c lock_timeout={lock_timeout}"}
+    heredado = str(parsed.query.get("options", "")).strip()
+    propio = f"-c lock_timeout={lock_timeout}"
+    return {"options": f"{heredado} {propio}".strip()}
 
 
 _connect_args = pg_connect_args(Config.DATABASE_URL, Config.DB_LOCK_TIMEOUT)

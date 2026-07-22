@@ -347,6 +347,22 @@ _USERNAME_DUPLICADO_MSG = (
 )
 
 
+def _commit_usuario(s) -> None:
+    """Commit traduciendo el choque de nombre duplicado a un mensaje legible.
+
+    _username_ocupado es un check-then-act: entre el SELECT y el COMMIT hay una
+    ventana (set_password con bcrypt cost 12 tarda cientos de ms), así que dos
+    altas simultáneas —un doble clic en Guardar alcanza— pasan las dos y la
+    segunda choca contra el UNIQUE. Sin esto, el modal muestra el texto crudo
+    de la excepción, que incluye el INSERT completo y el hash de la contraseña.
+    """
+    try:
+        s.commit()
+    except IntegrityError:
+        s.rollback()
+        raise ValueError(_USERNAME_DUPLICADO_MSG)
+
+
 def _username_ocupado(s, username: str, excluir_id: int | None = None) -> bool:
     """True si ya hay un usuario con ese nombre, SIN distinguir mayúsculas.
 
@@ -372,7 +388,7 @@ def create_user(username: str, password: str, role: str) -> User:
     obj = User(username=username, role=role)
     obj.set_password(password)
     s.add(obj)
-    s.commit()
+    _commit_usuario(s)
     s.refresh(obj)
     return obj
 
@@ -398,7 +414,7 @@ def update_user(
     obj.active = active
     if password:
         obj.set_password(password)
-    s.commit()
+    _commit_usuario(s)
     s.refresh(obj)
     return obj
 
