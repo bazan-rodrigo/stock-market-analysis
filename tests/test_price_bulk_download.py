@@ -238,6 +238,40 @@ def test_bulk_full_ignora_fechas_existentes(db, monkeypatch):
         [("yf", ticker, f"df-{ticker}", None, True, True)]
 
 
+def test_yahoo_fuera_del_prefetch_cae_al_fallback_con_full(db, monkeypatch):
+    # Un activo Yahoo cuyo chunk de descarga falló NO aparece en el prefetch:
+    # debe caer a _process_other_asset_worker (que pasa por update_asset_prices,
+    # con borrado transaccional) y con el flag full PROPAGADO — es el camino que
+    # sostiene la garantía "no se pierde historia si la descarga falla" en la
+    # redescarga global. Los demás tests tienen al yahoo dentro del prefetch, así
+    # que este else nunca se ejercitaba.
+    (aid, ticker), = _seed_assets(n_yf=1)
+    events = []
+    _patch_cfgs(monkeypatch)
+
+    # prefetch vacío: el yahoo "se cae" del batch (chunk fallido)
+    monkeypatch.setattr(
+        ps, "_bulk_prefetch_yfinance",
+        lambda awd: (events.append(("prefetch", [a.ticker for a, _ in awd])) or {}))
+    monkeypatch.setattr(
+        ps, "_process_yf_asset_worker",
+        lambda *a, **k: (events.append(("yf",)) or (True, None)))
+
+    def fake_other(asset_id, ticker, _dd_cfg=None, _regime_cfg=None,
+                   _vol_cfg=None, _sr_cfg=None, skip_indicators=False, full=False):
+        events.append(("other", ticker, skip_indicators, full))
+        return True, None
+
+    monkeypatch.setattr(ps, "_process_other_asset_worker", fake_other)
+
+    assets = get_session().query(Asset).filter(Asset.id == aid).all()
+    out = ps._bulk_download_assets(assets, full=True)
+
+    assert not any(e[0] == "yf" for e in events)          # no usó el worker yf
+    assert ("other", ticker, True, True) in events        # fallback con full=True
+    assert out == {"total": 1, "success": 1, "errors": []}
+
+
 # ── Semántica full=True del worker (contra el stub sqlite) ───────────────────
 
 def _df(*dates):
