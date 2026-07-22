@@ -24,7 +24,8 @@ class AmbitoSource(PriceSourceBase):
 
     SOURCE_NAME = "Ambito"
 
-    def validate_ticker(self, ticker: str) -> TickerValidationResult:
+    def validate_ticker(self, ticker: str,
+                        need_metadata: bool = True) -> TickerValidationResult:
         if ticker.upper() not in _VALID_TICKERS:
             return TickerValidationResult(
                 valid=False,

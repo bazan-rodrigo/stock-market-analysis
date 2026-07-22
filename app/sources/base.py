@@ -31,8 +31,16 @@ class PriceSourceBase(ABC):
     SOURCE_NAME: str = ""  # Debe coincidir con PriceSource.name en la BD
 
     @abstractmethod
-    def validate_ticker(self, ticker: str) -> TickerValidationResult:
-        """Verifica si el ticker existe y devuelve los metadatos disponibles."""
+    def validate_ticker(self, ticker: str,
+                        need_metadata: bool = True) -> TickerValidationResult:
+        """Verifica si el ticker existe y devuelve los metadatos disponibles.
+
+        need_metadata=False: al llamador le alcanza con confirmar existencia,
+        la fuente puede saltear la parte cara de la metadata (p.ej. el .info
+        de Yahoo). Lo usa la importación masiva cuando la fila del Excel ya
+        trae todos los campos autocompletables. Las fuentes cuya metadata es
+        gratis pueden ignorarlo.
+        """
         ...
 
     @abstractmethod

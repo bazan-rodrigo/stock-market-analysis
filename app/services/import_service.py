@@ -2,6 +2,8 @@
 Servicio de importación masiva de activos desde Excel.
 """
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from io import BytesIO
 import openpyxl
@@ -11,6 +13,19 @@ from app.database import get_session
 from app.models import Asset, FundamentalSource, ImportLog, PriceSource
 
 logger = logging.getLogger(__name__)
+
+
+class _ValidationFailure:
+    """Resultado duck-typed compatible con TickerValidationResult para el
+    camino de error del prefetch. NO se importa app.sources acá arriba a
+    propósito: este módulo evita cargar yfinance en el import (los tests y
+    esta PC de desarrollo no lo tienen) — todo import de fuentes es diferido.
+    """
+    valid = False
+    metadata = None
+
+    def __init__(self, error: str):
+        self.error = error
 
 TEMPLATE_COLUMNS = [
     "ticker",
@@ -25,6 +40,107 @@ TEMPLATE_COLUMNS = [
     "benchmark_ticker",
     "fuente_fundamentales",
 ]
+
+# Validación contra la fuente en paralelo (fase 1 del import): es red pura —
+# el GIL no molesta — y era el costo dominante del import secuencial.
+_VALIDATE_WORKERS = 6
+_VALIDATE_RETRIES = 2    # reintentos ante error transitorio (rate-limit/red)
+_BACKOFF_BASE_S   = 2.0  # espera del primer reintento; exponencial (2s, 4s…)
+
+# Campos del Excel que la metadata de la fuente puede autocompletar. Si la
+# fila ya los trae todos (caso típico: re-import de una planilla exportada),
+# no hace falta pedir metadata — alcanza el chequeo barato de existencia.
+_AUTOCOMPLETE_COLS = ("nombre", "pais_iso", "mercado", "moneda",
+                      "tipo_instrumento", "sector", "industria")
+
+
+def _needs_metadata(row) -> bool:
+    """True si a la fila le falta algún campo autocompletable → hay que
+    pedirle la metadata a la fuente (el .info lento de Yahoo)."""
+    return any(not _valid(row.get(c)) for c in _AUTOCOMPLETE_COLS)
+
+
+def _is_transient_error(error: str | None) -> bool:
+    """Errores de validación que ameritan reintento (no significan
+    'el ticker no existe'): rate-limit y problemas de red."""
+    if not error:
+        return False
+    e = error.lower()
+    return any(t in e for t in ("429", "rate limit", "timeout", "timed out",
+                                "connection", "temporarily"))
+
+
+def _validate_with_retry(source, ticker: str, need_metadata: bool):
+    """validate_ticker con reintentos y backoff exponencial ante errores
+    transitorios — con el pool paralelo, un 429 aislado de Yahoo no debe
+    marcar el ticker como inválido."""
+    result = source.validate_ticker(ticker, need_metadata=need_metadata)
+    for attempt in range(_VALIDATE_RETRIES):
+        if result.valid or not _is_transient_error(result.error):
+            return result
+        time.sleep(_BACKOFF_BASE_S * (2 ** attempt))
+        result = source.validate_ticker(ticker, need_metadata=need_metadata)
+    return result
+
+
+def _row_ticker(row) -> str:
+    """Ticker normalizado de la fila; '' para filas vacías o separadores."""
+    ticker = str(row.get("ticker", "") or "").strip().upper()
+    if not ticker or ticker.startswith("──") or ticker.startswith("--"):
+        return ""
+    return ticker
+
+
+def _prefetch_validations(rows_list, price_sources, existing_tickers,
+                          progress_cb=None) -> dict:
+    """Fase 1 del import: resuelve validate_ticker en paralelo para las filas
+    que van a intentar el alta (ticker nuevo + fuente conocida). Red pura —
+    acá no se toca la BD: toda la escritura queda en el hilo principal.
+
+    Devuelve {(fuente, ticker): TickerValidationResult}. Un mismo ticker
+    repetido en el archivo se valida una sola vez; si alguna de sus filas
+    necesita metadata, se pide para el grupo (la más exigente gana).
+    """
+    jobs: dict[tuple[str, str], bool] = {}
+    for row in rows_list:
+        ticker = _row_ticker(row)
+        if not ticker or ticker in existing_tickers:
+            continue
+        source_name = str(row.get("fuente_precios", "")).strip()
+        if source_name not in price_sources:
+            continue  # el pase de alta reporta el error sin gastar red
+        key = (source_name, ticker)
+        jobs[key] = jobs.get(key, False) or _needs_metadata(row)
+
+    if not jobs:
+        return {}
+
+    # Instanciar las fuentes en el hilo principal: get_source importa
+    # yfinance la primera vez — mejor fuera de los threads.
+    from app.sources.registry import get_source
+    sources = {name: get_source(name) for name in {n for n, _ in jobs}}
+
+    results: dict[tuple[str, str], object] = {}
+    total = len(jobs)
+    with ThreadPoolExecutor(max_workers=_VALIDATE_WORKERS) as pool:
+        futures = {
+            pool.submit(_validate_with_retry, sources[name], ticker, need_meta):
+                (name, ticker)
+            for (name, ticker), need_meta in jobs.items()
+        }
+        done = 0
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                results[key] = fut.result()
+            except Exception as exc:
+                # Una validación rota no voltea el import: la fila termina
+                # en error con el detalle, como siempre.
+                results[key] = _ValidationFailure(str(exc))
+            done += 1
+            if progress_cb:
+                progress_cb(done, total, "Validando tickers...")
+    return results
 
 
 def generate_template() -> bytes:
@@ -63,6 +179,10 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
     Procesa el archivo Excel y devuelve una lista de resultados por ticker.
     Cada elemento tiene: ticker, status ("imported"|"skipped"|"error"), detail.
     Persiste el resultado en import_log (upsert por ticker).
+
+    Dos fases: primero la validación contra la fuente en paralelo (la parte
+    lenta — ver _prefetch_validations), después el alta en BD secuencial.
+    progress_cb(actual, total, mensaje) se reinicia al cambiar de fase.
     """
     try:
         df = pd.read_excel(BytesIO(file_bytes), dtype=str)
@@ -85,15 +205,30 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
     fund_sources  = {fs.name: fs for fs in s.query(FundamentalSource).all()}
     existing_tickers = {t for (t,) in s.query(Asset.ticker).all()}
 
+    # Logs precargados en un mapa (1 query) — antes había un SELECT por fila.
+    # El commit por fila se conserva: es la durabilidad del log ante un
+    # error a mitad de archivo.
+    logs_by_ticker = {l.ticker: l for l in s.query(ImportLog).all()}
+
+    # Caché por corrida de los resolvers de referencia (país/mercado/moneda/
+    # tipo/sector/industria) — ver _cached_resolve.
+    resolve_cache: dict = {}
+
     # benchmark_ticker de cada fila, para la segunda pasada
     pending_benchmarks: list[tuple[str, str]] = []  # [(ticker, benchmark_ticker)]
 
     rows_list = df.to_dict("records")
+
+    # ── Fase 1: validación de red en paralelo ────────────────────────────
+    val_results = _prefetch_validations(
+        rows_list, price_sources, existing_tickers, progress_cb)
+
+    # ── Fase 2: alta en BD (secuencial, hilo principal) ──────────────────
     for i, row in enumerate(rows_list):
         if progress_cb:
-            progress_cb(i + 1, total)
-        ticker = str(row.get("ticker", "") or "").strip().upper()
-        if not ticker or ticker.startswith("──") or ticker.startswith("--"):
+            progress_cb(i + 1, total, "Importando...")
+        ticker = _row_ticker(row)
+        if not ticker:
             continue
 
         source_name = str(row.get("fuente_precios", "")).strip()
@@ -112,11 +247,14 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
                 detail = "Ticker ya existe en la base de datos"
                 raise _Skipped(detail)
 
-            # Validar y autocompletar desde la fuente (import diferido: evita
-            # cargar yfinance solo para usar los helpers puros del módulo)
-            from app.sources.registry import get_source
-            source = get_source(source_name)
-            val_result = source.validate_ticker(ticker)
+            # Resultado de la validación prefetcheada. La red de seguridad
+            # (validar acá) no debería ejecutarse nunca: el prefetch cubre
+            # toda fila con fuente conocida y ticker nuevo.
+            val_result = val_results.get((source_name, ticker))
+            if val_result is None:
+                from app.sources.registry import get_source
+                val_result = _validate_with_retry(
+                    get_source(source_name), ticker, _needs_metadata(row))
             if not val_result.valid:
                 raise ValueError(f"Ticker inválido: {val_result.error}")
 
@@ -134,14 +272,17 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             sector_val   = _first_nonempty(row.get("sector"),            getattr(meta, "sector",        None))
             industry_val = _first_nonempty(row.get("industria"),         getattr(meta, "industry",      None))
 
-            country_id  = _resolve_country(country_val)
-            market_id   = _resolve_market(market_val)
-            currency_id = _resolve_currency(currency_val, currency_iso)
-            itype_id    = _resolve_instrument_type(itype_val)
-            sector_id   = _resolve_sector(sector_val)
-            industry_id = _resolve_industry(industry_val, sector_id)
+            country_id  = _cached_resolve(resolve_cache, "country", country_val, _resolve_country)
+            market_id   = _cached_resolve(resolve_cache, "market", market_val, _resolve_market)
+            currency_id = _cached_resolve(resolve_cache, "currency", currency_val, _resolve_currency, currency_iso)
+            itype_id    = _cached_resolve(resolve_cache, "itype", itype_val, _resolve_instrument_type)
+            sector_id   = _cached_resolve(resolve_cache, "sector", sector_val, _resolve_sector)
+            industry_id = _cached_resolve(resolve_cache, "industry", industry_val, _resolve_industry, sector_id)
 
-            fund_source_name = str(row.get("fuente_fundamentales", "") or "").strip()
+            # _first_nonempty y no str(...) directo: una celda vacía del Excel
+            # llega como NaN y str(NaN) es "nan" — disparaba la advertencia
+            # de fuente inexistente en toda fila sin fundamentales.
+            fund_source_name = _first_nonempty(row.get("fuente_fundamentales"))
             fund_source_id   = fund_sources[fund_source_name].id if fund_source_name in fund_sources else None
             # A diferencia de fuente_precios (que da error), un nombre de fuente
             # de fundamentales que no matchea dejaba el activo sin fuente y sin
@@ -183,11 +324,14 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
 
         # Upsert en import_log y commit por ticker para que los errores
         # de un ticker no anulen los logs de los anteriores.
+        log_created = False
         try:
-            log = s.query(ImportLog).filter(ImportLog.ticker == ticker).first()
+            log = logs_by_ticker.get(ticker)
             if log is None:
                 log = ImportLog(ticker=ticker, status=status, detail=detail)
                 s.add(log)
+                logs_by_ticker[ticker] = log
+                log_created = True
             else:
                 log.status = status
                 log.detail = detail
@@ -195,45 +339,46 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
             s.commit()
         except Exception as log_exc:
             s.rollback()
+            if log_created:
+                # el add se deshizo — que otra fila del mismo ticker lo recree
+                logs_by_ticker.pop(ticker, None)
             logger.warning("Error guardando log para %s: %s", ticker, log_exc)
 
         results.append({"ticker": ticker, "status": status, "detail": detail})
 
-    # Segunda pasada: asignar benchmarks una vez que todos los activos están creados
+    # Segunda pasada: asignar benchmarks una vez que todos los activos están
+    # creados — mapa ticker→id precargado (1 query) y un solo commit, en vez
+    # de 2 SELECTs + commit por cada benchmark.
     if pending_benchmarks:
         result_map = {r["ticker"]: r for r in results}
+        ids_by_ticker = {t: i for (t, i) in s.query(Asset.ticker, Asset.id).all()}
+        updates = []
         for ticker, bm_ticker in pending_benchmarks:
-            try:
-                asset = s.query(Asset).filter(Asset.ticker == ticker).first()
-                bm    = s.query(Asset).filter(Asset.ticker == bm_ticker).first()
-                if asset is None:
-                    continue
-                if bm is None:
-                    detail = result_map[ticker]["detail"]
-                    result_map[ticker]["detail"] = f"{detail} (benchmark '{bm_ticker}' no encontrado)"
-                    _update_log(s, ticker, result_map[ticker]["status"],
-                                result_map[ticker]["detail"])
-                else:
-                    asset.benchmark_id = bm.id
-                    s.commit()
-            except Exception as exc:
-                s.rollback()
-                logger.warning("Error asignando benchmark %s → %s: %s", ticker, bm_ticker, exc)
+            asset_id = ids_by_ticker.get(ticker)
+            if asset_id is None:
+                continue
+            # Normalizado como se almacenan los tickers (el lookup exacto de
+            # antes dependía de la collation case-insensitive de MySQL)
+            bm_id = ids_by_ticker.get(bm_ticker.strip().upper())
+            if bm_id is None:
+                detail = result_map[ticker]["detail"]
+                result_map[ticker]["detail"] = f"{detail} (benchmark '{bm_ticker}' no encontrado)"
+                log = logs_by_ticker.get(ticker)
+                if log is not None:
+                    log.status = result_map[ticker]["status"]
+                    log.detail = result_map[ticker]["detail"]
+                    log.attempted_at = datetime.utcnow()
+            else:
+                updates.append({"id": asset_id, "benchmark_id": bm_id})
+        try:
+            if updates:
+                s.bulk_update_mappings(Asset, updates)
+            s.commit()
+        except Exception as exc:
+            s.rollback()
+            logger.warning("Error asignando benchmarks en batch: %s", exc)
 
     return results
-
-
-def _update_log(s, ticker: str, status: str, detail: str) -> None:
-    try:
-        log = s.query(ImportLog).filter(ImportLog.ticker == ticker).first()
-        if log:
-            log.status = status
-            log.detail = detail
-            log.attempted_at = datetime.utcnow()
-            s.commit()
-    except Exception as exc:
-        s.rollback()
-        logger.warning("Error actualizando log %s: %s", ticker, exc)
 
 
 def get_import_logs() -> list[ImportLog]:
@@ -260,6 +405,17 @@ def _first_nonempty(*values) -> str:
         if v and str(v).strip() and str(v).strip().lower() not in ("nan", "none"):
             return str(v).strip()
     return ""
+
+
+def _cached_resolve(cache: dict, kind: str, value, fn, *args):
+    """Memoiza por corrida el resultado de un _resolve_* — misma cadena de
+    entrada (case-insensitive, igual que la resolución por alias/ilike) y
+    mismos args extra → mismo id. Sin esto, un archivo de 10k filas repetía
+    hasta 6 queries de catálogo por fila."""
+    key = (kind, str(value).strip().lower(), args)
+    if key not in cache:
+        cache[key] = fn(value, *args)
+    return cache[key]
 
 
 def _resolve_country(name):

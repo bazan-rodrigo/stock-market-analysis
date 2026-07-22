@@ -5,7 +5,8 @@ from dash import Input, Output, State, callback, dcc, no_update
 
 import app.services.import_service as svc
 
-_state = {"running": False, "current": 0, "total": 0, "results": None, "error": None}
+_state = {"running": False, "current": 0, "total": 0, "phase": "",
+          "results": None, "error": None}
 
 
 def _logs_to_rows(logs) -> list[dict]:
@@ -67,12 +68,14 @@ def run_import(_, file_data):
 
     _header, encoded = file_data.split(",", 1)
     file_bytes = base64.b64decode(encoded)
-    _state.update({"running": True, "current": 0, "total": 0, "results": None, "error": None})
+    _state.update({"running": True, "current": 0, "total": 0, "phase": "",
+                   "results": None, "error": None})
 
     def _run():
-        def _progress(current, total):
+        def _progress(current, total, msg=""):
             _state["current"] = current
             _state["total"]   = total
+            _state["phase"]   = msg or ""
         try:
             _state["results"] = svc.import_from_excel(file_bytes, progress_cb=_progress)
         except Exception as exc:
@@ -101,7 +104,11 @@ def poll_import(_):
         current = _state["current"]
         total   = _state["total"] or 1
         pct     = int(current / total * 100)
-        label   = f"{current} / {_state['total']}" if _state["total"] else "Iniciando..."
+        # La barra se reinicia al pasar de fase (validación → alta); el
+        # prefijo aclara cuál está corriendo.
+        phase   = f"{_state['phase']}  " if _state["phase"] else ""
+        label   = (f"{phase}{current} / {_state['total']}"
+                   if _state["total"] else "Iniciando...")
         return pct, label, {"display": "block"}, False, no_update, no_update, no_update, no_update
 
     if _state["error"]:

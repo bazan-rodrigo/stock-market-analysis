@@ -17,7 +17,8 @@ _YF_HEADERS   = {"User-Agent": "Mozilla/5.0"}
 class YahooFinanceSource(PriceSourceBase):
     SOURCE_NAME = "Yahoo Finance"
 
-    def validate_ticker(self, ticker: str) -> TickerValidationResult:
+    def validate_ticker(self, ticker: str,
+                        need_metadata: bool = True) -> TickerValidationResult:
         # Validar con la API HTTP directa — más fiable que yfinance para índices e internacionales
         try:
             r = requests.get(
@@ -25,6 +26,12 @@ class YahooFinanceSource(PriceSourceBase):
                 headers=_YF_HEADERS,
                 timeout=10,
             )
+            if r.status_code == 429:
+                # Distinguir rate-limit de "no existe": el import masivo
+                # reintenta con backoff los errores transitorios.
+                return TickerValidationResult(
+                    valid=False, error="Rate limit de Yahoo Finance (HTTP 429)"
+                )
             if r.status_code != 200:
                 return TickerValidationResult(
                     valid=False, error="Ticker no encontrado en Yahoo Finance"
@@ -32,6 +39,11 @@ class YahooFinanceSource(PriceSourceBase):
         except Exception as exc:
             logger.warning("Error HTTP validando ticker %s: %s", ticker, exc)
             return TickerValidationResult(valid=False, error=str(exc))
+
+        if not need_metadata:
+            # El llamador ya tiene todos los campos: se evita el .info (es
+            # el paso lento — un request extra y pesado por ticker).
+            return TickerValidationResult(valid=True, metadata=AssetMetadata())
 
         # .info para metadata — puede estar incompleto en índices/ETFs, no es bloqueante
         try:

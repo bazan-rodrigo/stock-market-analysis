@@ -10,7 +10,8 @@ class CalculatedSource(PriceSourceBase):
     """
     SOURCE_NAME = "Calculado"
 
-    def validate_ticker(self, ticker: str) -> TickerValidationResult:
+    def validate_ticker(self, ticker: str,
+                        need_metadata: bool = True) -> TickerValidationResult:
         return TickerValidationResult(valid=True, metadata=AssetMetadata())
 
     def download_history(self, ticker: str, start=None) -> pd.DataFrame:
