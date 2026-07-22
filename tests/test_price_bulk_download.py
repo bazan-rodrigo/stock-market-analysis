@@ -317,3 +317,45 @@ def test_worker_full_con_descarga_vacia_no_borra_nada(db):
     assert fechas == [date(2025, 1, 2)]            # intacta: no había datos
     log = s.query(PriceUpdateLog).filter_by(asset_id=aid).first()
     assert log is not None and log.success is False
+
+
+def test_worker_delta_conserva_la_historia_previa_a_last_date(db):
+    # Contraparte de full=True: con full=False + last_date el worker borra SOLO
+    # las filas >= last_date (_delete_from_date) y conserva la historia anterior
+    # — el camino de la actualización diaria incremental. Sin este test, una
+    # regresión que volviera el borrado incondicional dejaría los tests full=True
+    # en verde mientras cada delta borraría toda la historia previa a last_date.
+    (aid, ticker), = _seed_assets(n_yf=1)
+    s = get_session()
+    s.add(Price(asset_id=aid, date=date(2025, 1, 2), close=1.0))   # < last_date
+    s.add(Price(asset_id=aid, date=date(2025, 6, 2), close=2.0))   # == last_date
+    s.commit()
+
+    ok, err = ps._process_yf_asset_worker(
+        aid, ticker, _df(date(2025, 6, 2), date(2025, 6, 3)), date(2025, 6, 2),
+        None, None, None, None, skip_indicators=True, full=False)
+
+    assert (ok, err) == (True, None)
+    s = get_session()
+    fechas = sorted(p.date for p in s.query(Price).filter_by(asset_id=aid).all())
+    # la previa a last_date sobrevive; solo se reemplazan/agregan las >= last_date
+    assert fechas == [date(2025, 1, 2), date(2025, 6, 2), date(2025, 6, 3)]
+
+
+def test_other_worker_reenvia_full_y_skip_indicators(db, monkeypatch):
+    # El worker de otras fuentes/sintéticos delega en update_asset_prices: es el
+    # único camino por el que un sintético recibe full=True en la redescarga
+    # global. Sin este test, caerse el full=full lo convertiría en un delta
+    # (no reconstruye la historia) sin ningún test rojo.
+    (aid, ticker), = _seed_assets(n_other=1)
+    calls = []
+    monkeypatch.setattr(
+        ps, "update_asset_prices",
+        lambda asset_id, full=False, skip_indicators=False, **k:
+            calls.append((asset_id, full, skip_indicators)))
+
+    ok, err = ps._process_other_asset_worker(
+        aid, ticker, None, None, None, None, skip_indicators=True, full=True)
+
+    assert (ok, err) == (True, None)
+    assert calls == [(aid, True, True)]
