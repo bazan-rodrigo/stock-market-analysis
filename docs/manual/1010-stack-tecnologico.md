@@ -170,9 +170,12 @@ Railway, 500 por segundo, durante un backfill de precios**.
 
 ## gunicorn, las versiones y cómo condicionan la forma de probar
 
-gunicorn solo aparece en el `Procfile`. El `--timeout 120` da margen a los
-requests que disparan cómputo pesado, donde el default de 30 segundos los
-mataría. En dev y en el Codespace la app se levanta con `python run.py` y
+gunicorn solo aparece en el `Procfile`. El `--timeout 1800` es lo que evita que
+mate a las corridas largas del Centro de Datos: siguen en segundo plano dentro
+del proceso web, y mientras calculan no siempre alcanzan a responderle a
+gunicorn, que sin señales de vida da por colgado al proceso y lo mata sin dejar
+error. El default de 30 segundos, o el 120 que hubo antes, cortaban corridas
+legítimas a mitad de camino. En dev y en el Codespace la app se levanta con `python run.py` y
 `use_reloader=False`, para evitar el doble arranque que duplicaría el scheduler y
 los estados en memoria.
 

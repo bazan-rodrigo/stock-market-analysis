@@ -79,10 +79,12 @@ def _patch_cfgs(monkeypatch):
 
 def _patch_workers(monkeypatch, events):
     def fake_prefetch(assets_with_dates):
+        # (asset_id, ticker, last_date) — datos planos, no objetos ORM: el
+        # llamador ya cerró su sesión antes de llegar acá.
         events.append(("prefetch",
-                       sorted(a.ticker for a, _ in assets_with_dates),
-                       sorted((a.ticker, d) for a, d in assets_with_dates)))
-        return {a.id: f"df-{a.ticker}" for a, _ in assets_with_dates}
+                       sorted(t for _, t, _ in assets_with_dates),
+                       sorted((t, d) for _, t, d in assets_with_dates)))
+        return {aid: f"df-{t}" for aid, t, _ in assets_with_dates}
 
     def fake_yf(asset_id, ticker, df, last_date, _dd_cfg=None, _regime_cfg=None,
                 _vol_cfg=None, _sr_cfg=None, skip_indicators=False, full=False):
@@ -252,7 +254,7 @@ def test_yahoo_fuera_del_prefetch_cae_al_fallback_con_full(db, monkeypatch):
     # prefetch vacío: el yahoo "se cae" del batch (chunk fallido)
     monkeypatch.setattr(
         ps, "_bulk_prefetch_yfinance",
-        lambda awd: (events.append(("prefetch", [a.ticker for a, _ in awd])) or {}))
+        lambda awd: (events.append(("prefetch", [t for _, t, _ in awd])) or {}))
     monkeypatch.setattr(
         ps, "_process_yf_asset_worker",
         lambda *a, **k: (events.append(("yf",)) or (True, None)))
@@ -359,3 +361,84 @@ def test_other_worker_reenvia_full_y_skip_indicators(db, monkeypatch):
 
     assert (ok, err) == (True, None)
     assert calls == [(aid, True, True)]
+
+
+# ── La transacción se cierra ANTES de la fase larga ──────────────────────────
+
+def test_sesion_cerrada_antes_del_prefetch_y_del_pool(db, monkeypatch):
+    """La sesión del runner NO puede seguir abierta durante la descarga.
+
+    _bulk_download_assets hace sus lecturas de setup (sintéticos, fuente,
+    últimas fechas) y después se va ~15 minutos a la red y al ThreadPool. Si
+    no suelta la sesión en el medio, SQLAlchemy sostiene la transacción todo
+    ese rato: en PostgreSQL eso queda 'idle in transaction' y FIJA EL XMIN
+    HORIZON — autovacuum no reclama ninguna tupla muerta mientras tanto, justo
+    cuando esta corrida borra cientos de miles de filas de `prices`.
+
+    El invariante se chequea con el registry de la scoped_session: después de
+    remove() no hay sesión viva para este thread. Es la única señal
+    observable sin una base real, y es exactamente la que se rompe si alguien
+    vuelve a meter una query entre las lecturas y el prefetch.
+    """
+    _seed_assets(n_yf=2)
+    _patch_cfgs(monkeypatch)
+    visto = {}
+
+    def fake_prefetch(assets_with_dates):
+        visto["sesion_viva_en_prefetch"] = ps._ScopedSession.registry.has()
+        return {}
+
+    def fake_other(asset_id, ticker, *a, **k):
+        visto.setdefault("en_pool", []).append(ticker)
+        return True, None
+
+    monkeypatch.setattr(ps, "_bulk_prefetch_yfinance", fake_prefetch)
+    monkeypatch.setattr(ps, "_process_other_asset_worker", fake_other)
+
+    assets = get_session().query(Asset).all()
+    ps._bulk_download_assets(assets)
+
+    assert visto["sesion_viva_en_prefetch"] is False
+    assert len(visto["en_pool"]) == 2   # el pool igual corrió
+
+
+def test_cfgs_viajan_planos_al_pool(db, monkeypatch):
+    """Los cfgs que reciben los workers no pueden ser instancias ORM.
+
+    Se leen desde otros threads (el ThreadPool) y después de que el runner
+    cerró su sesión: una instancia ORM ahí es una race latente (la Session no
+    es thread-safe) y encima un refresh contra una sesión muerta. _snapshot_cfgs
+    los desprende a SimpleNamespace conservando los nombres de atributo.
+    """
+    from app.models import DrawdownConfig
+
+    _seed_assets(n_other=1)
+    s = get_session()
+    monkeypatch.setattr(ps, "_get_drawdown_config",
+                        lambda: s.query(DrawdownConfig).filter_by(id=1).first()
+                        or _mk_dd(s))
+    for cfg in ("_get_regime_config", "_get_volatility_config"):
+        monkeypatch.setattr(ps, cfg, lambda: None)
+    monkeypatch.setattr(ps.sr_service, "_get_sr_config", lambda: None)
+    monkeypatch.setattr(ps, "_bulk_prefetch_yfinance", lambda awd: {})
+
+    recibido = {}
+
+    def fake_other(asset_id, ticker, _dd_cfg=None, **k):
+        recibido["dd"] = _dd_cfg
+        return True, None
+
+    monkeypatch.setattr(ps, "_process_other_asset_worker", fake_other)
+    ps._bulk_download_assets(get_session().query(Asset).all())
+
+    dd = recibido["dd"]
+    assert not isinstance(dd, DrawdownConfig)     # desprendido del ORM
+    assert dd.min_depth_pct == 20.0               # y con el valor intacto
+
+
+def _mk_dd(s):
+    from app.models import DrawdownConfig
+    cfg = DrawdownConfig(id=1, min_depth_pct=20.0)
+    s.add(cfg)
+    s.commit()
+    return cfg

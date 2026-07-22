@@ -526,6 +526,19 @@ def _run_fund_batch(pairs: list[tuple[int, str]], *, clear: bool = False,
     summary = {"total": total_n, "success": presuccess, "errors": []}
     if not pairs:
         return summary
+
+    # CERRAR la transacción del llamador antes del pool. Los tres puntos de
+    # entrada (update_new_fundamentals / update_all_fundamentals /
+    # redownload_all_fundamentals) arman su lista de activos con la sesión de
+    # este thread y no la sueltan; sin esto queda 'idle in transaction' toda
+    # la descarga (minutos contra Yahoo), y en PostgreSQL eso FIJA EL XMIN
+    # HORIZON: autovacuum no reclama ninguna tupla muerta mientras tanto,
+    # justo cuando los workers están borrando y reescribiendo trimestrales.
+    # Se hace acá y no en cada llamador porque `pairs` ya son datos planos:
+    # a esta altura nadie necesita más la sesión, y un punto único evita que
+    # un cuarto punto de entrada futuro se olvide.
+    _ScopedSession.remove()
+
     done_count = 0
     lock = threading.Lock()
     with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:

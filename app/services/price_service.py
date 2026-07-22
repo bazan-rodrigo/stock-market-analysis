@@ -7,10 +7,11 @@ Lógica principal:
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from types import SimpleNamespace
 
 import pandas as pd
 import yfinance as yf
-from sqlalchemy import func
+from sqlalchemy import func, inspect as sa_inspect
 
 from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, PriceUpdateLog
@@ -29,6 +30,38 @@ logger = logging.getLogger(__name__)
 
 # Activos procesados en paralelo (DB write + indicadores por activo)
 _UPDATE_WORKERS = 6
+
+
+def _snapshot_cfgs(*cfgs):
+    """Copia PLANA (SimpleNamespace) de los objetos de configuración ORM, con
+    los mismos nombres de atributo — drop-in donde antes iba la instancia.
+
+    Dos motivos:
+
+    1. Sobreviven al cierre de la sesión. _bulk_download_assets suelta su
+       sesión antes de la fase larga para no dejar una transacción abierta
+       (ver ahí); un objeto ORM expirado que se lee después dispararía un
+       refresh contra una sesión muerta.
+    2. Se pueden leer desde otro thread. Estos cfgs se le pasan a los workers
+       del ThreadPool, y una instancia ORM sigue atada a la sesión del thread
+       que la cargó — la Session de SQLAlchemy no es thread-safe, así que un
+       refresh disparado desde un worker era una race latente.
+
+    Las columnas salen del mapper, no de una lista escrita a mano: si mañana
+    se agrega un campo a alguna config, viaja solo. Si el objeto no está
+    mapeado (o ya es plano), se devuelve tal cual.
+    """
+    out = []
+    for cfg in cfgs:
+        if cfg is None:
+            out.append(None)
+            continue
+        try:
+            cols = sa_inspect(type(cfg)).columns.keys()
+            out.append(SimpleNamespace(**{c: getattr(cfg, c) for c in cols}))
+        except Exception:
+            out.append(cfg)
+    return tuple(out)
 
 
 def _get_last_price_date(asset_id: int, session):
@@ -275,7 +308,10 @@ def _yf_download_chunked(tickers: list, start=None) -> dict:
 def _bulk_prefetch_yfinance(assets_with_dates: list) -> dict:
     """
     Descarga precios de múltiples tickers en el menor número de llamadas posible.
-    assets_with_dates: lista de (asset, last_date).
+    assets_with_dates: lista de (asset_id, ticker, last_date) — datos PLANOS,
+    nunca objetos ORM: el llamador cierra su transacción antes de entrar acá
+    (ver _bulk_download_assets), así que no queda sesión viva de la que
+    recargar atributos.
     Retorna dict {asset_id: DataFrame}.
 
     Separación en dos grupos para manejar fechas distintas correctamente:
@@ -287,29 +323,29 @@ def _bulk_prefetch_yfinance(assets_with_dates: list) -> dict:
     if not assets_with_dates:
         return {}
 
-    first_time  = [(a, d) for a, d in assets_with_dates if d is None]
-    incremental = [(a, d) for a, d in assets_with_dates if d is not None]
+    first_time  = [(i, t, d) for i, t, d in assets_with_dates if d is None]
+    incremental = [(i, t, d) for i, t, d in assets_with_dates if d is not None]
     result = {}
 
     # --- Grupo 1: primera descarga (historia completa) ---
     if first_time:
-        tickers   = [a.ticker for a, _ in first_time]
+        tickers   = [t for _, t, _ in first_time]
         by_ticker = _yf_download_chunked(tickers, start=None)
-        for asset, _ in first_time:
-            if asset.ticker in by_ticker:
-                result[asset.id] = by_ticker[asset.ticker]
+        for asset_id, ticker, _ in first_time:
+            if ticker in by_ticker:
+                result[asset_id] = by_ticker[ticker]
 
     # --- Grupo 2: actualizaciones incrementales ---
     if incremental:
-        min_start = min(d for _, d in incremental)
-        tickers   = [a.ticker for a, _ in incremental]
+        min_start = min(d for _, _, d in incremental)
+        tickers   = [t for _, t, _ in incremental]
         by_ticker = _yf_download_chunked(tickers, start=min_start)
-        for asset, last_date in incremental:
-            df = by_ticker.get(asset.ticker)
+        for asset_id, ticker, last_date in incremental:
+            df = by_ticker.get(ticker)
             if df is None:
                 continue
             # Cada ticker solo recibe filas desde su propio last_date
-            result[asset.id] = df[df["date"] >= last_date].reset_index(drop=True)
+            result[asset_id] = df[df["date"] >= last_date].reset_index(drop=True)
 
     return result
 
@@ -545,14 +581,33 @@ def _bulk_download_assets(assets, progress_cb=None, full: bool = False) -> dict:
         _max_dates = {}
     yf_last_dates = {a.id: _max_dates.get(a.id) for a in yf_assets}
 
-    prefetched = _bulk_prefetch_yfinance(
-        [(a, yf_last_dates[a.id]) for a in yf_assets]
-    )
-
-    # Colectar (id, ticker) antes del loop: los commits expiran los objetos ORM
-    # y acceder a sus atributos después podría fallar si fueron eliminados en otro thread.
+    # Colectar (id, ticker) ANTES de soltar la sesión: los commits expiran los
+    # objetos ORM y acceder a sus atributos después podría fallar si fueron
+    # eliminados en otro thread.
     yf_pairs        = [(a.id, a.ticker) for a in yf_assets]
     other_pairs     = [(a.id, a.ticker) for a in other_regular + synthetic]
+    prefetch_args   = [(aid, tick, yf_last_dates[aid]) for aid, tick in yf_pairs]
+
+    # CERRAR la transacción antes de la fase larga (descarga de red + pool de
+    # escritura). SQLAlchemy abre transacción en la primera query y la sostiene
+    # hasta el commit/close: sin esto, esta sesión quedaba 'idle in transaction'
+    # los ~15 minutos que dura la descarga. En PostgreSQL eso FIJA EL XMIN
+    # HORIZON — autovacuum no puede reclamar ninguna tupla muerta mientras
+    # tanto, y esta misma corrida borra cientos de miles de filas de `prices`
+    # (ver el _delete_from_date de cada worker) → bloat y checkpoints
+    # disparados por WAL. Además retiene una conexión del pool sin usarla.
+    #
+    # remove() y no commit(): close() detacha los objetos pero NO expira sus
+    # atributos ya cargados, así que los `assets` que nos pasó el llamador
+    # siguen siendo legibles. Un commit() los expiraría y cualquier lectura
+    # posterior dispararía un refresh contra una sesión que ya no existe.
+    # De acá en adelante SOLO se usan datos planos (pairs/prefetch_args/cfgs
+    # desprendidos); los workers abren su propia sesión en su propio thread.
+    _detach_cfgs = _snapshot_cfgs(_dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg)
+    _ScopedSession.remove()
+    _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg = _detach_cfgs
+
+    prefetched = _bulk_prefetch_yfinance(prefetch_args)
 
     cfgs = dict(
         _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,

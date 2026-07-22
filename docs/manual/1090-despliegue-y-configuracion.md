@@ -20,12 +20,15 @@ tanto mod_wsgi como gunicorn. `worker.py` corre el scheduler y no sirve HTTP. Y
 el `Procfile` son dos líneas, que es todo el modelo de proceso de producción:
 
 ```text
-web:    gunicorn wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+web:    gunicorn wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 1800
 worker: python worker.py
 ```
 
-El `--timeout 120` da margen a requests con cálculo pesado. El `--workers 1` no
-es un default: es una decisión, y la que sigue la explica.
+El `--timeout 1800` le da aire a las corridas largas del Centro de Datos, que
+siguen en segundo plano dentro del proceso web: si gunicorn no recibe señales de
+vida mientras ese cálculo ocupa el proceso, lo mata sin aviso y la corrida
+desaparece sin dejar error. El `--workers 1` no es un default: es una decisión, y
+la que sigue la explica.
 
 ## Por qué el scheduler vive en su propio proceso
 

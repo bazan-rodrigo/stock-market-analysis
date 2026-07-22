@@ -21,13 +21,22 @@ asimetría entre deltas, el diseño de concurrencia— se deriva de ahí.
 En producción hay dos tipos de proceso, definidos en `Procfile`:
 
 ```text
-web:    gunicorn wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+web:    gunicorn wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 1800
 worker: python worker.py
 ```
 
 El `--workers 1` no es una economía: **refuerza el modelo de proceso único que
-asume todo el diseño de concurrencia**. El `--timeout 120` da margen a los
-requests que disparan cálculo pesado.
+asume todo el diseño de concurrencia**.
+
+El `--timeout 1800` es alto a propósito. Las corridas que se lanzan desde el
+Centro de Datos no viven en el pedido web: siguen en segundo plano dentro del
+mismo proceso mientras la pantalla muestra la barra de progreso. Ese trabajo es
+de cálculo puro y por ratos no le deja lugar a nada más en el proceso; si
+gunicorn no recibe señales de vida durante el tiempo de espera configurado, da
+por colgado al proceso y **lo mata sin aviso** — la corrida desaparece sin dejar
+error, a mitad de camino. Con el valor viejo de 120 segundos eso pasaba al
+recalcular indicadores sobre universos grandes. Bajarlo tampoco protege de
+mucho: con un solo proceso, matarlo es apagar la aplicación entera.
 
 El segundo proceso existe por una razón puntual. Si APScheduler arrancara dentro
 de cada web worker, el job diario se dispararía N veces; el lock persistido lo
