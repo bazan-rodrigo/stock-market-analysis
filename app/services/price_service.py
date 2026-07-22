@@ -321,9 +321,13 @@ def _process_yf_asset_worker(
     last_date,
     _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
     skip_indicators: bool = False,
+    full: bool = False,
 ) -> tuple[bool, dict | None]:
     """Procesa un activo Yahoo Finance en su propio thread: escribe precios y
-    calcula indicadores (salvo skip_indicators=True, ver update_asset_prices)."""
+    calcula indicadores (salvo skip_indicators=True, ver update_asset_prices).
+    full=True (redescarga): borra la historia previa completa en la MISMA
+    transacción que el insert — el chequeo de df vacío es previo, así que si
+    la descarga vino sin datos la historia existente queda intacta."""
     s = get_session()
     try:
         if df.empty:
@@ -331,7 +335,10 @@ def _process_yf_asset_worker(
                 f"No se encontraron datos de precio para '{ticker}'. "
                 "Verificá que el ticker sea válido en Yahoo Finance."
             )
-        if last_date is not None:
+        if full:
+            s.query(Price).filter(Price.asset_id == asset_id).delete(
+                synchronize_session=False)
+        elif last_date is not None:
             _delete_from_date(asset_id, last_date, s)
         count = _upsert_prices(asset_id, df, s)
         _save_update_log(asset_id, success=True, error=None, session=s)
@@ -381,11 +388,13 @@ def _process_other_asset_worker(
     ticker: str,
     _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
     skip_indicators: bool = False,
+    full: bool = False,
 ) -> tuple[bool, dict | None]:
     """Procesa un activo no-YF (otra fuente o sintético) en su propio thread."""
     try:
         update_asset_prices(
             asset_id,
+            full=full,
             _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
             _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
             skip_indicators=skip_indicators,
@@ -466,39 +475,47 @@ def _rebuild_indicators_for_assets(progress_cb, asset_ids: list) -> dict:
 
 
 def update_new_assets_prices(progress_cb=None) -> dict:
-    """Solo activos sin PriceUpdateLog previo (nunca descargados)."""
+    """Solo activos sin PriceUpdateLog previo (nunca descargados).
+
+    Va por el mismo camino batch que update_all_active_assets (antes era un
+    loop secuencial con una descarga individual por activo — horas para una
+    importación masiva): los recién importados no tienen precios, así que
+    caen enteros en el grupo first_time del prefetch (historia completa por
+    chunks de _YF_CHUNK_SIZE)."""
     s = get_session()
     logged_ids = {r[0] for r in s.query(PriceUpdateLog.asset_id).all()}
     assets = [a for a in s.query(Asset).all() if a.id not in logged_ids]
-    total   = len(assets)
-    summary = {"total": total, "success": 0, "errors": []}
-    for i, asset in enumerate(assets, 1):
-        if progress_cb:
-            progress_cb(i, total, asset.ticker)
-        try:
-            update_asset_prices(asset.id, skip_indicators=True)
-            summary["success"] += 1
-        except Exception as exc:
-            summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
+    summary = _bulk_download_assets(assets, progress_cb)
     return _chain_to_indicator_and_ratio_delta(progress_cb, summary)
 
 
-def update_all_active_assets(progress_cb=None) -> dict:
-    """
-    Actualiza todos los activos activos. Primero los regulares, luego los sintéticos.
-    Tolerante a fallos individuales. Devuelve un resumen con éxitos y errores.
-    """
+def _bulk_download_assets(assets, progress_cb=None, full: bool = False) -> dict:
+    """Descarga precios de una lista de activos por el camino batch: split
+    Yahoo/otras fuentes+sintéticos, prefetch de últimas fechas en una sola
+    query, _bulk_prefetch_yfinance por chunks y escritura en ThreadPool.
+    Siempre con skip_indicators=True — el llamador encadena el delta (o el
+    rebuild) UNA vez para todos los activos al terminar.
+
+    full=True (redescarga global): ignora las últimas fechas → todos los
+    tickers van al grupo first_time (historia completa) y cada worker borra
+    la historia previa dentro de su propia transacción, solo si la descarga
+    trajo datos.
+
+    Devuelve el resumen {"total", "success", "errors"} de la fase de
+    descarga (sin encadenar indicadores)."""
     from app.models import SyntheticFormula, PriceSource
 
+    total   = len(assets)
+    summary = {"total": total, "success": 0, "errors": []}
+    if not assets:
+        return summary
+
     s = get_session()
-    all_assets = s.query(Asset).all()
 
     # Fix N+1: un solo query para IDs sintéticos
     synthetic_ids = {r[0] for r in s.query(SyntheticFormula.asset_id).all()}
-    regular   = [a for a in all_assets if a.id not in synthetic_ids]
-    synthetic = [a for a in all_assets if a.id in synthetic_ids]
-    total     = len(all_assets)
-    summary   = {"total": total, "success": 0, "errors": []}
+    regular   = [a for a in assets if a.id not in synthetic_ids]
+    synthetic = [a for a in assets if a.id in synthetic_ids]
 
     # Pre-cargar configs de indicadores una sola vez (evita N × 4 queries)
     _dd_cfg     = _get_drawdown_config()
@@ -513,9 +530,10 @@ def update_all_active_assets(progress_cb=None) -> dict:
     yf_assets   = [a for a in regular if yf_src_id and a.price_source_id == yf_src_id]
     other_regular = [a for a in regular if not (yf_src_id and a.price_source_id == yf_src_id)]
 
-    # Prefetch de last_dates en una sola query GROUP BY
+    # Prefetch de last_dates en una sola query GROUP BY.
+    # full=True ignora lo existente: todos descargan la historia completa.
     yf_ids = [a.id for a in yf_assets]
-    if yf_ids:
+    if yf_ids and not full:
         _max_dates = {
             r[0]: r[1]
             for r in s.query(Price.asset_id, func.max(Price.date))
@@ -548,18 +566,18 @@ def update_all_active_assets(progress_cb=None) -> dict:
                 futures[pool.submit(
                     _process_yf_asset_worker,
                     asset_id, asset_ticker, prefetched[asset_id], yf_last_dates[asset_id],
-                    **cfgs, skip_indicators=True,
+                    **cfgs, skip_indicators=True, full=full,
                 )] = asset_ticker
             else:
                 futures[pool.submit(
                     _process_other_asset_worker, asset_id, asset_ticker, **cfgs,
-                    skip_indicators=True,
+                    skip_indicators=True, full=full,
                 )] = asset_ticker
 
         for asset_id, asset_ticker in other_pairs:
             futures[pool.submit(
                 _process_other_asset_worker, asset_id, asset_ticker, **cfgs,
-                skip_indicators=True,
+                skip_indicators=True, full=full,
             )] = asset_ticker
 
         done = 0
@@ -574,11 +592,22 @@ def update_all_active_assets(progress_cb=None) -> dict:
                 summary["errors"].append(err)
 
     logger.info(
-        "Actualización completa: %d/%d exitosos, %d errores",
+        "Descarga batch: %d/%d exitosos, %d errores",
         summary["success"],
         summary["total"],
         len(summary["errors"]),
     )
+    return summary
+
+
+def update_all_active_assets(progress_cb=None) -> dict:
+    """
+    Actualiza todos los activos activos. Primero los regulares, luego los sintéticos.
+    Tolerante a fallos individuales. Devuelve un resumen con éxitos y errores.
+    """
+    s = get_session()
+    all_assets = s.query(Asset).all()
+    summary = _bulk_download_assets(all_assets, progress_cb)
 
     # Los precios ya están, pero los indicadores/ratios de cada activo
     # todavía no (skip_indicators=True arriba) — se encadena acá el
@@ -630,14 +659,19 @@ def redownload_prices(asset_ids: list[int] | None = None, progress_cb=None) -> d
     en atajos que podrían no detectar una corrección retroactiva de un
     precio viejo. Antes esto además recorría el universo entero (~2 min)
     aunque se hubiese redescargado un solo ticker puntual desde
-    /admin/prices ("Redescargar seleccionados")."""
+    /admin/prices ("Redescargar seleccionados").
+
+    La redescarga GLOBAL va por el camino batch (full=True: historia completa
+    para todos, borrado por-activo dentro de cada transacción). La selección
+    puntual sigue el camino secuencial por activo — siempre es chica."""
     from app.services.asset_service import get_assets
 
     if asset_ids is None:
-        assets = get_assets()
-    else:
-        s = get_session()
-        assets = s.query(Asset).filter(Asset.id.in_(asset_ids)).all()
+        summary = _bulk_download_assets(get_assets(), progress_cb, full=True)
+        return _chain_to_indicator_and_ratio_delta(progress_cb, summary)
+
+    s = get_session()
+    assets = s.query(Asset).filter(Asset.id.in_(asset_ids)).all()
 
     total   = len(assets)
     summary = {"total": total, "success": 0, "errors": []}
@@ -650,8 +684,6 @@ def redownload_prices(asset_ids: list[int] | None = None, progress_cb=None) -> d
         except Exception as exc:
             summary["errors"].append({"ticker": asset.ticker, "error": str(exc)})
 
-    if asset_ids is None:
-        return _chain_to_indicator_and_ratio_delta(progress_cb, summary)
     if summary.get("total", 0) == 0:
         return summary
     if progress_cb:
