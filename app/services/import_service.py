@@ -116,18 +116,32 @@ def _prefetch_validations(rows_list, price_sources, existing_tickers,
         return {}
 
     # Instanciar las fuentes en el hilo principal: get_source importa
-    # yfinance la primera vez — mejor fuera de los threads.
+    # yfinance la primera vez — mejor fuera de los threads. Se envuelve por
+    # nombre: una fuente que está en la tabla PriceSource pero NO en el
+    # registry de implementaciones (dada de alta o renombrada desde el ABM)
+    # hace fallar get_source. Sin este try la excepción volteaba el import
+    # entero (0 filas, 0 logs); ahora esos jobs se dejan sin prefetch y el
+    # fallback del pase de alta —dentro del try por fila— los reporta como
+    # error de esa fila, sin arrastrar al resto del archivo.
     from app.sources.registry import get_source
-    sources = {name: get_source(name) for name in {n for n, _ in jobs}}
+    sources: dict[str, object] = {}
+    for name in {n for n, _ in jobs}:
+        try:
+            sources[name] = get_source(name)
+        except Exception as exc:
+            logger.warning("Fuente '%s' sin implementación en el registry: "
+                           "sus filas se validarán en el pase de alta (%s)",
+                           name, exc)
 
     results: dict[tuple[str, str], object] = {}
-    total = len(jobs)
     with ThreadPoolExecutor(max_workers=_VALIDATE_WORKERS) as pool:
         futures = {
             pool.submit(_validate_with_retry, sources[name], ticker, need_meta):
                 (name, ticker)
             for (name, ticker), need_meta in jobs.items()
+            if name in sources
         }
+        total = len(futures)
         done = 0
         for fut in as_completed(futures):
             key = futures[fut]
@@ -247,9 +261,11 @@ def import_from_excel(file_bytes: bytes, progress_cb=None) -> list[dict]:
                 detail = "Ticker ya existe en la base de datos"
                 raise _Skipped(detail)
 
-            # Resultado de la validación prefetcheada. La red de seguridad
-            # (validar acá) no debería ejecutarse nunca: el prefetch cubre
-            # toda fila con fuente conocida y ticker nuevo.
+            # Resultado de la validación prefetcheada. El prefetch cubre toda
+            # fila con fuente conocida y ticker nuevo; cae acá el caso de una
+            # fuente que está en PriceSource pero no en el registry (ver
+            # _prefetch_validations): get_source lanza y esta fila queda en
+            # error sin voltear el resto del archivo.
             val_result = val_results.get((source_name, ticker))
             if val_result is None:
                 from app.sources.registry import get_source

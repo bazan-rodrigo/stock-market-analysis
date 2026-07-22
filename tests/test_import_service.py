@@ -270,6 +270,34 @@ def test_prefetch_reporta_progreso_de_validacion(fake_registry):
     assert all(t[2] == "Validando tickers..." for t in ticks)
 
 
+def test_prefetch_fuente_en_bd_sin_implementacion_no_voltea_el_resto(fake_registry):
+    # "Fake" está registrada; "SinImpl" está en price_sources (existe en la
+    # tabla PriceSource) pero NO en el registry → get_source lanza. El
+    # prefetch NO debe abortar: saltea ese job y valida el resto.
+    fake_registry["Fake"] = _FakeSource()
+    rows = [
+        _fila_completa("AAA", fuente="Fake"),
+        _fila_completa("BBB", fuente="SinImpl"),
+    ]
+    out = _prefetch_validations(rows, {"Fake": 1, "SinImpl": 1}, set())
+    assert ("Fake", "AAA") in out          # la fuente válida se validó
+    assert ("SinImpl", "BBB") not in out   # la sin implementación se salteó
+    assert out[("Fake", "AAA")].valid is True
+
+
+def test_prefetch_progreso_cuadra_cuando_se_saltea_una_fuente(fake_registry):
+    # Con un job salteado, el denominador del progreso debe contar solo los
+    # jobs realmente validados (no quedar en 1/2 para siempre).
+    fake_registry["Fake"] = _FakeSource()
+    ticks = []
+    _prefetch_validations(
+        [_fila_completa("AAA", fuente="Fake"),
+         _fila_completa("BBB", fuente="SinImpl")],
+        {"Fake": 1, "SinImpl": 1}, set(),
+        progress_cb=lambda c, t, msg="": ticks.append((c, t)))
+    assert ticks == [(1, 1)]
+
+
 # ── _cached_resolve ───────────────────────────────────────────────────────────
 
 def test_cached_resolve_memoiza_case_insensitive():
@@ -433,3 +461,28 @@ def test_import_e2e_benchmark_inexistente_anota_advertencia(db_import, fake_regi
     assert w.benchmark_id is None
     log = s.query(svc.ImportLog).filter_by(ticker=f"{_E2E}W").first()
     assert "no encontrado" in log.detail
+
+
+def test_import_e2e_fuente_sin_implementacion_no_aborta_el_archivo(db_import, fake_registry):
+    # Regresión: una fuente en la tabla PriceSource pero sin implementación en
+    # el registry (dada de alta/renombrada desde el ABM) hacía explotar el
+    # import ENTERO en la fase 1 (0 filas, 0 logs). Ahora esa fila queda en
+    # error y el resto del archivo se importa igual.
+    s = db_import
+    if not s.query(svc.PriceSource).filter_by(name="SinImplE2E").first():
+        s.add(svc.PriceSource(name="SinImplE2E"))
+        s.commit()
+    fake_registry["FakeE2E"] = _FakeSource()   # SinImplE2E NO se registra
+
+    rows = [
+        _fila_completa(f"{_E2E}OK", fuente="FakeE2E"),
+        _fila_completa(f"{_E2E}BAD", fuente="SinImplE2E"),
+    ]
+    results = svc.import_from_excel(_xlsx(rows))
+
+    by_ticker = {r["ticker"]: r for r in results}
+    assert by_ticker[f"{_E2E}OK"]["status"] == "imported"   # el resto NO se cae
+    assert by_ticker[f"{_E2E}BAD"]["status"] == "error"
+    # el activo válido quedó creado y su log persistido
+    assert s.query(svc.Asset).filter_by(ticker=f"{_E2E}OK").first() is not None
+    assert s.query(svc.ImportLog).filter_by(ticker=f"{_E2E}BAD").first().status == "error"
