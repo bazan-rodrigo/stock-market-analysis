@@ -64,8 +64,11 @@ encontró el benchmark.
 ## 3. Subir e importar
 
 **Seleccionar archivo .xlsx** carga el archivo (solo `.xlsx`) y habilita
-**Importar**. Durante la corrida una barra muestra el avance `procesadas /
-totales`; el proceso sigue en segundo plano, así que la pantalla no se cuelga.
+**Importar**. La corrida tiene dos etapas y la barra lo muestra: primero
+**Validando tickers…** — la consulta al proveedor, que es la parte que puede
+tardar — y después **Importando…**, el alta en sí, que es rápida. Al cambiar
+de etapa la barra vuelve a empezar: no es que el proceso retrocedió. Todo
+corre en segundo plano, así que la pantalla no se cuelga.
 
 Al terminar aparece el resumen: `Procesados N: X importados, Y omitidos, Z con
 error.`
@@ -81,7 +84,7 @@ Hay dos niveles, y la diferencia importa:
 
 Los motivos de fila fallida son básicamente tres: la fuente de precios no
 existe con ese nombre, el ticker **no es válido para esa fuente** (se verifica
-contra el proveedor, uno por uno), o algún dato hace fallar el guardado.
+contra el proveedor), o algún dato hace fallar el guardado.
 
 ## La tabla de Resultados
 
@@ -97,8 +100,13 @@ El registro **persiste entre sesiones** y se va pisando por ticker: si reintent�
 una importación, cada ticker conserva solo su último resultado.
 **Limpiar resultados** vacía la tabla; no afecta a los activos ya creados.
 
-> Como la validación consulta al proveedor **ticker por ticker**, un archivo de
-> cientos de filas puede tardar. Es normal.
+> La validación consulta al proveedor de a varios tickers a la vez y, si el
+> proveedor responde con un límite de consultas, espera y reintenta sola. Aun
+> así hay una forma de acelerar mucho un archivo grande: **completar todas las
+> columnas**. Si la fila trae todos los datos (como pasa con la planilla de
+> **Descargar template**), al proveedor solo se le pregunta si el ticker
+> existe; las celdas vacías, en cambio, obligan a pedirle también los datos
+> faltantes — y esa es la consulta lenta.
 
 ## Después de importar
 
