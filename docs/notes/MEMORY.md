@@ -1,5 +1,6 @@
 # Memoria del proyecto
 
+- [Carga masiva de activos a alto volumen — IMPLEMENTADO](project_carga_masiva_alto_volumen.md) — 21-jul (adcd0bb/ea97fa5): import Excel en 2 fases (validación paralela + salteo del .info con fila completa) y "solo nuevos"/redescarga global por el camino batch compartido; pendiente probar con red real en Codespace
 - [AVISO: módulo de limpieza commiteado por error desde otra sesión](project_cleanup_commiteado_por_error.md) — sus archivos entraron en el commit f626f01 (mensaje engañoso: dice "docs(notes)"); ya desplegado en Railway; NO reescribir historia (decidido); **no usar `git add -A` en este repo, hay sesiones en paralelo**; nota transitoria, borrable al cerrar el módulo
 
 - [Manual de usuario web](project_manual_usuario.md) — 59 secciones en docs/manual/*.md renderizadas en /manual, filtrado por rol; tests atan el manual al código (pantalla nueva sin documentar = suite rota); al escribirlo salieron 17 bugs del código, 13 arreglados (f4fab61); **el modo invitado se ELIMINÓ (5abd63a): login siempre obligatorio, migración 0086 pendiente de aplicar en Codespace/Railway**
@@ -10,7 +11,7 @@
 
 - [Proyecto: Stock Market Analysis](project_overview.md) — App web Dash+Flask para análisis técnico de activos financieros, con admin y analistas
 - [Decisiones técnicas acordadas](project_decisions.md) — APScheduler proceso único, Alembic, screener pre-calculado (nomenclatura current/history/scores), Yahoo Finance only, admin hardcoded
-- [Suite de tests pytest](project_testing.md) — 710 tests de lógica pura en tests/ (incl. portfolio_metrics/views/service/sim_engine + backtest cartera/reglas/walk-forward); correr `pytest` antes de cada push (el venv local ya tiene las deps)
+- [Suite de tests pytest](project_testing.md) — 886 tests de lógica pura en tests/ (incl. portfolio_metrics/views/service/sim_engine + backtest cartera/reglas/walk-forward + import/price bulk); correr `pytest` antes de cada push (el venv local ya tiene las deps)
 - [Pendientes próxima sesión](project_pendientes.md) — GIL confirmado como cuello de botella del pool (ThreadPoolExecutor→ProcessPoolExecutor pendiente); varios bugs de datos/threading arreglados jul-2026; indicadores nuevos elegidos
 - [Objetivo: soportar 10000 activos](project_scaling_target.md) — **MÉTODO en 4 pasos** (cProfile=dónde / leer código=qué / medir en la base=cuánto / verificar que no cambie el resultado); cProfile infla 3.7-4.2x acá, medir con `--raw` y nunca en Railway; 4 optimizaciones validadas y 2 revertidas por medición; el bloat del backfill por-activo (técnico Y fundamental) era el hallazgo grande. build_panels cerrado (fc0fb03: 1.35x a 500 activos, bit-identico). Patrón reusable: `scripts/bench_*.py` (ambas versiones, mismo proceso, datos reales, verificando igualdad de salidas)
 - [Tablas anchas de indicadores por cadencia](project_ind_wide_tables.md) — REFACTOR COMPLETO (código): fases 1-5, wide es el default, ~5.5x menos footprint (ind_* ~22.8→~4.1 MB), migraciones 0077/0078/0079; falta aplicar la 0079 (drop) en Railway; diseño en docs/notes/design_ind_wide_tables.md

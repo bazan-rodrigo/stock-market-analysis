@@ -5,7 +5,23 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
+  modified: 2026-07-22T01:26:33.422Z
 ---
+
+**Sesión 21-jul-2026 (commits `adcd0bb` `ea97fa5`, pusheados): carga masiva
+de activos optimizada para alto volumen** — detalle completo en
+[[carga-masiva-alto-volumen]]. Import Excel en dos fases (validación de red
+en ThreadPool con retry/backoff + salteo del `.info` si la fila viene
+completa + caché de resolvers/logs/benchmarks) y descarga de precios: "solo
+nuevos" y redescarga global ahora van por el camino batch compartido
+(`_bulk_download_assets`); "Actualizar todos" idéntico. 886 tests (40
+nuevos: test_price_bulk_download.py + test_import_service.py ampliado).
+**PENDIENTE CODESPACE: (1) importar una planilla real — barra en 2 fases,
+re-import de planilla exportada NO debe pegar al `.info`; (2) "Actualizar
+Precios → solo nuevos" con activos recién importados (batch, minutos);
+(3) una redescarga global chica (full=True batch conserva "no borra si la
+descarga vino vacía"); si Yahoo tira 429 en ráfaga, bajar
+_VALIDATE_WORKERS/_UPDATE_WORKERS.**
 
 **Continuación 16-jul-2026 (3, commits `cd9effa` `cef7ede` `ae623ce`,
 pusheados): iteración post-implementación de las tablas por señal.**
