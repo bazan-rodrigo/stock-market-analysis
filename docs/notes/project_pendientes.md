@@ -1,12 +1,63 @@
 ---
 name: pendientes-proxima-sesion
-description: Tareas acordadas pendientes al cierre de la sesión del 9-jul-2026
+description: Log de pendientes sesión por sesión (más reciente arriba); al 22-jul-2026, corte a PostgreSQL-only etapa A hecha y etapa 0 pendiente en Railway
 metadata: 
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-22T01:26:33.422Z
+  modified: 2026-07-22T13:49:52.463Z
 ---
+
+**Sesión 22-jul-2026 (commits `9bc96eb` `d75d7d2` `3cbdace`, pusheados):
+se decide RETIRAR el soporte dual y quedarse solo con PostgreSQL; etapa A
+(bugs vivos) hecha.** Detalle en [[project-postgres-only-estudio]]; los
+documentos son `docs/notes/design_postgres_only.md` (estudio) y
+`docs/notes/plan_corte_pg_only.md` (checklist ejecutable). El usuario
+confirmó que **la instalación MariaDB ya no se usa: la única base es
+PostgreSQL en Railway**. Eso cancela la fase 5 del plan dual (el gate de
+paridad, parado desde el 16-jul) y la migración de datos.
+
+Arreglado en la etapa A: **`lock_timeout`** (30s, `db_lock_timeout`, por la
+opción `-c` de libpq — no por `SET`, que es transaccional y el rollback del
+pool lo desharía) — sin él la red de reintentos estaba INERTE bajo PG y un
+escritor bloqueado colgaba la corrida en silencio; **login determinista**
+(`order_by(User.id)`: en PG el UNIQUE distingue caso y `Admin`/`admin`
+podían coexistir); **unicidad de usuario sin distinguir mayúsculas** en alta
+y edición, más `ci_equals` en el bootstrap del admin; borrada
+`set_bulk_load_checks` (código muerto en los tres motores); sacado `"1146"`
+de los marcadores de tabla ausente del run_lock (matchea por substring).
+
+La revisión adversarial posterior (30 hallazgos, 4 reales) destapó **un bug
+preexistente y grave que la etapa A volvía alcanzable**: en tablas anchas el
+worker bufferiza y vuelca una vez por lote; si el volcado agotaba los
+reintentos se descartaba el buffer —ninguna fila escrita— pero los
+resultados por código igual subían al padre, que consolidaba
+`ind_asset_meta` con checksums calculados EN MEMORIA. El delta siguiente veía
+los metadatos coincidentes, tomaba el camino rápido tail-mode y **el hueco no
+se rellenaba nunca**. Arreglado descartando `per_code`/`inserted` del lote
+fallido. Los otros tres: la unidad implícita de `lock_timeout` es el
+MILISEGUNDO (un `db_lock_timeout = 30` daba 30 ms — ahora la unidad es
+obligatoria y se valida al importar la config), `connect_args` pisaba en
+silencio el `options` de la URL, y el choque contra el UNIQUE mostraba el
+texto crudo de psycopg en el modal con el hash bcrypt adentro. 903 tests.
+
+**PENDIENTE ETAPA 0 (Railway, no es código, hacerlo antes que nada):**
+(1) `python scripts/init_db.py` y confirmar `alembic current` = **0086**;
+(2) por `/admin/sql`: `SELECT lower(username), count(*), array_agg(id ORDER BY id)
+FROM users GROUP BY 1 HAVING count(*)>1;` — si devuelve filas hay
+autenticación ambigua HOY, y el índice único de la etapa C abortaría.
+**PENDIENTE CODESPACE (etapa A):** `SHOW lock_timeout;` debe dar `30s`;
+login con el usuario en otro caso; crear un usuario que difiera solo en
+mayúsculas → mensaje en castellano con el modal ABIERTO.
+**SIGUIENTE:** etapa B (el corte, 7-8 commits, 1,5-2 sesiones) → C (esquema:
+`prices` sin `id`, índice único sobre `LOWER(username)`, FKs de `ind_*`) →
+D (cosecha medida: COPY, CLUSTER, fillfactor, LATERAL, UNLOGGED). **Ojo: el
+corte NO acelera nada por sí solo; la performance está en D.**
+
+**PENDIENTE DE SEGURIDAD (fuera del plan):** los dos remotes tienen el token
+de GitHub embebido en texto plano en la URL (`https://ghp_...@github.com/...`),
+o sea en `.git/config`. Conviene revocarlos, reemitirlos y guardarlos con un
+credential helper en vez de dentro de la URL.
 
 **Sesión 21-jul-2026 (commits `adcd0bb` `ea97fa5`, pusheados): carga masiva
 de activos optimizada para alto volumen** — detalle completo en
