@@ -68,9 +68,11 @@ El nombre de usuario no se puede repetir. Si ya existe, el guardado falla y el
 error aparece **dentro del formulario, que queda abierto** con todo lo que
 cargaste — no perdés nada, corregís el nombre y volvés a guardar.
 
-> **Evitá dos usuarios que difieran solo en mayúsculas** (`Ana` y `ana`). El
-> inicio de sesión no distingue mayúsculas de minúsculas, así que ese par es
-> ambiguo desde la pantalla de login.
+> **Dos nombres que difieran solo en mayúsculas cuentan como el mismo**
+> (`Ana` y `ana`). El inicio de sesión no distingue mayúsculas de minúsculas,
+> así que ese par sería ambiguo desde la pantalla de login: el sistema lo
+> rechaza al guardar y te avisa. Sí podés corregirle las mayúsculas al nombre
+> de un usuario existente (`ana` → `Ana`): ahí no hay dos cuentas, hay una.
 
 El sistema no exige longitud mínima ni complejidad de contraseña: el criterio
 lo ponés vos.

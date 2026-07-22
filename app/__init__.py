@@ -137,25 +137,16 @@ def create_app():
 
     @server.route("/do-login", methods=["POST"])
     def do_login():
-        from app.database import get_session as _db
-        from app.models import User
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         if not username or not password:
             return redirect("/login?error=empty")
         try:
-            from app.services.db_compat import ci_equals
-            s = _db()
-            # ci_equals: en MySQL la collation ya era case-insensitive
-            # ('Admin' loguea a 'admin'); esto preserva ese contrato en PG.
-            # order_by: el UNIQUE de la columna SÍ distingue caso en PG, así
-            # que 'Admin' y 'admin' pueden coexistir; sin un orden explícito
-            # el .first() devolvería una u otra según el plan de ejecución y
-            # el login sería no determinista (podría entrar a la cuenta
-            # equivocada, con otro rol). reference_service impide crear el
-            # par, y la migración 0088 lo hará imposible.
-            user = s.query(User).filter(
-                ci_equals(User.username, username)).order_by(User.id).first()
+            # La resolución (case-insensitive y determinista) vive en el
+            # servicio para poder testearla sin levantar el servidor — ver
+            # reference_service.resolve_login_user.
+            from app.services.reference_service import resolve_login_user
+            user = resolve_login_user(username)
         except Exception:
             logger.exception("Error de base de datos en do_login")
             return redirect("/login?error=db")

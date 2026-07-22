@@ -126,6 +126,19 @@ por cada activo en una moneda; heredan los grupos de su base.
 **Concurrencia/BD:** escrituras concurrentes contra las mismas tablas pueden dar
 lock timeout (1205) / deadlock (1213) de InnoDB — reintentar la transacción
 (patrón en `fundamental_service._fund_worker` y `signal_backfill_range._flush`).
+En PostgreSQL ese retry solo funciona porque `db_lock_timeout` (30s, por la
+opción `-c` de libpq en `app/database.py`) convierte la espera indefinida en un
+`55P03`; sin tope, un escritor bloqueado no falla, no reintenta y cuelga la
+corrida en silencio.
+**El runner SUELTA su sesión antes de toda fase larga** (`Session.remove()`
+después de las lecturas de setup, antes de la red/el pool): una transacción
+`idle in transaction` fija el *xmin horizon* y **paraliza autovacuum en toda la
+base** justo cuando la corrida borra millones de filas. Patrón en
+`price_service._bulk_download_assets` y `fundamental_service._run_fund_batch`.
+Después del `remove()` solo viajan datos planos —nada de objetos ORM— y meter
+una query nueva entre el `remove()` y el pool reabre la transacción y anula el
+arreglo (lo fijan `tests/test_price_bulk_download.py` y
+`tests/test_fundamental_bulk_download.py`).
 **DELETE masivo = SIEMPRE por ventanas que avanzan** (`db_utils.delete_by_ranges`):
 una sentencia única sobre millones de filas retiene locks/undo por minutos
 (medido 400s+ en `signal_value`), y el loop `DELETE ... LIMIT` sobre el rango

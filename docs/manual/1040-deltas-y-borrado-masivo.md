@@ -107,6 +107,23 @@ viejo que haga creer que un activo está al día cuando no lo está.
 > `reconcile_ind_asset_meta` ("Recalcular caché"), que reconstruye las stats desde
 > un full-scan real y **borra** benchmark y checksum en vez de adivinarlos.
 
+La invariante que sostiene todo esto es **lote fallido = metadatos sin
+actualizar**. En tablas anchas el worker no escribe código por código: acumula
+en un buffer y lo vuelca una vez por lote, así que si el volcado agota los
+reintentos *ninguna* fila del lote llegó a la base, de ningún código. Los
+resultados por código traen checksum y stats calculados **en memoria**, no de
+lo efectivamente escrito, así que dejarlos subir al padre hacía que
+consolidara `ind_asset_meta` de filas inexistentes — y el delta siguiente veía
+los metadatos coincidentes, tomaba el camino rápido y **el hueco no se
+rellenaba nunca**. Hoy `_backfill_batch_worker` descarta `per_code` e
+`inserted` cuando el volcado no se completa
+(`tests/test_indicator_batching.py` lo fija, con su control del camino feliz).
+
+> El arreglo es de julio de 2026: **una base que venía de antes puede tener ese
+> daño ya escrito**. Si en el historial de corridas aparece un error de
+> escritura de indicadores (`wide_flush`), correr "Recalcular caché" y después
+> una [verificación de datos](/manual/verificacion-de-datos).
+
 ## El orden de fases, blindado por test
 
 Delta y rebuild corren primero `recompute_current_indicators` y después

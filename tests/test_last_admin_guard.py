@@ -167,3 +167,94 @@ def test_renombrarse_a_si_mismo_cambiando_el_caso_esta_permitido(
     svc.update_user(admin.id, "Unico_Admin", "admin", active=True)
     s.refresh(admin)
     assert admin.username == "Unico_Admin"
+
+
+# ── La carrera que el check-then-act no puede cerrar ─────────────────────────
+#
+# _username_ocupado consulta y después escribe; entre las dos cosas hay una
+# ventana real (set_password con bcrypt cost 12 tarda cientos de ms), así que
+# dos altas simultáneas —alcanza un doble clic en Guardar— pasan las dos y la
+# segunda choca contra el UNIQUE de la columna. El choque tiene que llegar al
+# modal como mensaje, no como el texto crudo de la excepción: ese texto trae
+# el INSERT completo, con el hash de la contraseña adentro.
+
+def _forzar_la_carrera(monkeypatch):
+    """Simula al competidor: la validación previa no ve nada, el UNIQUE sí."""
+    monkeypatch.setattr(svc, "_username_ocupado",
+                        lambda s, username, excluir_id=None: False)
+
+
+def test_el_choque_contra_el_unique_sale_como_mensaje_legible(
+        usuarios_limpios, monkeypatch):
+    s = usuarios_limpios
+    _crear(s, "ana", role="analyst")
+    _forzar_la_carrera(monkeypatch)
+
+    with pytest.raises(ValueError, match="mayúsculas"):
+        svc.create_user("ana", "x", "analyst")
+
+    assert s.query(User).count() == 1     # la segunda alta no entró
+
+
+def test_el_choque_no_filtra_el_sql_ni_el_hash_de_la_contrasena(
+        usuarios_limpios, monkeypatch):
+    """Lo que se muestra en el modal no puede tener rastro del INSERT."""
+    s = usuarios_limpios
+    _crear(s, "ana", role="analyst")
+    _forzar_la_carrera(monkeypatch)
+
+    with pytest.raises(ValueError) as exc:
+        svc.create_user("ana", "secreta", "analyst")
+
+    texto = str(exc.value).lower()
+    for filtracion in ("insert", "users.username", "$2b$", "unique constraint"):
+        assert filtracion not in texto
+
+
+def test_la_sesion_queda_usable_despues_del_choque(usuarios_limpios,
+                                                   monkeypatch):
+    """Sin el rollback, la transacción abortada deja la sesión envenenada y
+    el siguiente guardado del usuario (que corrige el nombre sin cerrar el
+    modal) fallaría por un error que ya no tiene nada que ver."""
+    s = usuarios_limpios
+    _crear(s, "ana", role="analyst")
+    _forzar_la_carrera(monkeypatch)
+
+    with pytest.raises(ValueError):
+        svc.create_user("ana", "x", "analyst")
+
+    creado = svc.create_user("beatriz", "x", "analyst")
+    assert creado.id is not None
+    assert s.query(User).count() == 2
+
+
+# ── El login resuelve SIEMPRE al mismo usuario ───────────────────────────────
+#
+# En PostgreSQL el UNIQUE de users.username distingue caso, así que los pares
+# viejos ('Admin' y 'admin', anteriores a la validación de arriba) todavía
+# pueden existir en una base real. Sin ORDER BY, el .first() devuelve una u
+# otra según el plan de ejecución: el login entraría a veces a una cuenta y a
+# veces a la otra — posiblemente con OTRO ROL.
+
+def test_login_resuelve_sin_distinguir_mayusculas(usuarios_limpios):
+    s = usuarios_limpios
+    _crear(s, "ana", role="analyst")
+    assert svc.resolve_login_user("ANA").username == "ana"
+    assert svc.resolve_login_user("Ana").username == "ana"
+
+
+def test_login_con_un_par_ambiguo_elige_siempre_el_id_mas_bajo(
+        usuarios_limpios):
+    s = usuarios_limpios
+    primero = _crear(s, "admin", role="admin")
+    _crear(s, "Admin", role="analyst")      # el par que 0088 volverá imposible
+
+    for _ in range(3):
+        u = svc.resolve_login_user("admin")
+        assert (u.id, u.role) == (primero.id, "admin")
+    assert svc.resolve_login_user("ADMIN").id == primero.id
+
+
+def test_login_de_un_usuario_inexistente_no_resuelve_a_nadie(usuarios_limpios):
+    _crear(usuarios_limpios, "ana", role="analyst")
+    assert svc.resolve_login_user("anita") is None

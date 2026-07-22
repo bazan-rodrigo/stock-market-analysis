@@ -70,13 +70,6 @@ def _seed_assets(n_yf=0, n_other=0, with_log=(), prefix="BULK"):
     return created
 
 
-def _patch_cfgs(monkeypatch):
-    for cfg in ("_get_drawdown_config", "_get_regime_config",
-                "_get_volatility_config"):
-        monkeypatch.setattr(ps, cfg, lambda: None)
-    monkeypatch.setattr(ps.sr_service, "_get_sr_config", lambda: None)
-
-
 def _patch_workers(monkeypatch, events):
     def fake_prefetch(assets_with_dates):
         # (asset_id, ticker, last_date) — datos planos, no objetos ORM: el
@@ -86,15 +79,12 @@ def _patch_workers(monkeypatch, events):
                        sorted((t, d) for _, t, d in assets_with_dates)))
         return {aid: f"df-{t}" for aid, t, _ in assets_with_dates}
 
-    def fake_yf(asset_id, ticker, df, last_date, _dd_cfg=None, _regime_cfg=None,
-                _vol_cfg=None, _sr_cfg=None, skip_indicators=False, full=False):
-        events.append(("yf", ticker, df, last_date, skip_indicators, full))
+    def fake_yf(asset_id, ticker, df, last_date, full=False):
+        events.append(("yf", ticker, df, last_date, full))
         return True, None
 
-    def fake_other(asset_id, ticker, _dd_cfg=None, _regime_cfg=None,
-                   _vol_cfg=None, _sr_cfg=None, skip_indicators=False,
-                   full=False):
-        events.append(("other", ticker, skip_indicators, full))
+    def fake_other(asset_id, ticker, full=False):
+        events.append(("other", ticker, full))
         return True, None
 
     monkeypatch.setattr(ps, "_bulk_prefetch_yfinance", fake_prefetch)
@@ -110,7 +100,6 @@ def test_solo_nuevos_prefetch_batch_workers_y_delta_al_final(db, monkeypatch):
     nuevo_other  = created[3][1]
 
     events = []
-    _patch_cfgs(monkeypatch)
     _patch_workers(monkeypatch, events)
     monkeypatch.setattr(
         ps, "_chain_to_indicator_and_ratio_delta",
@@ -127,11 +116,11 @@ def test_solo_nuevos_prefetch_batch_workers_y_delta_al_final(db, monkeypatch):
     # Cada Yahoo nuevo se procesa con su df prefetcheado, sin indicadores
     yf_calls = sorted(e for e in events if e[0] == "yf")
     assert yf_calls == sorted(
-        ("yf", t, f"df-{t}", None, True, False) for t in nuevos_yf)
+        ("yf", t, f"df-{t}", None, False) for t in nuevos_yf)
 
     # El de otra fuente va por su worker; el que tenía log NO aparece
     assert [e for e in events if e[0] == "other"] == \
-        [("other", nuevo_other, True, False)]
+        [("other", nuevo_other, False)]
     assert not any(created[2][1] in str(e) for e in events)
 
     # El delta se encadena AL FINAL, con el resumen de la descarga
@@ -143,7 +132,6 @@ def test_solo_nuevos_prefetch_batch_workers_y_delta_al_final(db, monkeypatch):
 def test_solo_nuevos_sin_activos_nuevos_no_encadena_nada(db, monkeypatch):
     _seed_assets(n_yf=1, with_log={0})
     events = []
-    _patch_cfgs(monkeypatch)
     _patch_workers(monkeypatch, events)
     out = ps.update_new_assets_prices()
     assert events == []                     # ni prefetch ni workers
@@ -227,7 +215,6 @@ def test_bulk_full_ignora_fechas_existentes(db, monkeypatch):
     s.commit()
 
     events = []
-    _patch_cfgs(monkeypatch)
     _patch_workers(monkeypatch, events)
 
     assets = get_session().query(Asset).filter(Asset.id == aid).all()
@@ -237,7 +224,7 @@ def test_bulk_full_ignora_fechas_existentes(db, monkeypatch):
     # (grupo first_time → historia completa) y el worker recibe full=True
     assert [e for e in events if e[0] == "prefetch"][0][2] == [(ticker, None)]
     assert [e for e in events if e[0] == "yf"] == \
-        [("yf", ticker, f"df-{ticker}", None, True, True)]
+        [("yf", ticker, f"df-{ticker}", None, True)]
 
 
 def test_yahoo_fuera_del_prefetch_cae_al_fallback_con_full(db, monkeypatch):
@@ -249,7 +236,6 @@ def test_yahoo_fuera_del_prefetch_cae_al_fallback_con_full(db, monkeypatch):
     # que este else nunca se ejercitaba.
     (aid, ticker), = _seed_assets(n_yf=1)
     events = []
-    _patch_cfgs(monkeypatch)
 
     # prefetch vacío: el yahoo "se cae" del batch (chunk fallido)
     monkeypatch.setattr(
@@ -259,9 +245,8 @@ def test_yahoo_fuera_del_prefetch_cae_al_fallback_con_full(db, monkeypatch):
         ps, "_process_yf_asset_worker",
         lambda *a, **k: (events.append(("yf",)) or (True, None)))
 
-    def fake_other(asset_id, ticker, _dd_cfg=None, _regime_cfg=None,
-                   _vol_cfg=None, _sr_cfg=None, skip_indicators=False, full=False):
-        events.append(("other", ticker, skip_indicators, full))
+    def fake_other(asset_id, ticker, full=False):
+        events.append(("other", ticker, full))
         return True, None
 
     monkeypatch.setattr(ps, "_process_other_asset_worker", fake_other)
@@ -270,7 +255,7 @@ def test_yahoo_fuera_del_prefetch_cae_al_fallback_con_full(db, monkeypatch):
     out = ps._bulk_download_assets(assets, full=True)
 
     assert not any(e[0] == "yf" for e in events)          # no usó el worker yf
-    assert ("other", ticker, True, True) in events        # fallback con full=True
+    assert ("other", ticker, True) in events              # fallback con full=True
     assert out == {"total": 1, "success": 1, "errors": []}
 
 
@@ -293,7 +278,7 @@ def test_worker_full_reemplaza_la_historia_previa(db):
 
     ok, err = ps._process_yf_asset_worker(
         aid, ticker, _df(date(2026, 7, 20)), None,
-        None, None, None, None, skip_indicators=True, full=True)
+        full=True)
 
     assert (ok, err) == (True, None)
     s = get_session()
@@ -311,7 +296,7 @@ def test_worker_full_con_descarga_vacia_no_borra_nada(db):
 
     ok, err = ps._process_yf_asset_worker(
         aid, ticker, pd.DataFrame(), None,
-        None, None, None, None, skip_indicators=True, full=True)
+        full=True)
 
     assert ok is False and ticker in err["ticker"]
     s = get_session()
@@ -335,7 +320,7 @@ def test_worker_delta_conserva_la_historia_previa_a_last_date(db):
 
     ok, err = ps._process_yf_asset_worker(
         aid, ticker, _df(date(2025, 6, 2), date(2025, 6, 3)), date(2025, 6, 2),
-        None, None, None, None, skip_indicators=True, full=False)
+        full=False)
 
     assert (ok, err) == (True, None)
     s = get_session()
@@ -357,7 +342,7 @@ def test_other_worker_reenvia_full_y_skip_indicators(db, monkeypatch):
             calls.append((asset_id, full, skip_indicators)))
 
     ok, err = ps._process_other_asset_worker(
-        aid, ticker, None, None, None, None, skip_indicators=True, full=True)
+        aid, ticker, full=True)
 
     assert (ok, err) == (True, None)
     assert calls == [(aid, True, True)]
@@ -381,7 +366,6 @@ def test_sesion_cerrada_antes_del_prefetch_y_del_pool(db, monkeypatch):
     vuelve a meter una query entre las lecturas y el prefetch.
     """
     _seed_assets(n_yf=2)
-    _patch_cfgs(monkeypatch)
     visto = {}
 
     def fake_prefetch(assets_with_dates):
@@ -402,43 +386,37 @@ def test_sesion_cerrada_antes_del_prefetch_y_del_pool(db, monkeypatch):
     assert len(visto["en_pool"]) == 2   # el pool igual corrió
 
 
-def test_cfgs_viajan_planos_al_pool(db, monkeypatch):
-    """Los cfgs que reciben los workers no pueden ser instancias ORM.
+def test_al_pool_solo_viajan_datos_planos(db, monkeypatch):
+    """Ningún argumento que cruza al ThreadPool puede ser un objeto ORM.
 
-    Se leen desde otros threads (el ThreadPool) y después de que el runner
-    cerró su sesión: una instancia ORM ahí es una race latente (la Session no
-    es thread-safe) y encima un refresh contra una sesión muerta. _snapshot_cfgs
-    los desprende a SimpleNamespace conservando los nombres de atributo.
+    Del otro lado del remove() no hay sesión de la que recargar, y encima los
+    workers corren en otros threads (la Session de SQLAlchemy no es
+    thread-safe): un objeto ORM ahí es un refresh contra una sesión muerta o
+    una race, según cuál llegue primero. Por eso los workers reciben
+    (asset_id, ticker, df, last_date, full) y nada más — este test se pone
+    rojo si alguien vuelve a pasarles una instancia mapeada (una config
+    pre-cargada, el propio Asset) en vez de datos planos.
     """
-    from app.models import DrawdownConfig
+    from sqlalchemy import inspect as sa_inspect
 
-    _seed_assets(n_other=1)
-    s = get_session()
-    monkeypatch.setattr(ps, "_get_drawdown_config",
-                        lambda: s.query(DrawdownConfig).filter_by(id=1).first()
-                        or _mk_dd(s))
-    for cfg in ("_get_regime_config", "_get_volatility_config"):
-        monkeypatch.setattr(ps, cfg, lambda: None)
-    monkeypatch.setattr(ps.sr_service, "_get_sr_config", lambda: None)
-    monkeypatch.setattr(ps, "_bulk_prefetch_yfinance", lambda awd: {})
+    _seed_assets(n_yf=1, n_other=1)
+    monkeypatch.setattr(ps, "_bulk_prefetch_yfinance",
+                        lambda awd: {aid: f"df-{t}" for aid, t, _ in awd})
+    recibido = []
 
-    recibido = {}
-
-    def fake_other(asset_id, ticker, _dd_cfg=None, **k):
-        recibido["dd"] = _dd_cfg
+    def _capturar(*args, **kwargs):
+        recibido.extend(list(args) + list(kwargs.values()))
         return True, None
 
-    monkeypatch.setattr(ps, "_process_other_asset_worker", fake_other)
+    monkeypatch.setattr(ps, "_process_yf_asset_worker", _capturar)
+    monkeypatch.setattr(ps, "_process_other_asset_worker", _capturar)
+
     ps._bulk_download_assets(get_session().query(Asset).all())
 
-    dd = recibido["dd"]
-    assert not isinstance(dd, DrawdownConfig)     # desprendido del ORM
-    assert dd.min_depth_pct == 20.0               # y con el valor intacto
-
-
-def _mk_dd(s):
-    from app.models import DrawdownConfig
-    cfg = DrawdownConfig(id=1, min_depth_pct=20.0)
-    s.add(cfg)
-    s.commit()
-    return cfg
+    assert recibido                       # los workers efectivamente corrieron
+    for arg in recibido:
+        try:
+            mapeado = sa_inspect(arg).mapper is not None
+        except Exception:
+            mapeado = False               # no es una instancia ORM: bien
+        assert not mapeado, f"objeto ORM cruzando al pool: {arg!r}"

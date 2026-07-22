@@ -7,61 +7,24 @@ Lógica principal:
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from types import SimpleNamespace
 
 import pandas as pd
 import yfinance as yf
-from sqlalchemy import func, inspect as sa_inspect
+from sqlalchemy import func
 
 from app.database import get_session, Session as _ScopedSession
 from app.models import Asset, Price, PriceUpdateLog
 from app.services.technical_service import (
     backfill_asset_history,
     compute_current_indicators,
-    _get_drawdown_config,
-    _get_regime_config,
-    _get_volatility_config,
     _save_indicator_log,
 )
-from app.services import sr_service
 from app.sources.registry import get_source
 
 logger = logging.getLogger(__name__)
 
 # Activos procesados en paralelo (DB write + indicadores por activo)
 _UPDATE_WORKERS = 6
-
-
-def _snapshot_cfgs(*cfgs):
-    """Copia PLANA (SimpleNamespace) de los objetos de configuración ORM, con
-    los mismos nombres de atributo — drop-in donde antes iba la instancia.
-
-    Dos motivos:
-
-    1. Sobreviven al cierre de la sesión. _bulk_download_assets suelta su
-       sesión antes de la fase larga para no dejar una transacción abierta
-       (ver ahí); un objeto ORM expirado que se lee después dispararía un
-       refresh contra una sesión muerta.
-    2. Se pueden leer desde otro thread. Estos cfgs se le pasan a los workers
-       del ThreadPool, y una instancia ORM sigue atada a la sesión del thread
-       que la cargó — la Session de SQLAlchemy no es thread-safe, así que un
-       refresh disparado desde un worker era una race latente.
-
-    Las columnas salen del mapper, no de una lista escrita a mano: si mañana
-    se agrega un campo a alguna config, viaja solo. Si el objeto no está
-    mapeado (o ya es plano), se devuelve tal cual.
-    """
-    out = []
-    for cfg in cfgs:
-        if cfg is None:
-            out.append(None)
-            continue
-        try:
-            cols = sa_inspect(type(cfg)).columns.keys()
-            out.append(SimpleNamespace(**{c: getattr(cfg, c) for c in cols}))
-        except Exception:
-            out.append(cfg)
-    return tuple(out)
 
 
 def _get_last_price_date(asset_id: int, session):
@@ -139,10 +102,6 @@ def update_asset_prices(
     *,
     full: bool = False,
     skip_indicators: bool = False,
-    _dd_cfg=None,
-    _regime_cfg=None,
-    _vol_cfg=None,
-    _sr_cfg=None,
 ) -> None:
     """
     Actualiza los precios de un activo.
@@ -151,7 +110,6 @@ def update_asset_prices(
     full=True fuerza redescarga de la historia completa; el borrado del historial
     ocurre dentro de la misma transacción, por lo que un fallo de descarga no
     pierde los datos existentes.
-    Los parámetros _*_cfg permiten reutilizar configs pre-cargadas en llamadas masivas.
 
     skip_indicators=True: no calcula indicadores/ratios acá (lo usan las
     corridas masivas — update_all_active_assets/update_new_assets_prices/
@@ -206,14 +164,7 @@ def update_asset_prices(
             # Recalcular indicadores vigentes (técnicos + ratios fundamentales)
             ind_errors = []
             try:
-                compute_current_indicators(
-                    asset_id,
-                    _dd_cfg=_dd_cfg,
-                    _regime_cfg=_regime_cfg,
-                    _vol_cfg=_vol_cfg,
-                    _sr_cfg=_sr_cfg,
-                    quick=True,
-                )
+                compute_current_indicators(asset_id, quick=True)
             except Exception as ind_exc:
                 logger.warning(
                     "Error calculando indicadores para %s: %s", asset.ticker, ind_exc
@@ -355,12 +306,15 @@ def _process_yf_asset_worker(
     ticker: str,
     df,
     last_date,
-    _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
-    skip_indicators: bool = False,
     full: bool = False,
 ) -> tuple[bool, dict | None]:
-    """Procesa un activo Yahoo Finance en su propio thread: escribe precios y
-    calcula indicadores (salvo skip_indicators=True, ver update_asset_prices).
+    """Procesa un activo Yahoo Finance en su propio thread: escribe SOLO
+    precios. Los indicadores no se calculan acá — su único llamador
+    (_bulk_download_assets) encadena el delta una vez para todos los activos
+    al terminar, y para cuando este worker corre el runner ya cerró su sesión
+    (ver ahí): del otro lado de ese cierre no puede viajar ningún objeto ORM,
+    así que los args son datos planos y no configs pre-cargadas.
+
     full=True (redescarga): borra la historia previa completa en la MISMA
     transacción que el insert — el chequeo de df vacío es previo, así que si
     la descarga vino sin datos la historia existente queda intacta."""
@@ -380,33 +334,6 @@ def _process_yf_asset_worker(
         _save_update_log(asset_id, success=True, error=None, session=s)
         s.commit()
         logger.info("Activo %s: %d filas importadas (batch)", ticker, count)
-        if not skip_indicators:
-            ind_errors = []
-            try:
-                compute_current_indicators(
-                    asset_id,
-                    _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
-                    _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
-                    quick=True,
-                )
-            except Exception as ind_exc:
-                logger.warning("Error indicadores %s: %s", ticker, ind_exc)
-                ind_errors.append(f"técnico: {ind_exc}")
-            try:
-                from app.services.fundamental_service import recompute_ratios_for_asset
-                recompute_ratios_for_asset(asset_id)
-            except Exception as fund_exc:
-                logger.warning("Error recomputo ratios fundamentales %s: %s", ticker, fund_exc)
-                ind_errors.append(f"fundamental: {fund_exc}")
-            if last_date is None:
-                # Primera descarga del activo → completar la historia de indicadores
-                try:
-                    backfill_asset_history(asset_id)
-                except Exception as bf_exc:
-                    logger.warning("Error backfill indicadores %s: %s", ticker, bf_exc)
-                    ind_errors.append(f"backfill: {bf_exc}")
-            _save_indicator_log(asset_id, success=not ind_errors,
-                                error="; ".join(ind_errors) or None, session=s)
         return True, None
     except Exception as exc:
         s.rollback()
@@ -422,18 +349,18 @@ def _process_yf_asset_worker(
 def _process_other_asset_worker(
     asset_id: int,
     ticker: str,
-    _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg,
-    skip_indicators: bool = False,
     full: bool = False,
 ) -> tuple[bool, dict | None]:
-    """Procesa un activo no-YF (otra fuente o sintético) en su propio thread."""
+    """Procesa un activo no-YF (otra fuente o sintético) en su propio thread.
+
+    skip_indicators=True fijo, igual que el worker de Yahoo: el delta lo
+    encadena _bulk_download_assets una sola vez para todos. Tampoco recibe
+    configs pre-cargadas — ver el docstring de _process_yf_asset_worker."""
     try:
         update_asset_prices(
             asset_id,
             full=full,
-            _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
-            _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
-            skip_indicators=skip_indicators,
+            skip_indicators=True,
         )
         return True, None
     except Exception as exc:
@@ -553,12 +480,6 @@ def _bulk_download_assets(assets, progress_cb=None, full: bool = False) -> dict:
     regular   = [a for a in assets if a.id not in synthetic_ids]
     synthetic = [a for a in assets if a.id in synthetic_ids]
 
-    # Pre-cargar configs de indicadores una sola vez (evita N × 4 queries)
-    _dd_cfg     = _get_drawdown_config()
-    _regime_cfg = _get_regime_config()
-    _vol_cfg    = _get_volatility_config()
-    _sr_cfg     = sr_service._get_sr_config()
-
     # Separar activos Yahoo Finance para batch download
     yf_src = s.query(PriceSource).filter(PriceSource.name == "Yahoo Finance").first()
     yf_src_id = yf_src.id if yf_src else None
@@ -601,18 +522,13 @@ def _bulk_download_assets(assets, progress_cb=None, full: bool = False) -> dict:
     # atributos ya cargados, así que los `assets` que nos pasó el llamador
     # siguen siendo legibles. Un commit() los expiraría y cualquier lectura
     # posterior dispararía un refresh contra una sesión que ya no existe.
-    # De acá en adelante SOLO se usan datos planos (pairs/prefetch_args/cfgs
-    # desprendidos); los workers abren su propia sesión en su propio thread.
-    _detach_cfgs = _snapshot_cfgs(_dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg)
+    # De acá en adelante SOLO viajan datos planos (pairs/prefetch_args); los
+    # workers abren su propia sesión en su propio thread. Nada de objetos ORM:
+    # además de quedar expirados, la Session no es thread-safe y un refresh
+    # disparado desde un worker sería una race.
     _ScopedSession.remove()
-    _dd_cfg, _regime_cfg, _vol_cfg, _sr_cfg = _detach_cfgs
 
     prefetched = _bulk_prefetch_yfinance(prefetch_args)
-
-    cfgs = dict(
-        _dd_cfg=_dd_cfg, _regime_cfg=_regime_cfg,
-        _vol_cfg=_vol_cfg, _sr_cfg=_sr_cfg,
-    )
 
     futures: dict = {}
     with ThreadPoolExecutor(max_workers=_UPDATE_WORKERS) as pool:
@@ -621,18 +537,18 @@ def _bulk_download_assets(assets, progress_cb=None, full: bool = False) -> dict:
                 futures[pool.submit(
                     _process_yf_asset_worker,
                     asset_id, asset_ticker, prefetched[asset_id], yf_last_dates[asset_id],
-                    **cfgs, skip_indicators=True, full=full,
+                    full=full,
                 )] = asset_ticker
             else:
                 futures[pool.submit(
-                    _process_other_asset_worker, asset_id, asset_ticker, **cfgs,
-                    skip_indicators=True, full=full,
+                    _process_other_asset_worker, asset_id, asset_ticker,
+                    full=full,
                 )] = asset_ticker
 
         for asset_id, asset_ticker in other_pairs:
             futures[pool.submit(
-                _process_other_asset_worker, asset_id, asset_ticker, **cfgs,
-                skip_indicators=True, full=full,
+                _process_other_asset_worker, asset_id, asset_ticker,
+                full=full,
             )] = asset_ticker
 
         done = 0

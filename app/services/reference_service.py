@@ -363,6 +363,31 @@ def _commit_usuario(s) -> None:
         raise ValueError(_USERNAME_DUPLICADO_MSG)
 
 
+def resolve_login_user(username: str):
+    """El usuario con el que autentica `username`, o None. La usa /do-login.
+
+    ci_equals: en MySQL la collation ya era case-insensitive ('Admin' loguea
+    a 'admin'); esto preserva ese contrato en PostgreSQL.
+
+    order_by: el UNIQUE de la columna SÍ distingue caso en PG, así que
+    'Admin' y 'admin' pueden coexistir (los pares viejos, anteriores a
+    _username_ocupado); sin un orden explícito el .first() devolvería una u
+    otra según el plan de ejecución y el login sería NO DETERMINISTA — se
+    podría entrar a la cuenta equivocada, con otro rol. Se elige el id más
+    bajo: el primero que se creó. La migración 0088 (único sobre
+    LOWER(username)) vuelve imposible el par.
+
+    Vive acá y no adentro de la ruta para poder testear esta decisión sin
+    levantar el servidor Flask.
+    """
+    from app.services.db_compat import ci_equals
+    s = get_session()
+    return (s.query(User)
+             .filter(ci_equals(User.username, username))
+             .order_by(User.id)
+             .first())
+
+
 def _username_ocupado(s, username: str, excluir_id: int | None = None) -> bool:
     """True si ya hay un usuario con ese nombre, SIN distinguir mayúsculas.
 

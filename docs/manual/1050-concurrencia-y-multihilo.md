@@ -38,6 +38,40 @@ pares `(id, ticker)` en el hilo principal antes de lanzar el pool.
 > worker comparte la misma conexión DBAPI entre hilos, y MySQLdb no es
 > thread-safe para eso: corrompe el cursor con "Commands out of sync".
 
+### El padre también suelta su sesión, antes de la fase larga
+
+El `Session.remove()` del worker es la mitad conocida de la regla. La otra
+mitad es el **runner**: el hilo que arma la lista de activos y después se va
+quince minutos a la red y al pool. SQLAlchemy abre la transacción en la
+primera consulta y la sostiene hasta el commit o el close, así que esa sesión
+de setup queda `idle in transaction` durante toda la corrida.
+
+En PostgreSQL eso no es solo una conexión retenida: **una transacción abierta
+fija el *xmin horizon*, y con el horizonte fijado autovacuum no puede reclamar
+ninguna tupla muerta de ninguna tabla** — justo cuando la corrida está
+borrando y reescribiendo cientos de miles de filas de `prices` o de
+trimestrales. El síntoma observado en producción fue bloat creciente y
+`checkpoints are occurring too frequently` en el log, con autovacuum
+aparentemente corriendo y sin recuperar nada.
+
+Por eso `_bulk_download_assets` (precios) y `_run_fund_batch` (fundamentales)
+llaman `Session.remove()` **después de las lecturas de setup y antes de salir
+a la red**; los pools de indicadores ya lo hacían. Dos consecuencias que hay
+que respetar al tocar ese código:
+
+- **De ahí en adelante solo viajan datos planos.** Nada de instancias del ORM
+  cruzando el cierre: del otro lado no queda sesión de la que recargar, y
+  encima las leería otro hilo. Los workers reciben `(asset_id, ticker, …)`.
+- **No meter una consulta nueva entre el `remove()` y el pool.** Reabre la
+  transacción y anula todo el arreglo, en silencio. `test_price_bulk_download`
+  y `test_fundamental_bulk_download` fijan el invariante mirando el registry
+  de la `scoped_session`, y se ponen rojos si alguien lo hace.
+
+Es `remove()` y no `commit()` a propósito: cerrar desprende los objetos pero
+no expira los atributos ya cargados, así que la lista de activos que el
+llamador pasó sigue siendo legible. Un `commit()` los expiraría y la primera
+lectura posterior dispararía un refresh contra una sesión que ya no existe.
+
 ## Nivel 2: el ProcessPool de indicadores
 
 `app/services/process_pool.py` existe y está integrado — expone

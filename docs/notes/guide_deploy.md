@@ -29,12 +29,21 @@ corridas manuales del Centro de Datos. Ver `worker.py` y `Procfile`.
 
 **`Procfile`** (raíz del repo, lo lee Railway):
 ```
-web:    gunicorn wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+web:    gunicorn wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 1800
 worker: python worker.py
 ```
 - `wsgi:application` → entrypoint WSGI existente (`wsgi.py` expone `application`).
 - `--workers 1` → un solo proceso web (refuerza el modelo de proceso único).
-- `--timeout 120` → margen para requests con cálculo pesado.
+- `--timeout 1800` → **no es "margen para requests pesados": es lo que mantiene
+  vivas las corridas del Centro de Datos.** Viven en un thread daemon ADENTRO
+  del proceso web, y la fase de indicadores es cálculo puro que no le da
+  señales de vida al árbitro de gunicorn: con `--timeout 120` el worker moría
+  con SIGKILL (sin traceback, sin log) y la corrida "desaparecía". Con
+  `--workers 1` el timeout bajo tampoco protegía de nada — matar al único
+  worker es apagar la app igual. Medido: 113 s de fase de indicadores con 499
+  activos, o sea el 94 % del presupuesto viejo. **Es un parche con fecha de
+  vencimiento**: extrapolando lineal, 10.000 activos dan ~2.265 s y vuelven a
+  cruzar el tope; el arreglo real es sacar las corridas a `worker.py`.
 
 ---
 

@@ -1,12 +1,102 @@
 ---
 name: pendientes-proxima-sesion
-description: Log de pendientes sesión por sesión (más reciente arriba); al 22-jul-2026, corte a PostgreSQL-only etapa A hecha y etapa 0 pendiente en Railway
+description: Log de pendientes sesión por sesión (más reciente arriba); al 22-jul-2026, revisión de cierre de la sesión (código muerto, tests y docs faltantes) hecha, corridas del Centro de Datos arregladas y corte a PostgreSQL-only etapa A hecha con etapa 0 pendiente en Railway
 metadata: 
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-22T13:49:52.463Z
+  modified: 2026-07-22T16:47:25.150Z
 ---
+
+**Sesión 22-jul-2026 (cierre): revisión de los commits del día — código
+muerto, tests faltantes, verificación, manual y medición.** Salieron cinco
+cosas, todas resueltas en el mismo commit salvo las que necesitan la base.
+
+*Código muerto (era más grande de lo que parecía):* en el camino batch de
+precios los 4 cfgs de indicadores eran pass-through — los tres `pool.submit`
+van con `skip_indicators=True` fijo, así que ni los workers ni la rama
+`if not skip_indicators` de `_process_yf_asset_worker` los leían nunca.
+Borrado: los params de cfg de ambos workers, el `skip_indicators` de ambos
+(siempre True), la rama muerta, las 4 queries de precarga, el helper
+`_snapshot_cfgs` (agregado ese mismo día para proteger un valor que nadie
+leía), 4 imports y los params `_*_cfg` de `update_asset_prices` (ya nadie
+los llenaba; `compute_current_indicators` los carga solo cuando son None).
+
+*Tests (911 → 914):* la carrera del UNIQUE de usuarios (`_commit_usuario`:
+que el choque salga como mensaje y NO filtre el INSERT ni el hash bcrypt, y
+que la sesión quede usable después), el login determinista, y el gemelo
+fundamental del invariante de sesión cerrada (`tests/test_fundamental_bulk_
+download.py`, nuevo). Para testear el login sin levantar Flask se extrajo la
+resolución de `/do-login` a `reference_service.resolve_login_user`.
+
+*PENDIENTE EN RAILWAY (nuevo, sale del bug del flush ancho):* el arreglo
+evita escribir metadatos inventados de ahora en más, **pero no repara los ya
+escritos**. El camino de error no-lock existía desde antes del lock_timeout,
+así que puede haber `ind_asset_meta` apuntando a filas que no existen →
+huecos que el delta nunca rellena porque toma tail-mode. Correr
+**"Reconciliar metadatos"** (`reconcile_ind_asset_meta`, Centro de Datos) y
+después una verificación de datos. Ojo también: si Railway ya tiene un par
+`Ana`/`ana`, con el código nuevo **editar cualquiera de los dos falla** con el
+mensaje de duplicado (el `excluir_id` salva al propio, el otro sigue
+chocando) — resolver el duplicado primero. Y el `remove()` de
+`_run_fund_batch` todavía no pasó por una corrida real de fundamentales
+(el de precios sí).
+
+*Manual/notas:* `guide_deploy.md` seguía documentando `--timeout 120`;
+`800-usuarios.md` daba como consejo lo que ahora el sistema rechaza; y la
+regla nueva —el runner suelta la sesión antes de la fase larga— no estaba en
+ningún lado: se documentó en `1050-concurrencia-y-multihilo.md` y en la
+sección Concurrencia/BD de `CLAUDE.md`, al mismo nivel que la del DELETE por
+ventanas.
+
+*Medición:* ninguno de los commits del día pide un cProfile nuevo. Pero el
+dato que salió del diagnóstico sí: 113 s de fase de indicadores con 499
+activos → extrapolando lineal, **~2.265 s con 10.000 activos, o sea que el
+`--timeout 1800` se vuelve a agotar alrededor de los ~8.000**. Los scripts ya
+existen (`profile_fullsample_indicators.py`, `profile_pool_batch.py`): falta
+correrlos con `--raw` en el Codespace, no en Railway.
+
+**Sesión 22-jul-2026 (commit `00e61da`, pusheado): las corridas del Centro
+de Datos ya no desaparecen.** Detalle completo en
+[[project-corridas-proceso-web]]. Gunicorn mataba el proceso web con SIGKILL
+(sin traceback ni log) porque las corridas viven en un thread daemon ADENTRO
+de ese proceso y la fase de indicadores, al ser cálculo puro, no le daba
+señales de vida al árbitro dentro de los 120s. Subido a `--timeout 1800`.
+Aparte, `_bulk_download_assets` y `_run_fund_batch` sostenían su transacción
+durante toda la descarga → xmin horizon fijado → autovacuum paralizado justo
+cuando la corrida borra millones de filas. Ambos VERIFICADOS en producción:
+una redescarga global (3,36M filas borradas y reinsertadas, 999 activos,
+9m55s) completó entera, y se vio `autovacuum: VACUUM ANALYZE public.prices`
+corriendo DURANTE la corrida.
+
+**CONFIRMADO en Railway (22-jul):** el ProcessPool de indicadores SÍ se
+activa — `_use_process_pool(_count_price_assets(get_session()))` devolvió
+`(True, 4)` con `IND_POOL_MIN_ASSETS=300` / `IND_POOL_PROCS=4` y 499 activos
+con precios. O sea que el padre ya NO llama a `_load_all_prices` (era el techo
+de memoria) y el cálculo pesado sale del proceso web. Queda opcional subir a
+6-7 procesos si el pico de memoria resulta holgado contra los 8 GB — sin
+medir todavía.
+
+**A MIRAR (menor, sin urgencia):** `_count_price_assets` da **499**, pero las
+corridas hablan de 999 (descarga) y de ~1400 activos en el universo. O sea que
+buena parte de los activos no tiene ni una fila en `prices`. Puede ser
+esperado (activos cargados y todavía sin descargar) o un síntoma de que la
+descarga no los alcanza. Vale un vistazo cuando se retome el tema de escala,
+porque ese 499 es además el número que decide threads vs procesos.
+
+**PENDIENTE (grande, DIFERIDO a propósito):** sacar las corridas manuales del
+proceso web hacia `worker.py`. El `--timeout 1800` es un PARCHE: corre el
+umbral, no elimina la condición — el cálculo pesado sigue en el proceso que
+sirve la UI, y a los 10.000 activos vuelve a apretar. El arreglo real es un
+proyecto, no un cambio: el progreso vive en un dict en memoria (`_state` en
+`data_center_callbacks`, con una fila por indicador, tiempos y detalle) y
+`progress_cb` se llama MILES de veces por corrida; cruzar el límite de
+proceso exige tabla de cola, canal de progreso persistido que aguante ese
+ritmo, bucle de despacho en el worker, reescribir la lectura de progreso en
+la UI, migración y tests. Conviene encararlo CON MEDICIONES de cuánto tarda
+cada fase a escala grande, que hoy no tenemos. Ojo: hoy hay UN SOLO servicio
+en Railway y el scheduler está apagado — la línea `worker:` del Procfile está
+inerte, habría que desplegar el process type.
 
 **Sesión 22-jul-2026 (commits `9bc96eb` `d75d7d2` `3cbdace`, pusheados):
 se decide RETIRAR el soporte dual y quedarse solo con PostgreSQL; etapa A
@@ -46,9 +136,16 @@ texto crudo de psycopg en el modal con el hash bcrypt adentro. 903 tests.
 (2) por `/admin/sql`: `SELECT lower(username), count(*), array_agg(id ORDER BY id)
 FROM users GROUP BY 1 HAVING count(*)>1;` — si devuelve filas hay
 autenticación ambigua HOY, y el índice único de la etapa C abortaría.
-**PENDIENTE CODESPACE (etapa A):** `SHOW lock_timeout;` debe dar `30s`;
-login con el usuario en otro caso; crear un usuario que difiera solo en
-mayúsculas → mensaje en castellano con el modal ABIERTO.
+**`lock_timeout` VERIFICADO (22-jul, Railway): da `30s`** en una conexión real
+del motor. OJO con cómo se comprueba: **hay que preguntárselo a una conexión
+DE LA APP** (`with engine.connect() as c: c.execute(text('SHOW
+lock_timeout'))`), NO desde psql — el valor lo aplica `connect_args` al abrir
+cada conexión del motor (ver `pg_connect_args` en `app/database.py`), así que
+una sesión psql abierta a mano devuelve el default del servidor, que es `0`, y
+parece un bug que no existe (pasó el 22-jul).
+**PENDIENTE CODESPACE (etapa A), lo que queda:** login con el usuario en otro
+caso; crear un usuario que difiera solo en mayúsculas → mensaje en castellano
+con el modal ABIERTO.
 **SIGUIENTE:** etapa B (el corte, 7-8 commits, 1,5-2 sesiones) → C (esquema:
 `prices` sin `id`, índice único sobre `LOWER(username)`, FKs de `ind_*`) →
 D (cosecha medida: COPY, CLUSTER, fillfactor, LATERAL, UNLOGGED). **Ojo: el

@@ -159,6 +159,15 @@ costó dos vueltas atrás.
 > a seguir confiando en él. Después de cualquier edición manual hay que forzar
 > un rebuild de ese indicador.
 
+> **El `--timeout 1800` de gunicorn es un parche con fecha de vencimiento.**
+> Las corridas del Centro de Datos viven adentro del proceso web y la fase de
+> indicadores es cálculo puro que no le da señales de vida al árbitro: si tarda
+> más que el tiempo de espera, el proceso muere sin aviso y la corrida
+> desaparece a mitad de camino. Medido: 113 segundos con 499 activos. Como el
+> costo crece con el universo, cerca de los **8.000 activos** el tope vuelve a
+> quedar corto, bastante antes del objetivo declarado de 10.000. El arreglo de
+> fondo es sacar las corridas al proceso `worker`, y está pendiente.
+
 > **Modificar una definición de señal o estrategia no recalcula lo ya
 > guardado**: el delta solo toca la última fecha. Es especialmente engañoso al
 > hacer backtest, porque el run se persiste como snapshot inmutable sobre
