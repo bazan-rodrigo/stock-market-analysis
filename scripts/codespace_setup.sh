@@ -1,9 +1,10 @@
 #!/bin/bash
 # Setup y validacion del entorno en GitHub Codespaces
 #
-# DB_ENGINE: mysql (default) | postgres | both — ver
-# docs/notes/design_postgresql_dual.md. La rama postgres asume el repo
-# PGDG ya configurado por .devcontainer/setup.sh (o instala de apt).
+# DB_ENGINE: postgres (default) | mysql — el motor es una eleccion de
+# INSTALACION, no una propiedad del entorno. Lo normal es que ya lo haya
+# elegido .devcontainer/setup.sh y quede escrito en conf.properties; aca solo
+# se valida el que corresponda. NO existe un modo que monte los dos.
 set -e
 
 PASS=0
@@ -13,9 +14,13 @@ ok()   { echo "[OK]   $1"; PASS=$((PASS+1)); }
 fail() { echo "[FAIL] $1"; FAIL=$((FAIL+1)); }
 step() { echo ""; echo ">>> $1"; }
 
-DB_ENGINE="${DB_ENGINE:-mysql}"
+DB_ENGINE="$(echo "${DB_ENGINE:-postgres}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+case "$DB_ENGINE" in
+    postgres|postgresql|pg) DB_ENGINE="postgres" ;;
+    mysql|mariadb)          DB_ENGINE="mysql" ;;
+    *) echo "ERROR: DB_ENGINE='$DB_ENGINE' invalido (postgres | mysql)"; exit 1 ;;
+esac
 DB_NAME="${DB_NAME:-stock_analysis}"
-PG_URL="postgresql+psycopg://postgres:postgres@127.0.0.1:5432/${DB_NAME}"
 
 setup_mysql() {
     # ─── MySQL instalado ───────────────────────────────────────────────────
@@ -129,7 +134,8 @@ check_mysql_schema() {
 
 check_postgres_schema() {
     step "Inicializando esquema (PostgreSQL)..."
-    DATABASE_URL="$PG_URL" python scripts/init_db.py
+    # Sin DATABASE_URL: la app la deriva del motor elegido (conf.properties).
+    python scripts/init_db.py
     TABLES=$(PGPASSWORD=postgres psql -U postgres -h 127.0.0.1 -d "${DB_NAME}" -tAc \
         "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null)
     if [ "$TABLES" -gt 0 ]; then
@@ -152,10 +158,8 @@ check_postgres_schema() {
 
 # ─── Motor(es) ─────────────────────────────────────────────────────────────
 case "$DB_ENGINE" in
-    mysql)    setup_mysql ;;
     postgres) setup_postgres ;;
-    both)     setup_mysql; setup_postgres ;;
-    *) echo "ERROR: DB_ENGINE='$DB_ENGINE' invalido (mysql|postgres|both)"; exit 1 ;;
+    mysql)    setup_mysql ;;
 esac
 
 # ─── Dependencias Python ───────────────────────────────────────────────────
@@ -163,8 +167,8 @@ step "Verificando dependencias Python..."
 if python -c "import dash, flask, sqlalchemy, alembic, yfinance, plotly, numpy, pandas, apscheduler" &>/dev/null; then
     ok "Dependencias Python ya instaladas"
 else
-    echo "    Instalando requirements..."
-    pip install -r requirements.txt -q
+    echo "    Instalando requirements (motor: $DB_ENGINE)..."
+    pip install -r requirements.txt -r "requirements-${DB_ENGINE}.txt" -q
     if python -c "import dash, flask, sqlalchemy, alembic, yfinance, plotly, numpy, pandas, apscheduler" &>/dev/null; then
         ok "Dependencias instaladas correctamente"
     else
@@ -175,9 +179,8 @@ fi
 
 # ─── Esquema + admin por motor ─────────────────────────────────────────────
 case "$DB_ENGINE" in
-    mysql)    check_mysql_schema ;;
     postgres) check_postgres_schema ;;
-    both)     check_mysql_schema; check_postgres_schema ;;
+    mysql)    check_mysql_schema ;;
 esac
 
 # ─── Importacion de la app ─────────────────────────────────────────────────
@@ -193,16 +196,12 @@ fi
 # ─── Resumen ──────────────────────────────────────────────────────────────
 echo ""
 echo "======================================"
-echo "  Resultado: $PASS OK  |  $FAIL FAIL   (DB_ENGINE=$DB_ENGINE)"
+echo "  Resultado: $PASS OK  |  $FAIL FAIL   (motor: $DB_ENGINE)"
 echo "======================================"
 if [ "$FAIL" -eq 0 ]; then
     echo ""
     echo "  Todo listo. Levantar la app con:"
     echo "    python run.py"
-    if [ "$DB_ENGINE" != "mysql" ]; then
-        echo "  Contra PostgreSQL:"
-        echo "    DATABASE_URL=\"$PG_URL\" python run.py"
-    fi
     echo ""
     echo "  Usuario: admin / admin123"
 fi

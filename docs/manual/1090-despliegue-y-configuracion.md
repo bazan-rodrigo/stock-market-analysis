@@ -81,14 +81,24 @@ variable de entorno con el nombre en MAYÚSCULAS, después la clave en minúscul
 bajo `[settings]` de `conf.properties`, después el default del código. Si no hay
 default, levanta un `RuntimeError` que nombra la variable y la clave faltantes.
 
-> Ese último escalón hoy está muerto: las 17 claves pasan un default, así que
+> Ese último escalón hoy está muerto: las 18 claves pasan un default, así que
 > **ninguna variable es obligatoria de verdad**. Una base mal configurada no
-> falla al arrancar con un mensaje claro: falla más tarde, al conectar. La
-> única excepción es la espera por locks: su valor sí se valida al arrancar,
-> porque un error ahí tumbaría todas las conexiones sin decir por qué.
+> falla al arrancar con un mensaje claro: falla más tarde, al conectar. Hay dos
+> excepciones, y las dos se validan al arrancar porque su error tumbaría todas
+> las conexiones sin decir por qué: la espera por locks, y la coherencia entre
+> el motor elegido y la dirección de la base.
+
+**El motor es una elección de instalación**, no una propiedad del entorno: se
+elige con `db_engine` (`postgres` por defecto, o `mysql`) y de ahí salen el
+puerto, el usuario y el driver. Una dirección de base explícita gana sobre esa
+derivación —es lo que usa el despliegue actual— pero si contradice al motor
+elegido, **la aplicación no arranca** y el mensaje dice cuál es la
+contradicción. El driver correspondiente se instala aparte, para no compilar el
+del motor que no se usa.
 
 | Tema | Claves tunables |
 |---|---|
+| Motor | `db_engine` (postgres) |
 | Conexión | `secret_key`, `db_host`, `db_port`, `db_name`, `db_user`, `db_password`, `database_url` |
 | Pool | `db_pool_size` (30), `db_max_overflow` (20) |
 | Locks | `db_lock_timeout` (30s) |
@@ -181,14 +191,20 @@ en la base y propone dropearlas todas.
 ## Dónde se verifica qué
 
 El flujo del equipo condiciona todo lo anterior: se edita en la PC local Windows,
-que **no tiene base de datos**, se hace push, y se hace `git pull` en el
-Codespace, donde la app corre contra MariaDB (`sudo service mariadb start`, no
-`mysql`) o PostgreSQL según `DB_ENGINE` —una variable que solo leen los scripts
-de setup, nunca la app—. Como esa PC no levanta la app, la red de seguridad
-automatizada es pytest, corrido a mano antes de cada push: no hay CI versionado.
-Todo lo que toca la app viva —callbacks, migraciones, corridas reales— se prueba
-en el Codespace, y hay un botón en `/admin/verify` que corre la suite como
+que **no tiene base de datos**, se hace push, y la aplicación corre en el
+servidor. Como esa PC no levanta la app, la red de seguridad automatizada es
+pytest, corrido a mano antes de cada push: no hay CI versionado. Y como el
+entorno intermedio descartable dejó de usarse, **todo lo que toca la app viva
+—pantallas, migraciones, corridas reales— se prueba directamente contra la base
+de producción**: conviene decirlo en voz alta antes de proponer cualquier cosa
+que escriba. Hay un botón en la pantalla de verificación que corre la suite como
 subproceso con el mismo Python de la app, con 300 s de timeout.
+
+El motor con el que arranca sale de la elección de instalación, que la
+aplicación sí lee: de ella derivan el puerto, el usuario y la dirección por
+defecto. Antes esa elección solo la conocían los scripts de instalación, así que
+se podía instalar un motor y terminar corriendo contra el otro sin que nada
+avisara.
 
 Esa suite es además una salvaguarda de deploy: `tests/conftest.py` **fuerza**
 `DATABASE_URL` a un stub sqlite (no usa `setdefault`) y aborta en

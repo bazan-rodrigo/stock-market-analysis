@@ -1,9 +1,10 @@
-# Guía de deploy — Codespace y Railway
+# Guía de instalación y deploy — elegir motor, Codespace y Railway
 
-Guía operativa de los dos entornos donde corre la app y de las tareas puntuales
-más frecuentes (traer el head, armar pruebas, conectar a otra base, apagar sin
-perder datos, recrear la base). Todo sale de convenciones ya acordadas
-(ver `CLAUDE.md`) y de decisiones tomadas al montar Railway.
+Guía operativa: qué motor de base elegís al instalar, los dos entornos donde
+puede correr la app, y las tareas puntuales más frecuentes (traer el head,
+armar pruebas, conectar a otra base, apagar sin perder datos, recrear la base).
+Todo sale de convenciones ya acordadas (ver `CLAUDE.md`) y de decisiones
+tomadas al montar Railway.
 
 > Regla de oro: **la app no cambia entre entornos.** Mismo código, mismo
 > `Procfile`. Lo único que cambia son las **variables de entorno** que resuelve
@@ -11,14 +12,51 @@ perder datos, recrear la base). Todo sale de convenciones ya acordadas
 
 ---
 
+## 0. Lo primero: elegir el motor
+
+**El motor de base es una elección de INSTALACIÓN, no una propiedad del
+entorno.** Que corras en Railway no implica PostgreSQL, y que corras en un
+Codespace no implica MySQL: elegís una vez, con `db_engine`, y de ahí salen
+solos el driver de Python, el puerto y el usuario por defecto.
+
+| | `db_engine = postgres` (default) | `db_engine = mysql` |
+|---|---|---|
+| Driver | `requirements-postgres.txt` (`psycopg`, con wheels) | `requirements-mysql.txt` (`mysqlclient`, compila) |
+| Puerto / usuario por defecto | 5432 / `postgres` | 3306 / `root` |
+| Servicio | `sudo service postgresql start` | `sudo service mariadb start` (es mariadb, no mysql) |
+
+Instalar las dependencias es siempre el archivo común **más** el del motor:
+
+```bash
+pip install -r requirements.txt -r requirements-postgres.txt   # o -mysql
+```
+
+**Nunca se instalan los dos motores.** Montar uno que no se va a usar es puro
+costo: `mysqlclient` es una extensión en C que hay que compilar. Si alguna vez
+hace falta comparar motores, se levanta el segundo a mano — es un
+procedimiento de laboratorio, no una forma de instalar.
+
+`database_url`, si la definís, **gana** sobre todo lo anterior (es lo que usa
+Railway). Y si contradice a `db_engine` —por ejemplo `db_engine = mysql` con
+una URL de PostgreSQL— **la app no arranca** y te dice cuál es la
+contradicción, en vez de fallar más tarde con un error de driver. Si la URL es
+la buena, borrá `db_engine` y el motor se deduce de ella.
+
+> Hoy corre **PostgreSQL en Railway**. El soporte de MySQL se mantiene como
+> opción, pero **no se ejercita hace tiempo**: el refactor de tablas anchas
+> nunca corrió contra MariaDB. "Soportado" significa que el código está, no
+> que esté validado — revivirlo costaría una corrida de verificación.
+
+---
+
 ## 1. Panorama de los dos entornos
 
-| | **Codespace** (dev) | **Railway** (prod) |
+| | **Codespace** (dev) | **Railway** (prod, hoy) |
 |---|---|---|
 | Arranque | `python run.py` (servidor Dash de dev, :8050) | `gunicorn` (`web`) + `python worker.py` (`worker`) |
-| Base | MariaDB/MySQL local (o PostgreSQL con `DB_ENGINE`) | PostgreSQL (servicio del proyecto) |
+| Base | la que elegiste al instalar (§0) | PostgreSQL (servicio del proyecto) |
 | Scheduler | en el mismo proceso (`run.py`) | **solo** en el servicio `worker` (`RUN_SCHEDULER=0` en `web`) |
-| Config | env vars del `devcontainer.json` | Variables de cada servicio en el panel |
+| Config | `conf.properties` + env vars del `devcontainer.json` | Variables de cada servicio en el panel |
 
 **Por qué el `worker` separado en Railway:** APScheduler corre en el proceso que
 lo arranca. Con `gunicorn` (aunque sea 1 worker) + posibles réplicas, el job
@@ -50,23 +88,29 @@ worker: python worker.py
 ## 2. Codespace (desarrollo)
 
 ### 2.1 Primer arranque
-El devcontainer corre `.devcontainer/setup.sh` en `postCreateCommand`: instala el
-motor (según `DB_ENGINE`), las deps, e inicializa la base (`scripts/init_db.py`).
-Al terminar:
+El devcontainer corre `.devcontainer/setup.sh` en `postCreateCommand`: instala
+**un** motor, su driver, el resto de las deps, e inicializa la base
+(`scripts/init_db.py`). Al terminar:
 ```bash
 python run.py            # levanta la app en http://localhost:8050  (admin/admin123)
 ```
 
-Motor de base (variable `DB_ENGINE` del devcontainer, default `mysql`):
-- `mysql` → MariaDB local, usa los `DB_*` del entorno.
-- `postgres` → PostgreSQL; el setup exporta `DATABASE_URL` en `~/.bashrc`.
-- `both` → los dos lado a lado (paridad del soporte dual). La app corre contra
-  MySQL salvo que exportes `DATABASE_URL` (ver §4.3).
+**Elegir el motor** (§0): por defecto instala **PostgreSQL**. Para MySQL, crear
+el Codespace con `DB_ENGINE=mysql` en el entorno (secreto/variable del
+Codespace). El setup **persiste la elección en `conf.properties`**, que está
+gitignoreado porque es la config de esa instalación: de ahí en más la app deriva
+sola el driver, el puerto y el usuario, sin depender de que alguien exporte
+variables en la shell.
 
-Arrancar el motor a mano si hiciera falta (el servicio es **mariadb**, no mysql):
+El motor **no** se fija en `devcontainer.json` a propósito. Si `DB_PORT` o
+`DB_USER` estuvieran ahí, le ganarían a lo derivado por ser variables de
+entorno, y la instalación quedaría apuntando al motor equivocado — que era
+exactamente el enredo que tenía este proyecto.
+
+Arrancar el motor a mano si hiciera falta:
 ```bash
-sudo service mariadb start          # MySQL/MariaDB
 sudo service postgresql start       # PostgreSQL
+sudo service mariadb start          # MySQL/MariaDB (el servicio es mariadb)
 ```
 
 ### 2.2 Traer los cambios del head (§ caso frecuente)
@@ -78,9 +122,9 @@ Si el pull trae **migraciones nuevas**, aplicarlas sobre la base existente:
 ```bash
 python scripts/init_db.py           # base existente → alembic upgrade head
 ```
-Si trae cambios en `requirements.txt`:
+Si trae cambios en las dependencias (siempre el común **más** el del motor):
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-postgres.txt   # o -mysql
 ```
 Reiniciar `run.py` (Ctrl-C y volver a lanzar) para tomar el código nuevo.
 
@@ -98,6 +142,49 @@ python -m pytest                         # (en el Codespace)
 Un proyecto con tres servicios: **`web`** (gunicorn), **`worker`** (scheduler) y
 **`Postgres`** (base). `web` y `worker` salen del mismo repo/`Procfile`.
 
+### 3.1b Cómo se instala el driver en el build (`railpack.json`)
+
+Railway construye con **Railpack**, que detecta `requirements.txt` y corre
+`pip install -r requirements.txt`. Como el driver ya **no** está ahí (§0), hace
+falta decirle que instale también el del motor. Eso lo declara `railpack.json`
+en la raíz del repo, extendiendo el paso de install en vez de reemplazarlo:
+
+```json
+{
+  "$schema": "https://schema.railpack.com",
+  "steps": {
+    "install": {
+      "commands": [
+        "...",
+        "pip install -r requirements.txt -r requirements-${DB_ENGINE:-postgres}.txt"
+      ]
+    }
+  }
+}
+```
+
+Tres detalles que explican por qué está escrito así:
+
+- El `"..."` es la sintaxis de Railpack para **extender** un array en vez de
+  pisarlo: conserva el install por defecto y le suma el nuestro.
+- El comando igual instala `requirements.txt` **además** del driver, aunque el
+  paso por defecto ya lo haya hecho. Es deliberado: si el `"..."` no se
+  aplicara, este comando solo alcanza para dejar el entorno completo. Repetirlo
+  es casi gratis (pip ve todo satisfecho); quedarse corto sería una app sin
+  dependencias.
+- El fallback `:-postgres` hace que el build funcione aunque `DB_ENGINE` no
+  esté definida. Conviene igual **definirla explícitamente** en las variables
+  de los servicios `web` y `worker`, para que la elección de motor esté a la
+  vista en un solo lugar.
+
+> **Pendiente de verificar en el primer deploy:** que la interpolación
+> `${DB_ENGINE:-postgres}` se expanda de verdad (depende de si Railpack corre
+> los comandos a través de un shell, cosa que no está documentada). Si no
+> expandiera, el build **falla** buscando un archivo con ese nombre literal —
+> y un build fallido no despliega, así que la versión anterior sigue corriendo.
+> El arreglo sería poner el nombre literal (`requirements-postgres.txt`) y
+> anotar que cambiar de motor toca esa línea.
+
 ### 3.2 Deploy inicial desde cero
 1. **Crear la base:** `+ New → Database → Add PostgreSQL`.
 2. **Conectar `DATABASE_URL`** en **ambos** servicios de app (`web` y `worker`),
@@ -112,6 +199,10 @@ Un proyecto con tres servicios: **`web`** (gunicorn), **`worker`** (scheduler) y
    - `SECRET_KEY` → valor propio de prod.
    - `LOG_LEVEL` → `INFO`.
    - `RUN_SCHEDULER` → **`0` en `web`**, **`1` (o sin definir) en `worker`**.
+   - `DB_ENGINE` → `postgres`. No es obligatoria (el default de la app y el
+     del build son PostgreSQL), pero definirla deja la elección de motor
+     explícita y en el mismo lugar que el resto. Si la ponés, tiene que ser
+     coherente con la `DATABASE_URL` o la app no arranca (§0).
 4. **Crear el esquema** (la base nace vacía). Desde una shell del servicio `web`:
    ```
    python scripts/init_db.py
@@ -163,11 +254,18 @@ La base la decide **`DATABASE_URL`** (o los `DB_*` si no hay URL). Casos:
   Railway.) El prefijo `postgres://` de Railway lo normaliza `config.py`, pero
   al pasarlo a mano conviene ponerlo ya como `postgresql+psycopg://`.
 
-- **Cambiar de motor** (MySQL ↔ PostgreSQL): setear `DATABASE_URL` completo.
-  - MySQL: `mysql+mysqldb://user:pass@host:3306/db?charset=utf8mb4`
-  - PostgreSQL: `postgresql+psycopg://user:pass@host:5432/db`
+- **Cambiar de motor** (MySQL ↔ PostgreSQL): son **tres** cosas, porque el
+  motor es una elección de instalación (§0) y no solo una cadena de conexión.
+  1. `db_engine` en `conf.properties` (o la variable `DB_ENGINE`).
+  2. Instalar el driver del motor nuevo:
+     `pip install -r requirements.txt -r requirements-<motor>.txt`.
+  3. Si tenés `database_url` explícita, actualizarla — o borrarla y dejar que
+     se derive. Si queda apuntando al motor viejo, **la app no arranca** y te
+     dice cuál es la contradicción.
+
   El soporte dual está en `app/services/db_compat.py`; la base nueva se crea con
-  `scripts/init_db.py` en cualquier motor.
+  `scripts/init_db.py` en cualquier motor. Ojo: cambiar de motor **no** migra
+  los datos; es una instalación nueva salvo que los trasvases aparte.
 
 - **En Railway**, cambiar a otra base = editar `DATABASE_URL` en `web` y `worker`
   y reiniciar ambos.

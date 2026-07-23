@@ -10,7 +10,11 @@ numpy>=1.26.0
 bcrypt>=4.1.0
 APScheduler>=3.10.4
 openpyxl>=3.1.2
-mysqlclient>=2.2.0
-psycopg[binary]>=3.1
 plotly>=5.18.0
 gunicorn>=21.2.0
+
+# El DRIVER de base de datos NO va acá: depende del motor elegido al instalar
+# y vive en requirements-postgres.txt / requirements-mysql.txt. Instalar los
+# dos significa compilar una extensión en C (mysqlclient) para no usarla.
+#     pip install -r requirements.txt -r requirements-<motor>.txt
+# En Railway lo agrega railpack.json extendiendo el paso de install.

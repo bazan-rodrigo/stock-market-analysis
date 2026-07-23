@@ -4,16 +4,26 @@ set -e
 # Asegurar que estamos en la raíz del proyecto
 cd "$(dirname "$0")/.."
 
-# ── Motor de base de datos ────────────────────────────────────────────────
-# DB_ENGINE: mysql (default) | postgres | both
-#   mysql    → MariaDB/MySQL, igual que siempre (la app usa los DB_* env).
-#   postgres → PostgreSQL (PGDG); exporta DATABASE_URL en ~/.bashrc.
-#   both     → los dos lado a lado (para la paridad del soporte dual);
-#              la app corre contra MySQL salvo que se exporte DATABASE_URL.
-# Ver docs/notes/design_postgresql_dual.md.
-DB_ENGINE="${DB_ENGINE:-mysql}"
+# ── Motor de base de datos: una elección de INSTALACIÓN ───────────────────
+# El motor NO es una propiedad del entorno: se elige acá, una vez, y de él
+# salen el servicio que se instala, el driver de Python y la URL con la que
+# arranca la app. La elección se PERSISTE en conf.properties (gitignoreado,
+# es la config de esta instalación) para que valga en cualquier shell y en
+# cualquier proceso, no solo en el que corrió este script.
+#
+#   DB_ENGINE=postgres  → PostgreSQL (default; es lo que corre en producción)
+#   DB_ENGINE=mysql     → MariaDB/MySQL
+#
+# NO existe un modo que instale los dos: montar un motor que no se va a usar
+# es puro costo. Si alguna vez hay que compararlos, se levanta el segundo a
+# mano — es un procedimiento de laboratorio, no una forma de instalar.
+DB_ENGINE="$(echo "${DB_ENGINE:-postgres}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+case "$DB_ENGINE" in
+    postgres|postgresql|pg) DB_ENGINE="postgres" ;;
+    mysql|mariadb)          DB_ENGINE="mysql" ;;
+    *) echo "ERROR: DB_ENGINE='$DB_ENGINE' inválido (postgres | mysql)"; exit 1 ;;
+esac
 DB_NAME="${DB_NAME:-stock_analysis}"
-PG_URL="postgresql+psycopg://postgres:postgres@127.0.0.1:5432/${DB_NAME}"
 
 install_mysql() {
     echo "=== Instalando MariaDB / MySQL Server ==="
@@ -48,6 +58,12 @@ install_mysql() {
 
     echo "=== Creando base de datos '$DB_NAME' ==="
     mysql -u root -h 127.0.0.1 -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+    # mysqlclient es una extensión en C: necesita compilarse. psycopg trae
+    # wheels, así que este bloque es exclusivo del camino MySQL.
+    echo "=== Instalando dependencias del sistema para mysqlclient ==="
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+        python3-dev default-libmysqlclient-dev build-essential pkg-config
 }
 
 install_postgres() {
@@ -79,47 +95,39 @@ install_postgres() {
 }
 
 case "$DB_ENGINE" in
-    mysql)    install_mysql ;;
     postgres) install_postgres ;;
-    both)     install_mysql; install_postgres ;;
-    *) echo "ERROR: DB_ENGINE='$DB_ENGINE' inválido (mysql|postgres|both)"; exit 1 ;;
+    mysql)    install_mysql ;;
 esac
 
-echo "=== Instalando dependencias del sistema para mysqlclient ==="
-# Siempre: requirements.txt incluye mysqlclient (compila contra estas libs)
-# aunque el motor elegido sea postgres — psycopg viene con wheels.
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    python3-dev default-libmysqlclient-dev build-essential pkg-config
+# ── Persistir la elección ──────────────────────────────────────────────────
+# conf.properties es la config de ESTA instalación (gitignoreado). Dejar el
+# motor escrito ahí es lo que hace que la app derive sola el driver, el
+# puerto y el usuario, sin depender de que alguien exporte variables.
+echo "=== Registrando el motor elegido en conf.properties ==="
+[ -f conf.properties ] || cp conf.properties.example conf.properties
+if grep -q '^[[:space:]]*db_engine[[:space:]]*=' conf.properties; then
+    sed -i "s/^[[:space:]]*db_engine[[:space:]]*=.*/db_engine = ${DB_ENGINE}/" conf.properties
+else
+    sed -i "/^\[settings\]/a db_engine = ${DB_ENGINE}" conf.properties
+fi
+echo "conf.properties: db_engine = ${DB_ENGINE}"
 
 echo "=== Instalando dependencias Python ==="
 pip install --upgrade pip -q
-pip install -r requirements.txt -q
+# El driver vive en un requirements aparte POR MOTOR: instalar el que no se
+# usa es compilar una extensión en C para nada (ver requirements.txt).
+pip install -r requirements.txt -r "requirements-${DB_ENGINE}.txt" -q
 # Deps de dev (pytest, hypothesis): la pantalla /admin/verify corre la suite
 # como subproceso con el mismo Python de la app, así que las necesita acá.
 pip install -r requirements-dev.txt -q
 
 echo "=== Inicializando base de datos (esquema + datos semilla) ==="
-if [ "$DB_ENGINE" = "postgres" ]; then
-    # Motor único PG: la app también debe apuntar ahí en shells nuevas
-    DATABASE_URL="$PG_URL" python scripts/init_db.py
-    if ! grep -q "DATABASE_URL=" ~/.bashrc 2>/dev/null; then
-        echo "export DATABASE_URL=\"$PG_URL\"" >> ~/.bashrc
-        echo "DATABASE_URL exportada en ~/.bashrc (PostgreSQL)."
-    fi
-else
-    python scripts/init_db.py                       # MySQL (DB_* del entorno)
-    if [ "$DB_ENGINE" = "both" ]; then
-        DATABASE_URL="$PG_URL" python scripts/init_db.py   # y PostgreSQL
-    fi
-fi
+python scripts/init_db.py
 
 echo ""
 echo "======================================"
-echo "  Codespace listo (DB_ENGINE=$DB_ENGINE)."
+echo "  Codespace listo (motor: $DB_ENGINE)."
 echo "  Ejecutar la app: python run.py"
-if [ "$DB_ENGINE" = "both" ]; then
-    echo "  (contra PostgreSQL: DATABASE_URL=\"$PG_URL\" python run.py)"
-fi
 echo "  URL: http://localhost:8050"
 echo "  Usuario: admin / admin123"
 echo "======================================"

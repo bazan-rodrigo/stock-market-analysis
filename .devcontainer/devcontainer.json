@@ -2,14 +2,17 @@
   "name": "Stock Market Analysis",
   "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
   "postCreateCommand": "bash .devcontainer/setup.sh",
+  // El MOTOR de base de datos no se define acá a propósito: es una elección
+  // de instalación, no una propiedad del entorno. Lo elige setup.sh (default
+  // postgres, o DB_ENGINE=mysql al crear el Codespace) y lo persiste en
+  // conf.properties. Tampoco van acá DB_PORT/DB_USER/DB_PASSWORD: los deriva
+  // la app del motor elegido, y si se fijaran acá le ganarían por ser
+  // variables de entorno, dejando la instalación apuntando al motor
+  // equivocado — que es exactamente el enredo que este archivo tenía.
   "remoteEnv": {
     "SECRET_KEY": "codespace-dev-secret-change-in-prod",
-    "DB_ENGINE": "mysql",
     "DB_HOST": "127.0.0.1",
-    "DB_PORT": "3306",
     "DB_NAME": "stock_analysis",
-    "DB_USER": "root",
-    "DB_PASSWORD": "",
     "LOG_LEVEL": "DEBUG"
   },
   "forwardPorts": [8050],

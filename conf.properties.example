@@ -1,13 +1,25 @@
 [settings]
 secret_key = cambia-esto-en-produccion
+
+# ── Motor de base de datos: la eleccion de ESTA instalacion ────────────────
+# postgres (default) | mysql. De aca salen el driver, el puerto y el usuario
+# por defecto, asi que lo de abajo solo hace falta si te apartas de eso:
+#   postgres -> 5432, usuario 'postgres', password 'postgres'
+#   mysql    -> 3306, usuario 'root',     password vacia
+# El driver de Python se instala aparte segun el motor:
+#   pip install -r requirements.txt -r requirements-<motor>.txt
+db_engine = postgres
 db_host = localhost
-db_port = 3306
 db_name = stock_analysis
-db_user = root
-db_password = tu_password_aqui
-# El motor lo decide la URL: mysql+mysqldb:// (default, se arma con los
-# db_* de arriba) o PostgreSQL con una URL completa:
+# db_port =
+# db_user =
+# db_password =
+
+# Alternativa: una URL completa, que GANA sobre lo de arriba (es lo que usa
+# Railway). Si contradice a db_engine, la app no arranca y te dice cual es la
+# contradiccion, en vez de fallar despues con un error de driver.
 # database_url = postgresql+psycopg://usuario:password@localhost:5432/stock_analysis
+
 # Pool de conexiones (en PostgreSQL cada conexion es un proceso del
 # servidor, max_connections=100 default — bajar si hay varios procesos):
 # db_pool_size = 30

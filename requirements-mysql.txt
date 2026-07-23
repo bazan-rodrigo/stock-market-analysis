@@ -1,0 +1,6 @@
+# Driver de MySQL/MariaDB. Se instala JUNTO a requirements.txt:
+#     pip install -r requirements.txt -r requirements-mysql.txt
+# Es una extensión en C: necesita python3-dev, default-libmysqlclient-dev,
+# build-essential y pkg-config (los instala .devcontainer/setup.sh en la rama
+# mysql). psycopg, en cambio, trae wheels.
+mysqlclient>=2.2.0
