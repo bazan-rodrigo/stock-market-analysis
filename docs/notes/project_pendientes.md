@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-23T02:40:49.453Z
+  modified: 2026-07-23T14:30:28.873Z
 ---
 
 **Sesión 23-jul-2026: el corte a PostgreSQL-only quedó DESCARTADO — el
@@ -46,13 +46,16 @@ los `DB_*` de MySQL, y la elección se persiste en `conf.properties`. Se retiró
 el modo `both`. Guía reescrita: `guide_deploy.md` abre con "elegir el motor".
 922 tests.
 
-**PENDIENTE — verificar en el PRIMER DEPLOY a Railway:** que la interpolación
-`${DB_ENGINE:-postgres}` de `railpack.json` se expanda (depende de si Railpack
-corre los comandos por un shell; no está documentado). Si no expande **falla el
-build, no el runtime**, y un build fallido no despliega: la versión anterior
-sigue corriendo. Arreglo: poner el nombre literal `requirements-postgres.txt`.
-Mirar el log del build. Conviene además definir `DB_ENGINE=postgres` en las
-variables de `web` y `worker`, aunque el fallback ande sin ella.
+**VERIFICADO el 23-jul con un build real (falló el primero, `c1272c7` lo
+arregla):** Railpack corre los comandos por un shell, así que
+`${DB_ENGINE:-postgres}` **sí se expande**, y el `"..."` de extensión funciona.
+La trampa era otra: **el paso de install no ve todo el repo** —Railpack le copia
+solo `requirements.txt` para cachear la capa—, así que los archivos nuevos hay
+que declararlos con `"inputs": ["...", {"local": true, "include": [...]}]`.
+Un build fallido **no despliega**: la versión anterior siguió corriendo.
+**Falta confirmar que el build siguiente termine OK y que la app levante.**
+Conviene además definir `DB_ENGINE=postgres` en las variables de `web` y
+`worker`, aunque el fallback ande sin ella.
 
 **PENDIENTE — el Codespace no se pudo probar** (no se usa): el desenredo del
 entorno solo se ejercita con un **rebuild del devcontainer desde cero**. Si

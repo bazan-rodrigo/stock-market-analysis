@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 26b2a194-5f13-4ef4-8a67-87db3554ba16
-  modified: 2026-07-23T02:40:24.855Z
+  modified: 2026-07-23T14:30:17.867Z
 ---
 
 # DECISIÓN: el soporte dual SE MANTIENE (23-jul-2026)
@@ -81,11 +81,22 @@ además del driver (si el `"..."` no se aplicara, alcanza igual), y el fallback
 `setup.sh` en **`conf.properties`** (gitignoreado = config de esa instalación).
 El modo `both` se retiró de los dos scripts.
 
-**PENDIENTE DE VERIFICAR en el primer deploy:** que `${DB_ENGINE:-postgres}` se
-expanda de verdad — depende de si Railpack corre los comandos por un shell, cosa
-no documentada. Si no expande **falla el build, no el runtime**, y un build
-fallido no despliega: la versión anterior sigue corriendo. El arreglo sería
-poner el nombre literal. Anotado en `guide_deploy.md` §3.1b.
+**VERIFICADO en el deploy del 23-jul** (`c1272c7`, tras un build fallido):
+
+- **Railpack corre los comandos por un shell** (`sh -c` en el mensaje de error):
+  `${DB_ENGINE:-postgres}` **sí se expande**. Era lo único del diseño que había
+  quedado sin confirmar.
+- **La sintaxis `"..."` de extensión funciona**, en `commands` y en `inputs`.
+- **Lo que faltaba (y es la trampa a recordar): el paso de install NO ve todo
+  el repo.** Railpack le copia solo `requirements.txt` para cachear esa capa,
+  así que un comando que lea otro archivo falla con `Could not open requirements
+  file`. Hay que declararlo como entrada local del paso:
+  `"inputs": ["...", {"local": true, "include": [...]}]`.
+- **Un build fallido no despliega**: la versión anterior siguió corriendo todo
+  el episodio. Esa propiedad es la razón por la que se eligió arriesgar en el
+  build y no en runtime, y funcionó como se esperaba.
+
+Detalle completo en `guide_deploy.md` §3.1b.
 
 ## Tensión abierta, sin resolver
 
