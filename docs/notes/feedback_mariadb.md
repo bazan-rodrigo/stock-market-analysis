@@ -3,7 +3,7 @@ name: Motor de base de datos del proyecto
 description: "El motor es una elección de INSTALACIÓN (PostgreSQL o MySQL), no una propiedad del entorno; hoy Railway+PostgreSQL, pero el soporte dual se mantiene a propósito"
 type: feedback
 originSessionId: 72e4d4e7-35d5-4ee2-bcc4-5bfdf806cb9a
-modified: 2026-07-23T01:44:22.795Z
+modified: 2026-07-23T02:40:34.103Z
 ---
 **El motor de base de datos es una elección de INSTALACIÓN**: PostgreSQL o
 MySQL/MariaDB, elegida una vez y válida en cualquier entorno donde corra la app.
@@ -18,10 +18,12 @@ evaluar retirarlo y descartarlo): la posibilidad de MySQL y de Codespace se
 conserva "por cualquier cosa que pase en el futuro". Ver
 [[project-postgres-only-estudio]].
 
-Corolario del usuario, que es una crítica al diseño actual: **no está bien que
-se instalen los dos motores si solo se va a usar uno.** Hoy `DB_ENGINE=both`
-levanta ambos servicios y `requirements.txt` trae los dos drivers siempre
-(Railway compila `mysqlclient` para nunca usarlo).
+Corolario del usuario: **no está bien que se instalen los dos motores si solo se
+va a usar uno.** → **RESUELTO el 23-jul** (`29fbb5f`, `e43e281`): `DB_ENGINE` es
+el eje y la app lo lee; el driver vive en `requirements-<motor>.txt` y se
+instala aparte; `both` se retiró de los scripts de setup; la elección se
+persiste en `conf.properties`. Si `db_engine` y `database_url` se contradicen,
+la app **no arranca**.
 
 Nota histórica: mientras el Codespace estuvo en uso, el servicio instalado ahí
 era **MariaDB, no MySQL** — el comando era `sudo service mariadb start`.

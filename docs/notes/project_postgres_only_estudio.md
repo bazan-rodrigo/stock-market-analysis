@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 26b2a194-5f13-4ef4-8a67-87db3554ba16
-  modified: 2026-07-23T01:43:55.782Z
+  modified: 2026-07-23T02:40:24.855Z
 ---
 
 # DECISIÓN: el soporte dual SE MANTIENE (23-jul-2026)
@@ -51,14 +51,41 @@ Documentos, ambos con encabezado de "no ejecutar":
   número de folleto, no medido acá, y las dos últimas victorias de perf
   vinieron de *escribir menos*, no de escribir más rápido.
 
-## Trabajo propuesto y no empezado
+## Desenredo del motor y el entorno — HECHO (23-jul, `29fbb5f` + `e43e281`)
 
-Desenredar el motor del entorno: `DB_ENGINE` como única elección válida en
-cualquier entorno, drivers separados por motor (`requirements-mysql.txt` /
-`requirements-postgres.txt`), y `both` deja de ser un modo de instalación.
-Detalle a resolver antes: Railway autodetecta `requirements.txt`, así que hay
-que ver si el archivo a instalar se puede declarar en el repo o si obliga a
-tocar el panel.
+El problema real no era el dual sino que **había dos mecanismos que no se
+hablaban**: `DB_ENGINE` (solo lo leían los scripts de setup, decidía qué
+servicio se instalaba) y `DATABASE_URL` (decidía contra qué corría la app). Sin
+URL, `config.py` armaba una de MySQL hardcodeada ignorando `DB_ENGINE`: se podía
+instalar PostgreSQL y arrancar contra MySQL. `setup.sh` ya lo venía compensando
+con un parche (exportar `DATABASE_URL` en `~/.bashrc`).
+
+Ahora `DB_ENGINE` es el eje y **la app lo lee**. Reglas de resolución en
+`_resolve_db` (`app/config.py`, testeada):
+- las dos definidas y contradiciéndose → **RuntimeError al importar la config**;
+- solo la URL → el motor se **deduce** de ella (no rompe Railway, que nunca
+  definió `db_engine`);
+- solo el motor → la URL se deriva; ninguna → default `postgres`.
+- **sqlite queda fuera del chequeo** a propósito: es el stub de la suite.
+
+Drivers separados (`requirements-postgres.txt` / `requirements-mysql.txt`):
+`requirements.txt` traía los dos y Railway compilaba `mysqlclient` para nunca
+usarlo. En Railway el driver lo agrega **`railpack.json`** (el builder es
+**Railpack**, no Nixpacks) extendiendo el paso de install con la sintaxis
+`"..."`. Dos precauciones deliberadas: el comando instala `requirements.txt`
+además del driver (si el `"..."` no se aplicara, alcanza igual), y el fallback
+`${DB_ENGINE:-postgres}` hace que ande aunque la variable no esté.
+
+`devcontainer.json` ya no fija el motor ni `DB_PORT`/`DB_USER`/`DB_PASSWORD`
+(le ganaban a lo derivado por ser variables de entorno). La elección la persiste
+`setup.sh` en **`conf.properties`** (gitignoreado = config de esa instalación).
+El modo `both` se retiró de los dos scripts.
+
+**PENDIENTE DE VERIFICAR en el primer deploy:** que `${DB_ENGINE:-postgres}` se
+expanda de verdad — depende de si Railpack corre los comandos por un shell, cosa
+no documentada. Si no expande **falla el build, no el runtime**, y un build
+fallido no despliega: la versión anterior sigue corriendo. El arreglo sería
+poner el nombre literal. Anotado en `guide_deploy.md` §3.1b.
 
 ## Tensión abierta, sin resolver
 

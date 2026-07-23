@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-23T01:45:08.338Z
+  modified: 2026-07-23T02:40:49.453Z
 ---
 
 **Sesión 23-jul-2026: el corte a PostgreSQL-only quedó DESCARTADO — el
@@ -36,14 +36,29 @@ si solo se va a usar uno** (hoy `DB_ENGINE=both` levanta ambos y
 `requirements.txt` trae los dos drivers: Railway compila `mysqlclient` para
 nunca usarlo).
 
-**PENDIENTE, propuesto y NO empezado — desenredar el motor del entorno:**
-`DB_ENGINE` como única elección válida en cualquier entorno (hoy
-`devcontainer.json` fija `mysql` y Railway lo deduce de `DATABASE_URL`),
-drivers separados por motor (`requirements-mysql.txt` /
-`requirements-postgres.txt`), y `both` deja de ser modo de instalación.
-**Detalle a resolver primero:** Railway autodetecta `requirements.txt`, así que
-hay que ver si el archivo a instalar se puede declarar en un archivo del repo o
-si obliga a tocar el panel de Railway.
+**HECHO el mismo día (`29fbb5f` + `e43e281`): el motor quedó desenredado del
+entorno.** `DB_ENGINE` es el eje y **la app lo lee** (antes solo lo leían los
+scripts de setup); de él salen driver, puerto y usuario. Si `db_engine` y
+`database_url` se contradicen, la app **no arranca**. Drivers separados en
+`requirements-<motor>.txt`; en Railway los agrega **`railpack.json`** (el
+builder es Railpack, no Nixpacks). `devcontainer.json` ya no fija el motor ni
+los `DB_*` de MySQL, y la elección se persiste en `conf.properties`. Se retiró
+el modo `both`. Guía reescrita: `guide_deploy.md` abre con "elegir el motor".
+922 tests.
+
+**PENDIENTE — verificar en el PRIMER DEPLOY a Railway:** que la interpolación
+`${DB_ENGINE:-postgres}` de `railpack.json` se expanda (depende de si Railpack
+corre los comandos por un shell; no está documentado). Si no expande **falla el
+build, no el runtime**, y un build fallido no despliega: la versión anterior
+sigue corriendo. Arreglo: poner el nombre literal `requirements-postgres.txt`.
+Mirar el log del build. Conviene además definir `DB_ENGINE=postgres` en las
+variables de `web` y `worker`, aunque el fallback ande sin ella.
+
+**PENDIENTE — el Codespace no se pudo probar** (no se usa): el desenredo del
+entorno solo se ejercita con un **rebuild del devcontainer desde cero**. Si
+algún día se levanta uno, verificar que instale PostgreSQL y no MariaDB, que
+NO compile `default-libmysqlclient-dev`, y que `scripts/codespace_setup.sh`
+salga con 0.
 
 **Sesión 22-jul-2026 (cierre): revisión de los commits del día — código
 muerto, tests faltantes, verificación, manual y medición.** Salieron cinco
