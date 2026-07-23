@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: bade44f4-ff2e-4eca-bcb9-12e503d58c7d
-  modified: 2026-07-22T18:20:09.636Z
+  modified: 2026-07-23T00:51:37.481Z
 ---
 
 El universo de prueba actual es de 500 activos, pero la app debe soportar
@@ -489,8 +489,43 @@ real:
   "Recalcular completo" (redefinir un indicador) o un alta masiva sin
   camino delta.
 
-**Pendiente:** aislar `recompute_current_indicators` en el mismo patrón
-(`profile_current_indicators.py` ya existe) para completar la proyección del
-rebuild total, y medir el overhead real de IPC/pickling del ProcessPool (el
-docstring de `profile_pool_batch.py` ya avisa que este número no lo incluye)
-corriendo la versión NO inline y comparando wall-clock.
+**CORRECCIÓN (mismo día): la conclusión de arriba ["el delta tiene margen,
+~140s a 10k"] estaba mal fundada — comparaba peras con manzanas.** Ese ~140s
+salía de dividir por 4 el backfill AISLADO de Codespace (0.0556 s/activo, sin
+`recompute_current_indicators`, sin overhead real de IPC/contención). Al medir
+`compute_current_indicators(quick=True)` sin profiler
+(`^GSPC`, activo con más historia — probable cota superior, no promedio):
+**64.88 ms/activo, 1 proceso, Codespace** (inflación de cProfile acá: solo
+1.26x — 81.9→64.88ms — mucho menor que el 3.7-4.2x del backfill, porque este
+camino es I/O-bound: ~35% del tiempo instrumentado es `psycopg.connection.wait`,
+tiempo de red real que cProfile no infla).
+
+Sumando los dos componentes Codespace (1 proceso, sin paralelismo real):
+backfill 0.0556 + current 0.0649 = **0.1205 s/activo**. Con 4 procesos
+ingenuo (÷4, asumiendo escalado perfecto): ~0.030 s/activo → ~301s a 10k.
+
+**Pero el dato real de producción (Railway, commit `00e61da`, corrida real
+que sí terminó) da 113s/499 activos = 0.2265 s/activo CON el ProcessPool de 4
+procesos YA puesto** — **7.5x más caro** que la extrapolación ingenua con
+paralelismo incluido. La brecha es el overhead real (contención de IPC/DB
+entre los 4 procesos, diferencia de hardware Codespace↔Railway, y que
+`^GSPC` —la serie más larga— probablemente sobreestima el costo promedio, o
+subestima si hay otro efecto en juego) que ningún cálculo de escritorio
+puede capturar. Ya se había visto esta trampa antes en esta misma nota
+(Parte 2: subir workers de cores+2 a cores+6 EMPEORÓ el delta por contención
+de I/O) — el error de hoy fue no aplicar esa lección al extrapolar.
+
+**Conclusión correcta, volviendo a confiar en el único número real que hay:**
+113s × (10000/499) ≈ **2265s — CRUZA el `--timeout 1800`, cerca de los
+~8.000 activos**. Esto es lo mismo que decía la primera estimación (antes de
+la medición de rebuild vs delta), y es más confiable que cualquier
+extrapolación bottom-up: **el delta diario NO está confirmado como seguro a
+10.000 activos**, no es solo el rebuild manual el que arriesga el timeout.
+
+**Pendiente, con esto en claro:** medir el overhead real de IPC/contención
+del ProcessPool directamente (correr `profile_pool_batch.py` en su modo NO
+inline, con spawn real, y comparar wall-clock contra la suma de componentes
+aislados) en vez de inferirlo — es la única forma de saber si el factor 7.5x
+es overhead de paralelismo, diferencia de hardware, o que `^GSPC` no es
+representativo. Sin esa medición, cualquier proyección a 10k (delta O
+rebuild) es una cota blanda, no un número para decidir sobre él.
