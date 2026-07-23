@@ -154,6 +154,12 @@ en la raíz del repo, extendiendo el paso de install en vez de reemplazarlo:
   "$schema": "https://schema.railpack.com",
   "steps": {
     "install": {
+      "inputs": [
+        "...",
+        { "local": true,
+          "include": ["requirements.txt", "requirements-postgres.txt",
+                      "requirements-mysql.txt"] }
+      ],
       "commands": [
         "...",
         "pip install -r requirements.txt -r requirements-${DB_ENGINE:-postgres}.txt"
@@ -163,27 +169,33 @@ en la raíz del repo, extendiendo el paso de install en vez de reemplazarlo:
 }
 ```
 
-Tres detalles que explican por qué está escrito así:
+Cuatro detalles que explican por qué está escrito así:
 
 - El `"..."` es la sintaxis de Railpack para **extender** un array en vez de
-  pisarlo: conserva el install por defecto y le suma el nuestro.
+  pisarlo: conserva lo que trae el paso por defecto y le suma lo nuestro. Sirve
+  tanto en `commands` como en `inputs`.
+- **`inputs` es la parte no obvia, y es lo que hizo fallar el primer intento.**
+  El paso de install NO ve todo el repo: Railpack le copia solo el manifiesto
+  de dependencias (`requirements.txt`) para poder cachear esa capa. Sin
+  declarar los archivos nuevos como entrada local, el comando corre en un
+  contexto donde `requirements-postgres.txt` **no existe** y pip aborta con
+  `Could not open requirements file`.
 - El comando igual instala `requirements.txt` **además** del driver, aunque el
-  paso por defecto ya lo haya hecho. Es deliberado: si el `"..."` no se
-  aplicara, este comando solo alcanza para dejar el entorno completo. Repetirlo
-  es casi gratis (pip ve todo satisfecho); quedarse corto sería una app sin
-  dependencias.
+  paso por defecto ya lo haya hecho. Es deliberado: si el `"..."` de `commands`
+  no se aplicara, este comando solo alcanza para dejar el entorno completo.
+  Repetirlo es casi gratis (pip ve todo satisfecho); quedarse corto sería una
+  app sin dependencias.
 - El fallback `:-postgres` hace que el build funcione aunque `DB_ENGINE` no
   esté definida. Conviene igual **definirla explícitamente** en las variables
   de los servicios `web` y `worker`, para que la elección de motor esté a la
   vista en un solo lugar.
 
-> **Pendiente de verificar en el primer deploy:** que la interpolación
-> `${DB_ENGINE:-postgres}` se expanda de verdad (depende de si Railpack corre
-> los comandos a través de un shell, cosa que no está documentada). Si no
-> expandiera, el build **falla** buscando un archivo con ese nombre literal —
-> y un build fallido no despliega, así que la versión anterior sigue corriendo.
-> El arreglo sería poner el nombre literal (`requirements-postgres.txt`) y
-> anotar que cambiar de motor toca esa línea.
+> **Verificado en el deploy del 23-jul:** Railpack corre los comandos por un
+> shell (`sh -c`), así que `${DB_ENGINE:-postgres}` **sí se expande** — el
+> primer build falló buscando `requirements-postgres.txt` ya interpolado, o sea
+> que el problema era el contexto de archivos, no la interpolación. Bien vale
+> recordar la propiedad que hizo barato el error: **un build fallido no
+> despliega**, así que la versión anterior siguió corriendo todo el tiempo.
 
 ### 3.2 Deploy inicial desde cero
 1. **Crear la base:** `+ New → Database → Add PostgreSQL`.

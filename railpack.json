@@ -2,6 +2,17 @@
   "$schema": "https://schema.railpack.com",
   "steps": {
     "install": {
+      "inputs": [
+        "...",
+        {
+          "local": true,
+          "include": [
+            "requirements.txt",
+            "requirements-postgres.txt",
+            "requirements-mysql.txt"
+          ]
+        }
+      ],
       "commands": [
         "...",
         "pip install -r requirements.txt -r requirements-${DB_ENGINE:-postgres}.txt"
