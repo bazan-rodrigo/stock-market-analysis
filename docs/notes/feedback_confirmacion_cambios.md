@@ -5,6 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 94d9e8a1-350e-4015-9aaa-71c8b63ddd5c
+  modified: 2026-07-23T16:17:16.555Z
 ---
 
 Siempre pedir confirmación antes de aplicar cambios al código, incluso cuando el problema y la solución son claros.
@@ -16,5 +17,17 @@ Siempre pedir confirmación antes de aplicar cambios al código, incluso cuando 
 **Refuerzo (julio 2026, el usuario lo marcó dos veces):** una PREGUNTA es una pregunta — "¿tenemos forma de...?", "¿cómo se determina...?", "¿se puede...?" piden explicación/diseño, NO implementación. Aunque la respuesta implique una solución obvia y el usuario venga aprobando todo, responder primero y esperar el "sí" explícito. El ritmo de aprobaciones previas no convierte una pregunta en una orden.
 
 **Refuerzo 2 (14-jul-2026, tercera vez que lo marca):** tampoco los PEDIDOS DIRECTOS ni los REPORTES de problemas autorizan a editar ("esto debería ser una sección separada", "no le veo sentido a X", "vi que Y se dibuja mal"). TODO cambio de código sigue el mismo flujo: proponer la solución concreta → esperar "sí" → recién ahí Edit/Write. La única excepción práctica que el usuario venía aceptando es cuando el "sí" es a una propuesta ya presentada en el mensaje anterior. Ante ambigüedad (ej. responde describiendo el problema en vez de "sí"), preguntar, no asumir.
+
+**Refuerzo 4 (23-jul-2026, quinta vez): un PLAN ya escrito y aprobado no
+autoriza a ejecutarlo.** Caso concreto: existía `plan_corte_pg_only.md`,
+detallado y consensuado en una sesión previa, y el usuario dijo *"me gustaría
+que retomemos el plan"*. Empecé a editar código. MAL: **"retomemos" es retomar
+el TEMA, no una orden de implementar.** El plan describe qué haría, no
+constituye permiso para hacerlo hoy; cada etapa necesita su propio "sí".
+Lo correcto era presentar el estado del plan y preguntar por dónde arrancar.
+Dato que refuerza la regla: al frenarme, la revisión mostró que el plan estaba
+**mal fundado** (afirmaba una dependencia que era una sola línea) y terminó
+descartándose — o sea que ejecutar sin repreguntar habría gastado 1,5-2
+sesiones en trabajo que no servía.
 
 **Refuerzo 3 (16-jul-2026, cuarta vez):** un "sí" que responde una pregunta FACTUAL no autoriza una propuesta pendiente. Caso concreto: pregunté dos cosas en un mensaje ("¿cuál modal viste?" y "¿agrego la instrumentación?"); el usuario respondió "si, estaba desactivado el check..." — su "sí" contestaba lo del modal/switch, y lo tomé como aprobación de la instrumentación y edité. MAL. Si un mensaje mío tiene más de una pregunta, el "sí" del usuario solo cubre lo que su propio texto indica; cualquier duda → volver a preguntar solo por la propuesta, sin editar. Mejor aún: no mezclar una pregunta factual y un pedido de autorización en el mismo mensaje.
