@@ -21,20 +21,25 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   pytest` (bash). El venv local ya tiene las deps (todas menos `mysqlclient` y
   `yfinance`, que no están en esta PC de desarrollo).
 - **Flujo de trabajo:** se edita en la PC local (Windows, **sin base de datos**)
-  → `git commit` + `git push` → `git pull` en el GitHub Codespace, donde corre la
-  app con **MariaDB** (`sudo service mariadb start`, no `mysql`) — o PostgreSQL
-  con `DB_ENGINE=postgres|both` en el setup (`sudo service postgresql start`).
-  Recordarle al usuario el `git pull` tras cada push.
+  → `git commit` + `git push` → la app corre en **Railway sobre PostgreSQL**.
+  El **Codespace ya no se usa** (jul-2026): la verificación contra la app viva
+  es directo en Railway, así que todo lo que toque la base real es *producción*
+  — no hay entorno intermedio descartable. Tenerlo en cuenta al proponer
+  scripts que escriban.
 - **`git push` actualiza DOS remotes a la vez** (bazan-rodrigo, rodrigoqw33).
   Si falla en uno, revisar el PAT de esa cuenta (`git remote -v`).
 - **Hook pre-push** (solo en la PC con la memoria de Claude): frena el push si
   `docs/notes/` quedó desfasado respecto de la memoria — es modo AVISO, no
   modifica nada; sincronizar es siempre una acción deliberada. Tras un re-clon,
   reinstalarlo: `cp scripts/git-hooks/pre-push .git/hooks/pre-push`. En
-  Codespace/Railway es un no-op (no hay memoria). Saltarlo: `--no-verify`.
-- **Verificación:** esta PC no levanta la app (sin MariaDB/yfinance). La red de
+  Railway es un no-op (no hay memoria). Saltarlo: `--no-verify`.
+- **Verificación:** esta PC no levanta la app (sin base/yfinance). La red de
   seguridad automatizada es pytest. Todo lo que toca la app viva (callbacks Dash,
-  migraciones, corridas reales) se prueba en el Codespace — dejarlo anotado.
+  migraciones, corridas reales) se prueba **en Railway, que es producción** —
+  dejarlo anotado como pendiente en `docs/notes/project_pendientes.md` en vez de
+  darlo por verificado. Los scripts de medición que ESCRIBEN (`profile_*.py` con
+  backfill real) corren contra esa misma base: tomar el `run_lock` como hace el
+  Centro de Datos, y avisar que es una corrida real.
 - **Soporte dual MySQL/PostgreSQL:** todo SQL con sabor a motor (upserts,
   quoting, TRUNCATE vs DELETE, retry de locks, information_schema) va por
   `app/services/db_compat.py` — nunca ramas por dialecto sueltas en los
@@ -175,4 +180,4 @@ fundamental_service; diseño en `docs/notes/project_processpool_particion_activo
   fórmula libre). El **soporte dual MySQL/PostgreSQL ya está** (Railway corre
   sobre PostgreSQL); el **ProcessPool ya está** — ambos salieron de "diferido".
 - **`docs/notes/project_pendientes.md`** tiene el detalle sesión por sesión y los
-  pasos de verificación pendientes en el Codespace.
+  pasos de verificación pendientes en Railway.

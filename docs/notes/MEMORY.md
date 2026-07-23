@@ -21,7 +21,8 @@
 - [Filtro de estrategias + roadmap indicadores](project_filtro_estrategias.md) — Filtro AND/OR + editor de señales + backfill delta, todo en vivo (12-jul); semántica as-of de indicadores; próximo natural: backtest por deciles; indicadores por plantilla diferido
 - [group_scores solo para grupos consumidos](project_group_scores_scope.md) — 13-jul (f5b396f): group_scores/group_signal_value se calculan solo para los grupos que una estrategia usa (derivado del filtro); pendiente verificar en Codespace
 - [Scores en días sin precio propio — SIN DECIDIR](project_scores_dias_sin_precio.md) — as-of arrastra scores a fechas no cotizadas; 2 alternativas guardadas (gate vs flag preliminar) en docs/notes/design_scores_dias_sin_precio.md, retomar
-- [Motor de base de datos: PostgreSQL](feedback_mariadb.md) — 22-jul: MariaDB YA NO SE USA; Railway y Codespace corren PostgreSQL (`sudo service postgresql start`)
+- [Entorno de verificación: SOLO Railway](feedback_entorno_verificacion.md) — 22-jul: el **Codespace ya no se usa**; verificar = producción, no hay entorno descartable; los `profile_*` que escriben deben tomar el `run_lock`
+- [Motor de base de datos: PostgreSQL](feedback_mariadb.md) — 22-jul: MariaDB YA NO SE USA; la única base es PostgreSQL en Railway
 - [Modal no se cierra si hay error al guardar](feedback_modal_on_error.md) — El modal ABM debe permanecer abierto en error; solo el callback de save cierra el modal (en éxito)
 - [Registro de pantallas nuevas](feedback_registro_pantallas.md) — Sin auto-discovery: _PAGES + _CALLBACKS en app/__init__.py + navbar; test_module_registration.py es la red
 - [Idioma de comunicación](feedback_language.md) — Responder siempre en español
