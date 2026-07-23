@@ -6,7 +6,7 @@ proyecto usa psycopg3, que en SQLAlchemy exige `postgresql+psycopg://`.
 """
 import pytest
 
-from app.config import _normalize_db_url, _validate_lock_timeout
+from app.config import _normalize_db_url, _resolve_db, _validate_lock_timeout
 from app.database import pg_connect_args
 
 
@@ -35,6 +35,74 @@ def test_mysql_no_se_toca():
 def test_sqlite_de_tests_no_se_toca():
     url = "sqlite:///.pytest-stub.db"
     assert _normalize_db_url(url) == url
+
+
+# ── El motor como elección de INSTALACIÓN ────────────────────────────────────
+#
+# El motor no es una propiedad del entorno: se elige al instalar con db_engine
+# y de ahí salen driver, puerto y usuario. database_url explícita gana (es lo
+# que usa Railway); si contradice al motor elegido, la app NO arranca.
+
+def _resolve(engine=None, url=None, **kw):
+    kw.setdefault("host", "h")
+    kw.setdefault("name", "db")
+    for k in ("port_opt", "user_opt", "password_opt"):
+        kw.setdefault(k, None)
+    return _resolve_db(engine, url, **kw)
+
+
+def test_solo_el_motor_deriva_driver_puerto_y_usuario():
+    assert _resolve(engine="postgres") == (
+        "postgres", "postgresql+psycopg://postgres:postgres@h:5432/db")
+    assert _resolve(engine="mysql") == (
+        "mysql", "mysql+mysqldb://root:@h:3306/db?charset=utf8mb4")
+
+
+def test_sin_nada_usa_el_motor_por_defecto():
+    engine, url = _resolve()
+    assert engine == "postgres" and url.startswith("postgresql+psycopg://")
+
+
+def test_solo_la_url_deduce_el_motor():
+    """No romper instalaciones que nunca definieron db_engine — el Railway de
+    hoy es exactamente ese caso: define DATABASE_URL y nada más."""
+    assert _resolve(url="postgres://u:p@h:5432/db") == (
+        "postgres", "postgresql+psycopg://u:p@h:5432/db")
+    assert _resolve(url="mysql+mysqldb://u:p@h:3306/db")[0] == "mysql"
+
+
+def test_la_url_explicita_gana_sobre_los_db_star():
+    _, url = _resolve(engine="postgres", url="postgres://u:p@otro:6000/x",
+                      port_opt="5432", user_opt="ignorado")
+    assert url == "postgresql+psycopg://u:p@otro:6000/x"
+
+
+def test_motor_y_url_contradictorios_no_arrancan():
+    """El caso que antes pasaba callado: instalabas un motor y la app corría
+    contra el otro, y el síntoma aparecía después como un error de driver."""
+    with pytest.raises(RuntimeError, match="incoherente"):
+        _resolve(engine="mysql", url="postgres://u:p@h/db")
+    with pytest.raises(RuntimeError, match="incoherente"):
+        _resolve(engine="postgres", url="mysql+mysqldb://u:p@h/db")
+
+
+def test_los_alias_del_motor_se_aceptan():
+    for alias in ("postgresql", "PG", " Postgres "):
+        assert _resolve(engine=alias)[0] == "postgres"
+    for alias in ("mariadb", "MySQL"):
+        assert _resolve(engine=alias)[0] == "mysql"
+
+
+def test_motor_desconocido_falla_nombrando_los_validos():
+    with pytest.raises(RuntimeError, match="db_engine inválido"):
+        _resolve(engine="oracle")
+
+
+def test_sqlite_no_dispara_el_chequeo_de_coherencia():
+    """El stub de la suite no es una instalación: convive con cualquier
+    db_engine sin que la app se niegue a arrancar."""
+    engine, url = _resolve(engine="mysql", url="sqlite:///.pytest-stub.db")
+    assert url == "sqlite:///.pytest-stub.db" and engine == "mysql"
 
 
 # ── lock_timeout: la precondición de que el retry de locks funcione ──────────
