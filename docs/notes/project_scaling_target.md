@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: bade44f4-ff2e-4eca-bcb9-12e503d58c7d
-  modified: 2026-07-23T00:51:37.481Z
+  modified: 2026-07-23T01:30:47.020Z
 ---
 
 El universo de prueba actual es de 500 activos, pero la app debe soportar
@@ -522,10 +522,45 @@ la medición de rebuild vs delta), y es más confiable que cualquier
 extrapolación bottom-up: **el delta diario NO está confirmado como seguro a
 10.000 activos**, no es solo el rebuild manual el que arriesga el timeout.
 
-**Pendiente, con esto en claro:** medir el overhead real de IPC/contención
-del ProcessPool directamente (correr `profile_pool_batch.py` en su modo NO
-inline, con spawn real, y comparar wall-clock contra la suma de componentes
-aislados) en vez de inferirlo — es la única forma de saber si el factor 7.5x
-es overhead de paralelismo, diferencia de hardware, o que `^GSPC` no es
-representativo. Sin esa medición, cualquier proyección a 10k (delta O
-rebuild) es una cota blanda, no un número para decidir sobre él.
+**MEDIDO al fin, y las DOS conclusiones anteriores eran malas** (`c791dde`,
+`scripts/profile_indicator_delta_real.py`: llama al entrypoint real
+`update_indicator_history()` con el ProcessPool REAL —spawn, pickling, Queue
+de progreso, contención de conexiones— y cronometra wall-clock):
+
+**52.715s / 499 activos = 105.64 ms/activo**, `use_procs=True, n_procs=4`,
+499/499 sin errores. Proyectado lineal a 10.000: **~1056s = 59% del
+presupuesto de 1800s — ENTRA**, con margen pero no holgado.
+
+O sea: ni `~140s` (extrapolación bottom-up ingenua) ni `~2265s` (extrapolar
+el 113s del log). **El error de fondo, en las dos:** el `113s` salió del log
+de una corrida en OTRO container de Railway, en otra sesión, con la app
+sirviendo tráfico y justo después de una descarga de precios. La propia
+Parte 3 de esta nota ya dice **"NO medir en Railway: contenedores efímeros
+con CPU asignada variable → comparar corridas de sesiones distintas es
+ruido"** — y se comparó igual. (Nota: esa regla se escribió cuando existía el
+Codespace como alternativa; desde jul-2026 **ya no hay otro entorno** —ver
+[[entorno-de-verificacion]]—, así que la mitigación posible es repetir la
+medición dentro de la MISMA sesión del container, no cambiar de máquina.)
+
+**EL HALLAZGO REAL, y es un lead abierto: el ProcessPool compra entre 1.0x y
+1.15x, no 4x.** Suma de componentes a 1 proceso: backfill delta 55.6 +
+current ≤64.9 (`^GSPC`, cota superior) ≈ **85-120 ms/activo**. Con 4 procesos
+medidos: **105.64**. Dos explicaciones que lo medido NO distingue:
+- **Overhead fijo de spawn** (4 hijos importando pandas+SQLAlchemy+la app
+  pueden costar 5-15s de los 52.7s): entonces el costo MARGINAL por activo es
+  bastante menor a 105ms y la proyección a 10k mejora (el fijo se amortiza).
+- **El pool no escala** (contención de conexiones/DB entre hijos): entonces
+  agregar procesos no ayuda y ~1056s es el número.
+
+**Siguiente medición, barata y decide entre las dos** (correr en la MISMA
+sesión del container, para que la CPU asignada sea la misma):
+`IND_POOL_PROCS=1 python scripts/profile_indicator_delta_real.py` →
+~120 ms/activo significa que el pool compra poco (lead = contención);
+~400 ms/activo significa que el pool sí funciona y el 105.64 está inflado por
+overhead fijo. Y repetir el de 4 procesos una segunda vez para tener una idea
+de la varianza entre corridas del mismo container.
+
+**El rebuild sigue siendo el riesgo mayor y NO está medido en el camino
+real:** inline a 1 proceso el backfill rebuild es 8.03x el delta (446.5 vs
+55.6 ms/activo). Medirlo exige `--rebuild` contra producción (borra y
+recalcula toda la historia) — no hacerlo a la ligera.
