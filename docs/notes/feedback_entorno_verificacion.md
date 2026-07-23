@@ -5,13 +5,19 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: ce2c92a6-5815-4c2c-b0c9-690aac8c1b76
-  modified: 2026-07-23T01:18:57.530Z
+  modified: 2026-07-23T01:44:39.197Z
 ---
 
 **El GitHub Codespace ya NO se usa.** Desde el 22-jul-2026 el usuario lo
 confirmó explícitamente: la única base y el único entorno donde corre la app
 es **Railway (PostgreSQL)**. No proponer `git pull` en el Codespace, ni
 `sudo service postgresql start`, ni "probalo en el Codespace primero".
+
+**Matiz importante (23-jul):** "no se usa" ≠ "se elimina". El usuario aclaró
+que **mantiene la posibilidad del Codespace a propósito**, igual que la de
+MySQL, "por cualquier cosa que pase en el futuro". O sea: no proponerlo como
+lugar donde verificar, pero **tampoco borrar su configuración** ni tratar el
+soporte como muerto. Ver [[feedback-mariadb]].
 
 **Why:** el usuario lo dijo directo ("ya te avisé que no uso más Codespace")
 después de que se le sugiriera correr ahí un script de medición. Antes el

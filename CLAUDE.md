@@ -40,11 +40,19 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   darlo por verificado. Los scripts de medición que ESCRIBEN (`profile_*.py` con
   backfill real) corren contra esa misma base: tomar el `run_lock` como hace el
   Centro de Datos, y avisar que es una corrida real.
-- **Soporte dual MySQL/PostgreSQL:** todo SQL con sabor a motor (upserts,
+- **Soporte dual MySQL/PostgreSQL — SE MANTIENE** (decisión del 23-jul-2026;
+  se evaluó cortarlo y se descartó, ver el encabezado de
+  `docs/notes/design_postgres_only.md`). El motor es una elección de
+  instalación y **las dos opciones se conservan**: no borrar ramas de MySQL por
+  inercia porque hoy se use PostgreSQL. Todo SQL con sabor a motor (upserts,
   quoting, TRUNCATE vs DELETE, retry de locks, information_schema) va por
   `app/services/db_compat.py` — nunca ramas por dialecto sueltas en los
   servicios, y PostgreSQL NUNCA cae al camino de sqlite/tests. La rama MySQL
   emite el SQL byte-idéntico al histórico (`tests/test_db_compat.py` lo fija).
+  Aviso honesto: la rama MySQL **no se ejercita hace semanas** (el refactor de
+  tablas anchas nunca corrió contra MariaDB), así que "soportado" hoy significa
+  que el código está, no que esté validado — revivirlo costaría una corrida de
+  verificación.
   Migraciones desde la 0076: **portables** (la cadena 0001–0075 quedó
   congelada solo-MySQL; `tests/test_bootstrap_portability.py` renderiza las
   nuevas offline contra ambos dialectos). Bases nuevas nacen con
@@ -83,10 +91,12 @@ poder retomar el proyecto sin la memoria de sesiones previas.
 ## Stack
 
 - Python + **Dash** (UI) + **Flask-Login** (auth con roles) + SQLAlchemy + **Alembic**.
-- Base: **MariaDB/MySQL** (prod: Linux + Apache2 + mod_wsgi, un solo proceso
-  WSGI) **o PostgreSQL** — soporte dual: el motor lo decide `DATABASE_URL`
-  (`mysql+mysqldb://` / `postgresql+psycopg://`). Estudio y estado por fase
-  en `docs/notes/design_postgresql_dual.md`.
+- Base: **PostgreSQL o MySQL/MariaDB** — el motor es una **elección de
+  instalación**, no una propiedad del entorno: se elige una vez y vale donde sea
+  que corra la app. Lo materializa `DATABASE_URL`
+  (`postgresql+psycopg://` / `mysql+mysqldb://`). **Hoy: Railway sobre
+  PostgreSQL** (deploy por `Procfile`, gunicorn 1 worker). Estudio y estado por
+  fase en `docs/notes/design_postgresql_dual.md`.
 - **APScheduler** en el proceso principal (sin cron externo) para tareas diarias.
 - Fuente de precios: **Yahoo Finance** (yfinance) — arquitectura extensible.
 - Config: `conf.properties` (INI) con prioridad a variables de entorno.
@@ -178,6 +188,12 @@ fundamental_service; diseño en `docs/notes/project_processpool_particion_activo
   **Carteras** (`/carteras`, reales y teóricas) también hecho.
 - Diferido: módulo de creación de indicadores por el usuario (plantillas, no
   fórmula libre). El **soporte dual MySQL/PostgreSQL ya está** (Railway corre
-  sobre PostgreSQL); el **ProcessPool ya está** — ambos salieron de "diferido".
+  sobre PostgreSQL) y **se mantiene**: retirarlo se evaluó a fondo el 22/23-jul
+  y se DESCARTÓ (ahorraba ~130 líneas de producción sobre 45.000, no aceleraba
+  nada y no habilitaba nada). El **ProcessPool ya está** — ambos salieron de
+  "diferido". Lo que sí queda pendiente de ese estudio es la **cosecha PG**
+  (COPY, CLUSTER, fillfactor, LATERAL), que se puede hacer **sin cortar nada**,
+  detrás del despacho de `db_compat` — sección 3 de
+  `docs/notes/design_postgres_only.md`.
 - **`docs/notes/project_pendientes.md`** tiene el detalle sesión por sesión y los
   pasos de verificación pendientes en Railway.

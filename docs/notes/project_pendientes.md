@@ -1,12 +1,49 @@
 ---
 name: pendientes-proxima-sesion
-description: Log de pendientes sesión por sesión (más reciente arriba); al 22-jul-2026, revisión de cierre de la sesión (código muerto, tests y docs faltantes) hecha, corridas del Centro de Datos arregladas y corte a PostgreSQL-only etapa A hecha con etapa 0 pendiente en Railway
+description: Log de pendientes sesión por sesión (más reciente arriba); al 23-jul-2026, el corte a PostgreSQL-only quedó DESCARTADO (el dual se mantiene) y sigue pendiente la etapa 0 en Railway
 metadata: 
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-23T01:37:24.415Z
+  modified: 2026-07-23T01:45:08.338Z
 ---
+
+**Sesión 23-jul-2026: el corte a PostgreSQL-only quedó DESCARTADO — el
+soporte dual SE MANTIENE.** Detalle en [[project-postgres-only-estudio]].
+
+Se retomó el plan y se alcanzó a hacer la etapa B1 (reescribir los fixtures de
+reintento de errno de MySQL a SQLSTATE de PG); **se revirtió sin commitear**.
+Dos motivos, uno técnico y uno de proceso:
+
+- *Técnico:* el plan afirmaba que la etapa C dependía de la B. Verificado
+  contra el código, esa dependencia es **una sola línea** — el `parametrize`
+  de `tests/test_bootstrap_portability.py` que renderiza contra `mysql://`.
+  Ni C ni D (donde está toda la performance) necesitaban el corte. Sin esa
+  dependencia quedaban ~130 líneas de código de producción sobre 45.000, a
+  cambio de 1,5-2 sesiones y del riesgo de `signal_backfill_range.py:636`.
+  Y hacer B1 lo confirmó en la práctica: seis archivos tocados, cero cambio
+  de comportamiento — los tests probaban el reintento, el errno era el
+  disfraz.
+- *De proceso:* empecé a editar sin proponer y sin esperar el "sí". El
+  usuario frenó la sesión. La convención sigue firme: **"retomemos el plan"
+  es retomar el tema, no una orden de escribir código.**
+
+**Decisión del usuario:** el motor es una **elección de instalación** (MySQL o
+PostgreSQL), independiente del entorno, y **las dos opciones se mantienen** —
+hoy Railway+PostgreSQL, pero la posibilidad de MySQL y de Codespace se conserva
+para el futuro. Corolario suyo: **no está bien que se instalen los dos motores
+si solo se va a usar uno** (hoy `DB_ENGINE=both` levanta ambos y
+`requirements.txt` trae los dos drivers: Railway compila `mysqlclient` para
+nunca usarlo).
+
+**PENDIENTE, propuesto y NO empezado — desenredar el motor del entorno:**
+`DB_ENGINE` como única elección válida en cualquier entorno (hoy
+`devcontainer.json` fija `mysql` y Railway lo deduce de `DATABASE_URL`),
+drivers separados por motor (`requirements-mysql.txt` /
+`requirements-postgres.txt`), y `both` deja de ser modo de instalación.
+**Detalle a resolver primero:** Railway autodetecta `requirements.txt`, así que
+hay que ver si el archivo a instalar se puede declarar en un archivo del repo o
+si obliga a tocar el panel de Railway.
 
 **Sesión 22-jul-2026 (cierre): revisión de los commits del día — código
 muerto, tests faltantes, verificación, manual y medición.** Salieron cinco

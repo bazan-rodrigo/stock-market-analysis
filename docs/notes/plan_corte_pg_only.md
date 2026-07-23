@@ -1,14 +1,40 @@
 # Plan de corte a PostgreSQL-only — checklist ejecutable
 
-> Plan del 22-jul-2026, derivado de `design_postgres_only.md` (el estudio) tras
-> confirmar el usuario que **la instalación MariaDB ya no se usa: la única base
-> es PostgreSQL en Railway**. Verificado archivo por archivo contra el código
-> por una corrida multi-agente (inventario por área + dry-run de la suite +
-> revisión adversarial de qué NO cortar).
+> # ⛔ NO EJECUTAR — DECISIÓN REVERTIDA (23-jul-2026)
 >
-> **ESTADO: etapa A HECHA (22-jul, commits d75d7d2 + el de esta revisión).**
-> Etapa 0 pendiente (es consola en Railway, no código). Etapas B, C y D sin
-> empezar; cada una es una sesión de trabajo con confirmación previa.
+> **El soporte dual SE MANTIENE. Las etapas B, C y D de este plan quedaron
+> DESCARTADAS y no deben ejecutarse.** Si estás leyendo esto en una sesión
+> nueva: no empieces a borrar ramas de MySQL.
+>
+> El usuario decidió que **el motor de base de datos es una elección de
+> instalación** (MySQL o PostgreSQL), independiente del entorno donde corra la
+> app, y que las dos opciones se mantienen disponibles. Hoy usa Railway con
+> PostgreSQL y no tiene motivos para cambiar, pero la posibilidad de MySQL y de
+> Codespace se conserva a propósito.
+>
+> **Lo único que sobrevive de este plan es la etapa A, que YA ESTÁ HECHA**
+> (commits `d75d7d2` y `3cbdace`): eran bugs vivos —la red de reintentos inerte
+> sin `lock_timeout`, el login no determinista, la unicidad de usuario sin
+> distinguir mayúsculas— y sus arreglos sirven en ambos motores, así que quedan.
+> La **etapa 0** (precondiciones en Railway) sigue pendiente y sigue valiendo:
+> ver `project_pendientes.md`.
+>
+> Por qué se revirtió, en una línea: el corte ahorraba ~130 líneas de código de
+> producción sobre 45.000, no aceleraba nada, y **no habilitaba nada** — la
+> dependencia B→C que este plan afirmaba resultó ser una sola línea
+> (el `parametrize` de `tests/test_bootstrap_portability.py`). El análisis
+> completo está en `design_postgres_only.md`.
+>
+> Se conserva el documento porque su inventario —qué toca a qué, qué es trampa
+> viva y qué rama inerte, qué NO hay que borrar nunca— sigue siendo el mapa más
+> preciso del acoplamiento por motor que tiene el repo.
+
+---
+
+> Plan del 22-jul-2026, derivado de `design_postgres_only.md` (el estudio) tras
+> confirmar el usuario que la instalación MariaDB ya no se usaba. Verificado
+> archivo por archivo contra el código por una corrida multi-agente (inventario
+> por área + dry-run de la suite + revisión adversarial de qué NO cortar).
 >
 > La etapa A se revisó después con una corrida adversarial (4 revisores por
 > dimensión + un escéptico por hallazgo, 30 hallazgos). Sobrevivieron 3 sobre

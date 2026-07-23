@@ -1,5 +1,33 @@
 # PostgreSQL-only: qué se gana y qué se pierde al retirar el soporte dual
 
+> # ⛔ DECISIÓN FINAL: NO SE CORTA (23-jul-2026)
+>
+> **El soporte dual se mantiene.** El plan de corte
+> (`plan_corte_pg_only.md`) quedó descartado salvo su etapa A, ya hecha.
+>
+> El usuario decidió que **el motor es una elección de instalación** —MySQL o
+> PostgreSQL, elegida una vez y válida en cualquier entorno— y que ambas
+> opciones se conservan. Hoy usa Railway con PostgreSQL; la posibilidad de
+> MySQL y de Codespace se mantiene deliberadamente abierta para el futuro.
+>
+> **Lo que el estudio erró, y conviene recordar:** afirmaba que la etapa C
+> dependía de la B. Verificado después contra el código, esa dependencia es
+> **una sola línea** — el `parametrize` de `tests/test_bootstrap_portability.py`
+> que renderiza las migraciones contra `mysql://`. Ni la etapa C ni la D (donde
+> está toda la performance) necesitaban el corte. Sin esa dependencia, lo único
+> que quedaba del lado del haber eran ~130 líneas de código de producción sobre
+> 45.000, a cambio de 1,5-2 sesiones y del riesgo concentrado en
+> `signal_backfill_range.py:636`, que la suite no puede ver.
+>
+> **Lo que sigue siendo válido de este documento:** el inventario de features
+> PG mapeadas a call sites reales (sección 3) es el insumo de la etapa D, que
+> se puede hacer **sin cortar nada**, detrás del despacho que `db_compat` ya
+> tiene. Y la sección 4 (pérdidas y riesgos) sigue siendo el registro de qué
+> mide peor PostgreSQL que MySQL en este proyecto.
+>
+> Cuarta y última revisión del veredicto. Las cuatro convergieron: **el corte
+> valía menos cada vez que se lo miró más de cerca.**
+
 > Estudio del 22-jul-2026. Pregunta del usuario: *cuánto ganaríamos si quitamos
 > el soporte dual y nos quedamos solo con PostgreSQL — beneficio, pérdida, y qué
 > funcionalidades se beneficiarían de features que PG tiene y otros motores no.*
