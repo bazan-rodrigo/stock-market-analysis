@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-23T14:30:28.873Z
+  modified: 2026-07-23T16:10:32.706Z
 ---
 
 **Sesión 23-jul-2026: el corte a PostgreSQL-only quedó DESCARTADO — el
@@ -53,9 +53,11 @@ La trampa era otra: **el paso de install no ve todo el repo** —Railpack le cop
 solo `requirements.txt` para cachear la capa—, así que los archivos nuevos hay
 que declararlos con `"inputs": ["...", {"local": true, "include": [...]}]`.
 Un build fallido **no despliega**: la versión anterior siguió corriendo.
-**Falta confirmar que el build siguiente termine OK y que la app levante.**
-Conviene además definir `DB_ENGINE=postgres` en las variables de `web` y
-`worker`, aunque el fallback ande sin ella.
+**El deploy siguiente salió OK (confirmado por el usuario), así que el arco
+del desenredo está cerrado y verificado en producción.**
+Conviene igual definir `DB_ENGINE=postgres` en las variables de `web` y
+`worker`: el fallback anda sin ella, pero deja la elección de motor a la vista
+en un solo lugar en vez de implícita en un default.
 
 **PENDIENTE — el Codespace no se pudo probar** (no se usa): el desenredo del
 entorno solo se ejercita con un **rebuild del devcontainer desde cero**. Si
@@ -205,10 +207,13 @@ parece un bug que no existe (pasó el 22-jul).
 **PENDIENTE CODESPACE (etapa A), lo que queda:** login con el usuario en otro
 caso; crear un usuario que difiera solo en mayúsculas → mensaje en castellano
 con el modal ABIERTO.
-**SIGUIENTE:** etapa B (el corte, 7-8 commits, 1,5-2 sesiones) → C (esquema:
-`prices` sin `id`, índice único sobre `LOWER(username)`, FKs de `ind_*`) →
-D (cosecha medida: COPY, CLUSTER, fillfactor, LATERAL, UNLOGGED). **Ojo: el
-corte NO acelera nada por sí solo; la performance está en D.**
+~~**SIGUIENTE:** etapa B (el corte) → C (esquema) → D (cosecha).~~
+⛔ **OBSOLETO — leer la entrada del 23-jul:** el corte (etapa B) quedó
+**DESCARTADO** y el soporte dual se mantiene. De ese plan sobreviven la etapa 0
+(los dos puntos de acá arriba) y la **cosecha PG** —COPY, CLUSTER, fillfactor,
+LATERAL— que **no exige cortar nada**: va detrás del despacho de `db_compat`.
+La etapa C (índice único sobre `LOWER(username)`, `prices` sin `id`) queda como
+opcional y por sus propios méritos, no como paso de un corte.
 
 **PENDIENTE DE SEGURIDAD (fuera del plan):** los dos remotes tienen el token
 de GitHub embebido en texto plano en la URL (`https://ghp_...@github.com/...`),
