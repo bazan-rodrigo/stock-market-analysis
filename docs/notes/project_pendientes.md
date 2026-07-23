@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-22T16:47:25.150Z
+  modified: 2026-07-23T01:37:24.415Z
 ---
 
 **Sesión 22-jul-2026 (cierre): revisión de los commits del día — código
@@ -29,13 +29,17 @@ fundamental del invariante de sesión cerrada (`tests/test_fundamental_bulk_
 download.py`, nuevo). Para testear el login sin levantar Flask se extrajo la
 resolución de `/do-login` a `reference_service.resolve_login_user`.
 
-*PENDIENTE EN RAILWAY (nuevo, sale del bug del flush ancho):* el arreglo
-evita escribir metadatos inventados de ahora en más, **pero no repara los ya
-escritos**. El camino de error no-lock existía desde antes del lock_timeout,
-así que puede haber `ind_asset_meta` apuntando a filas que no existen →
-huecos que el delta nunca rellena porque toma tail-mode. Correr
-**"Reconciliar metadatos"** (`reconcile_ind_asset_meta`, Centro de Datos) y
-después una verificación de datos. Ojo también: si Railway ya tiene un par
+*Remediación del bug del flush ancho — **"Recalcular caché" YA SE CORRIÓ en
+Railway (22-jul)**.* El arreglo del código evita escribir metadatos
+inventados de ahora en más pero **no reparaba los ya escritos** (el camino de
+error no-lock existía desde antes del lock_timeout), así que podía haber
+`ind_asset_meta` apuntando a filas que no existen → huecos que el delta nunca
+rellena porque toma tail-mode. El botón "Recalcular caché"
+(`reconcile_ind_asset_meta`, Centro de Datos → Indicadores técnicos) reconstruye
+min/max/row_count desde un full-scan real y BORRA checksum/benchmark en vez de
+adivinarlos, así que el próximo delta recalcula por el camino lento lo que haga
+falta. **Queda pendiente la verificación de datos** para confirmar que no
+quedaron huecos. Ojo también: si Railway ya tiene un par
 `Ana`/`ana`, con el código nuevo **editar cualquiera de los dos falla** con el
 mensaje de duplicado (el `excluir_id` salva al propio, el otro sigue
 chocando) — resolver el duplicado primero. Y el `remove()` de
