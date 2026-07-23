@@ -19,6 +19,10 @@ ROOT = Path(__file__).resolve().parent.parent
 # carteras porque el registro de operaciones no se recrea solo.
 _MUST_NEVER_WIPE = {
     "assets", "prices", "price_sources",
+    # Crudo bajado de la fuente (no ratios) e insumo de ind_fundamental_*: se
+    # borraba hasta jul-2026 y una redescarga NO lo restituye — Yahoo sirve
+    # una ventana corta de trimestres. Ver el comentario en _LEAF_TABLES.
+    "fundamental_quarterly",
     "sectors", "industries", "markets", "countries", "currencies",
     "instrument_types", "catalog_aliases_backup",
     "indicator_definitions", "signal", "strategy", "strategy_component",
@@ -134,12 +138,15 @@ def test_clean_data_vacia_lo_derivado_y_respeta_lo_curado(tmp_path):
     # curadas: tienen que sobrevivir
     sa.Table("assets", md, sa.Column("id", sa.Integer, primary_key=True))
     sa.Table("prices", md, sa.Column("id", sa.Integer, primary_key=True))
+    sa.Table("fundamental_quarterly", md,
+             sa.Column("id", sa.Integer, primary_key=True))
     md.create_all(engine)
 
     with engine.begin() as conn:
         for name in ("ind_aapl", "sig_1", "strat_res_1", "group_scores",
                      "import_log", "run_lock", "portfolio_run_point",
-                     "portfolio_run", "assets", "prices"):
+                     "portfolio_run", "assets", "prices",
+                     "fundamental_quarterly"):
             conn.execute(sa.text(f"INSERT INTO {name} (id) VALUES (1)"))
 
     res = cs.clean_data(bind=engine)
@@ -154,6 +161,7 @@ def test_clean_data_vacia_lo_derivado_y_respeta_lo_curado(tmp_path):
             assert count(name) == 0, f"{name} debería haber quedado vacía"
         assert count("assets") == 1
         assert count("prices") == 1
+        assert count("fundamental_quarterly") == 1
 
     assert "portfolio_run" in res["tables"]
 

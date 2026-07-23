@@ -45,17 +45,21 @@ Es una operación segura de repetir: en el peor caso no recupera nada.
 > Leé esta sección entera antes de apretar el botón.
 
 Borra todo lo que el sistema **calcula** —indicadores, señales, resultados de
-estrategias, datos fundamentales—, las corridas guardadas de backtest y de
+estrategias, ratios fundamentales—, las corridas guardadas de backtest y de
 cartera, y además los eventos de mercado, los aliases del catálogo y los
 registros de corridas, que no se calculan pero se pueden volver a descargar o
 importar. La pantalla lista en detalle qué se borra y qué se conserva —esa
 lista es la fuente autorizada, mirala antes de ejecutar.
 
+No toca los datos que se bajaron de la fuente: ni las cotizaciones ni los
+balances trimestrales de las empresas. Esos son la materia prima con la que se
+vuelve a calcular todo lo demás.
+
 La distinción que importa es entre lo que se puede regenerar y lo que no:
 
 | | ¿Se recupera? |
 |---|---|
-| Indicadores, señales, estrategias, fundamentales | **Sí.** Se regeneran con los botones de recálculo completo del [Centro de Datos](/manual/centro-de-datos), aunque tarda. |
+| Indicadores, señales, estrategias, ratios fundamentales | **Sí.** Se regeneran con los botones de recálculo completo del [Centro de Datos](/manual/centro-de-datos), aunque tarda. |
 | Corridas guardadas de backtest y de cartera | **No.** Hay que volver a correrlas, y una corrida vieja no se puede reproducir exactamente si cambiaron los datos. |
 
 Esa segunda fila es la que suele doler. Si tenés corridas guardadas que te
@@ -76,8 +80,9 @@ resuelve la mayoría de los casos sin borrar nada.
 
 ### Después de limpiar
 
-El sistema queda con los activos, los precios, las definiciones, las carteras
-con su registro de operaciones y los usuarios, pero sin nada calculado: las
+El sistema queda con los activos, los precios, los balances trimestrales, las
+definiciones, las carteras con su registro de operaciones y los usuarios, pero
+sin nada calculado: las
 pantallas de análisis van a aparecer vacías hasta que regeneres.
 El orden de reconstrucción está en el
 [Centro de Datos](/manual/centro-de-datos). Contá con que un recálculo completo

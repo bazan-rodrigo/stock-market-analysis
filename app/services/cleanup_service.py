@@ -8,16 +8,17 @@ huérfanas ~45 tablas relacionadas a activos (jul-2026). Cualquier tabla nueva
 se agrega ACÁ y las dos entradas quedan al día.
 
 Qué borra (todo 100% recomputable desde lo que queda — assets + prices +
-fórmulas de sintéticos — vía los botones "Recalcular completo" del Centro de
-Datos), y los snapshots de backtest/cartera, que NO se recomputan pero se
-borran por decisión de producto: la limpieza deja la base sin datos operativos.
+fundamental_quarterly + fórmulas de sintéticos — vía los botones "Recalcular
+completo" del Centro de Datos), y los snapshots de backtest/cartera, que NO se
+recomputan pero se borran por decisión de producto: la limpieza deja la base sin
+datos operativos.
 
 Qué NO borra, nunca: activos, precios, fuentes, catálogos, definiciones
 (indicadores/señales/estrategias), configuración (*_config, scheduler),
-fórmulas de sintéticos, divisores de conversión, usuarios y
-—lo más irreemplazable— las carteras con su registro de operaciones
-(portfolio / portfolio_member / portfolio_transaction), que son datos
-cargados a mano y no se recrean solos.
+fórmulas de sintéticos, divisores de conversión, usuarios, los estados
+contables trimestrales (ver abajo) y —lo más irreemplazable— las carteras con
+su registro de operaciones (portfolio / portfolio_member /
+portfolio_transaction), que son datos cargados a mano y no se recrean solos.
 """
 import logging
 
@@ -39,8 +40,17 @@ _DYNAMIC_PREFIXES = ("ind_", "sig_", "strat_res_")
 # tocar el chequeo de FKs.
 _LEAF_TABLES = [
     # ── Indicadores y fundamentales (derivados) ──
+    # OJO: `fundamental_quarterly` NO va acá. Estuvo hasta jul-2026 por un
+    # error de clasificación: son estados contables CRUDOS bajados de la
+    # fuente (fundamental_service._fetch → source.fetch_quarterly), no ratios
+    # calculados, y encima son el INSUMO del recálculo — `_load_all_quarters`
+    # lee de ahí para producir ind_fundamental_*. Borrarlos dejaba a
+    # "Recalcular completo" sin materia prima. Y no se recuperan con una
+    # redescarga: Yahoo sirve una ventana corta de trimestres (~4-5) y la
+    # historia larga se acumula upsert a upsert con el correr de las corridas.
+    # Por el propio criterio de este módulo, califican MÁS que `prices` para
+    # conservarse.
     "current_indicator_values",
-    "fundamental_quarterly",
     # ── Señales y estrategias (derivados) ──
     "group_scores",
     "group_signal_value",
@@ -84,7 +94,6 @@ TABLES_INFO = [
     ("sig_* / strat_res_*",       "Valores de señales y rankings de estrategias"),
     ("group_scores / group_signal_value",
      "Agregados y señales por grupo"),
-    ("fundamental_quarterly",     "Ratios fundamentales trimestrales"),
     ("backtest_run / portfolio_run",
      "Corridas guardadas de backtest y de cartera"),
     ("market_event",              "Eventos de mercado"),
@@ -100,6 +109,7 @@ TABLES_INFO = [
 # del mensaje es tan importante como la lista de arriba.
 PRESERVED_INFO = [
     "Activos, precios y fuentes de precio",
+    "Estados contables trimestrales descargados de la fuente",
     "Catálogos (sectores, industrias, mercados, países, monedas, tipos)",
     "Definiciones de indicadores, señales y estrategias",
     "Fórmulas de sintéticos y divisores de conversión",
