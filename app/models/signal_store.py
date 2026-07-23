@@ -62,12 +62,15 @@ def _build(name: str) -> Table:
     with _meta_lock:
         if name in _meta.tables:
             return _meta.tables[name]
+        # Float(precision=24) = precisión simple (REAL/4 B en PostgreSQL, FLOAT
+        # en MySQL — neutral al motor, ver signal_store en 0088). score vive en
+        # -100..100 y pct en 0..100: float4 (~7 dígitos) los cubre de sobra.
         if _SIG_RE.match(name):
             return Table(
                 name, _meta,
                 Column("asset_id", Integer, nullable=False),
                 Column("date",     Date,    nullable=False),
-                Column("score",    Float,   nullable=False),
+                Column("score",    Float(precision=24), nullable=False),
                 PrimaryKeyConstraint("date", "asset_id"),
                 Index(f"ix_{name}_asset_date", "asset_id", "date"),
             )
@@ -76,10 +79,10 @@ def _build(name: str) -> Table:
                 name, _meta,
                 Column("asset_id", Integer, nullable=False),
                 Column("date",     Date,    nullable=False),
-                Column("score",    Float),
+                Column("score",    Float(precision=24)),
                 # Percentil 0..100 del score en la cross-section de la fecha
                 # (ver strategy_service.percent_ranks / migración 0071)
-                Column("pct",      Float),
+                Column("pct",      Float(precision=24)),
                 PrimaryKeyConstraint("date", "asset_id"),
                 Index(f"ix_{name}_asset_date", "asset_id", "date"),
             )

@@ -222,7 +222,13 @@ def ensure_wide_ind_tables(bind=None) -> None:
             Column("date", Date, nullable=False),
         ]
         for code in _WIDE_CADENCE_COLUMNS[cadence]:
-            ctype = String(50) if code in _WIDE_STR_CODES else Float
+            # Float(precision=24) = precisión simple: en PostgreSQL materializa
+            # REAL (4 B) en vez de double precision (8 B) — la mitad del footprint
+            # numérico. En MySQL FLOAT(24) es idéntico al FLOAT histórico (ya 4 B):
+            # neutral al motor. Ver migración 0087 (ALTER de bases existentes) y
+            # docs/notes/design_ind_wide_tables.md. Los valores (RSI, distancias %,
+            # retornos, percentiles) tienen 2-4 dígitos útiles; float4 da ~7.
+            ctype = String(50) if code in _WIDE_STR_CODES else Float(precision=24)
             cols.append(Column(code, ctype, nullable=True))
         t = Table(
             table_name, tmp, *cols,
