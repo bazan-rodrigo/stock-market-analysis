@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: bade44f4-ff2e-4eca-bcb9-12e503d58c7d
-  modified: 2026-07-23T01:30:47.020Z
+  modified: 2026-07-23T02:19:33.583Z
 ---
 
 El universo de prueba actual es de 500 activos, pero la app debe soportar
@@ -552,15 +552,60 @@ medidos: **105.64**. Dos explicaciones que lo medido NO distingue:
 - **El pool no escala** (contención de conexiones/DB entre hijos): entonces
   agregar procesos no ayuda y ~1056s es el número.
 
-**Siguiente medición, barata y decide entre las dos** (correr en la MISMA
-sesión del container, para que la CPU asignada sea la misma):
-`IND_POOL_PROCS=1 python scripts/profile_indicator_delta_real.py` →
-~120 ms/activo significa que el pool compra poco (lead = contención);
-~400 ms/activo significa que el pool sí funciona y el 105.64 está inflado por
-overhead fijo. Y repetir el de 4 procesos una segunda vez para tener una idea
-de la varianza entre corridas del mismo container.
+**RESUELTO: gana la (a), y el "el pool compra 1.0-1.15x" de arriba era
+FALSO.** `scripts/bench_ind_pool_procs.py` (`4b4d16f`) barre las configs en
+el MISMO proceso —contra la deriva de container, que ya había arruinado una
+comparación— y con calentamiento previo y repetición de control:
+
+| procesos | total (499 act) | ms/activo | vs threads |
+|---|---|---|---|
+| threads | 166.55s | 333.77 | 1.00x |
+| 2 | 90.72s | 181.81 | 1.84x |
+| 4 | 52.71s | **105.63** | **3.16x** |
+| 6 | 46.51s | 93.20 | 3.58x |
+
+Deriva del control (2 procs repetido al final): **1.2%** → el container se
+mantuvo estable, la tanda es utilizable. El 105.63 reproduce clavado el
+105.64 de la medición anterior, en otro container: ese número es sólido.
+
+**DE DÓNDE SALIÓ EL ERROR (tercera vez en la misma sesión, mismo patrón):**
+se comparó el 4-procesos medido contra un "1 proceso" de 85-120 ms/activo
+ARMADO SUMANDO MEDICIONES AISLADAS (backfill inline 55.6 + current sobre
+`^GSPC` 64.9). El 1-proceso REAL es **333.77** ms/activo. Las mediciones
+aisladas excluían todo el setup y la orquestación que la corrida real sí paga
+(`_load_all_prices`, resamples W/M, `_precompute_all_tail_stats`, batching,
+escrituras). **Las partes aisladas NO suman el todo** — es la misma lección
+que las Partes 3 y 4 ya documentan ("el micro-benchmark sintético mintió por
+10x"), aplicada ahora al revés: el sintético subestimó el TODO en 2.8x.
+Regla operativa que sale de esto: **un baseline compuesto a mano no es un
+baseline**; si se va a comparar contra "sin la optimización", hay que MEDIR
+ese camino, no reconstruirlo sumando piezas.
+
+**Ajuste de Amdahl** sobre los puntos de 2 y 4 procesos: **S ≈ 14.7s serial +
+P ≈ 152s paralelizable** a 499 activos. El punto de 6 llega 6.5s POR ENCIMA
+de lo que predice el modelo (40.0 predicho vs 46.51 real) → cada hijo extra
+trae su propio costo de spawn/imports, que es exactamente la hipótesis (a).
+
+**Proyección a 10.000 activos con 4 procesos — un rango, no un número:**
+- **lineal sobre el total: ~1056s** (59% del presupuesto de 1800s)
+- **descomponiendo Amdahl, si la parte serial NO creciera: ~775s** (43%)
+
+La verdad está en el medio porque la parte serial tiene de las dos: el spawn
+es fijo y se amortiza, pero `_precompute_all_tail_stats` son full-scans que
+**crecen con el tamaño de las tablas** — la Parte 2 de esta misma nota ya lo
+marcó como el cuello que volvería a aparecer a 10.000, y ahí sigue. Para
+separarlos hay que medir con OTRO tamaño de universo (misma sesión), no con
+más procesos.
+
+**Decisión sobre n_procs: quedarse en 4.** Subir a 6 compra 12% (52.71 →
+46.51) y Railway lo aguanta (8 vCPU, `max_connections=500`), pero el
+rendimiento decreciente ya es claro (2→4 = 1.72x; 4→6 = 1.13x) y el cuello a
+10.000 no va a ser la cantidad de procesos sino la parte serial. Gastar
+memoria y conexiones por ese 12% no paga.
 
 **El rebuild sigue siendo el riesgo mayor y NO está medido en el camino
 real:** inline a 1 proceso el backfill rebuild es 8.03x el delta (446.5 vs
-55.6 ms/activo). Medirlo exige `--rebuild` contra producción (borra y
-recalcula toda la historia) — no hacerlo a la ligera.
+55.6 ms/activo) — pero OJO, ese 8.03x sale de dos mediciones inline, y acabamos
+de aprender que lo inline subestima el total 2.8x; el múltiplo real entre
+rebuild y delta por el camino completo NO se conoce. Medirlo exige `--rebuild`
+contra producción (borra y recalcula toda la historia) — no hacerlo a la ligera.
