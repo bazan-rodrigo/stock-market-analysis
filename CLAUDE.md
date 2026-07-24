@@ -26,8 +26,9 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   es directo en Railway, así que todo lo que toque la base real es *producción*
   — no hay entorno intermedio descartable. Tenerlo en cuenta al proponer
   scripts que escriban.
-- **`git push` actualiza DOS remotes a la vez** (bazan-rodrigo, rodrigoqw33).
-  Si falla en uno, revisar el PAT de esa cuenta (`git remote -v`).
+- **`git push` va solo a bazan-rodrigo** (jul-2026: se sacó el segundo
+  `pushurl` de rodrigoqw33). Para reactivar el push doble:
+  `git remote set-url --add --push origin <url-rodrigoqw33>`.
 - **Hook pre-push** (solo en la PC con la memoria de Claude): frena el push si
   `docs/notes/` quedó desfasado respecto de la memoria — es modo AVISO, no
   modifica nada; sincronizar es siempre una acción deliberada. Tras un re-clon,
