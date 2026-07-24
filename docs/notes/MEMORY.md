@@ -1,6 +1,6 @@
 # Memoria del proyecto
 
-- [Reducción de footprint en disco](project_reduccion_footprint.md) — 23-jul: base 2,5 GB sin bloat (Señales 48%). **#2 float4 indicadores MEDIDO −148 MB** (0087); **#1 prices.id → PK compuesta HECHO, 97 MB de índice muerto medido** (0089, dual-safe); **#4 float4 en sig_* NO rinde** (padding MAXALIGN de PG); migraciones 0087/0088/0089 + 922 tests. **PENDIENTE Railway:** aplicar las 3 + `REINDEX CONCURRENTLY uq_asset_date` (~65 MB) + medir. #3/#5/#6 pausados
+- [Reducción de footprint en disco](project_reduccion_footprint.md) — 23-jul: **RONDA 1 CERRADA y MEDIDA en Railway: 2,5 → 2,3 GB.** #2 float4 indicadores (−148, 0087); #1 prices.id→PK compuesta (−169 en prices: 97 índice muerto + 72 recompactar, 0089 dual-safe); #4 float4 en sig_* NO rinde (padding MAXALIGN de PG). Las señales (1,2 GB, 50%) intactas → solo #5/#6 (pausados). Falta verificar 1 día de scores (float4)
 
 - [Corridas del Centro de Datos en el proceso web](project_corridas_proceso_web.md) — 22-jul (00e61da): gunicorn `--timeout 120` mataba las corridas largas sin dejar error; subido a 1800 y **VERIFICADO en Railway** (redescarga global de 3,36M filas completó, y autovacuum corriendo sobre `prices` durante la corrida = el xmin horizon ya no queda fijado). Railway real: 8 vCPU / 8 GB, `max_connections=500`. ProcessPool CONFIRMADO activo (`(True, 4)`); migrar a worker.py queda DIFERIDO — el `--timeout 1800` es un parche que vuelve a apretar hacia los 10.000 activos, y el arreglo real es un proyecto (progreso en memoria, miles de llamados por corrida)
 

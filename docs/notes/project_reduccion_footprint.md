@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 34095024-3657-4b9e-9d20-04eb7682920d
-  modified: 2026-07-24T02:48:20.825Z
+  modified: 2026-07-24T02:52:50.053Z
 ---
 
 23-jul-2026. Base **2,5 GB en Railway** (500 activos, 1 estrategia de 4 señales
@@ -50,13 +50,19 @@ el dato. Reporte de `/admin/cleanup` (`maintenance_service.database_size_report`
 (sqlite guarda float64); el único riesgo (score al borde de un umbral que cambie
 de bin) SOLO se ve en Railway.
 
-## PENDIENTE Railway
-0087/0088 YA aplicadas (los indicadores bajaron). Falta solo **0089**
-(`alembic upgrade head`, con el pipeline detenido — el ADD PRIMARY KEY toma
-ACCESS EXCLUSIVE). El ADD PRIMARY KEY reconstruye el índice de (asset_id,date)
-→ ya reindexa, NO hace falta REINDEX aparte. Después:
-- Comparar un día de scores antes/después (riesgo float4).
-- Re-medir: con #1 + #2, prices→~470 MB y total→~2,3 GB.
+## RESULTADO MEDIDO en Railway (23-jul) — ronda 1 CERRADA
+**0087/0088/0089 APLICADAS. Total 2,5 → 2,3 GB (−200 MB, −8%).**
+- Indicadores 716 → 568 MB (#2 float4, −148).
+- prices 627 → 458 MB (#1: −97 del índice muerto de id + ~72 de recompactar el
+  índice (asset_id,date) al reconstruir la PK). heap ~340 intacto.
+- strat_res_7 163 → 150 (#4). sig_* SIN cambio (padding).
+PENDIENTE de verificación: comparar un día de scores (riesgo float4) — el
+usuario aún no lo confirmó.
+
+Baseline honesto: el ahorro ESTRUCTURAL permanente es ~258 MB (#2 148 + #1 índice
+97 + #4 strat 13); los ~72 de compactar prices se re-acumulan con el churn. El
+grueso restante son las señales (1,2 GB, ahora 50,6%), intactas — solo las mueve
+#5/#6 (pausados).
 
 **Hallazgo aparte (bug de UX):** el botón VACUUM de `/admin/cleanup` no puede
 compactar `prices` con el web vivo — el `-c lock_timeout=30s` de
