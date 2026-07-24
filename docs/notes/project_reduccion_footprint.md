@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 34095024-3657-4b9e-9d20-04eb7682920d
-  modified: 2026-07-24T02:31:57.991Z
+  modified: 2026-07-24T02:48:20.825Z
 ---
 
 23-jul-2026. Base **2,5 GB en Railway** (500 activos, 1 estrategia de 4 señales
@@ -37,23 +37,26 @@ el dato. Reporte de `/admin/cleanup` (`maintenance_service.database_size_report`
   referencia, no se lee en el código, el upsert usa `db_compat._conflict_cols`
   que pasa de fallback (uq_asset_date) a la PK directa sin cambio de target.
   Forma **dual-safe**: PK compuesta `(asset_id,date)` en AMBOS motores, un solo
-  esquema. Migración **0089** con rama por dialecto: PG reusa el índice único
-  (`USING INDEX uq_asset_date`, metadata-only, libera 97 MB al instante) + DROP
-  COLUMN; MySQL reconstruye (RAMA NO VALIDADA contra MariaDB, como el refactor
-  ancho). `app/models/price.py` + docstring de `_conflict_cols`.
+  esquema. Migración **0089** con rama por dialecto. **OJO PG:** `USING INDEX`
+  NO sirve con el índice que respalda un UniqueConstraint ("already associated
+  with a constraint" — falló en Railway la 1ª vez, rolleó entero por DDL
+  transaccional, sin daño). Fix: DROP de la PK de id + DROP del UNIQUE + ADD
+  PRIMARY KEY (asset_id,date) que **reconstruye el índice desde cero** → libera
+  los 97 MB del pkey de id Y compacta la fragmentación (hace INNECESARIO el
+  REINDEX aparte). MySQL reconstruye la tabla (RAMA NO VALIDADA contra MariaDB).
+  `app/models/price.py` + docstring de `_conflict_cols`.
 
 **922 tests verdes.** El efecto de precisión de float4 NO lo capta pytest
 (sqlite guarda float64); el único riesgo (score al borde de un umbral que cambie
 de bin) SOLO se ve en Railway.
 
-## PENDIENTE Railway (sin commit del usuario aún → él pushea y prueba)
-Aplicar **0087, 0088, 0089** (`alembic upgrade head`, con el pipeline detenido —
-los ALTER de PG reescriben/bloquean). Verificar `alembic current` primero (la
-0086 podía estar sin aplicar). Después:
-- **`REINDEX INDEX CONCURRENTLY uq_asset_date;`** — está fragmentado (144 MB,
-  ~43 B/entrada vs ~22 sano) → recupera ~60-70 MB SIN lock exclusivo (web vivo).
+## PENDIENTE Railway
+0087/0088 YA aplicadas (los indicadores bajaron). Falta solo **0089**
+(`alembic upgrade head`, con el pipeline detenido — el ADD PRIMARY KEY toma
+ACCESS EXCLUSIVE). El ADD PRIMARY KEY reconstruye el índice de (asset_id,date)
+→ ya reindexa, NO hace falta REINDEX aparte. Después:
 - Comparar un día de scores antes/después (riesgo float4).
-- Re-medir: con #1 + #2 + REINDEX, prices→~470 MB y total→~2,3 GB.
+- Re-medir: con #1 + #2, prices→~470 MB y total→~2,3 GB.
 
 **Hallazgo aparte (bug de UX):** el botón VACUUM de `/admin/cleanup` no puede
 compactar `prices` con el web vivo — el `-c lock_timeout=30s` de
