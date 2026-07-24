@@ -10,9 +10,12 @@ from app.components.ui_constants import (
     CARD_STYLE, STATUS_STYLE,
 )
 
+# La fuente "group" (señales que leen group_scores) se retiró como opción de
+# alta: la funcionalidad de grupo se está removiendo (ver
+# docs/notes/design_remover_senales_grupo_y_alcance.md). El backend todavía la
+# soporta en este paso; solo se cierra la vía de creación desde la UI.
 _SOURCE_OPTS = [
     {"label": "Activo (asset)",   "value": "asset"},
-    {"label": "Grupo (group)",    "value": "group"},
 ]
 _FORMULA_OPTS = [
     {"label": "Mapa discreto (discrete_map)", "value": "discrete_map"},

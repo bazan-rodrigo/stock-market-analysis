@@ -10,10 +10,13 @@ from app.components.ui_constants import (
     STATUS_STYLE,
 )
 
+# El Alcance de grupo (own_group / specific_group) se retiró como opción de alta:
+# la funcionalidad de grupo se está removiendo (ver
+# docs/notes/design_remover_senales_grupo_y_alcance.md). El backend todavía la
+# soporta en este paso; solo se cierra la vía de creación desde la UI, así que
+# todo componente nuevo puntúa por el valor de la señal en el activo.
 _SCOPE_OPTS = [
     {"label": "Activo directo",          "value": ""},
-    {"label": "Grupo propio (own_group)", "value": "own_group"},
-    {"label": "Grupo fijo (specific)",    "value": "specific_group"},
 ]
 
 
