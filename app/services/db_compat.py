@@ -56,10 +56,15 @@ def _table_of(target) -> sa.Table:
 
 def _conflict_cols(table: sa.Table, sample: dict) -> list[str]:
     """Columnas del ON CONFLICT (PG/sqlite): la PK si la fila insertada la
-    trae completa; si no (PK autoincremental ausente de values, como
-    prices.id), la primera UniqueConstraint cubierta por los valores. Es el
-    equivalente al comportamiento de MySQL, donde ON DUPLICATE KEY UPDATE
-    dispara con CUALQUIER clave única (PK o UNIQUE)."""
+    trae completa; si no (PK autoincremental ausente de values, como el `id`
+    sustituto de fundamental_quarterly/group_scores), la primera
+    UniqueConstraint cubierta por los valores. Es el equivalente al
+    comportamiento de MySQL, donde ON DUPLICATE KEY UPDATE dispara con
+    CUALQUIER clave única (PK o UNIQUE).
+
+    (prices ya NO es ejemplo de esto: su PK pasó a (asset_id, date) en la
+    0089 y ahora la trae completa en cada insert — el fallback se queda por
+    las otras tablas con id sustituto.)"""
     pk = [c.name for c in table.primary_key]
     if pk and all(c in sample for c in pk):
         return pk
