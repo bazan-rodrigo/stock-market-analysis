@@ -11,7 +11,7 @@ por todo el pipeline señales → estrategias.
 import logging
 import sqlalchemy as sa
 from collections import defaultdict
-from datetime import date as date_type
+from datetime import date as date_type, timedelta
 
 from app.database import get_session
 from app.models import Asset, GroupScore
@@ -42,6 +42,15 @@ _GROUP_DIMS = [
 
 _TREND_CODES = ("trend_daily", "trend_weekly", "trend_monthly")
 _TF_MAP      = {"trend_daily": "d", "trend_weekly": "w", "trend_monthly": "m"}
+
+# La barra semanal/mensual se guarda etiquetada al CIERRE de su período
+# (domingo con resample("W"), fin de mes con resample("M")), que cae DESPUÉS
+# del último día con precio. La barra cuyo período contiene target_date —la
+# EN CURSO, preliminar— es la primera con fecha >= target_date, hasta ~un mes
+# más adelante. Este tope acota esa búsqueda hacia adelante para no arrastrar
+# una barra muy posterior cuando el activo tiene un hueco. Compartido con
+# signal_backfill_range para que el camino por-fecha y el de rango coincidan.
+COVERING_MAX_AHEAD_DAYS = 40
 
 
 def _avg(lst: list) -> float | None:
@@ -80,16 +89,38 @@ def compute_group_scores(target_date: date_type) -> None:
             t = get_ind_table(code)
         except Exception:
             continue
-        rows = s.execute(
+        if tf == "d":
+            # Diaria: hay una barra por día hábil → match exacto con target_date.
             # value IS NOT NULL: en una tabla ancha la fila de target_date puede
             # tener trend_* en NULL (la escribió otro código de la cadencia); sin
             # el filtro entraría como tendencia None. En las ind_trend_* per-código
             # (sin value NULL) es equivalente.
-            sa.select(t.c.asset_id, t.c.value)
-            .where(t.c.date == target_date, t.c.value.isnot(None))
-        ).fetchall()
-        for asset_id, value_str in rows:
-            asset_trends.setdefault(asset_id, {})[tf] = value_str
+            rows = s.execute(
+                sa.select(t.c.asset_id, t.c.value)
+                .where(t.c.date == target_date, t.c.value.isnot(None))
+            ).fetchall()
+            for asset_id, value_str in rows:
+                asset_trends.setdefault(asset_id, {})[tf] = value_str
+        else:
+            # Semanal/mensual: la barra se etiqueta al cierre del período (domingo
+            # / fin de mes), que cae >= target_date. La barra cuyo período CONTIENE
+            # target_date —la EN CURSO— es la primera con fecha >= target_date por
+            # activo. Un match exacto sobre target_date no la encontraría nunca
+            # (bug histórico: regime_score_w/m quedaban en NULL). order_by(date) +
+            # "primera por activo" = la de menor fecha; el tope evita arrastrar una
+            # barra muy posterior si el activo tiene un hueco.
+            rows = s.execute(
+                sa.select(t.c.asset_id, t.c.value)
+                .where(t.c.date >= target_date,
+                       t.c.date <= target_date + timedelta(days=COVERING_MAX_AHEAD_DAYS),
+                       t.c.value.isnot(None))
+                .order_by(t.c.date)
+            ).fetchall()
+            seen: set = set()
+            for asset_id, value_str in rows:
+                if asset_id not in seen:
+                    seen.add(asset_id)
+                    asset_trends.setdefault(asset_id, {})[tf] = value_str
 
     if not asset_trends:
         return

@@ -41,6 +41,7 @@ import queue
 import random
 import threading
 import time
+from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from types import SimpleNamespace
@@ -67,6 +68,7 @@ from app.models.indicator_store import (
 from app.models.price import Price
 from app.services import strategy_filter
 from app.services.group_score_service import (
+    COVERING_MAX_AHEAD_DAYS,
     _TF_MAP,
     _TREND_CODES,
     aggregate_group_scores,
@@ -191,12 +193,13 @@ class _Sweep:
     ind_{code}, ordenadas por fecha. advance(d) deja en .live la última
     fila <= d por activo."""
 
-    __slots__ = ("rows", "idx", "live")
+    __slots__ = ("rows", "idx", "live", "_cov")
 
     def __init__(self, rows):
         self.rows = rows      # [(asset_id, date, value)] orden por date
         self.idx  = 0
         self.live = {}        # {asset_id: (date, value)}
+        self._cov = None      # índice por activo para covering(), perezoso
 
     def advance(self, d):
         rows, n = self.rows, len(self.rows)
@@ -214,9 +217,33 @@ class _Sweep:
                 if v is not None and dt >= cutoff}
 
     def exact(self, d):
-        """{asset_id: value} solo de filas con fecha EXACTA d (semántica de
-        compute_group_scores sobre ind_trend_*)."""
+        """{asset_id: value} solo de filas con fecha EXACTA d. Para la tendencia
+        DIARIA (una barra por día hábil), que coincide con target_date."""
         return {aid: v for aid, (dt, v) in self.live.items() if dt == d}
+
+    def covering(self, d):
+        """{asset_id: value} de la barra cuyo PERÍODO contiene d: la primera
+        barra con fecha >= d por activo, hasta COVERING_MAX_AHEAD_DAYS adelante.
+        Para semanal/mensual, cuya barra se etiqueta al cierre del período
+        (domingo / fin de mes) DESPUÉS de d — la barra EN CURSO que también lee
+        compute_group_scores para el mapa. Espeja esa lógica para que el camino
+        de rango y el por-fecha coincidan (test_signal_range_parity). No depende
+        de .live (esas fechas son > d): se indexa por activo desde self.rows,
+        que ya viene ordenada por fecha. El índice se arma una vez (perezoso)."""
+        if self._cov is None:
+            dts_by, vals_by = {}, {}
+            for aid, dt, v in self.rows:
+                if v is not None:
+                    dts_by.setdefault(aid, []).append(dt)
+                    vals_by.setdefault(aid, []).append(v)
+            self._cov = (dts_by, vals_by)
+        dts_by, vals_by = self._cov
+        out = {}
+        for aid, dts in dts_by.items():
+            i = bisect_left(dts, d)
+            if i < len(dts) and (dts[i] - d).days <= COVERING_MAX_AHEAD_DAYS:
+                out[aid] = vals_by[aid][i]
+        return out
 
 
 def _load_sweep(s, code, window_start, window_end) -> _Sweep:
@@ -225,6 +252,13 @@ def _load_sweep(s, code, window_start, window_end) -> _Sweep:
     except sa.exc.NoSuchTableError:
         logger.warning("signal_backfill_range: tabla ind_%s no existe", code)
         return _Sweep([])
+    if code in ("trend_weekly", "trend_monthly"):
+        # covering() lee la barra EN CURSO, etiquetada al cierre del período
+        # (domingo / fin de mes) DESPUÉS de la última fecha del chunk: hay que
+        # traer hasta ~un mes más allá de window_end o quedaría fuera de la
+        # ventana. Sin efecto en advance()/snapshot_asof(): esas fechas son > d
+        # para todo d del chunk, así que nunca entran a .live.
+        window_end = window_end + timedelta(days=COVERING_MAX_AHEAD_DAYS)
     rows = s.execute(
         sa.select(tbl.c.asset_id, tbl.c.date, tbl.c.value)
         # value IS NOT NULL: as-of fiel por columna (ver query_values_asof). En
@@ -810,16 +844,22 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 for sw in sweeps.values():
                     sw.advance(d)
 
-                # Scores de grupo (tendencias con fecha EXACTA d).
-                # strategy_only no los recalcula: no escribe group_scores y
-                # los scores de señales de grupo se leen de la tabla.
+                # Scores de grupo: diaria con fecha EXACTA d; semanal/mensual
+                # con la barra cuyo período contiene d (covering) — se etiqueta
+                # al cierre (domingo / fin de mes), después de d. Misma semántica
+                # que compute_group_scores (camino por-fecha), atada por
+                # test_signal_range_parity. strategy_only no los recalcula: no
+                # escribe group_scores y los scores de señales de grupo se leen
+                # de la tabla.
                 if strategy_only:
                     aggregated = {}
                 else:
                     asset_trends: dict[int, dict] = {}
                     for code in _TREND_CODES:
                         tf = _TF_MAP[code]
-                        for aid, val in sweeps[code].exact(d).items():
+                        pairs = (sweeps[code].exact(d) if tf == "d"
+                                 else sweeps[code].covering(d))
+                        for aid, val in pairs.items():
                             asset_trends.setdefault(aid, {})[tf] = val
                     aggregated = aggregate_group_scores(asset_trends, asset_meta)
 

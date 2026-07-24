@@ -7,8 +7,9 @@ cronológico y escrituras en bloque. Este test corre AMBOS caminos sobre el
 mismo dataset sintético en el sqlite stub y exige igualdad exacta de
 las tablas sig_{id}, group_signal_value, group_scores y strat_res_{id}.
 
-Cubre: as-of con huecos (tendencias semanales), tope de 45 días, valores
-NULL, threshold/discrete_map/range, señal de grupo, indicador
+Cubre: as-of con huecos y tope de 45 días (indicador numérico), covering de
+la barra en curso (tendencias semanal/mensual, que cierran en el futuro),
+valores NULL, threshold/discrete_map/range, señal de grupo, indicador
 virtual last_close, y estrategia con filtro (indicador as-of + operando
 señal) — los caminos por donde ya hubo bugs reales de semántica.
 """
@@ -168,7 +169,8 @@ def _seed(dates):
     s.commit()
 
     # Indicadores: diario denso (con NULLs y regímenes variados), semanal/
-    # mensual ralo (ejercita el as-of), numérico con huecos para el activo 3
+    # mensual ralo (ejercita covering: la barra se lee desde los días previos
+    # a su cierre), numérico con huecos para el activo 3
     trend_cycle = ["bullish", "bullish", "lateral", "bearish", "bullish"]
     t_rows, w_rows, m_rows, n_rows = [], [], [], []
     for n, d in enumerate(dates):
@@ -180,7 +182,7 @@ def _seed(dates):
                            else trend_cycle[(n + aid) % 5]})
             n_rows.append({"asset_id": aid, "date": d,
                            "value": float(20 + ((n * 7 + aid * 13) % 60))})
-        if d.weekday() == 4:            # viernes: etiqueta semanal
+        if d.weekday() == 4:            # etiqueta semanal (covering la lee toda la semana)
             for aid in (1, 2):
                 w_rows.append({"asset_id": aid, "date": d,
                                "value": trend_cycle[(n // 5 + aid) % 5]})
