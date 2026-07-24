@@ -3605,7 +3605,8 @@ def _run_current_and_backfill(progress_cb, *, force: bool) -> dict:
     _refresh_group_scores()
     errors = r1["errors"] + r2["errors"]
     total  = r1["total"]
-    return {"total": total, "success": max(total - len(errors), 0), "errors": errors}
+    return {"total": total, "success": max(total - len(errors), 0),
+            "errors": errors, "unit": "activos"}
 
 
 def update_indicator_history(progress_cb=None) -> dict:

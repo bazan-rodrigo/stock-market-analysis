@@ -920,7 +920,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
 
     last = s.query(sa.func.max(Price.date)).scalar()
     if last is None:
-        return {"total": 0, "success": 0, "errors": []}
+        return {"total": 0, "success": 0, "errors": [], "unit": "fechas"}
     horizon = (last - timedelta(days=int(days))) if days else None
 
     def _within(q, col):
@@ -1043,7 +1043,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             # compartida en estado rolled-back y TODAS las fechas
             # siguientes fallarían con "issue Session.rollback()"
             s.rollback()
-    return {"total": total, "success": ok, "errors": errors}
+    return {"total": total, "success": ok, "errors": errors, "unit": "fechas"}
 
 
 def update_signal_history(progress_cb=None, days: int | None = None,

@@ -338,7 +338,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     # ── Contexto invariante de la corrida ─────────────────────────────────
     prep = _prepare_signals(s, only_ids)
     if prep is None:
-        return {"total": 0, "success": 0, "errors": []}
+        return {"total": 0, "success": 0, "errors": [], "unit": "fechas"}
 
     asset_groups = {
         a.id: {
@@ -987,4 +987,4 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         timings["write_s"])
 
     return {"total": total, "success": _ok_box[0], "errors": errors,
-            "timings": timings}
+            "timings": timings, "unit": "fechas"}

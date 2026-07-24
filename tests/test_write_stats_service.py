@@ -54,11 +54,24 @@ def test_interpret_niveles():
     assert lvl == "na" and "PostgreSQL" in note
 
 
-def test_interpret_ignora_tablas_no_ind():
-    # updates masivos en prices no disparan el veredicto de indicadores
+def test_interpret_na_sin_escrituras_de_indicadores():
+    # Una corrida que no toca ninguna ind_* (señales: escribe sig_/strat_res_)
+    # no tiene ratio de bloat que reportar → "no aplica", no un ✓ vacuo.
+    lvl, note = ws.interpret([{"table": "sig_1", "d_ins": 4_000_000,
+                               "d_upd": 0, "d_del": 0}], 26_538, "fechas")
+    assert lvl == "na" and "no aplica" in note
+    # Idem prices sin ind_ en el diff.
     lvl, _ = ws.interpret([{"table": "prices", "d_ins": 0,
-                            "d_upd": 999_999, "d_del": 0}], 10)
-    assert lvl == "ok"
+                            "d_upd": 999_999, "d_del": 0}], 10, "activos")
+    assert lvl == "na"
+
+
+def test_interpret_sin_ratio_si_la_unidad_no_es_activos():
+    # Con ind_ en el diff pero total en otra unidad (o sin unidad), el ratio
+    # upd/activo no tendría sentido: se reporta sin veredicto.
+    lvl, note = ws.interpret([{"table": "ind_daily", "d_ins": 0,
+                               "d_upd": 8916, "d_del": 0}], 100, "fechas")
+    assert lvl == "ok" and note == "—"
 
 
 # ── registro ──────────────────────────────────────────────────────────────────
@@ -66,9 +79,9 @@ def test_interpret_ignora_tablas_no_ind():
 def test_record_run_guarda_y_ordena_mas_reciente_primero():
     _clear()
     t = datetime(2026, 7, 21, 1, 0, 0)
-    ws.record_run("indicators", "update_indicator_history", 145, t, t,
-                  {"ind_daily": (0, 0, 0)}, {"ind_daily": (0, 145, 0)})
-    ws.record_run("prices", "update_all_active_assets", 3, t, t,
+    ws.record_run("indicators", "update_indicator_history", 145, "activos",
+                  t, t, {"ind_daily": (0, 0, 0)}, {"ind_daily": (0, 145, 0)})
+    ws.record_run("prices", "update_all_active_assets", 3, "activos", t, t,
                   {"prices": (0, 0, 0)}, {"prices": (500, 0, 0)})
     runs = ws.get_runs()
     assert [r["kind"] for r in runs] == ["Descarga de precios",
@@ -76,11 +89,23 @@ def test_record_run_guarda_y_ordena_mas_reciente_primero():
     assert runs[1]["level"] == "ok" and runs[1]["diff"][0]["d_upd"] == 145
 
 
+def test_record_run_guarda_la_unidad_declarada():
+    _clear()
+    t = datetime(2026, 7, 21)
+    ws.record_run("signals", "update_signal_history", 26_538, "fechas", t, t,
+                  {"sig_1": (0, 0, 0)}, {"sig_1": (4_000_000, 0, 0)})
+    r = ws.get_runs()[0]
+    assert r["total"] == 26_538 and r["unit"] == "fechas"
+    # sin ind_ en el diff → el veredicto de bloat no aplica
+    assert r["level"] == "na"
+
+
 def test_record_run_respeta_maxlen():
     _clear()
     t = datetime(2026, 7, 21)
     for i in range(ws._MAX_RUNS + 5):
-        ws.record_run("synth", "f", 1, t, t, {}, {"prices": (i + 1, 0, 0)})
+        ws.record_run("synth", "f", 1, "activos", t, t, {},
+                      {"prices": (i + 1, 0, 0)})
     assert len(ws.get_runs()) == ws._MAX_RUNS
 
 
@@ -88,7 +113,7 @@ def test_record_run_nunca_levanta():
     _clear()
     # started sin strftime, snapshots basura: se registra o se descarta,
     # pero JAMÁS propaga (el diagnóstico no puede romper una corrida)
-    ws.record_run("indicators", None, None, object(), None, "basura", 42)
+    ws.record_run("indicators", None, None, None, object(), None, "basura", 42)
     ws.get_runs()
 
 

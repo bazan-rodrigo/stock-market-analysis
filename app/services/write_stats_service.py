@@ -69,23 +69,31 @@ def diff(before: dict | None, after: dict | None) -> list[dict] | None:
     return out
 
 
-def interpret(d: list[dict] | None, n_assets) -> tuple[str, str]:
+def interpret(d: list[dict] | None, total, unit: str | None = "activos"
+              ) -> tuple[str, str]:
     """(nivel, nota) para el card. Niveles: 'ok' | 'warn' | 'high' | 'na'.
 
-    La heurística mira updates POR ACTIVO en las tablas de indicadores — el
-    patrón de bloat que se busca detectar es el de "un UPDATE por columna":
+    El diagnóstico es el del bloat "un UPDATE por columna" y SOLO aplica a
+    corridas que escriben tablas de indicadores. La heurística mira updates
+    POR ACTIVO en esas tablas:
     - ~0-3 upd/activo: lo normal de un delta (la última fecha + vigentes).
     - decenas-cientos: re-ranking de full_sample tras un dato nuevo — puede
       ser LEGÍTIMO (los percentiles reclasifican la historia); no es error.
     - miles por activo: patrón de escritura por columna sobre la historia
       completa (el bug de bloat) — revisar.
-    Sin n_assets no hay ratio: se reporta sin veredicto."""
+
+    Una corrida que no escribe ninguna ind_* (señales, precios sueltos) NO
+    tiene ratio de bloat que reportar: se dice "no aplica" en vez de un ✓
+    vacuo. Idem si el `total` de la corrida no está en unidad de activos (p.
+    ej. señales cuenta fechas): el ratio upd/activo no tendría sentido."""
     if d is None:
         return "na", "sin contadores en este motor (solo PostgreSQL)"
     ind_upd = sum(r["d_upd"] for r in d if r["table"].startswith("ind_"))
-    if not n_assets:
+    if not any(r["table"].startswith("ind_") for r in d):
+        return "na", "sin escrituras de indicadores — el diagnóstico no aplica"
+    if not total or unit != "activos":
         return "ok", "—"
-    ratio = ind_upd / n_assets
+    ratio = ind_upd / total
     if ratio <= 3:
         return "ok", f"{ratio:.1f} upd/activo — normal"
     if ratio <= 1000:
@@ -95,17 +103,23 @@ def interpret(d: list[dict] | None, n_assets) -> tuple[str, str]:
                     "columna (patrón de bloat), revisar")
 
 
-def record_run(op_id: str, fn_name: str, n_assets, started, finished,
+def record_run(op_id: str, fn_name: str, total, unit, started, finished,
                before, after) -> None:
-    """Registra una corrida terminada. Nunca levanta."""
+    """Registra una corrida terminada. Nunca levanta.
+
+    `total`/`unit` los declara el servicio en su dict de retorno: el `total`
+    NO es siempre "activos" (señales cuenta fechas, indicadores cuenta
+    indicadores según el camino), así que la unidad viaja con el número para
+    que el card no la invente."""
     try:
         d = diff(before, after)
-        level, note = interpret(d, n_assets)
+        level, note = interpret(d, total, unit)
         with _lock:
             _runs.appendleft({
                 "kind": _KIND_LABELS.get(op_id, op_id),
                 "fn": fn_name or "",
-                "n_assets": n_assets,
+                "total": total,
+                "unit": unit,
                 "started": started,
                 "finished": finished or datetime.now(),
                 "diff": d,

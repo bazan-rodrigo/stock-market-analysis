@@ -351,7 +351,7 @@ def _run(op_id, service_fn, lock_token=_rl.NO_LOCK):
         # record_run nunca levanta — el diagnóstico no puede romper la corrida.
         _ws.record_run(
             op_id, getattr(service_fn, "__name__", ""),
-            (result or {}).get("total"),
+            (result or {}).get("total"), (result or {}).get("unit"),
             st.get("start_time"), st["end_time"],
             _stats_before, _ws.snapshot(get_session()))
         _ScopedSession.remove()
@@ -775,7 +775,12 @@ def render_writes_report(_n):
         icon, color = _WRITES_LEVEL_STYLE.get(r["level"], ("·", "#9ca3af"))
         t0 = r["started"].strftime("%H:%M:%S") if r["started"] else "—"
         t1 = r["finished"].strftime("%H:%M:%S") if r["finished"] else "—"
-        n  = f"{r['n_assets']} activos" if r["n_assets"] else "—"
+        if r["total"] and r.get("unit"):
+            n = f"{r['total']} {r['unit']}"
+        elif r["total"]:
+            n = f"{r['total']}"
+        else:
+            n = "—"
         blocks.append(html.Div(
             f"{icon} {r['kind']:<24} {t0}→{t1}   {n:<12} {r['note']}",
             style={**mono, "color": color, "marginTop": "6px"}))
@@ -794,7 +799,9 @@ def render_writes_report(_n):
                 f"    … {len(r['diff']) - 6} tablas más", style=mono))
 
     blocks.append(html.Small(
-        "✓ ~1-3 upd/activo = normal · ⚠ decenas-cientos = re-ranking tras "
-        "dato nuevo (legítimo) · ✗ miles = posible escritura por columna",
+        "El veredicto de bloat solo aplica a corridas que escriben "
+        "indicadores · ✓ ~1-3 upd/activo = normal · ⚠ decenas-cientos = "
+        "re-ranking tras dato nuevo (legítimo) · ✗ miles = posible escritura "
+        "por columna · · = no aplica",
         className="text-muted d-block mt-2"))
     return blocks
