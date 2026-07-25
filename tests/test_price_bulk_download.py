@@ -159,13 +159,11 @@ def test_actualizar_todos_delega_en_bulk_y_conserva_cadena(db, monkeypatch):
         fs, "update_all_fundamentals",
         lambda progress_cb=None: (calls.append("fund")
                                   or {"total": 1, "success": 1, "errors": []}))
-    monkeypatch.setattr(ts, "_refresh_group_scores",
-                        lambda: calls.append("groups"))
 
     out = ps.update_all_active_assets()
 
     assert calls[0] == ("bulk", sorted(t for _, t in created), False)
-    assert calls[1:] == ["ind", "fund", "groups"]
+    assert calls[1:] == ["ind", "fund"]
     assert out["total"] == len(created) + 2    # descarga + ind + fund
 
 

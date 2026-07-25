@@ -1,9 +1,9 @@
 """
 Servicio de scores de grupo (ex indicator_service, renombrado: no calcula
 ningún indicador). Agrega la tendencia por sector/mercado/industria/país/
-tipo de instrumento leyendo las tablas ind_trend_* y la persiste en
-group_scores — el insumo de las señales de grupo (source=group).
-La escritura individual por activo ocurre en technical_service.compute_current_indicators().
+tipo de instrumento leyendo las tablas ind_trend_*. El resultado NO se
+persiste: lo calcula AL VUELO group_scores_for(), que lee el Mapa de
+Tendencia de Mercado (ya no hay tabla group_scores ni señales de grupo).
 
 También vive acá get_default_target_date (última fecha con precios), usada
 por todo el pipeline señales → estrategias.
@@ -14,8 +14,8 @@ from collections import defaultdict
 from datetime import date as date_type, timedelta
 
 from app.database import get_session
-from app.models import Asset, GroupScore
-from app.models.indicator_store import get_ind_table
+from app.models import Asset
+from app.models.indicator_store import ASOF_MAX_LOOKBACK_DAYS, get_ind_table
 
 logger = logging.getLogger(__name__)
 
@@ -74,97 +74,6 @@ def get_default_target_date() -> date_type:
     return last or dt_date.today()
 
 
-def compute_group_scores(target_date: date_type) -> None:
-    """
-    Agrega valores de tendencia por grupos para target_date.
-    Lee directamente desde las tablas ind_trend_*.
-    """
-    s = get_session()
-
-    # Leer las tres tablas de tendencia → {asset_id: {tf: regime_detail}}
-    asset_trends: dict[int, dict[str, str]] = {}
-    for code in _TREND_CODES:
-        tf = _TF_MAP[code]
-        try:
-            t = get_ind_table(code)
-        except Exception:
-            continue
-        if tf == "d":
-            # Diaria: hay una barra por día hábil → match exacto con target_date.
-            # value IS NOT NULL: en una tabla ancha la fila de target_date puede
-            # tener trend_* en NULL (la escribió otro código de la cadencia); sin
-            # el filtro entraría como tendencia None. En las ind_trend_* per-código
-            # (sin value NULL) es equivalente.
-            rows = s.execute(
-                sa.select(t.c.asset_id, t.c.value)
-                .where(t.c.date == target_date, t.c.value.isnot(None))
-            ).fetchall()
-            for asset_id, value_str in rows:
-                asset_trends.setdefault(asset_id, {})[tf] = value_str
-        else:
-            # Semanal/mensual: la barra se etiqueta al cierre del período (domingo
-            # / fin de mes), que cae >= target_date. La barra cuyo período CONTIENE
-            # target_date —la EN CURSO— es la primera con fecha >= target_date por
-            # activo. Un match exacto sobre target_date no la encontraría nunca
-            # (bug histórico: regime_score_w/m quedaban en NULL). order_by(date) +
-            # "primera por activo" = la de menor fecha; el tope evita arrastrar una
-            # barra muy posterior si el activo tiene un hueco.
-            rows = s.execute(
-                sa.select(t.c.asset_id, t.c.value)
-                .where(t.c.date >= target_date,
-                       t.c.date <= target_date + timedelta(days=COVERING_MAX_AHEAD_DAYS),
-                       t.c.value.isnot(None))
-                .order_by(t.c.date)
-            ).fetchall()
-            seen: set = set()
-            for asset_id, value_str in rows:
-                if asset_id not in seen:
-                    seen.add(asset_id)
-                    asset_trends.setdefault(asset_id, {})[tf] = value_str
-
-    if not asset_trends:
-        return
-
-    # Leer metadatos de grupo de cada activo
-    asset_meta = {
-        a.id: {
-            "sector":          a.sector_id,
-            "market":          a.market_id,
-            "industry":        a.industry_id,
-            "country":         a.country_id,
-            "instrument_type": a.instrument_type_id,
-        }
-        for a in s.query(
-            Asset.id, Asset.sector_id, Asset.market_id,
-            Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
-        ).all()
-    }
-
-    aggregated = aggregate_group_scores(asset_trends, asset_meta)
-
-    # Upsert ORM (una fecha): el modo rango escribe estas mismas filas en
-    # bloque — la agregación compartida vive en aggregate_group_scores
-    existing = {
-        (g.group_type, g.group_id): g
-        for g in s.query(GroupScore).filter(GroupScore.date == target_date).all()
-    }
-    for (group_type, group_id), vals in aggregated.items():
-        gscore = existing.get((group_type, group_id))
-        if gscore is None:
-            gscore = GroupScore(
-                group_type=group_type,
-                group_id=group_id,
-                date=target_date,
-            )
-            s.add(gscore)
-        gscore.regime_score_d = vals["regime_score_d"]
-        gscore.regime_score_w = vals["regime_score_w"]
-        gscore.regime_score_m = vals["regime_score_m"]
-        gscore.n_assets       = vals["n_assets"]
-
-    s.commit()
-
-
 def aggregate_group_scores(asset_trends: dict, asset_meta: dict) -> dict[tuple, dict]:
     """{(group_type, group_id): {regime_score_d/w/m, n_assets}} — LÓGICA
     PURA compartida por el camino por-fecha y el modo rango.
@@ -196,16 +105,75 @@ def aggregate_group_scores(asset_trends: dict, asset_meta: dict) -> dict[tuple, 
     return out
 
 
-def run_daily(target_date: date_type | None = None) -> int:
-    if target_date is None:
-        target_date = get_default_target_date()
+def _load_asset_meta(s) -> dict:
+    """{asset_id: {group_type: group_id}} para todos los activos."""
+    return {
+        a.id: {
+            "sector":          a.sector_id,
+            "market":          a.market_id,
+            "industry":        a.industry_id,
+            "country":         a.country_id,
+            "instrument_type": a.instrument_type_id,
+        }
+        for a in s.query(
+            Asset.id, Asset.sector_id, Asset.market_id,
+            Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
+        ).all()
+    }
 
-    try:
-        compute_group_scores(target_date)
-    except Exception as exc:
-        logger.error(
-            "group_score_service: error en compute_group_scores para %s: %s", target_date, exc
-        )
 
-    logger.info("group_score_service: run_daily completado para %s", target_date)
-    return 0
+def _read_asset_trends(s, target_date: date_type) -> dict:
+    """{asset_id: {tf: regime_detail}} vigente en target_date, leído de las
+    ind_trend_*. Cada cadencia toma su barra VIGENTE aunque target_date no sea
+    día hábil del activo (p.ej. un sábado que cotizan monedas y las acciones no):
+
+    - Diaria: as-of hacia atrás — última barra <= target_date (la barra diaria
+      se etiqueta en el día hábil real), no más vieja que ASOF_MAX_LOOKBACK_DAYS.
+    - Semanal/mensual: covering hacia adelante — primera barra >= target_date
+      (cierran en domingo / fin de mes, DESPUÉS de target_date), tope
+      COVERING_MAX_AHEAD_DAYS para no arrastrar una barra lejana si hay hueco.
+    """
+    asset_trends: dict[int, dict[str, str]] = {}
+    for code in _TREND_CODES:
+        tf = _TF_MAP[code]
+        try:
+            t = get_ind_table(code)
+        except Exception:
+            continue
+        if tf == "d":
+            cutoff = target_date - timedelta(days=ASOF_MAX_LOOKBACK_DAYS)
+            rows = s.execute(
+                sa.select(t.c.asset_id, t.c.value)
+                .where(t.c.date >= cutoff, t.c.date <= target_date,
+                       t.c.value.isnot(None))
+                .order_by(t.c.date)           # ascendente → la ÚLTIMA por activo gana
+            ).fetchall()
+            for asset_id, value_str in rows:
+                asset_trends.setdefault(asset_id, {})[tf] = value_str
+        else:
+            rows = s.execute(
+                sa.select(t.c.asset_id, t.c.value)
+                .where(t.c.date >= target_date,
+                       t.c.date <= target_date + timedelta(days=COVERING_MAX_AHEAD_DAYS),
+                       t.c.value.isnot(None))
+                .order_by(t.c.date)           # ascendente → la PRIMERA por activo gana
+            ).fetchall()
+            seen: set = set()
+            for asset_id, value_str in rows:
+                if asset_id not in seen:
+                    seen.add(asset_id)
+                    asset_trends.setdefault(asset_id, {})[tf] = value_str
+    return asset_trends
+
+
+def group_scores_for(target_date: date_type) -> dict[tuple, dict]:
+    """Scores de tendencia por grupo para target_date, CALCULADOS AL VUELO —
+    NO se persisten. Es la fuente del Mapa de Tendencia de Mercado. Devuelve
+    {(group_type, group_id): {regime_score_d/w/m, n_assets}} (mismo shape que
+    aggregate_group_scores). La tendencia por activo ya está persistida para
+    toda la historia, así que cualquier target_date es válido."""
+    s = get_session()
+    asset_trends = _read_asset_trends(s, target_date)
+    if not asset_trends:
+        return {}
+    return aggregate_group_scores(asset_trends, _load_asset_meta(s))

@@ -237,18 +237,38 @@ def layout(**kwargs):
     if not current_user.is_authenticated:
         return html.Div()
 
+    from app.services import group_score_service
+    try:
+        default_date = group_score_service.get_default_target_date()
+    except Exception:
+        default_date = None
+    default_str = str(default_date) if default_date else None
+
     return html.Div([
+        # Datos calculados al vuelo para la fecha elegida; el Store separa el
+        # cómputo (al cambiar la fecha) del render (al cambiar de pestaña).
+        dcc.Store(id="market-map-store"),
         dbc.Row([
             dbc.Col(html.H4(["Mapa de Tendencia de Mercado ", help_link("mapa-de-tendencia")], className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small(
-                    "Score de tendencia por grupo. "
-                    "Calculado sobre todos los activos con indicadores calculados.",
+                    "Score de tendencia por grupo, calculado al vuelo para la "
+                    "fecha elegida sobre todos los activos con indicadores.",
                     className="text-muted",
                     style={"fontSize": "0.75rem"},
                 ),
                 className="d-flex align-items-center",
             ),
+            dbc.Col([
+                dbc.Label("Fecha", style={"fontSize": "0.72rem", "marginBottom": "2px",
+                                          "color": "#9ca3af"}),
+                dcc.DatePickerSingle(
+                    id="market-map-date",
+                    date=default_str,
+                    max_date_allowed=default_str,
+                    display_format="YYYY-MM-DD",
+                    style={"fontSize": "0.82rem"}),
+            ], width="auto", className="d-flex flex-column ms-auto"),
         ], className="mb-3 align-items-center"),
 
         dbc.Alert(id="market-map-alert", is_open=False, dismissable=True, className="mb-2"),

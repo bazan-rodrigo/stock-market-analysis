@@ -674,7 +674,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
     señal, corresponde with_signals=True (el pipeline completo)."""
     from datetime import timedelta
 
-    from app.services import group_score_service, strategy_service
+    from app.services import strategy_service
 
     s = get_session()
     only_ids, strategy_id, scope_kind = _scope_signal_ids(s, scope)
@@ -773,7 +773,6 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             progress_cb(i, total, str(d))
         try:
             if not strategy_only:
-                group_score_service.run_daily(d)
                 compute_signal_values(d, only_signal_ids=only_ids,
                                       latest_price_date=last)
             # strategy_only: compute_strategy_results lee los sig_{id} de la
@@ -826,7 +825,6 @@ def run_recalculate(target_date: date_type | None = None) -> dict:
     if target_date is None:
         target_date = group_score_service.get_default_target_date()
 
-    group_score_service.run_daily(target_date)
     result = run_daily(target_date)
 
     strat_result = strategy_service.run_daily(target_date)

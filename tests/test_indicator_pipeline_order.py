@@ -16,7 +16,6 @@ def _stub_pipeline(monkeypatch, calls):
     monkeypatch.setattr(ts, "_count_price_assets", lambda s: 0)
     monkeypatch.setattr(ts, "_use_process_pool", lambda n: (False, 1))
     monkeypatch.setattr(ts, "_load_all_prices", lambda s: {})
-    monkeypatch.setattr(ts, "_refresh_group_scores", lambda: None)
     monkeypatch.setattr(ts, "recompute_current_indicators",
                         lambda **kw: calls.append("current") or {"total": 0, "errors": []})
     monkeypatch.setattr(ts, "backfill_all_indicator_values",

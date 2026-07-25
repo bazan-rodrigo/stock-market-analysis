@@ -1,21 +1,18 @@
 """Paridad modo rango vs camino por-fecha del backfill de señales.
 
 signal_backfill_range hace el mismo cálculo que el loop por-fecha
-(group_score_service.run_daily → compute_signal_values →
-compute_all_strategies) pero con barrido cronológico y escrituras en bloque.
-Este test corre AMBOS caminos sobre el mismo dataset sintético en el sqlite
-stub y exige igualdad exacta de las tablas sig_{id} y strat_res_{id}.
+(compute_signal_values → compute_all_strategies) pero con barrido cronológico
+y escrituras en bloque. Este test corre AMBOS caminos sobre el mismo dataset
+sintético en el sqlite stub y exige igualdad exacta de las tablas sig_{id} y
+strat_res_{id}.
 
-group_scores diverge a propósito: el camino por-fecha lo escribe todas las
-fechas (para el mapa de mercado); el modo rango, solo la ÚLTIMA (su historia
-no la lee nadie desde que se removieron las señales de grupo). Ver
-signal_backfill_range.
+group_scores ya no interviene: el Mapa de Tendencia lo calcula al vuelo
+(group_score_service.group_scores_for), no se persiste.
 
-Cubre: as-of con huecos y tope de 45 días (indicador numérico), covering de
-la barra en curso (tendencias semanal/mensual, que cierran en el futuro),
-valores NULL, threshold/discrete_map/range, indicador virtual last_close, y
-estrategia con filtro (indicador as-of + operando señal) — los caminos por
-donde ya hubo bugs reales de semántica.
+Cubre: as-of con huecos y tope de 45 días (indicadores), valores NULL,
+threshold/discrete_map/range, indicador virtual last_close, y estrategia con
+filtro (indicador as-of + operando señal) — los caminos por donde ya hubo
+bugs reales de semántica.
 """
 import json
 from datetime import date, timedelta
@@ -30,7 +27,7 @@ _TREND_TABLES = ("ind_trend_daily", "ind_trend_weekly", "ind_trend_monthly")
 _NUM_TABLE    = "ind_zz_par_rsi"
 _ALL_IND      = _TREND_TABLES + (_NUM_TABLE,)
 
-_DERIVED = ("group_scores", "signal_eval_log")
+_DERIVED = ("signal_eval_log",)
 _SEEDED  = ("prices", "strategy_component", "strategy", "`signal`",
             "indicator_definitions", "assets")
 
@@ -208,15 +205,6 @@ def _snapshot():
         for sig_id, name in sig_tables.items()
         for r in s.execute(sa.text(
             f"SELECT asset_id, date, score FROM {name}")))
-    out["gs"] = sorted(
-        (r.group_type, r.group_id, str(r.date),
-         None if r.regime_score_d is None else round(r.regime_score_d, 6),
-         None if r.regime_score_w is None else round(r.regime_score_w, 6),
-         None if r.regime_score_m is None else round(r.regime_score_m, 6),
-         r.n_assets)
-        for r in s.execute(sa.text(
-            "SELECT group_type, group_id, date, regime_score_d,"
-            " regime_score_w, regime_score_m, n_assets FROM group_scores")))
     out["sr"] = sorted(
         (st_id, r.asset_id, str(r.date), round(r.score, 6),
          round(r.pct, 6))
@@ -235,18 +223,14 @@ def _wipe_derived():
             conn.execute(sa.text(f"DELETE FROM {name}"))
 
 
-def _assert_range_parity(ranged, reference, last_str):
-    """El modo rango reproduce EXACTO signal_value/strategy_result.
-    group_scores diverge a propósito: el modo rango escribe SOLO la última
-    fecha (mapa de mercado); el camino por-fecha, todas las fechas."""
+def _assert_range_parity(ranged, reference):
+    """El modo rango reproduce EXACTO signal_value/strategy_result."""
     assert ranged["sv"]  == reference["sv"]
     assert ranged["sr"]  == reference["sr"]
-    expected_gs = sorted(row for row in reference["gs"] if row[2] == last_str)
-    assert ranged["gs"] == expected_gs
 
 
 def test_paridad_rango_vs_por_fecha(pipeline_db):
-    from app.services import (group_score_service, signal_backfill_range,
+    from app.services import (signal_backfill_range,
                               signal_service, strategy_service)
 
     dates = _trading_dates()
@@ -255,13 +239,12 @@ def test_paridad_rango_vs_por_fecha(pipeline_db):
 
     # ── Camino por-fecha (referencia) ─────────────────────────────────────
     for d in dates:
-        group_score_service.run_daily(d)
         signal_service.compute_signal_values(d, latest_price_date=last)
         strategy_service.compute_all_strategies(d)
     reference = _snapshot()
 
-    # Sanity: el dataset produce datos reales en las tres tablas
-    assert reference["sv"] and reference["gs"] and reference["sr"]
+    # Sanity: el dataset produce datos reales en las dos tablas
+    assert reference["sv"] and reference["sr"]
 
     # ── Modo rango sobre base limpia ──────────────────────────────────────
     _wipe_derived()
@@ -273,7 +256,7 @@ def test_paridad_rango_vs_por_fecha(pipeline_db):
     assert result["success"] == len(dates)
 
     ranged = _snapshot()
-    _assert_range_parity(ranged, reference, str(dates[-1]))
+    _assert_range_parity(ranged, reference)
 
     # El modo rango además registra TODAS las fechas como evaluadas
     s = get_session()
@@ -289,15 +272,13 @@ def test_strategy_only_lee_senales_y_reproduce_strategy_result(pipeline_db):
     debe ser IDÉNTICO al pipeline completo, y las tablas de señales no deben
     modificarse."""
     from app.models import Strategy
-    from app.services import (group_score_service, signal_service,
-                              strategy_service)
+    from app.services import signal_service, strategy_service
 
     dates = _trading_dates()
     _seed(dates)
     last = dates[-1]
 
     for d in dates:
-        group_score_service.run_daily(d)
         signal_service.compute_signal_values(d, latest_price_date=last)
         strategy_service.compute_all_strategies(d)
     reference = _snapshot()
@@ -325,7 +306,7 @@ def test_strategy_only_lee_senales_y_reproduce_strategy_result(pipeline_db):
 def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
     """El corte en chunks no puede cambiar el resultado (el as-of de los
     primeros días de un chunk depende de la ventana de 45 días previa)."""
-    from app.services import (group_score_service, signal_backfill_range,
+    from app.services import (signal_backfill_range,
                               signal_service, strategy_service)
 
     dates = _trading_dates()
@@ -333,7 +314,6 @@ def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
     last = dates[-1]
 
     for d in dates:
-        group_score_service.run_daily(d)
         signal_service.compute_signal_values(d, latest_price_date=last)
         strategy_service.compute_all_strategies(d)
     reference = _snapshot()
@@ -348,7 +328,7 @@ def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
         latest_price_date=last, eval_kind="all", eval_ref=0, logged=set())
 
     assert result["errors"] == []
-    _assert_range_parity(_snapshot(), reference, str(dates[-1]))
+    _assert_range_parity(_snapshot(), reference)
 
     # Rebuild (force + full_wipe) SOBRE tablas ya pobladas — el caso real:
     # la limpieza única al inicio + batches solo-INSERT deben reproducir
@@ -359,7 +339,7 @@ def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
         logged={d for d in dates}, force=True, full_wipe=True)
 
     assert result["errors"] == []
-    _assert_range_parity(_snapshot(), reference, str(dates[-1]))
+    _assert_range_parity(_snapshot(), reference)
 
     # Rebuild whole_history (force sin horizonte) SOBRE tablas pobladas —
     # el camino real de "Recalcular completo": la limpieza vacía cada
@@ -372,7 +352,7 @@ def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
         whole_history=True)
 
     assert result["errors"] == []
-    _assert_range_parity(_snapshot(), reference, str(dates[-1]))
+    _assert_range_parity(_snapshot(), reference)
 
 
 def test_rebuild_interrumpido_no_deja_markers_de_fechas_no_escritas(
@@ -388,7 +368,7 @@ def test_rebuild_interrumpido_no_deja_markers_de_fechas_no_escritas(
     Invariante que se verifica: tras el corte, marcado ⇔ escrito (ninguna
     fecha no escrita quedó marcada), y un delta posterior restablece la
     paridad completa."""
-    from app.services import (group_score_service, signal_backfill_range,
+    from app.services import (signal_backfill_range,
                               signal_service, strategy_service)
 
     dates = _trading_dates()
@@ -398,7 +378,6 @@ def test_rebuild_interrumpido_no_deja_markers_de_fechas_no_escritas(
     # Referencia (camino por-fecha) y estado poblado con TODAS las fechas
     # marcadas — el punto de partida real de un "Recalcular completo".
     for d in dates:
-        group_score_service.run_daily(d)
         signal_service.compute_signal_values(d, latest_price_date=last)
         strategy_service.compute_all_strategies(d)
     reference = _snapshot()
@@ -458,64 +437,6 @@ def test_rebuild_interrumpido_no_deja_markers_de_fechas_no_escritas(
     # El delta ahora VE los huecos (no están marcados) y los repara.
     monkeypatch.undo()
     signal_service.update_signal_history()
-    _assert_range_parity(_snapshot(), reference, str(last))
+    _assert_range_parity(_snapshot(), reference)
 
 
-def _seed_min(dates):
-    """Dataset mínimo: una señal de activo y una estrategia sin filtro."""
-    from app.models import (Asset, Price, SignalDefinition, Strategy,
-                            StrategyComponent)
-    from app.models.indicator_definition import IndicatorDefinition
-    from app.models.indicator_store import get_ind_table
-
-    s = get_session()
-    s.add(IndicatorDefinition(code="trend_daily", name="trend_daily",
-                              category="test", type="str", keep_history=True))
-    for i, sector in ((1, 1), (2, 2)):
-        s.add(Asset(id=i, ticker=f"T{i}", name=f"Test {i}", sector_id=sector,
-                    market_id=1, price_source_id=1))
-    s.flush()
-    for n, d in enumerate(dates):
-        for aid in (1, 2):
-            base = 10.0 * aid + n * 0.1
-            s.add(Price(asset_id=aid, date=d, open=base, high=base + 1,
-                        low=base - 1, close=base + 0.5, volume=1000))
-    sig = SignalDefinition(key="trend_a", name="Trend",
-                           indicator_key="trend_daily", formula_type="discrete_map",
-                           params=json.dumps({"map": {"bullish": 80, "bearish": -80,
-                                                      "lateral": 0}}), is_public=True)
-    s.add(sig)
-    s.flush()
-    strat = Strategy(name="SoloActivo", is_public=True, filter_conditions=None)
-    s.add(strat)
-    s.flush()
-    s.add(StrategyComponent(strategy_id=strat.id, signal_id=sig.id, weight=1.0))
-    s.commit()
-
-    cycle = ["bullish", "lateral", "bearish", "bullish", "lateral"]
-    rows = [{"asset_id": aid, "date": d, "value": cycle[(n + aid) % 5]}
-            for n, d in enumerate(dates) for aid in (1, 2)]
-    with engine.begin() as conn:
-        conn.execute(get_ind_table("trend_daily").insert(), rows)
-
-
-def test_group_scores_solo_ultima_fecha_en_modo_rango(pipeline_db):
-    """El modo rango escribe group_scores SOLO de la última fecha (la lee el
-    mapa de mercado); su historia no la lee nadie desde que se removieron las
-    señales de grupo."""
-    from app.services import signal_backfill_range
-
-    dates = _trading_dates()
-    _seed_min(dates)
-    last = dates[-1]
-
-    result = signal_backfill_range.run_range(
-        dates, only_ids=None, strategy_id=None, scope_kind=None,
-        latest_price_date=last, eval_kind="all", eval_ref=0, logged=set())
-    assert result["errors"] == []
-
-    snap = _snapshot()
-    assert snap["sv"] and snap["sr"]        # las señales/estrategias sí corren
-    # group_scores: SOLO la última fecha
-    gs_dates = {row[2] for row in snap["gs"]}
-    assert gs_dates == {str(last)}

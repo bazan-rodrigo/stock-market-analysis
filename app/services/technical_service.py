@@ -3518,16 +3518,6 @@ def _derive_recent_caches(price_cache_full: dict) -> tuple[dict, dict, dict]:
     return price_cache, ath_cache, close_cache
 
 
-def _refresh_group_scores() -> None:
-    """Refresca group_scores para que el mapa de mercado quede al día."""
-    try:
-        from app.services import group_score_service
-        group_score_service.compute_group_scores(
-            group_score_service.get_default_target_date())
-    except Exception as exc:
-        logger.warning("Error refrescando scores de grupo: %s", exc)
-
-
 def _announce_worker_union(progress_cb, s, n_assets: int,
                            current_first: bool) -> tuple[list, list]:
     """Anuncia la unión de workers de ambas fases (vigentes + backfill) al
@@ -3602,7 +3592,6 @@ def _run_current_and_backfill(progress_cb, *, force: bool) -> dict:
     else:
         r2 = backfill_all_indicator_values(progress_cb=cb2, force=force,
                                            price_cache=price_cache_full)
-    _refresh_group_scores()
     errors = r1["errors"] + r2["errors"]
     total  = r1["total"]
     return {"total": total, "success": max(total - len(errors), 0),
@@ -3737,15 +3726,17 @@ def get_dd_events_for_chart(df: "pd.DataFrame", cfg=None) -> list:
     return _compute_dd_events(df, cfg.min_depth_pct)
 
 
-def get_market_map_data() -> dict:
-    """Promedios de tendencia por grupo, leídos de group_scores
-    (última fecha disponible). Los calcula group_score_service.compute_group_scores,
-    que se refresca en el pipeline diario y tras cada actualización de indicadores."""
-    from app.models import (
-        Country, GroupScore, Industry, InstrumentType, Market, Sector,
-    )
+def get_market_map_data(target_date=None) -> dict:
+    """Promedios de tendencia por grupo, CALCULADOS AL VUELO desde ind_trend_*
+    (ya no se persisten en group_scores). target_date None = última fecha con
+    precios. Diario as-of, semanal/mensual covering — ver
+    group_score_service.group_scores_for."""
+    from app.models import Country, Industry, InstrumentType, Market, Sector
+    from app.services import group_score_service
 
     s = get_session()
+    if target_date is None:
+        target_date = group_score_service.get_default_target_date()
 
     _GT_TO_KEY = {
         "sector":          "sector",
@@ -3756,8 +3747,8 @@ def get_market_map_data() -> dict:
     }
     result: dict = {dk: {} for dk in _GT_TO_KEY.values()}
 
-    last = s.query(sa.func.max(GroupScore.date)).scalar()
-    if last is None:
+    aggregated = group_score_service.group_scores_for(target_date)
+    if not aggregated:
         return result
 
     names = {
@@ -3771,18 +3762,15 @@ def get_market_map_data() -> dict:
     def _r(v):
         return round(v) if v is not None else None
 
-    gscores = (s.query(GroupScore)
-               .filter(GroupScore.date == last)
-               .all())
-    for gs in gscores:
-        dk = _GT_TO_KEY.get(gs.group_type)
+    for (group_type, group_id), vals in aggregated.items():
+        dk = _GT_TO_KEY.get(group_type)
         if dk is None:
             continue
-        result[dk][gs.group_id] = {
-            "name": names[dk].get(gs.group_id, f"#{gs.group_id}"),
-            "n":    gs.n_assets,
-            "d":    _r(gs.regime_score_d),
-            "w":    _r(gs.regime_score_w),
-            "m":    _r(gs.regime_score_m),
+        result[dk][group_id] = {
+            "name": names[dk].get(group_id, f"#{group_id}"),
+            "n":    vals["n_assets"],
+            "d":    _r(vals["regime_score_d"]),
+            "w":    _r(vals["regime_score_w"]),
+            "m":    _r(vals["regime_score_m"]),
         }
     return result

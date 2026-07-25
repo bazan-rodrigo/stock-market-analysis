@@ -610,10 +610,6 @@ def update_all_active_assets(progress_cb=None) -> dict:
     except Exception as exc:
         logger.warning("Error actualizando fundamentales: %s", exc)
 
-    # Refrescar agregados de tendencia por grupo (mapa de mercado)
-    from app.services.technical_service import _refresh_group_scores
-    _refresh_group_scores()
-
     return summary
 
 
