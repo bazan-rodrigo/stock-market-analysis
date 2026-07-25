@@ -1,11 +1,11 @@
 ---
 name: project_reset_fabrica
-description: Botón/CLI de reinicio TOTAL a estado de fábrica en Limpieza de datos; verificación pendiente en Railway
+description: Botón/CLI de reinicio TOTAL a estado de fábrica en Limpieza de datos; VERIFICADO en Railway
 metadata: 
   node_type: memory
   type: project
   originSessionId: 76d3c116-8127-41f3-9e25-a15541d55c8c
-  modified: 2026-07-25T14:08:53.098Z
+  modified: 2026-07-25T18:54:10.038Z
 ---
 
 25-jul: se agregó a `/admin/cleanup` (y a `scripts/clean_data.py --reset`) un
@@ -27,10 +27,8 @@ confirmación (checkbox + tipear REINICIAR). Corre bajo el lock HEAVY_WRITE
 **Why:** el usuario necesitaba un borrado más profundo que el operativo, para
 empezar de cero.
 
-**How to apply:** PENDIENTE VERIFICAR EN RAILWAY (= producción, esta PC no
-levanta app/DB): (1) el path PG real `TRUNCATE ... CASCADE` sobre el grafo
-completo; (2) los callbacks Dash del modal doble-confirmación; (3) la ventana en
-que el wipe trunca `run_lock` mientras seguimos seedeando bajo el lock — mismo
-patrón aceptado que `clean_data`, confiar en el heartbeat que re-inserta, pero
-observar. Anotarlo en `docs/notes/project_pendientes.md` antes de darlo por
-bueno. Ver [[feedback_entorno_verificacion]].
+**How to apply:** VERIFICADO en Railway (25-jul, commits a86b4d5 + ea96e28): el
+usuario corrió el reinicio a fábrica en producción y funcionó OK — el path PG
+real `TRUNCATE ... CASCADE` sobre el grafo completo, los callbacks del modal
+doble-confirmación y la ventana en que el wipe trunca `run_lock` bajo el lock,
+todo sin problemas. Ver [[feedback_entorno_verificacion]].
