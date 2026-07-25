@@ -7,7 +7,8 @@ from app.components.help import help_link
 # El alcance de la limpieza vive en app/services/cleanup_service.py — única
 # fuente de verdad, compartida con scripts/clean_data.py. No duplicar la lista
 # acá: fue exactamente así como la pantalla quedó desactualizada.
-from app.services.cleanup_service import PRESERVED_INFO, TABLES_INFO
+from app.services.cleanup_service import (PRESERVED_INFO, RESET_KEEPS_INFO,
+                                          RESET_WIPES_INFO, TABLES_INFO)
 
 
 def layout(**kwargs):
@@ -90,6 +91,42 @@ def layout(**kwargs):
         dbc.Progress(id="cleanup-progress", value=100, striped=True, animated=True,
                      label="Procesando...", className="mt-3", style={"display": "none"}),
         dbc.Alert(id="cleanup-alert", is_open=False, dismissable=True, className="mt-3"),
+
+        html.Hr(className="my-4"),
+        html.H4("Reinicio total (estado de fábrica)", className="mb-2"),
+        dbc.Alert([
+            html.H5("⚠ Deja la base como recién instalada", className="alert-heading"),
+            html.P(
+                "Va MUCHO más lejos que el borrado de arriba: elimina TODO lo "
+                "cargado a mano —activos, precios, catálogos, definiciones de "
+                "señales y estrategias, sintéticos, conversión de moneda, "
+                "carteras con su registro de operaciones— y hasta los usuarios.",
+                className="mb-1"),
+            html.P(
+                "La base queda solo con el esquema vacío, los datos integrados "
+                "de fábrica y el usuario admin/admin123. Nada de esto se "
+                "recupera: no lo uses salvo que quieras empezar de cero.",
+                className="mb-0 small"),
+        ], color="danger", className="mb-4"),
+
+        html.H6("Qué se borra:", className="mb-2"),
+        html.Ul([html.Li(x) for x in RESET_WIPES_INFO], className="mb-3 small"),
+
+        html.H6("Qué queda:", className="mb-2"),
+        html.Ul([html.Li(x) for x in RESET_KEEPS_INFO],
+                className="mb-4 small text-muted"),
+
+        dbc.Button(
+            "Reiniciar a estado de fábrica",
+            id="reset-btn-open",
+            color="danger",
+            outline=True,
+            size="lg",
+        ),
+        dcc.Interval(id="reset-interval", interval=600, disabled=True, n_intervals=0),
+        dbc.Progress(id="reset-progress", value=100, striped=True, animated=True,
+                     label="Reiniciando...", className="mt-3", style={"display": "none"}),
+        dbc.Alert(id="reset-alert", is_open=False, dismissable=True, className="mt-3"),
     ]
 
     return html.Div([
@@ -126,6 +163,41 @@ def layout(**kwargs):
                 dbc.Button("Cancelar", id="cleanup-btn-cancel", color="secondary", className="ms-2"),
             ]),
         ], id="cleanup-modal", is_open=False),
+
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("⚠ Reinicio total a estado de fábrica")),
+            dbc.ModalBody([
+                html.P("Esto deja la base COMO RECIÉN INSTALADA. Se elimina TODO:"),
+                html.Ul([html.Li(x) for x in RESET_WIPES_INFO]),
+                html.P(
+                    "Queda únicamente el esquema vacío, los datos integrados de "
+                    "fábrica y el usuario admin/admin123.",
+                    className="fw-bold mt-2"),
+                dbc.Alert(
+                    "Se cerrarán TODAS las sesiones y la contraseña del admin "
+                    "vuelve a admin123.",
+                    color="warning", className="py-2 mb-0"),
+                html.Hr(),
+                dbc.Checkbox(
+                    id="reset-check",
+                    label="Entiendo que esto borra TODO y no tiene vuelta atrás.",
+                    value=False,
+                ),
+                html.P("Escribí REINICIAR para habilitar el botón:",
+                       className="mt-3 mb-1"),
+                dbc.Input(id="reset-confirm-text", type="text",
+                          placeholder="REINICIAR", autoComplete="off"),
+            ]),
+            dbc.ModalFooter([
+                dbc.Button(
+                    "Sí, reiniciar a fábrica",
+                    id="reset-btn-confirm",
+                    color="danger",
+                    disabled=True,
+                ),
+                dbc.Button("Cancelar", id="reset-btn-cancel", color="secondary", className="ms-2"),
+            ]),
+        ], id="reset-modal", is_open=False),
     ])
 
 

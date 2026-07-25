@@ -19,6 +19,12 @@ fórmulas de sintéticos, divisores de conversión, usuarios, los estados
 contables trimestrales (ver abajo) y —lo más irreemplazable— las carteras con
 su registro de operaciones (portfolio / portfolio_member /
 portfolio_transaction), que son datos cargados a mano y no se recrean solos.
+
+Este módulo expone además `reset_to_fresh_install` (mucho más destructivo): un
+reinicio TOTAL que deja la base como recién instalada —vacía TODO, incluido lo
+que clean_data preserva, resiembra los datos integrados y recrea admin/admin123—.
+Es la contracara del borrado suave; lo consumen el botón con doble confirmación
+de /admin/cleanup y el `--reset` de scripts/clean_data.py.
 """
 import logging
 
@@ -155,3 +161,115 @@ def clean_data(bind=None) -> dict:
     tables = leaves + referenced
     logger.info("Limpieza completada: %d tablas vaciadas.", len(tables))
     return {"tables": tables}
+
+
+# ── Reinicio total a estado de fábrica (reset_to_fresh_install) ───────────────
+# Mucho más destructivo que clean_data: borra TODO, incluido lo que la limpieza
+# preserva. Estas listas son el mensaje legible del botón con doble confirmación
+# de /admin/cleanup.
+RESET_WIPES_INFO = [
+    "Activos, precios y fuentes de precio propias",
+    "Estados contables trimestrales descargados de la fuente",
+    "Catálogos y sus membresías (sectores, industrias, mercados, países, "
+    "monedas, tipos de instrumento)",
+    "Definiciones de señales y estrategias, y todo lo derivado (indicadores, "
+    "señales, rankings)",
+    "Fórmulas de sintéticos y divisores de conversión de moneda",
+    "Carteras y su registro de operaciones",
+    "Corridas guardadas de backtest y de cartera",
+    "Configuración de la app y del scheduler",
+    "TODOS los usuarios (se recrea solo admin/admin123)",
+]
+
+RESET_KEEPS_INFO = [
+    "El esquema de la base (tablas vacías, sin cambiar la versión de migraciones)",
+    "Los datos integrados de fábrica: fuentes Yahoo/Ámbito/Calculado, "
+    "indicadores integrados y el activo RIESGO_PAIS_AR",
+    "El usuario admin de fábrica (admin / admin123)",
+]
+
+
+def _fresh_install_wipe(conn) -> list[str]:
+    """Vacía TODAS las tablas de la base y devuelve sus nombres.
+
+    NO toca `alembic_version`: no está en el metadata ORM ni matchea los
+    prefijos dinámicos, así que la versión de migraciones queda intacta (el
+    esquema ya está en head, no hace falta re-estampar).
+
+    El vaciado —incluidas las tablas dinámicas ind_*/sig_*/strat_res_— lo hace
+    db_compat.truncate_all_tables de una sola vez, salteando la verificación de
+    FK: es seguro porque se vacía TODO el grafo (nada puede quedar huérfano) y
+    así se resuelve el ciclo assets ↔ markets, que un DELETE ordenado no podría
+    (a diferencia de la limpieza parcial de clean_data, que mantiene los FK).
+    """
+    from app.database import Base
+
+    existing = set(sa.inspect(conn).get_table_names())
+    core_names = [n for n in Base.metadata.tables if n in existing]
+    # Dinámicas: existen fuera del metadata (ind_asset_meta SÍ es modelo, así
+    # que ya está en core_names y no se duplica).
+    core_set = set(core_names)
+    dynamic = [t for t in db_compat.list_tables_by_prefix(conn, *_DYNAMIC_PREFIXES)
+               if t not in core_set]
+
+    names = dynamic + core_names
+    db_compat.truncate_all_tables(conn, names)
+    for name in names:
+        logger.info("%-40s vaciada", name)
+    return names
+
+
+def _recreate_admin_user() -> None:
+    """Recrea el usuario admin inicial (mismo criterio que scripts/init_db.py).
+    Se llama tras vaciar la tabla de usuarios, así que siempre inserta; el
+    filtro ci_equals es una defensa por si quedara alguno."""
+    from app.config import Config
+    from app.database import get_session
+    from app.models import User
+
+    s = get_session()
+    if s.query(User).filter(
+            db_compat.ci_equals(User.username, Config.ADMIN_USERNAME)).first():
+        return
+    admin = User(username=Config.ADMIN_USERNAME, role="admin", active=True)
+    admin.set_password(Config.ADMIN_PASSWORD)
+    s.add(admin)
+    s.commit()
+    logger.info("Usuario admin de fábrica recreado: '%s'.", Config.ADMIN_USERNAME)
+
+
+def reset_to_fresh_install(bind=None) -> dict:
+    """Deja la base COMO RECIÉN INSTALADA. Devuelve {'tables': [...]} vaciadas.
+
+    Equivale a scripts/init_db.py sobre una base vacía: vacía TODAS las tablas
+    —incluidas las que clean_data preserva: activos, precios, catálogos,
+    definiciones de señales/estrategias, sintéticos, conversión, carteras y
+    usuarios—, resiembra los datos integrados y recrea el admin de fábrica.
+
+    NO dropea ni recrea el esquema, y no toca alembic_version: la versión de
+    migraciones queda intacta. Las tablas dinámicas sig_*/strat_res_* huérfanas
+    las dropea el reconciliador que corre dentro de ensure_builtin_data (ya sin
+    definición que las respalde); las ind_* de los indicadores integrados se
+    conservan vacías (checkfirst en la resiembra).
+
+    El vaciado corre en una transacción sobre `bind` (default: engine); la
+    resiembra y el admin usan la sesión global de la app (mismo engine). Es la
+    contracara —mucho más destructiva— del borrado suave de clean_data.
+    """
+    from app.database import engine
+
+    bind = bind if bind is not None else engine
+    with bind.begin() as conn:
+        wiped = _fresh_install_wipe(conn)
+
+    # Resembrar lo integrado (fuentes, RIESGO_PAIS_AR, indicadores + tablas
+    # ind_*) y reconciliar dinámicas (dropea las sig_/strat_res_ huérfanas).
+    from app.services.startup_service import ensure_builtin_data
+    ensure_builtin_data()
+
+    # Usuario admin de fábrica (la tabla de usuarios quedó vacía arriba).
+    _recreate_admin_user()
+
+    logger.info("Reinicio a estado de fábrica completado: %d tablas vaciadas.",
+                len(wiped))
+    return {"tables": wiped}

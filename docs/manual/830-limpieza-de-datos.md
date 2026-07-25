@@ -7,9 +7,10 @@ roles: admin
 page: /admin/cleanup
 ---
 
-Tiene tres partes que hacen cosas muy distintas, y conviene no confundirlas:
-una **mide** el espacio, otra lo **recupera sin borrar nada**, y la tercera
-**borra datos de forma irreversible**.
+Tiene cuatro partes que hacen cosas muy distintas, y conviene no confundirlas:
+una **mide** el espacio, otra lo **recupera sin borrar nada**, la tercera
+**borra los datos calculados** y la última **reinicia la base entera** dejándola
+como recién instalada.
 
 ## Uso de espacio en disco
 
@@ -87,3 +88,32 @@ pantallas de análisis van a aparecer vacías hasta que regeneres.
 El orden de reconstrucción está en el
 [Centro de Datos](/manual/centro-de-datos). Contá con que un recálculo completo
 sobre muchos activos lleva un buen rato.
+
+## Reinicio total (estado de fábrica)
+
+> **Es el botón más destructivo de toda la aplicación.** Deja la base **como
+> recién instalada**: no hay nada que recalcular después porque no queda nada.
+
+Mientras el borrado de arriba conserva todo lo que cargaste a mano, este
+reinicio lo **elimina**: los activos, los precios, los balances trimestrales,
+los catálogos, las definiciones de señales y estrategias, los sintéticos, la
+conversión de moneda, las carteras con su registro de operaciones y **hasta los
+usuarios**. La base queda únicamente con las tablas vacías, los datos integrados
+de fábrica (las fuentes de precio, los indicadores que trae el sistema y el
+activo de Riesgo País) y **un solo usuario: `admin` con la contraseña
+`admin123`**.
+
+Eso último importa: al reiniciar **se cierran todas las sesiones** y la clave
+del administrador vuelve a la de fábrica. Después del reinicio entrás con
+`admin/admin123` y la cambiás en el primer ingreso, igual que en una instalación
+nueva.
+
+Por lo destructivo, no alcanza con el diálogo de siempre: hay que tildar la
+casilla **y** escribir la palabra **REINICIAR** para que el botón se habilite.
+
+### Cuándo tiene sentido
+
+Prácticamente nunca en producción. Los casos válidos son montar un entorno de
+prueba desde cero o descartar por completo una base que quedó inservible. Si lo
+que querés es solo regenerar lo calculado conservando tus definiciones y
+carteras, el que buscás es **Borrado de datos operativos**, no este.

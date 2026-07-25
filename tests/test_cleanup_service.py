@@ -217,12 +217,13 @@ def test_vacuum_tolera_tabla_que_desaparecio_a_mitad_de_corrida(monkeypatch):
     assert len(vacuumed) == 2
 
 
-def test_los_dos_botones_toman_el_lock_de_escritura_pesada():
-    """VACUUM y limpieza tocan las mismas tablas que el pipeline: sin el lock
-    podían correr en paralelo con el Centro de Datos o el scheduler."""
+def test_los_tres_botones_toman_el_lock_de_escritura_pesada():
+    """VACUUM, limpieza y reinicio a fábrica tocan las mismas tablas que el
+    pipeline: sin el lock podían correr en paralelo con el Centro de Datos o el
+    scheduler."""
     src = (ROOT / "app" / "callbacks" / "admin_cleanup_callbacks.py").read_text(
         encoding="utf-8")
-    assert src.count("_launch_locked(") == 3      # 1 def + 2 usos
+    assert src.count("_launch_locked(") == 4      # 1 def + 3 usos
     assert "HEAVY_WRITE" in src
 
 

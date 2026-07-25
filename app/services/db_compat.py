@@ -212,6 +212,39 @@ def wipe_table(session, table_name: str) -> None:
         session.execute(sa.text(f"DELETE FROM {table_name}"))
 
 
+def truncate_all_tables(conn, table_names) -> None:
+    """Vacía TODAS las tablas dadas de una sola vez, sin importar ciclos de FK
+    (p.ej. assets ↔ markets). SOLO para un wipe TOTAL (reset a fábrica): como
+    no sobrevive ninguna fila, saltear la verificación de FK es seguro —no
+    puede quedar nada huérfano—, a diferencia de la limpieza parcial de
+    clean_data, que la mantiene a propósito.
+
+    Cada motor por su idioma: PostgreSQL con un único TRUNCATE ... CASCADE
+    (transaccional, resuelve los ciclos y RESTART IDENTITY deja las secuencias
+    como recién instaladas); MySQL/MariaDB con FOREIGN_KEY_CHECKS=0 alrededor
+    de los TRUNCATE; sqlite (tests) con DELETE en cualquier orden (sus FKs
+    están apagadas por defecto). `conn` debe ser una Connection abierta (no un
+    Engine: en SQLAlchemy 2.0 Engine.execute ya no existe)."""
+    if not table_names:
+        return
+    b = _bind(conn)
+    quoted = [quote_ident(b, n) for n in table_names]
+    if is_postgres(b):
+        conn.execute(sa.text(
+            f"TRUNCATE TABLE {', '.join(quoted)} RESTART IDENTITY CASCADE"))
+        return
+    if is_mysql(b):
+        conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=0"))
+        try:
+            for q in quoted:
+                conn.execute(sa.text(f"TRUNCATE TABLE {q}"))
+        finally:
+            conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=1"))
+        return
+    for q in quoted:  # sqlite
+        conn.execute(sa.text(f"DELETE FROM {q}"))
+
+
 def list_tables_by_prefix(bind, *prefixes: str) -> list[str]:
     """Nombres de tablas existentes que empiezan con alguno de los prefijos,
     vía inspector de SQLAlchemy — portable, reemplaza los SELECT a

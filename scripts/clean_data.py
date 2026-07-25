@@ -10,6 +10,14 @@ docstring del servicio).
 Uso:
     python scripts/clean_data.py
     python scripts/clean_data.py --confirm   (sin pregunta interactiva)
+
+    python scripts/clean_data.py --reset             (reinicio TOTAL a fábrica)
+    python scripts/clean_data.py --reset --confirm   (sin pregunta interactiva)
+
+El `--reset` es MUCHO más destructivo: deja la base como recién instalada
+(reset_to_fresh_install) — borra TODO, incluido lo que la limpieza preserva
+(activos, precios, catálogos, definiciones, carteras y usuarios), resiembra los
+datos integrados y recrea admin/admin123.
 """
 import sys
 from pathlib import Path
@@ -25,6 +33,25 @@ logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     from app.services import cleanup_service
+
+    if "--reset" in sys.argv:
+        print("⚠ RESET TOTAL: deja la base COMO RECIÉN INSTALADA.")
+        print("Borra TODO —activos, precios, catálogos, definiciones, señales,")
+        print("estrategias, sintéticos, conversión, carteras y TODOS los")
+        print("usuarios—, resiembra los datos de fábrica y recrea admin/admin123.")
+        if "--confirm" not in sys.argv:
+            resp = input("Escribí REINICIAR para confirmar: ").strip().upper()
+            if resp != "REINICIAR":
+                print("Cancelado.")
+                sys.exit(0)
+        try:
+            res = cleanup_service.reset_to_fresh_install()
+        except Exception as exc:
+            logger.error("Error durante el reinicio a fábrica: %s", exc)
+            raise
+        print(f"Listo. Base reiniciada a fábrica: {len(res['tables'])} tablas "
+              "vaciadas, datos integrados resembrados, admin/admin123 recreado.")
+        sys.exit(0)
 
     if "--confirm" not in sys.argv:
         print("Esto eliminará indicadores, ratios fundamentales, señales,")

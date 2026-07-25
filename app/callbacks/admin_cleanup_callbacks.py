@@ -119,6 +119,85 @@ def poll_cleanup(_):
     return no_update, no_update, no_update, no_update, no_update, no_update
 
 
+# ── Reinicio total a estado de fábrica (reset_to_fresh_install) ───────────────
+# Mucho más destructivo que la limpieza: por eso el modal pide doble
+# confirmación (checkbox + tipear REINICIAR). Reusa el mismo lock HEAVY_WRITE.
+_reset_state = {"running": False, "result": None, "error": None}
+
+
+@callback(
+    Output("reset-modal", "is_open"),
+    Output("reset-check", "value"),
+    Output("reset-confirm-text", "value"),
+    Input("reset-btn-open",    "n_clicks"),
+    Input("reset-btn-cancel",  "n_clicks"),
+    Input("reset-btn-confirm", "n_clicks"),
+    prevent_initial_call=True,
+)
+def toggle_reset_modal(n_open, n_cancel, n_confirm):
+    from dash import ctx
+    if ctx.triggered_id == "reset-btn-open":
+        return True, False, ""
+    return False, False, ""
+
+
+@callback(
+    Output("reset-btn-confirm", "disabled"),
+    Input("reset-check", "value"),
+    Input("reset-confirm-text", "value"),
+)
+def toggle_reset_confirm_btn(checked, text):
+    # Ambos: el checkbox Y la palabra exacta. El .upper() tolera el caso,
+    # pero exige la palabra completa — no basta con tildar la casilla.
+    ok = bool(checked) and (text or "").strip().upper() == "REINICIAR"
+    return not ok
+
+
+@callback(
+    Output("reset-interval",  "disabled"),
+    Output("reset-progress",  "style"),
+    Output("reset-btn-open",  "disabled"),
+    Input("reset-btn-confirm", "n_clicks"),
+    prevent_initial_call=True,
+)
+def run_reset(_):
+    from app.services import cleanup_service
+
+    def _ok(res):
+        return (f"Reinicio a fábrica completado: {len(res['tables'])} tablas "
+                "vaciadas, datos integrados resembrados y admin/admin123 "
+                "recreado. Ingresá de nuevo con admin/admin123.")
+
+    started = _launch_locked(_reset_state, cleanup_service.reset_to_fresh_install,
+                             _ok, "Error durante el reinicio a fábrica")
+    if not started:
+        return False, {"display": "none"}, False
+    return False, {"display": "block"}, True
+
+
+@callback(
+    Output("reset-progress", "style",    allow_duplicate=True),
+    Output("reset-interval", "disabled", allow_duplicate=True),
+    Output("reset-alert",    "children"),
+    Output("reset-alert",    "is_open"),
+    Output("reset-alert",    "color"),
+    Output("reset-btn-open", "disabled", allow_duplicate=True),
+    Input("reset-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def poll_reset(_):
+    if _reset_state["running"]:
+        return {"display": "block"}, False, no_update, no_update, no_update, True
+
+    if _reset_state["error"]:
+        return {"display": "none"}, True, _reset_state["error"], True, "danger", False
+
+    if _reset_state["result"]:
+        return {"display": "none"}, True, _reset_state["result"], True, "success", False
+
+    return no_update, no_update, no_update, no_update, no_update, no_update
+
+
 # ── Recuperar espacio (VACUUM FULL / OPTIMIZE TABLE) ──────────────────────────
 _vac_state = {"running": False, "result": None, "error": None}
 
