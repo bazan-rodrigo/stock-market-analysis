@@ -55,6 +55,7 @@ from app.services.db_utils import delete_by_ranges
 from app.models import (
     Asset,
     GroupScore,
+    SignalEvalLog,
     Strategy,
 )
 from app.models import signal_store
@@ -383,8 +384,19 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         if not force:
             return
         windows = None if whole_history else _date_windows()
-        # signal_eval_log NO se toca: las fechas siguen evaluadas (se están
-        # recalculando ahora mismo) y guarda markers de otros alcances.
+        # signal_eval_log del ALCANCE en reconstrucción (eval_kind/eval_ref): se
+        # borra JUNTO con los datos. Antes se preservaba, pero si la corrida
+        # moría a mitad las fechas ya vaciadas quedaban marcadas como evaluadas
+        # → el delta las tomaba por hechas y NO las reparaba (hueco permanente y
+        # silencioso). Borrándolas, un corte deja esas fechas SIN marcador y el
+        # delta las rehace. Los markers de OTROS alcances no se tocan (filtro por
+        # scope). Tabla diminuta (una fila por fecha/alcance): el DELETE acotado
+        # no retiene locks como las sig_{id}, va directo (sin delete_by_ranges).
+        ws.execute(sa.delete(SignalEvalLog.__table__).where(
+            SignalEvalLog.scope_kind == eval_kind,
+            SignalEvalLog.ref_id == eval_ref,
+            SignalEvalLog.date >= dates[0],
+            SignalEvalLog.date <= dates[-1]))
         if not strategy_only:
             for sig_id in signal_ids_all:
                 name = signal_store.sig_table_name(sig_id)
@@ -774,7 +786,12 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                         for (aid, score), pct in zip(scored, pcts))
                     flush_rows += len(scored)
 
-                if d not in logged:
+                # En rebuild (force) SIEMPRE se re-marca: _initial_cleanup borró
+                # los markers del alcance, así que reinsertarlos por chunk deja
+                # marcador y dato en la MISMA transacción — un corte nunca separa
+                # "marcado" de "escrito". En delta se respeta `logged` (no
+                # reinsertar los que ya estaban).
+                if force or d not in logged:
                     marker_rows.append((eval_kind, eval_ref, d_str))
                 batch_dates.append(d)
 

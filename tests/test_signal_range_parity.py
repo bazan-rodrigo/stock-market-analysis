@@ -375,6 +375,92 @@ def test_rango_respeta_chunks_chicos(pipeline_db, monkeypatch):
     _assert_range_parity(_snapshot(), reference, str(dates[-1]))
 
 
+def test_rebuild_interrumpido_no_deja_markers_de_fechas_no_escritas(
+        pipeline_db, monkeypatch):
+    """Regresión: un rebuild que se CORTA a mitad no puede dejar fechas
+    marcadas en signal_eval_log sin su dato. La limpieza inicial vacía las
+    tablas del alcance; si además preservara los markers (comportamiento
+    viejo), las fechas ya vaciadas pero no reescritas quedarían marcadas como
+    evaluadas → el delta las tomaría por hechas y NUNCA las repararía (hueco
+    permanente y silencioso). El fix borra los markers del alcance junto con
+    los datos, así un corte deja esas fechas SIN marcar y el delta las rehace.
+
+    Invariante que se verifica: tras el corte, marcado ⇔ escrito (ninguna
+    fecha no escrita quedó marcada), y un delta posterior restablece la
+    paridad completa."""
+    from app.services import (group_score_service, signal_backfill_range,
+                              signal_service, strategy_service)
+
+    dates = _trading_dates()
+    _seed(dates)
+    last = dates[-1]
+
+    # Referencia (camino por-fecha) y estado poblado con TODAS las fechas
+    # marcadas — el punto de partida real de un "Recalcular completo".
+    for d in dates:
+        group_score_service.run_daily(d)
+        signal_service.compute_signal_values(d, latest_price_date=last)
+        strategy_service.compute_all_strategies(d)
+    reference = _snapshot()
+
+    _wipe_derived()
+    r0 = signal_backfill_range.run_range(
+        dates, only_ids=None, strategy_id=None, scope_kind=None,
+        latest_price_date=last, eval_kind="all", eval_ref=0, logged=set())
+    assert r0["errors"] == []
+
+    s = get_session()
+
+    def _marked():
+        return {str(r.date) for r in s.execute(sa.text(
+            "SELECT date FROM signal_eval_log "
+            "WHERE scope_kind='all' AND ref_id=0"))}
+
+    assert _marked() == {str(d) for d in dates}      # todo marcado de arranque
+
+    # ── Rebuild INTERRUMPIDO: _load_sweep falla pasado el primer chunk ─────
+    # Todas las lecturas del primer chunk comparten un window_start; cualquier
+    # otro valor = un chunk posterior → se simula el corte. Cada chunk que
+    # falla hace rollback y sigue, así solo el primero queda persistido.
+    monkeypatch.setattr(signal_backfill_range, "_CHUNK_DATES", 10)
+    seen: list = []
+    _orig_sweep = signal_backfill_range._load_sweep
+
+    def _fail_after_first_chunk(sess, code, window_start, window_end):
+        if not seen:
+            seen.append(window_start)
+        if window_start != seen[0]:
+            raise RuntimeError("corte simulado a mitad del rebuild")
+        return _orig_sweep(sess, code, window_start, window_end)
+
+    monkeypatch.setattr(signal_backfill_range, "_load_sweep",
+                        _fail_after_first_chunk)
+
+    r1 = signal_backfill_range.run_range(
+        dates, only_ids=None, strategy_id=None, scope_kind=None,
+        latest_price_date=last, eval_kind="all", eval_ref=0,
+        logged={d for d in dates}, force=True, full_wipe=True,
+        whole_history=True)
+
+    # El corte se manifestó: hubo errores y solo se persistió una parte.
+    assert r1["errors"]
+    assert 0 < r1["success"] < len(dates)
+
+    # EL FIX: marcado ⇔ escrito. Ninguna fecha no escrita quedó marcada
+    # (antes seguían todas marcadas sobre tablas vaciadas).
+    marked_after = _marked()
+    persisted = {row[2] for row in _snapshot()["sv"]}
+    unwritten = {str(d) for d in dates} - persisted
+    assert unwritten                             # el corte dejó fechas sin dato
+    assert not (unwritten & marked_after)        # ← ninguna quedó marcada
+    assert persisted <= marked_after             # y lo escrito sí está marcado
+
+    # El delta ahora VE los huecos (no están marcados) y los repara.
+    monkeypatch.undo()
+    signal_service.update_signal_history()
+    _assert_range_parity(_snapshot(), reference, str(last))
+
+
 def _seed_min(dates):
     """Dataset mínimo: una señal de activo y una estrategia sin filtro."""
     from app.models import (Asset, Price, SignalDefinition, Strategy,
