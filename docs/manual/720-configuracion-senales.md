@@ -18,9 +18,8 @@ demás es plomería. Si no tenés claro dónde encaja este paso, leé antes
 ## La lista
 
 La tabla muestra las señales que podés ver: las públicas más las tuyas (un
-administrador ve todas), con **Key**, **Nombre**, **Fuente**, **Indicador**,
-**Fórmula**, **Dueño** y **Pública**. Se ordena y filtra por cualquier columna.
-Las señales de activo van en celeste y las de grupo en verde.
+administrador ve todas), con **Key**, **Nombre**, **Indicador**, **Fórmula**,
+**Dueño** y **Pública**. Se ordena y filtra por cualquier columna.
 
 | Botón | Qué hace |
 |---|---|
@@ -42,9 +41,7 @@ toda la historia puede tardar varios minutos. Es lo que hay que usar después de
 |---|---|
 | **Clave (key)** | El identificador con el que las estrategias la referencian. Corto y sin espacios (`tendencia_d`). |
 | **Nombre** | El texto legible que se ve en el resto de las pantallas. |
-| **Fuente** | **Activo** o **Grupo** (ver abajo). |
-| **Tipo de grupo** | Solo con fuente Grupo: **Sector**, **Mercado** o **Industria**. |
-| **Clave de indicador** | Qué indicador lee la señal. El desplegable ofrece el catálogo agrupado por categoría y se puede buscar escribiendo. |
+| **Clave de indicador** | Qué indicador **del activo** lee la señal. El desplegable ofrece el catálogo agrupado por categoría y se puede buscar escribiendo. |
 | **Tipo de fórmula** | Mapa discreto, Umbrales o Rango. |
 | **Descripción** | Opcional, para vos y para el equipo. |
 | **Pública** | Visibilidad — ver [visibilidad y permisos](/manual/visibilidad-y-permisos). |
@@ -58,18 +55,8 @@ toda la historia puede tardar varios minutos. Es lo que hay que usar después de
 Al crear, la clave tiene que ser única (no distingue mayúsculas de minúsculas).
 Y si algo falla al guardar, **el editor no se cierra**: lo cargado sigue ahí.
 
-## Fuente: activo o grupo
-
-Con **fuente Activo** la señal mira el indicador **de ese activo** — su
-tendencia, su RSI, su drawdown. Es el caso normal.
-
-Con **fuente Grupo** mira el agregado del grupo al que el activo pertenece, y
-responde preguntas del estilo "¿el sector de esta acción viene bien?". Hay que
-elegir **Tipo de grupo**, y el indicador queda restringido a tres opciones: la
-**tendencia diaria, semanal o mensual del grupo**. No se pueden usar indicadores
-de activo acá — los agregados de grupo no los tienen y la señal no puntuaría
-nunca; el sistema no te deja guardarla. Todos los activos del mismo grupo
-comparten el puntaje, y un activo sin ese grupo cargado no recibe ninguno.
+Una señal siempre mira el indicador **de ese activo** — su tendencia, su RSI,
+su drawdown — y lo transforma en un puntaje de −100 a +100.
 
 ## Las tres fórmulas
 
@@ -144,7 +131,6 @@ representar abre directamente en modo avanzado. Para el uso normal no hace falta
 
 - El activo no tiene valor para ese indicador en esa fecha.
 - Cayó en una categoría sin puntaje, o bajo el último umbral sin «en otro caso».
-- Es una señal de grupo y el activo no tiene ese grupo cargado.
 - El indicador **no guarda serie histórica**, solo su valor vigente: esas señales
   puntúan únicamente en la última fecha y en las pasadas se omiten a propósito,
   porque usar el valor de hoy en una fecha vieja sería mirar el futuro.

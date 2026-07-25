@@ -1,20 +1,14 @@
 """
 Servicio de señales.
-Evalúa cada SignalDefinition contra indicadores (ind_*) / group_scores
-y persiste los resultados en sig_{id} (una tabla por señal, ver
-app.models.signal_store) / group_signal_value.
+Evalúa cada SignalDefinition contra indicadores (ind_*) y persiste los
+resultados en sig_{id} (una tabla por señal, ver app.models.signal_store).
 """
 import logging
 import sqlalchemy as sa
 from datetime import date as date_type
 
 from app.database import get_session
-from app.models import (
-    Asset,
-    GroupScore,
-    GroupSignalValue,
-    SignalDefinition,
-)
+from app.models import SignalDefinition
 from app.models import signal_store
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import query_values_asof
@@ -23,8 +17,6 @@ from app.services import db_compat, signal_engine
 
 logger = logging.getLogger(__name__)
 
-
-_VALID_GROUP_INDICATOR_KEYS = frozenset({"regime_score_d", "regime_score_w", "regime_score_m"})
 
 # Indicadores virtuales: no tienen tabla ind_*, se leen de otra fuente
 _VIRTUAL_CODES = frozenset({"last_close"})
@@ -36,13 +28,6 @@ def _load_virtual(s, code: str, target_date) -> dict:
         rows = s.query(Price.asset_id, Price.close).filter(Price.date == target_date).all()
         return {r[0]: float(r[1]) for r in rows if r[1] is not None}
     return {}
-
-
-def _get_group_indicator_value(gscore: GroupScore, key: str):
-    if key not in _VALID_GROUP_INDICATOR_KEYS:
-        logger.warning("signal_service: indicator_key '%s' no es un campo válido de GroupScore", key)
-        return None
-    return getattr(gscore, key)
 
 
 def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
@@ -64,7 +49,7 @@ def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
     # acceso) pesa de verdad a esa escala
     signals = [
         SimpleNamespace(
-            id=sg.id, key=sg.key, source=sg.source, group_type=sg.group_type,
+            id=sg.id, key=sg.key,
             indicator_key=sg.indicator_key, formula_type=sg.formula_type,
             params=sg.params)
         for sg in signals_orm
@@ -78,24 +63,8 @@ def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
         except (TypeError, ValueError):
             params_by_id[sig.id] = None
 
-    asset_signals  = [sg for sg in signals if sg.source == "asset"]
-    group_signals  = [sg for sg in signals if sg.source == "group"]
-
-    # Señales de grupo mal configuradas (indicator_key que no es un campo de
-    # group_scores): descartarlas UNA vez acá — evaluarlas warnearía por cada
-    # (grupo × fecha), inundando el log en un backfill
-    bad_group = [sg for sg in group_signals
-                 if sg.indicator_key not in _VALID_GROUP_INDICATOR_KEYS]
-    if bad_group:
-        logger.warning(
-            "signal_service: señales de grupo ignoradas por indicator_key "
-            "inválido (los scores de grupo solo tienen %s): %s",
-            sorted(_VALID_GROUP_INDICATOR_KEYS),
-            sorted(sg.key for sg in bad_group))
-        group_signals = [sg for sg in group_signals if sg not in bad_group]
-
-    # Descubrir qué indicator_keys necesitan las señales de activo
-    needed_codes = {sg.indicator_key for sg in asset_signals if sg.indicator_key}
+    # Descubrir qué indicator_keys necesitan las señales
+    needed_codes = {sg.indicator_key for sg in signals if sg.indicator_key}
 
     # keep_history por código, para decidir de dónde leer cada uno
     keep_history_by_code = {
@@ -115,8 +84,7 @@ def _prepare_signals(s, only_signal_ids: set[int] | None = None) -> dict | None:
         "signals":        signals,
         "params_by_id":   params_by_id,
         "compiled_by_id": compiled_by_id,
-        "asset_signals":  asset_signals,
-        "group_signals":  group_signals,
+        "asset_signals":  signals,
         "hist_codes":     {c for c in needed_codes - _VIRTUAL_CODES
                            if keep_history_by_code.get(c)},
         "nohist_codes":   {c for c in needed_codes - _VIRTUAL_CODES
@@ -147,7 +115,6 @@ def compute_signal_values(target_date: date_type,
     signals        = prep["signals"]
     params_by_id   = prep["params_by_id"]
     asset_signals  = prep["asset_signals"]
-    group_signals  = prep["group_signals"]
     hist_codes     = prep["hist_codes"]
     nohist_codes   = prep["nohist_codes"]
     virtual_to_load = prep["virtual_codes"]
@@ -199,32 +166,10 @@ def compute_signal_values(target_date: date_type,
         logger.info("signal_service: sin valores de indicadores para %s", target_date)
         return 0
 
-    # Cargar group_scores del día
-    gscores: dict[tuple, GroupScore] = {
-        (gs.group_type, gs.group_id): gs
-        for gs in s.query(GroupScore).filter(GroupScore.date == target_date).all()
-    }
-
-    # Info de grupo de cada activo
-    asset_groups: dict[int, dict] = {
-        a.id: {
-            "sector":          a.sector_id,
-            "market":          a.market_id,
-            "industry":        a.industry_id,
-            "country":         a.country_id,
-            "instrument_type": a.instrument_type_id,
-        }
-        for a in s.query(
-            Asset.id, Asset.sector_id, Asset.market_id,
-            Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
-        ).all()
-    }
-
     scores = _evaluate_asset_signal_scores(
         compiled_by_id=prep["compiled_by_id"],
         signals=signals, asset_signals=asset_signals,
-        group_signals=group_signals, params_by_id=params_by_id,
-        isnaps=isnaps, asset_groups=asset_groups, gscores=gscores)
+        params_by_id=params_by_id, isnaps=isnaps)
 
     # Cada señal escribe en su propia tabla sig_{id} (upsert de la fecha)
     by_sig: dict[int, dict[int, float]] = {}
@@ -257,16 +202,12 @@ def compute_signal_values(target_date: date_type,
     return written
 
 
-def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
+def _evaluate_asset_signal_scores(*, signals, asset_signals,
                                   params_by_id, isnaps,
-                                  asset_groups, gscores,
                                   compiled_by_id=None) -> dict[tuple, float]:
     """{(signal_id, asset_id): score} de una fecha — LÓGICA PURA, sin BD,
     compartida por el camino por-fecha y el modo rango (la paridad entre
     ambos depende de que este sea el único evaluador).
-
-    gscores: {(group_type, group_id): obj} con atributos regime_score_*
-    (ORM GroupScore o SimpleNamespace, indistinto).
 
     compiled_by_id: evaluadores compilados de _prepare_signals; si no viene
     (llamadores viejos/tests) se compila acá — mismo resultado, solo se
@@ -279,127 +220,13 @@ def _evaluate_asset_signal_scores(*, signals, asset_signals, group_signals,
         }
     results: dict[tuple, float] = {}
 
-    # Memo de scores de grupo: todos los activos de un mismo grupo comparten
-    # el mismo score, no hace falta evaluarlo una vez por activo.
-    group_score_memo: dict[tuple, float | None] = {}
-    id_by_key = {sig.key: sig.id for sig in signals}
-
     for asset_id, isnap in isnaps.items():
-        asset_scores: dict[str, float | None] = {}
-
         for sig in asset_signals:
             value = isnap.get(sig.indicator_key) if sig.indicator_key else None
-            asset_scores[sig.key] = compiled_by_id[sig.id](value)
-
-        groups = asset_groups.get(asset_id, {})
-        for sig in group_signals:
-            group_id = groups.get(sig.group_type)
-            if group_id is None:
-                asset_scores[sig.key] = None
-                continue
-            memo_key = (sig.id, group_id)
-            if memo_key in group_score_memo:
-                asset_scores[sig.key] = group_score_memo[memo_key]
-                continue
-            gscore = gscores.get((sig.group_type, group_id))
-            if gscore is None:
-                group_score_memo[memo_key] = None
-                asset_scores[sig.key] = None
-                continue
-            value = _get_group_indicator_value(gscore, sig.indicator_key) if sig.indicator_key else None
             score = compiled_by_id[sig.id](value)
-            group_score_memo[memo_key] = score
-            asset_scores[sig.key] = score
+            if score is not None:
+                results[(sig.id, asset_id)] = score
 
-        for key, score in asset_scores.items():
-            if score is None:
-                continue
-            sig_id = id_by_key.get(key)
-            if sig_id is not None:
-                results[(sig_id, asset_id)] = score
-
-    return results
-
-
-def compute_group_signal_values(target_date: date_type,
-                                only_signal_ids: set[int] | None = None) -> int:
-    s = get_session()
-
-    group_signals = (
-        s.query(SignalDefinition).filter(SignalDefinition.source == "group").all()
-    )
-    if only_signal_ids is not None:
-        group_signals = [sg for sg in group_signals if sg.id in only_signal_ids]
-    # Mal configuradas (ver compute_signal_values): un solo warning, no por grupo
-    bad_group = [sg for sg in group_signals
-                 if sg.indicator_key not in _VALID_GROUP_INDICATOR_KEYS]
-    if bad_group:
-        logger.warning(
-            "signal_service: señales de grupo ignoradas por indicator_key "
-            "inválido: %s", sorted(sg.key for sg in bad_group))
-        group_signals = [sg for sg in group_signals if sg not in bad_group]
-    if not group_signals:
-        return 0
-
-    import json as _json
-    params_by_id: dict[int, dict | None] = {}
-    for sig in group_signals:
-        try:
-            params_by_id[sig.id] = _json.loads(sig.params)
-        except (TypeError, ValueError):
-            params_by_id[sig.id] = None
-
-    gscores = (
-        s.query(GroupScore)
-        .filter(GroupScore.date == target_date)
-        .all()
-    )
-
-    existing_gsvs: dict[tuple, GroupSignalValue] = {
-        (gsv.signal_id, gsv.group_type, gsv.group_id): gsv
-        for gsv in s.query(GroupSignalValue).filter(GroupSignalValue.date == target_date).all()
-    }
-
-    scores = _evaluate_group_signal_scores(
-        group_signals=group_signals, params_by_id=params_by_id, gscores=gscores)
-
-    written = 0
-    for (sig_id, group_type, group_id), score in scores.items():
-        key = (sig_id, group_type, group_id)
-        gsv = existing_gsvs.get(key)
-        if gsv is None:
-            gsv = GroupSignalValue(
-                signal_id=sig_id,
-                group_type=group_type,
-                group_id=group_id,
-                date=target_date,
-            )
-            s.add(gsv)
-            existing_gsvs[key] = gsv
-        gsv.score = score
-        written += 1
-
-    s.commit()
-    logger.info("signal_service: %d group_signal_value escritos para %s", written, target_date)
-    return written
-
-
-def _evaluate_group_signal_scores(*, group_signals, params_by_id,
-                                  gscores) -> dict[tuple, float]:
-    """{(signal_id, group_type, group_id): score} de una fecha — LÓGICA
-    PURA compartida por el camino por-fecha y el modo rango. gscores:
-    iterable de objetos con group_type/group_id/regime_score_*."""
-    results: dict[tuple, float] = {}
-    for gscore in gscores:
-        for sig in group_signals:
-            if sig.group_type and sig.group_type != gscore.group_type:
-                continue
-            value = _get_group_indicator_value(gscore, sig.indicator_key) if sig.indicator_key else None
-            score = signal_engine.evaluate(sig.formula_type, sig.params, value,
-                                           params=params_by_id.get(sig.id))
-            if score is None:
-                continue
-            results[(sig.id, gscore.group_type, gscore.group_id)] = score
     return results
 
 
@@ -409,9 +236,8 @@ def run_daily(target_date: date_type | None = None) -> dict:
         target_date = get_default_target_date()
 
     asset_written = compute_signal_values(target_date)
-    group_written = compute_group_signal_values(target_date)
 
-    return {"date": str(target_date), "signal_values": asset_written, "group_signal_values": group_written}
+    return {"date": str(target_date), "signal_values": asset_written}
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -474,59 +300,13 @@ def signal_dependents_of_others(s, sig: SignalDefinition,
             if dep_public or dep_owner != owner_id]
 
 
-_GROUP_TYPE_COLUMNS = {
-    "sector": "sector_id", "market": "market_id", "industry": "industry_id",
-    "country": "country_id", "instrument_type": "instrument_type_id",
-}
-
-
-def signals_and_strategies_affected_by_new_assets(asset_ids) -> list[str]:
-    """Al AGREGAR activos (p.ej. sintéticos de conversión de moneda), sus
-    señales/estrategias PROPIAS entran solas en la próxima corrida, pero los
-    activos nuevos también pasan a integrar los AGREGADOS de sus grupos
-    (sector/mercado/país/...): eso desactualiza en la historia las señales de
-    grupo de esos tipos y las estrategias que las usan (su score/ranking
-    histórico se calculó sin estos activos). Devuelve descripciones para el
-    aviso de 'Recalcular completo'. Lista vacía = nada que recalcular (típico
-    si no hay señales de grupo). No es transversal por activo: solo mira los
-    grupos que los nuevos activos tocan."""
-    if not asset_ids:
-        return []
-    s = get_session()
-
-    types: set[str] = set()
-    for a in s.query(Asset).filter(Asset.id.in_(list(asset_ids))).all():
-        for gt, col in _GROUP_TYPE_COLUMNS.items():
-            if getattr(a, col) is not None:
-                types.add(gt)
-    if not types:
-        return []
-
-    group_sigs = s.query(SignalDefinition).filter(
-        SignalDefinition.source == "group",
-        SignalDefinition.group_type.in_(types)).all()
-    if not group_sigs:
-        return []
-
-    # Sets: una estrategia que usa dos señales de grupo afectadas se lista una
-    # sola vez; los nombres de señal son únicos por key
-    signal_descs = {f"señal de grupo «{sig.key}»" for sig in group_sigs}
-    strat_descs: set[str] = set()
-    for sig in group_sigs:
-        for desc, _o, _p in _signal_dependents(s, sig):
-            strat_descs.add(desc)
-    return sorted(signal_descs) + sorted(strat_descs)
-
-
 def save_signal(
     key: str,
     name: str,
-    source: str,
     formula_type: str,
     params_json: str,
     *,
     description: str | None = None,
-    group_type: str | None = None,
     indicator_key: str | None = None,
     signal_id: int | None = None,
     is_public: bool | None = None,
@@ -552,18 +332,9 @@ def save_signal(
 
     s = get_session()
 
-    # Validar referencias (mismos chequeos que el import): una señal que
-    # apunta a un indicador inexistente o inválido para su fuente guarda
-    # bien y después nunca puntúa, silenciosamente
-    if source == "group":
-        if not group_type:
-            raise ValueError("Una señal de grupo requiere tipo de grupo.")
-        if indicator_key not in _VALID_GROUP_INDICATOR_KEYS:
-            raise ValueError(
-                f"indicator_key '{indicator_key}' no es un campo de "
-                f"group_scores (válidos: "
-                f"{sorted(_VALID_GROUP_INDICATOR_KEYS)}).")
-    elif indicator_key and indicator_key not in _VIRTUAL_CODES:
+    # Validar referencias: una señal que apunta a un indicador inexistente
+    # guarda bien y después nunca puntúa, silenciosamente
+    if indicator_key and indicator_key not in _VIRTUAL_CODES:
         from app.models.indicator_definition import IndicatorDefinition
         known = s.query(IndicatorDefinition.id).filter(
             IndicatorDefinition.code == indicator_key).first()
@@ -596,8 +367,6 @@ def save_signal(
     sig.key           = key
     sig.name          = name
     sig.description   = description
-    sig.source        = source
-    sig.group_type    = group_type or None
     sig.indicator_key = indicator_key or None
     sig.formula_type  = formula_type
     sig.params        = params_json
@@ -662,12 +431,12 @@ def export_signals_excel() -> bytes:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Señales"
-    ws.append(["key", "name", "description", "source", "group_type",
+    ws.append(["key", "name", "description",
                 "indicator_key", "formula_type", "params", "publica"])
     for sig in signals:
         ws.append([
             sig.key, sig.name, sig.description or "",
-            sig.source, sig.group_type or "", sig.indicator_key or "",
+            sig.indicator_key or "",
             sig.formula_type, sig.params, publica_str(sig.is_public),
         ])
     buf = BytesIO()
@@ -697,7 +466,6 @@ def import_signals_excel(file_bytes: bytes,
     headers = [str(h).strip().lower() for h in rows[0]]
 
     _FORMULA_TYPES = ("discrete_map", "threshold", "range")
-    _SOURCES       = ("asset", "group")
 
     # Catálogos para validar referencias (indicadores, señales existentes)
     s = get_session()
@@ -717,9 +485,8 @@ def import_signals_excel(file_bytes: bytes,
             continue
         params_str    = str(data.get("params") or "{}")
         formula_type  = str(data.get("formula_type") or "range")
-        source        = str(data.get("source") or "asset")
+        source        = str(data.get("source") or "asset").strip().lower()
         indicator_key = str(data.get("indicator_key") or "").strip()
-        group_type    = str(data.get("group_type") or "").strip()
         error = None
         params = None
         is_public = False   # solo se usa si parse_publica lanza; default privado
@@ -733,27 +500,23 @@ def import_signals_excel(file_bytes: bytes,
             error = error or f"params inválido: {exc}"
         if error is None and formula_type not in _FORMULA_TYPES:
             error = f"formula_type desconocido: '{formula_type}'"
-        if error is None and source not in _SOURCES:
-            error = f"source desconocido: '{source}'"
+        # Las señales de grupo (source=group) se removieron: se rechaza la fila
+        # en vez de importarla como asset (se perdería la intención en silencio).
+        if error is None and source not in ("", "asset"):
+            error = (f"la fuente '{source}' ya no se soporta: las señales de "
+                     f"grupo se removieron")
         if error is None:
             # Forma de params según la fórmula: un params json-válido pero
             # con la forma equivocada no rompe nada — la señal nunca
             # puntuaría, silenciosamente. Mejor rechazar acá.
             error = signal_engine.validate_params(
                 formula_type, params if isinstance(params, dict) else {})
-        if error is None:
-            if source == "group":
-                if not group_type:
-                    error = "source=group requiere group_type"
-                elif indicator_key not in _VALID_GROUP_INDICATOR_KEYS:
-                    error = (f"indicator_key '{indicator_key}' no es un campo "
-                             f"válido de group_scores")
-            elif indicator_key and indicator_key not in known_indicators:
-                error = f"indicador desconocido: '{indicator_key}'"
+        if error is None and indicator_key and indicator_key not in known_indicators:
+            error = f"indicador desconocido: '{indicator_key}'"
         if error:
             invalid = True
         parsed.append({"key": key, "data": data, "params": params_str,
-                       "formula_type": formula_type, "source": source,
+                       "formula_type": formula_type,
                        "is_public": is_public, "error": error})
 
     # Despublicar vía import: mismo chequeo de dependientes que en el ABM
@@ -793,11 +556,9 @@ def import_signals_excel(file_bytes: bytes,
             new_vals = dict(
                 key=key,
                 name=str(data.get("name") or key),
-                source=p["source"],
                 formula_type=p["formula_type"],
                 params=p["params"],
                 description=str(data.get("description") or "") or None,
-                group_type=str(data.get("group_type") or "") or None,
                 indicator_key=str(data.get("indicator_key") or "") or None,
                 is_public=p["is_public"],
             )
@@ -959,13 +720,6 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
         eval_kind, eval_ref = "signal", target_sig.id
         if force:
             computed = set()
-        elif target_sig.source == "group":
-            computed = {
-                d for (d,) in _within(
-                    s.query(GroupSignalValue.date).distinct().filter(
-                        GroupSignalValue.signal_id == target_sig.id),
-                    GroupSignalValue.date)
-            }
         else:
             computed = _distinct_dates(
                 signal_store.ensure_sig_table(target_sig.id,
@@ -976,8 +730,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
         if not force:
             # Unión de fechas de todas las tablas sig_{id} (pocas señales,
             # una query barata por tabla)
-            for (sid,) in s.query(SignalDefinition.id).filter(
-                    SignalDefinition.source == "asset"):
+            for (sid,) in s.query(SignalDefinition.id):
                 computed |= _distinct_dates(
                     signal_store.ensure_sig_table(sid, bind=s.connection()))
 
@@ -1023,9 +776,8 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
                 group_score_service.run_daily(d)
                 compute_signal_values(d, only_signal_ids=only_ids,
                                       latest_price_date=last)
-                compute_group_signal_values(d, only_signal_ids=only_ids)
-            # strategy_only: compute_strategy_results lee signal_value/
-            # group_signal_value de la BD — exactamente la semántica pedida
+            # strategy_only: compute_strategy_results lee los sig_{id} de la
+            # BD — exactamente la semántica pedida
             if scope_kind == "strategy":
                 strategy_service.compute_strategy_results(strategy_id, d)
             elif scope_kind is None:

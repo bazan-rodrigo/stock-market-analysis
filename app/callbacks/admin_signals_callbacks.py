@@ -50,7 +50,6 @@ def load_table(_a, _m):
             "id":            s.id,
             "key":           s.key,
             "name":          s.name,
-            "source":        s.source,
             "indicator_key": s.indicator_key or "—",
             "formula_type":  _FT_LABEL.get(s.formula_type, s.formula_type),
             "owner":         owners.get(s.owner_id, "—"),
@@ -103,8 +102,6 @@ def update_buttons(selected_ids):
     Output("sig-f-key",         "value"),
     Output("sig-f-key",         "disabled"),
     Output("sig-f-name",        "value"),
-    Output("sig-f-source",      "value"),
-    Output("sig-f-group-type",  "value"),
     Output("sig-f-indicator-key", "value"),
     Output("sig-f-formula-type","value"),
     Output("sig-f-description", "value"),
@@ -123,15 +120,15 @@ def update_buttons(selected_ids):
 def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
     trigger = ctx.triggered_id
     _noup = no_update
-    _noop = (_noup,) * 16  # 16 outputs totales
+    _noop = (_noup,) * 14  # 14 outputs totales
 
     if trigger == "sig-btn-cancel":
         # is_open=False, resto sin cambio, editing_id=None, error=False
         return (False, _noup, _noup, _noup, _noup, _noup, _noup,
-                _noup, _noup, _noup, _noup, _noup, _noup, _noup, None, False)
+                _noup, _noup, _noup, _noup, _noup, None, False)
 
     if trigger == "sig-btn-add":
-        return (True, "Nueva señal", "", False, "", None, None,
+        return (True, "Nueva señal", "", False, "",
                 "", None, "", False, "{}", empty_params_store(), False, None, False)
 
     if trigger == "sig-btn-edit":
@@ -150,8 +147,7 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
         return (
             True, "Editar señal",
             sig.key, True,
-            sig.name, sig.source,
-            sig.group_type, sig.indicator_key,
+            sig.name, sig.indicator_key,
             sig.formula_type, sig.description or "", bool(sig.is_public),
             sig.params,
             pb_store if pb_store is not None else empty_params_store(),
@@ -160,41 +156,6 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
         )
 
     return _noop
-
-
-# ── Mostrar/ocultar col grupo ─────────────────────────────────────────────────
-
-@callback(
-    Output("sig-col-group-type", "style"),
-    Input("sig-f-source", "value"),
-)
-def toggle_group_col(source):
-    if source == "group":
-        return {}
-    return {"display": "none"}
-
-
-# Las señales de grupo leen de group_scores, que solo tiene estos campos.
-# Sin esta separación el dropdown ofrecía indicadores de activo
-# (trend_daily, ...) para señales de grupo — así se rompieron las 6 señales
-# de sistema tendencia_sector_*/tendencia_mercado_* (guardadas con
-# indicator_key inválido, nunca volvieron a puntuar).
-_GROUP_INDICATOR_OPTS = [
-    {"label": "regime_score_d — Tendencia diaria del grupo",   "value": "regime_score_d"},
-    {"label": "regime_score_w — Tendencia semanal del grupo",  "value": "regime_score_w"},
-    {"label": "regime_score_m — Tendencia mensual del grupo",  "value": "regime_score_m"},
-]
-
-
-@callback(
-    Output("sig-f-indicator-key", "options"),
-    Input("sig-f-source", "value"),
-)
-def indicator_opts_by_source(source):
-    if source == "group":
-        return _GROUP_INDICATOR_OPTS
-    from app.pages.admin_signals import _build_indicator_opts
-    return _build_indicator_opts()
 
 
 # ── Ayuda de fórmula ──────────────────────────────────────────────────────────
@@ -223,8 +184,6 @@ def update_help(ft, advanced):
     Input("sig-btn-save",     "n_clicks"),
     State("sig-f-key",        "value"),
     State("sig-f-name",       "value"),
-    State("sig-f-source",     "value"),
-    State("sig-f-group-type", "value"),
     State("sig-f-indicator-key", "value"),
     State("sig-f-formula-type",  "value"),
     State("sig-f-description",   "value"),
@@ -236,7 +195,7 @@ def update_help(ft, advanced):
     *PB_FIELD_STATES,
     prevent_initial_call=True,
 )
-def save(_, key, name, source, group_type, indicator_key,
+def save(_, key, name, indicator_key,
          formula_type, description, is_public, params, editing_id,
          advanced, pb_store, *pb_field_args):
 
@@ -247,8 +206,6 @@ def save(_, key, name, source, group_type, indicator_key,
         return err("La clave (key) es obligatoria.")
     if not name or not name.strip():
         return err("El nombre es obligatorio.")
-    if not source:
-        return err("Seleccioná la fuente (asset o group).")
     if not formula_type:
         return err("Seleccioná el tipo de fórmula.")
 
@@ -266,11 +223,9 @@ def save(_, key, name, source, group_type, indicator_key,
         svc.save_signal(
             key=key.strip(),
             name=name.strip(),
-            source=source,
             formula_type=formula_type,
             params_json=params.strip(),
             description=description or None,
-            group_type=group_type or None,
             indicator_key=indicator_key or None,
             signal_id=editing_id,
             is_public=bool(is_public),
@@ -349,7 +304,6 @@ def recalculate(_, date_str):
         result = svc.run_recalculate(target_date)
         msg = (f"Pipeline {target_date}: "
                f"{result['signal_values']} scores de señal, "
-               f"{result['group_signal_values']} scores de grupo, "
                f"{result.get('strategy_results', 0)} resultados de estrategia.")
         return "", msg, True, "success"
     except Exception as exc:

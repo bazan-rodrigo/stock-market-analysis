@@ -39,24 +39,9 @@ la suma de los pesos.
 |---|---|
 | **Señal (key)** | La señal a usar. El desplegable lista solo las señales que podés ver. |
 | **Peso** | Cuánto pesa dentro del promedio. No hace falta que sumen 1: son relativos entre sí, porque siempre se divide por el total. |
-| **Alcance** | Si la señal se lee del activo o de un grupo. |
-| **Tipo grupo** | Solo aplica con alcance de grupo: **Sector**, **Mercado** o **Industria**. |
 
-El **Alcance** tiene tres valores. **Activo directo** es lo normal: el score de
-la señal para ese activo. **Grupo propio** usa el score de esa señal para el
-grupo al que el activo pertenece según el **Tipo grupo** elegido — sirve para
-premiar al activo cuyo sector viene bien, sin importar cuál sea ese sector.
-**Grupo fijo** apunta a un grupo puntual, el mismo para todos; la pantalla no
-ofrece dónde elegir *cuál*, así que un componente creado acá con ese alcance no
-llega a resolverse y no aporta al score (solo queda definido si la estrategia
-entra por importación).
-
-> **El campo Tipo grupo no aparece en el momento en que elegís el alcance.** La
-> lista de componentes no se vuelve a dibujar al tocar ese desplegable: el campo
-> se muestra recién cuando la lista se redibuja, o sea al agregar o quitar un
-> componente, o al cerrar y reabrir el editor. Si elegiste **Grupo propio** y no
-> ves dónde cargar el tipo, no está rota la pantalla: agregá un componente (o
-> reabrí el editor) y va a estar ahí, con el alcance que elegiste intacto.
+El score de cada componente es el puntaje de esa señal **para el activo**, y el
+score de la estrategia es el promedio de los componentes ponderado por sus pesos.
 
 ### La sutileza que más sorprende: los componentes sin dato se saltean
 

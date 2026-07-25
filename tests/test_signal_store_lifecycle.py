@@ -52,7 +52,7 @@ def _mk_signal(key="lc_sig"):
                                   type="str", keep_history=True))
         s.commit()
     return signal_service.save_signal(
-        key=key, name=key, source="asset", formula_type="discrete_map",
+        key=key, name=key, formula_type="discrete_map",
         params_json=json.dumps({"map": {"bullish": 100}}),
         indicator_key="trend_daily", is_public=True)
 
@@ -66,7 +66,7 @@ def test_alta_y_baja_de_senal_crean_y_dropean_su_tabla(db):
 
     # el renombre de la key NO toca la tabla (nombrada por id inmutable)
     signal_service.save_signal(
-        key="lc_sig_renombrada", name="x", source="asset",
+        key="lc_sig_renombrada", name="x",
         formula_type="discrete_map",
         params_json=json.dumps({"map": {"bullish": 100}}),
         indicator_key="trend_daily", signal_id=sig.id)

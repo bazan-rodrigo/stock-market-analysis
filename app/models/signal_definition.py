@@ -19,9 +19,8 @@ class SignalDefinition(Base):
       threshold    — aplica umbrales ordenados desc sobre valor numérico (params.thresholds)
       range        — normaliza valor numérico entre min/max a [-100,100] (params.min/max/clamp)
 
-    source:
-      asset  — la señal lee de indicator_values del activo
-      group  — la señal lee de group_scores del grupo del activo
+    La señal siempre lee del indicador del activo (indicator_key). Las señales
+    de grupo (source=group, sobre group_scores) se removieron.
     """
 
     __tablename__ = "signal"
@@ -30,9 +29,7 @@ class SignalDefinition(Base):
     key           = Column(String(50),  nullable=False, unique=True)
     name          = Column(String(100), nullable=False)
     description   = Column(Text)
-    source        = Column(String(10),  nullable=False)  # asset | group
-    group_type    = Column(String(30))                   # sector|market|industry|... (solo si source=group)
-    indicator_key = Column(String(50))                   # campo en indicator/group_scores
+    indicator_key = Column(String(50))                   # código del indicador ind_*
     formula_type  = Column(String(20),  nullable=False)  # discrete_map|threshold|range
     params        = Column(Text,        nullable=False)  # JSON
     owner_id      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))

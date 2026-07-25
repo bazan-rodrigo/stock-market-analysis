@@ -114,7 +114,7 @@ def test_alta_de_senal_con_key_en_otro_caso_es_duplicado():
         s.commit()
 
     sig = signal_service.save_signal(
-        key="dual_ci_senal", name="ci", source="asset",
+        key="dual_ci_senal", name="ci",
         formula_type="discrete_map",
         params_json=json.dumps({"map": {"bullish": 100}}),
         indicator_key="trend_daily", is_public=True)
@@ -124,7 +124,7 @@ def test_alta_de_senal_con_key_en_otro_caso_es_duplicado():
         # señal duplicada en vez de rechazarla
         with pytest.raises(ValueError, match="Ya existe una señal"):
             signal_service.save_signal(
-                key="DUAL_CI_SENAL", name="ci2", source="asset",
+                key="DUAL_CI_SENAL", name="ci2",
                 formula_type="discrete_map",
                 params_json=json.dumps({"map": {"bullish": 100}}),
                 indicator_key="trend_daily", is_public=True)

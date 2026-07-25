@@ -53,9 +53,8 @@ Hay tres formas de definir esa traducción:
 | **Umbrales** | Indicadores numéricos, por tramos. Se evalúa de arriba hacia abajo y el primer umbral que el valor supera define el puntaje. |
 | **Rango lineal** | Indicadores numéricos, escala continua. Definís qué valor vale −100 y cuál +100; el resto se interpola en línea recta. |
 
-Una señal puede mirar el indicador **de un activo** o el agregado **de un
-grupo** (el sector, el mercado, el país al que pertenece). Las señales de grupo
-permiten preguntas como "¿el sector de este activo viene bien?".
+Una señal mira el indicador **de un activo** —su tendencia, su RSI, su
+drawdown— y lo transforma en ese puntaje.
 
 ## 4. Estrategias
 

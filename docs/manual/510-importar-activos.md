@@ -114,7 +114,7 @@ La importación crea los activos, pero **no descarga los precios**: eso lo
 resuelve la actualización diaria. Hasta entonces los activos nuevos van a
 aparecer sin historia.
 
-Y como siempre que entran activos nuevos, las señales de grupo y los rankings de
-estrategia quedan desactualizados en la historia ya calculada: hace falta un
+Y como siempre que entran activos nuevos, los rankings de estrategia quedan
+desactualizados en la historia ya calculada: hace falta un
 **recálculo completo**, según se explica en
 [Cómo se calcula todo](/manual/conceptos-pipeline).

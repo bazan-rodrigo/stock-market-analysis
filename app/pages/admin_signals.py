@@ -5,18 +5,8 @@ from dash import dash_table, dcc, html
 from app.components.help import help_link
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
-from app.components.ui_constants import (
-    GROUP_TYPE_OPTS as _GROUP_TYPE_OPTS,
-    CARD_STYLE, STATUS_STYLE,
-)
+from app.components.ui_constants import CARD_STYLE, STATUS_STYLE
 
-# La fuente "group" (señales que leen group_scores) se retiró como opción de
-# alta: la funcionalidad de grupo se está removiendo (ver
-# docs/notes/design_remover_senales_grupo_y_alcance.md). El backend todavía la
-# soporta en este paso; solo se cierra la vía de creación desde la UI.
-_SOURCE_OPTS = [
-    {"label": "Activo (asset)",   "value": "asset"},
-]
 _FORMULA_OPTS = [
     {"label": "Mapa discreto (discrete_map)", "value": "discrete_map"},
     {"label": "Umbrales (threshold)",         "value": "threshold"},
@@ -75,18 +65,6 @@ def layout(**kwargs):
 
             dbc.Row([
                 dbc.Col([
-                    dbc.Label("Fuente", style={"fontSize": "0.82rem"}),
-                    dcc.Dropdown(id="sig-f-source", options=_SOURCE_OPTS,
-                                 placeholder="asset o group", clearable=False,
-                                 style={"fontSize": "0.85rem"}),
-                ], md=4),
-                dbc.Col([
-                    dbc.Label("Tipo de grupo", style={"fontSize": "0.82rem"}),
-                    dcc.Dropdown(id="sig-f-group-type", options=_GROUP_TYPE_OPTS,
-                                 placeholder="Solo si fuente=group",
-                                 style={"fontSize": "0.85rem"}),
-                ], md=4, id="sig-col-group-type"),
-                dbc.Col([
                     dbc.Label("Clave de indicador", style={"fontSize": "0.82rem"}),
                     dcc.Dropdown(
                         id="sig-f-indicator-key",
@@ -96,7 +74,7 @@ def layout(**kwargs):
                         options=indicator_opts,
                         style={"fontSize": "0.85rem"},
                     ),
-                ], md=4),
+                ]),
             ], className="mb-2"),
 
             dbc.Row([
@@ -235,7 +213,6 @@ def layout(**kwargs):
             columns=[
                 {"name": "Key",       "id": "key"},
                 {"name": "Nombre",    "id": "name"},
-                {"name": "Fuente",    "id": "source"},
                 {"name": "Indicador", "id": "indicator_key"},
                 {"name": "Fórmula",   "id": "formula_type"},
                 {"name": "Dueño",     "id": "owner"},
@@ -249,10 +226,7 @@ def layout(**kwargs):
             style_data=DATA,
             style_cell=CELL,
             style_filter=FILTER,
-            style_data_conditional=SELECTED_ROW + [
-                {"if": {"filter_query": '{source} = "asset"'}, "color": "#38bdf8"},
-                {"if": {"filter_query": '{source} = "group"'}, "color": "#4ade80"},
-            ],
+            style_data_conditional=SELECTED_ROW,
             page_size=30,
             sort_action="native",
             filter_action="native",

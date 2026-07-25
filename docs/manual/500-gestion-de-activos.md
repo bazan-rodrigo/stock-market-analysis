@@ -118,11 +118,11 @@ selección**.
 
 ## Después de dar de alta, reagrupar o eliminar
 
-Los indicadores de un activo nuevo se completan solos. Las **señales de grupo**,
-en cambio, y los **rankings de estrategia** son transversales: incorporar
-activos nuevos, cambiarles el sector o el mercado, **o eliminar un activo que
-participaba**, desactualiza la historia ya calculada — los rankings de fechas
-pasadas se calcularon contándolo. Para que quede consistente hace falta un
+Los indicadores de un activo nuevo se completan solos. Los **rankings de
+estrategia**, en cambio, son transversales: incorporar activos nuevos **o
+eliminar un activo que participaba** desactualiza la historia ya calculada — los
+rankings de fechas pasadas se calcularon contándolo. Para que quede consistente
+hace falta un
 **recálculo completo** desde el [Centro de Datos](/manual/centro-de-datos) —
 el porqué está en [Cómo se calcula todo](/manual/conceptos-pipeline), y el
 detalle de por qué un borrado grande tarda minutos, en

@@ -29,7 +29,6 @@ from app.models.indicator_store import CurrentIndicatorValue, IndAssetMeta
 from app.models.group_scores import GroupScore
 from app.models.pnf_config import PnfConfig
 from app.models.signal_definition import SignalDefinition
-from app.models.group_signal_value import GroupSignalValue
 from app.models.signal_eval_log import SignalEvalLog
 from app.models import signal_store
 from app.models.strategy import Strategy
@@ -74,7 +73,6 @@ __all__ = [
     "GroupScore",
     "PnfConfig",
     "SignalDefinition",
-    "GroupSignalValue",
     "SignalEvalLog",
     "signal_store",
     "Strategy",

@@ -19,12 +19,10 @@ qué lee y qué escribe cada etapa, qué se midió y qué se resignó.
  prices          →  ind_daily / ind_weekly / ind_monthly
  (+ fundamental)    ind_fundamental_*  +  current_indicator_values
                               │
-                              ├──→ group_scores      (5 dimensiones)
-                              │         │
-                              ↓         ↓
-                        sig_{id}   group_signal_value
-                              └────┬────┘
-                                   ↓
+                              ├──→ group_scores  (5 dimensiones, mapa de mercado)
+                              ↓
+                        sig_{id}
+                              ↓
                             strat_res_{id}
                           (score + pct, cross-section)
 ```
@@ -57,20 +55,9 @@ número con un mapa fijo de 10 entradas (`bullish_strong` = 100 hasta
 es lógica pura sin base, a propósito: la comparten el camino por-fecha y el modo
 rango.
 
-En modo rango solo se escriben los grupos que alguna estrategia consume, vía
-`_derive_needed_groups`. El motivo fue un bug reportado: se escribía la agregación
-de unos 200 grupos por fecha aunque el usuario tuviera **cero** señales de grupo
-que la leyeran, y la tabla se llenaba de millones de filas muertas que enlentecían
-las sentencias del tramo denso. La derivación, en `restricted_attribute_ids`
-(`app/services/strategy_filter.py`), es deliberadamente conservadora: ante
-cualquier ambigüedad devuelve `None`, o sea calculá todos. Acotar de más solo
-cuesta CPU; acotar de menos daría scores faltantes silenciosos. Además mira
-**todas** las estrategias, no las del alcance de la corrida — si no, recalcular la
-de Argentina borraría los grupos que necesita la de Brasil sobre la misma señal.
-
-> Si no hay ninguna señal `source=group`, la historia de `group_scores` queda casi
-> vacía y **eso es correcto**. Solo se escribe la última fecha completa, porque el
-> mapa de mercado la lee.
+`group_scores` alimenta el **mapa de mercado**, que lee la última fecha. El camino
+por-fecha la escribe todas las fechas; el modo rango, solo la última — su historia
+no la lee nadie, así que reescribirla entera sería trabajo tirado.
 
 ## 3. Señales: un motor puro y una optimización medida
 
@@ -81,12 +68,8 @@ fórmulas: `evaluate_discrete_map` (string a score vía dict), `evaluate_thresho
 en ese rango, con una excepción deliberada: `range` con `clamp=False` puede
 pasarse de ±100.
 
-El campo `source` distingue dos orígenes: las señales de activo leen las `ind_*`,
-las de grupo leen `group_scores` y solo aceptan tres `indicator_key`
-(`regime_score_d/w/m`). Una señal de grupo mal configurada se descarta una sola
-vez en `_prepare_signals`, con un único warning, en lugar de al evaluar: en un
-backfill de 25.000 fechas, un warning por (grupo × fecha) inundaría el log.
-`validate_params` existe por una razón parecida.
+Cada señal lee su indicador de las `ind_*` **del activo**. `validate_params`
+protege la forma de los `params` según la fórmula.
 
 > Un `params` sintácticamente válido pero con la forma equivocada — un `map` en
 > una señal `threshold` — **no rompe nada**. `evaluate` devuelve `None` en
@@ -131,9 +114,8 @@ por activo; producción usa `evaluate_tree_bulk`, que recorre el árbol una vez 
 sobre los que vienen pasando, OR solo sobre los que aún no pasaron).
 
 La segunda pieza es `_compute_asset_score` en `app/services/strategy_service.py`:
-suma ponderada de componentes, con tres scopes (señal de activo directo,
-`own_group` según el `group_type` del componente, y `specific_group` con un grupo
-fijo), y de ahí a `percent_ranks` y al orden descendente, hacia `strat_res_{id}`.
+suma ponderada de los componentes (el score de cada señal para el activo), y de
+ahí a `percent_ranks` y al orden descendente, hacia `strat_res_{id}`.
 
 > El score se **renormaliza** sobre los componentes que puntuaron: uno cuya señal
 > no tiene valor se saltea y su peso no entra al denominador. Un activo con 1 de 5
@@ -206,19 +188,20 @@ pasa a salir de memoria en O(1) amortizado**, con la misma semántica que
 
 Lo importante es lo que **no** se duplica. El módulo invoca las mismas funciones
 puras del camino por-fecha: `_evaluate_asset_signal_scores`,
-`_evaluate_group_signal_scores`, `aggregate_group_scores`, `rank_strategy_assets`
-y `percent_ranks`. Lo único propio es la orquestación de I/O, y esa es la
-condición para que la paridad sea estructural en vez de una coincidencia.
-`tests/test_signal_range_parity.py` corre ambos caminos sobre el mismo dataset y
-exige igualdad exacta de las cuatro tablas de salida; usa 40 fechas a propósito,
+`aggregate_group_scores`, `rank_strategy_assets` y `percent_ranks`. Lo único
+propio es la orquestación de I/O, y esa es la condición para que la paridad sea
+estructural en vez de una coincidencia. `tests/test_signal_range_parity.py` corre
+ambos caminos sobre el mismo dataset y exige igualdad exacta de las tablas de
+salida; usa 40 fechas a propósito,
 para superar el umbral de 30 y ejercitar el rango de verdad.
 
 Hay dos divergencias deliberadas, que no son regresiones: el DELETE por fecha
-elimina filas obsoletas que el upsert por-fecha dejaría zombies, y el alcance de
-grupos ya mencionado. Existe además el modo `strategy_only`, que el usuario elige
-cuando no cambiaron ni señales ni indicadores: los scores de señal se **leen** de
-`sig_{id}` y `group_signal_value` en vez de re-evaluarse, los barridos de
-indicadores se reducen a lo que el filtro necesita, y solo se reconstruye
+elimina filas obsoletas que el upsert por-fecha dejaría zombies, y `group_scores`
+solo escribe la última fecha (para el mapa de mercado). Existe además el modo
+`strategy_only`, que el usuario elige cuando no cambiaron ni señales ni
+indicadores: los scores de señal se **leen** de `sig_{id}` en vez de re-evaluarse,
+los barridos de indicadores se reducen a lo que el filtro necesita, y solo se
+reconstruye
 `strat_res_{id}` — el costo pasa a ser proporcional a la estrategia y no a la
 historia de sus señales. La concurrencia del módulo (tres lectores paralelos, un
 escritor asíncrono con cola de backpressure) se trata en

@@ -22,19 +22,18 @@ cálculo para un RANGO de fechas con:
   en pobladas midió 3-5× más caro) y las unidades no compiten entre sí.
 
 La MATEMÁTICA no vive acá: los evaluadores compartidos
-(_evaluate_asset_signal_scores, _evaluate_group_signal_scores,
-aggregate_group_scores, rank_strategy_assets) son los mismos que usa el
-camino por-fecha — ver tests/test_signal_range_parity.py.
+(_evaluate_asset_signal_scores, aggregate_group_scores, rank_strategy_assets)
+son los mismos que usa el camino por-fecha — ver
+tests/test_signal_range_parity.py.
 
 Divergencias deliberadas con el camino por-fecha (no son regresiones):
-- El DELETE por fecha elimina filas obsoletas (señales/grupos que ya no
-  puntúan ese día) que el upsert por-fecha dejaría zombies.
-- group_scores/group_signal_value se escriben SOLO para los grupos que
-  alguna estrategia consume (_derive_needed_groups): sin señales de grupo
-  no se escribe historia, y una señal acotada a un país solo calcula ese
-  país. El camino por-fecha (compute_group_scores) escribe todos los grupos
-  todas las fechas porque alimenta el mapa de mercado; en modo rango eso se
-  preserva escribiendo la ÚLTIMA fecha completa y el resto solo lo necesario.
+- El DELETE por fecha elimina filas obsoletas (señales que ya no puntúan ese
+  día) que el upsert por-fecha dejaría zombies.
+- group_scores se escribe SOLO para la ÚLTIMA fecha (todos los grupos), la
+  que lee el mapa de mercado; su historia no la lee nadie (las señales de
+  grupo se removieron). El camino por-fecha (compute_group_scores) escribe
+  todos los grupos todas las fechas para el mapa; en modo rango alcanza con
+  la última.
 """
 import logging
 import queue
@@ -56,7 +55,6 @@ from app.services.db_utils import delete_by_ranges
 from app.models import (
     Asset,
     GroupScore,
-    GroupSignalValue,
     Strategy,
 )
 from app.models import signal_store
@@ -75,7 +73,6 @@ from app.services.group_score_service import (
 )
 from app.services.signal_service import (
     _evaluate_asset_signal_scores,
-    _evaluate_group_signal_scores,
     _prepare_signals,
 )
 from app.services.strategy_service import percent_ranks, rank_strategy_assets
@@ -93,93 +90,6 @@ _CHUNK_DATES = 250   # ~1 año de ruedas por chunk (unidad de carga del barrido)
 _is_retryable_lock_error = db_compat.is_retryable_lock_error
 _MAX_LOCK_RETRIES = 3
 
-
-def _load_derivation_inputs(s):
-    """Insumos (desde la BD) para derivar qué grupos calcular: se miran TODAS
-    las estrategias y TODAS las señales, no solo las del alcance de esta
-    corrida — el conjunto de grupos de una señal es propiedad de la señal y de
-    todos sus consumidores, no del alcance con que se la recalcula (si no,
-    recalcular la estrategia de Argentina borraría los grupos que necesita la
-    de Brasil sobre la misma señal). Devuelve (strategies, gtypes_by_id,
-    gtypes_by_key)."""
-    from app.models import SignalDefinition
-
-    # {signal_key: set(group_type)} — cada señal de grupo aporta su propio tipo
-    gtypes_by_key, gtypes_by_id = {}, {}
-    for sig in s.query(SignalDefinition).all():
-        gtypes = ({sig.group_type}
-                  if sig.source == "group" and sig.group_type else set())
-        gtypes_by_key[sig.key] = gtypes
-        gtypes_by_id[sig.id] = gtypes
-
-    strategies = []
-    for st in s.query(Strategy).all():
-        tree = strategy_filter.parse_tree(st.filter_conditions)
-        sig_ops = ({key for t, key, _r in strategy_filter.collect_operands(tree)
-                    if t == "signal"} if tree is not None else set())
-        comps = [SimpleNamespace(signal_id=c.signal_id, scope=c.scope,
-                                 group_type=c.group_type, group_id=c.group_id)
-                 for c in st.components]
-        strategies.append({"tree": tree, "components": comps,
-                           "signal_operands": sig_ops})
-    return strategies, gtypes_by_id, gtypes_by_key
-
-
-def _derive_needed_groups(types_with_signals, strategies,
-                          gtypes_by_id, gtypes_by_key) -> dict:
-    """{group_type: set[int] | None}. None = todos los ids de ese tipo;
-    group_type AUSENTE = ninguna estrategia lo consume → no se escribe su
-    historia en modo rango (el mapa de mercado lo mantiene el camino diario,
-    que siempre escribe la última fecha completa).
-
-    Una señal de grupo de tipo T se calcula solo para los group_id que alguna
-    estrategia realmente usa: specific_group puntual, own_group acotado por el
-    filtro de esa estrategia (ver strategy_filter.restricted_attribute_ids).
-    Se toma la UNIÓN sobre todas las estrategias que la consumen — así el
-    conjunto no depende del alcance de la corrida. Si ninguna estrategia la
-    restringe (o la usa sin filtrar ese atributo) → todos los grupos del tipo,
-    default seguro (una señal creada para verse suelta se calcula entera)."""
-    if not types_with_signals:
-        return {}
-
-    needed: dict = {}
-    constrained: set = set()
-
-    def _mark(t, ids):
-        if t not in types_with_signals:
-            return
-        constrained.add(t)
-        if t in needed and needed[t] is None:       # ya abierto a todos
-            return
-        if ids is None:
-            needed[t] = None
-        else:
-            needed[t] = (needed.get(t) or set()) | ids
-
-    for st in strategies:
-        tree = st["tree"]
-        for comp in st["components"]:
-            if comp.scope == "specific_group" and comp.group_id is not None:
-                _mark(comp.group_type, {comp.group_id})
-            elif comp.scope == "own_group" and comp.group_type:
-                _mark(comp.group_type,
-                      strategy_filter.restricted_attribute_ids(tree, comp.group_type))
-            else:
-                # scope directo: lee el valor por-activo de la señal; si es de
-                # grupo necesita el grupo de cada activo que pase el filtro
-                for t in gtypes_by_id.get(comp.signal_id, ()):
-                    _mark(t, strategy_filter.restricted_attribute_ids(tree, t))
-        # señales de grupo usadas en el filtro: se evalúan sobre TODOS los
-        # candidatos antes de filtrar → hacen falta todos los grupos del tipo
-        for key in st["signal_operands"]:
-            for t in gtypes_by_key.get(key, ()):
-                _mark(t, None)
-
-    # tipos con señal que ninguna estrategia restringe → todos
-    for t in types_with_signals:
-        if t not in constrained:
-            needed[t] = None
-    return needed
 
 # Tope de filas acumuladas antes de escribir: un chunk de la era densa
 # (500 activos × 16 señales × 250 fechas ≈ 2M filas) en una sola
@@ -286,17 +196,6 @@ def _load_stored_scores(s, sig_id, d0, d1):
         .where(t.c.date >= d0, t.c.date <= d1)).fetchall()
 
 
-def _load_stored_group_scores(s, group_sig_ids, d0, d1):
-    """Filas de group_signal_value del rango (strategy_only)."""
-    return s.query(
-        GroupSignalValue.date, GroupSignalValue.signal_id,
-        GroupSignalValue.group_type, GroupSignalValue.group_id,
-        GroupSignalValue.score).filter(
-        GroupSignalValue.signal_id.in_(group_sig_ids),
-        GroupSignalValue.date >= d0,
-        GroupSignalValue.date <= d1).all()
-
-
 # Lectores paralelos: la lectura serial dominaba la corrida (medido 158s
 # de 180s en strategy_only) y es I/O que libera el GIL (fetch por socket +
 # conversión de filas en C del driver) — una tabla por thread paraleliza
@@ -357,13 +256,14 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     historia, así que las tablas sig_{id}/strat_res_{id} del alcance se
     vacían enteras (TRUNCATE en MySQL: inserción siempre sobre tablas
     vacías); con horizonte se cae a ventanas de fechas. full_wipe:
-    whole_history sin alcance — también group_signal_value/group_scores
-    van por TRUNCATE.
+    whole_history sin alcance — también group_scores va por TRUNCATE (su
+    historia ya no la lee nadie; el mapa de mercado la reescribe con la
+    última fecha).
 
     strategy_only (scope estrategia, elegido por el usuario cuando NO
     cambiaron señales/indicadores): las señales NO se re-evalúan ni se
-    reescriben — sus scores se LEEN de sig_{id}/group_signal_value por
-    chunk (la historia de una señal no depende de la estrategia) — y solo
+    reescriben — sus scores se LEEN de sig_{id} por chunk (la historia de
+    una señal no depende de la estrategia) — y solo
     se reconstruye strat_res_{id}. Los barridos de indicadores quedan
     reducidos a lo que el FILTRO de la estrategia necesita. Costo ∝ la
     estrategia, no ∝ la historia de sus señales."""
@@ -418,9 +318,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             # Copias planas: _compute_asset_score accede a estos atributos
             # por activo × estrategia × fecha (el descriptor ORM pesa)
             "components": [
-                SimpleNamespace(signal_id=c.signal_id, weight=c.weight,
-                                scope=c.scope, group_type=c.group_type,
-                                group_id=c.group_id)
+                SimpleNamespace(signal_id=c.signal_id, weight=c.weight)
                 for c in strat.components
             ],
             "signal_ids": {c.signal_id for c in strat.components},
@@ -447,7 +345,6 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     need_last_close = "last_close" in prep["virtual_codes"]
 
     signal_ids_all  = [sig.id for sig in prep["signals"]]
-    group_sig_ids   = [sig.id for sig in prep["group_signals"]]
     strat_ids       = [c["id"] for c in strat_ctx]
 
     # Tablas dinámicas del alcance: asegurarlas ANTES de arrancar el
@@ -459,35 +356,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         signal_store.ensure_strat_table(st_id, bind=s.connection())
     s.commit()
 
-    # Grupos realmente consumidos: sin señales de grupo esto queda vacío y no
-    # se escribe NADA de historia en group_scores/group_signal_value (antes se
-    # escribía la agregación de ~200 grupos por fecha aunque nadie la leyera).
-    # La derivación mira TODAS las estrategias (no solo las del alcance): el
-    # conjunto de grupos de una señal es propiedad de sus consumidores.
-    types_with_signals = {sig.group_type for sig in prep["group_signals"]
-                          if sig.group_type}
-    if types_with_signals:
-        _deriv_strats, _gtypes_by_id, _gtypes_by_key = _load_derivation_inputs(s)
-        needed_groups = _derive_needed_groups(
-            types_with_signals, _deriv_strats, _gtypes_by_id, _gtypes_by_key)
-    else:
-        needed_groups = {}
-
-    needed_group_types = set(needed_groups)
-
-    def _group_needed(group_type, group_id) -> bool:
-        if group_type not in needed_groups:
-            return False
-        ids = needed_groups[group_type]
-        return ids is None or group_id in ids
-
     total = len(dates)
     errors: list[dict] = []
     done = 0
-
-    # TRUNCATE existe en MySQL/MariaDB y PostgreSQL; sqlite (tests) vacía
-    # con DELETE (db_compat.wipe_table).
-    can_truncate = db_compat.supports_truncate(s)
 
     # ── Rebuild: limpieza única al inicio (después solo INSERTs) ──────────
     # whole_history (dates cubre toda la historia): las tablas sig_{id}/
@@ -521,28 +392,17 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     _wipe_table(ws, name)
                 else:
                     delete_by_ranges(ws, name, "date", windows)
-            if full_wipe and can_truncate:
-                ws.execute(sa.text("TRUNCATE TABLE group_signal_value"))
-                ws.execute(sa.text("TRUNCATE TABLE group_scores"))
-            else:
-                if group_sig_ids:
-                    ids = ", ".join(str(int(i)) for i in group_sig_ids)
-                    delete_by_ranges(ws, "group_signal_value", "date",
-                                     windows or _date_windows(),
-                                     f"signal_id IN ({ids})")
-                # group_scores: solo los tipos que ESTA corrida reescribe
-                # (los demás pueden pertenecer a otras señales de grupo) +
-                # la última fecha completa para el mapa de mercado.
-                if needed_group_types:
-                    gts = ", ".join(f"'{t}'" for t in sorted(needed_group_types))
-                    delete_by_ranges(ws, "group_scores", "date",
-                                     windows or _date_windows(),
-                                     f"group_type IN ({gts})")
-                if (latest_price_date is not None
-                        and dates[0] <= latest_price_date <= dates[-1]):
-                    ws.execute(sa.delete(GroupScore.__table__).where(
-                        GroupScore.date == latest_price_date))
-                    ws.commit()
+            # group_scores: su historia ya no la lee nadie (las señales de grupo
+            # se removieron), pero el mapa de mercado lee la ÚLTIMA fecha, que
+            # esta corrida reescribe. full_wipe (rebuild total) la vacía entera;
+            # si no, alcanza con limpiar esa última fecha.
+            if full_wipe:
+                _wipe_table(ws, "group_scores")
+            elif (latest_price_date is not None
+                    and dates[0] <= latest_price_date <= dates[-1]):
+                ws.execute(sa.delete(GroupScore.__table__).where(
+                    GroupScore.date == latest_price_date))
+                ws.commit()
         for st_id in strat_ids:
             name = signal_store.strat_table_name(st_id)
             if whole_history:
@@ -568,7 +428,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         ws.connection().exec_driver_sql(
             f"INSERT INTO {table_name} ({cols}) VALUES ({ph})", rows)
 
-    def _flush_once(ws, batch_dates, sv_by_sig, gsv_rows, gs_rows,
+    def _flush_once(ws, batch_dates, sv_by_sig, gs_rows,
                     sr_by_strat, marker_rows):
         if not force:
             dates_in = ", ".join(f"'{d}'" for d in batch_dates)
@@ -578,16 +438,8 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 ws.execute(sa.text(
                     f"DELETE FROM {signal_store.sig_table_name(sig_id)} "
                     f"WHERE date IN ({dates_in})"))
-            if group_sig_ids and not strategy_only:
-                ws.execute(sa.delete(GroupSignalValue.__table__).where(
-                    GroupSignalValue.date.in_(batch_dates),
-                    GroupSignalValue.signal_id.in_(group_sig_ids)))
-            # group_scores: solo los tipos reescritos (los demás pueden ser de
-            # otras señales) + la última fecha completa (mapa de mercado)
-            if needed_group_types and not strategy_only:
-                ws.execute(sa.delete(GroupScore.__table__).where(
-                    GroupScore.date.in_(batch_dates),
-                    GroupScore.group_type.in_(needed_group_types)))
+            # group_scores: solo la última fecha (la que reescribimos para el
+            # mapa de mercado); el resto de la historia no se toca.
             if latest_price_date in batch_dates and not strategy_only:
                 ws.execute(sa.delete(GroupScore.__table__).where(
                     GroupScore.date == latest_price_date))
@@ -602,9 +454,6 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         for sig_id, rows in sv_by_sig.items():
             _bulk_insert(ws, signal_store.sig_table_name(sig_id),
                          ("asset_id", "date", "score"), rows)
-        _bulk_insert(ws, "group_signal_value",
-                     ("signal_id", "group_type", "group_id", "date", "score"),
-                     gsv_rows)
         for st_id, rows in sr_by_strat.items():
             _bulk_insert(ws, signal_store.strat_table_name(st_id),
                          ("asset_id", "date", "score", "pct"), rows)
@@ -612,7 +461,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                      ("scope_kind", "ref_id", "date"), marker_rows)
         ws.commit()
 
-    def _flush(ws, batch_dates, sv_by_sig, gsv_rows, gs_rows, sr_by_strat,
+    def _flush(ws, batch_dates, sv_by_sig, gs_rows, sr_by_strat,
                marker_rows):
         """DELETE de las fechas del batch (solo en delta; el rebuild ya
         limpió todo al inicio) + INSERT masivo + commit. Las fechas ya
@@ -626,7 +475,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         _tw0 = time.perf_counter()
         for attempt in range(_MAX_LOCK_RETRIES + 1):
             try:
-                _flush_once(ws, batch_dates, sv_by_sig, gsv_rows, gs_rows,
+                _flush_once(ws, batch_dates, sv_by_sig, gs_rows,
                             sr_by_strat, marker_rows)
                 break
             except OperationalError as exc:
@@ -652,9 +501,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                         f"retraso: {max(0, done - _ok_box[0])} fechas")
         logger.info(
             "signal_backfill_range: %s..%s (%d fechas): %d filas de señal, "
-            "%d group_signal_value, %d group_scores, %d filas de estrategia",
+            "%d group_scores, %d filas de estrategia",
             batch_dates[0], batch_dates[-1], len(batch_dates),
-            sum(len(r) for r in sv_by_sig.values()), len(gsv_rows),
+            sum(len(r) for r in sv_by_sig.values()),
             len(gs_rows), sum(len(r) for r in sr_by_strat.values()))
 
     # ── Escritor asíncrono (motores de producción: MySQL/MariaDB y PG) ────
@@ -726,7 +575,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     else:
         _initial_cleanup(s)
 
-    def _emit(batch_dates, sv_by_sig, gsv_rows, gs_rows, sr_by_strat,
+    def _emit(batch_dates, sv_by_sig, gs_rows, sr_by_strat,
               marker_rows):
         """Entrega un lote al escritor (asíncrono) o flushea inline (sync).
         Si el escritor ya falló, descarta el lote — el error se reporta al
@@ -738,10 +587,10 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             if not _werrors:
                 # put bloquea si la cola (1) está llena: este tiempo ES la
                 # espera del productor al escritor (backpressure)
-                _wq.put((batch_dates, sv_by_sig, gsv_rows, gs_rows,
+                _wq.put((batch_dates, sv_by_sig, gs_rows,
                          sr_by_strat, marker_rows))
         else:
-            _flush(s, batch_dates, sv_by_sig, gsv_rows, gs_rows, sr_by_strat,
+            _flush(s, batch_dates, sv_by_sig, gs_rows, sr_by_strat,
                    marker_rows)
         _t_wait[0] += time.perf_counter() - _te0
 
@@ -767,9 +616,9 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             _tr0 = time.perf_counter()
             # Todas las lecturas del chunk en UN fan-out (una tabla por
             # task): barridos de indicadores + prefetch de cierres +
-            # (strategy_only) señales guardadas por tabla y de grupo — la
-            # historia de una señal no depende de la estrategia, por eso
-            # en strategy_only se LEE en vez de re-evaluarse.
+            # (strategy_only) señales guardadas por tabla — la historia de una
+            # señal no depende de la estrategia, por eso en strategy_only se
+            # LEE en vez de re-evaluarse.
             read_tasks: list = [
                 ("sweep", code, (_load_sweep, (code, window_start, window_end)))
                 for code in sorted(sweep_codes)]
@@ -782,17 +631,12 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     ("sig", sig_id, (_load_stored_scores,
                                      (sig_id, chunk[0], chunk[-1])))
                     for sig_id in signal_ids_all)
-                if group_sig_ids:
-                    read_tasks.append(
-                        ("gsv", None, (_load_stored_group_scores,
-                                       (group_sig_ids, chunk[0], chunk[-1]))))
 
             fetched = _run_reads([t[2] for t in read_tasks])
 
             sweeps: dict = {}
             closes_by_date: dict = {}
             stored_sv_by_date: dict = {}
-            stored_gsv_by_date: dict = {}
             for (kind, key, _), rows in zip(read_tasks, fetched):
                 if kind == "sweep":
                     sweeps[key] = rows
@@ -800,16 +644,11 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     for dt, aid, close in rows:
                         if close is not None:
                             closes_by_date.setdefault(dt, {})[aid] = float(close)
-                elif kind == "sig":
+                else:  # sig
                     for dt, aid, sc in rows:
                         if sc is not None:
                             stored_sv_by_date.setdefault(
                                 dt, {})[(key, aid)] = float(sc)
-                else:  # gsv
-                    for dt, sig_id, gt, gid, sc in rows:
-                        if sc is not None:
-                            stored_gsv_by_date.setdefault(
-                                dt, {})[(sig_id, gt, gid)] = float(sc)
 
             if progress_cb:
                 n_rd = len(_used_readers)
@@ -824,7 +663,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
 
             sv_by_sig: dict[int, list] = {}
             sr_by_strat: dict[int, list] = {}
-            gsv_rows, gs_rows, marker_rows = [], [], []
+            gs_rows, marker_rows = [], []
             batch_dates: list = []
             flush_rows = 0  # contador para el flush intermedio por volumen
 
@@ -844,16 +683,13 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 for sw in sweeps.values():
                     sw.advance(d)
 
-                # Scores de grupo: diaria con fecha EXACTA d; semanal/mensual
-                # con la barra cuyo período contiene d (covering) — se etiqueta
-                # al cierre (domingo / fin de mes), después de d. Misma semántica
+                # group_scores del mapa de mercado: SOLO la última fecha (todos
+                # los grupos). La historia no la lee nadie (las señales de grupo
+                # se removieron). Diaria con fecha EXACTA d; semanal/mensual con
+                # la barra cuyo período contiene d (covering) — misma semántica
                 # que compute_group_scores (camino por-fecha), atada por
-                # test_signal_range_parity. strategy_only no los recalcula: no
-                # escribe group_scores y los scores de señales de grupo se leen
-                # de la tabla.
-                if strategy_only:
-                    aggregated = {}
-                else:
+                # test_signal_range_parity.
+                if not strategy_only and d == latest_price_date:
                     asset_trends: dict[int, dict] = {}
                     for code in _TREND_CODES:
                         tf = _TF_MAP[code]
@@ -862,40 +698,21 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                         for aid, val in pairs.items():
                             asset_trends.setdefault(aid, {})[tf] = val
                     aggregated = aggregate_group_scores(asset_trends, asset_meta)
-
-                # gscores para los EVALUADORES: solo los grupos que alguna
-                # estrategia consume — controla group_signal_value y el valor
-                # por-activo de las señales de grupo. Sin señales de grupo o
-                # sin consumo → queda vacío y no se evalúa ninguno.
-                gscores = {
-                    key: SimpleNamespace(group_type=key[0], group_id=key[1], **vals)
-                    for key, vals in aggregated.items()
-                    if _group_needed(key[0], key[1])
-                }
-                # group_scores a ESCRIBIR: la ÚLTIMA fecha va completa (la lee
-                # el mapa de mercado, que muestra todos los grupos); el resto
-                # solo los grupos consumidos (la historia que leen las señales
-                # de grupo). Divergencia deliberada con el camino por-fecha,
-                # que escribe todos los grupos todas las fechas para el mapa.
-                write_all_groups = (d == latest_price_date)
-                n_gs0 = len(gs_rows)
-                gs_rows.extend(
-                    (gt, gid, d_str, vals["regime_score_d"],
-                     vals["regime_score_w"], vals["regime_score_m"],
-                     vals["n_assets"])
-                    for (gt, gid), vals in aggregated.items()
-                    if write_all_groups or _group_needed(gt, gid)
-                )
-                flush_rows += len(gs_rows) - n_gs0
+                    n_gs0 = len(gs_rows)
+                    gs_rows.extend(
+                        (gt, gid, d_str, vals["regime_score_d"],
+                         vals["regime_score_w"], vals["regime_score_m"],
+                         vals["n_assets"])
+                        for (gt, gid), vals in aggregated.items()
+                    )
+                    flush_rows += len(gs_rows) - n_gs0
 
                 # Snapshots as-of de todos los códigos barridos
                 snap = {code: sw.snapshot_asof(d) for code, sw in sweeps.items()}
 
                 if strategy_only:
-                    # Señales LEÍDAS (no evaluadas, no escritas): misma
-                    # estructura que producen los evaluadores.
+                    # Señales LEÍDAS (no evaluadas, no escritas)
                     sv_scores = stored_sv_by_date.get(d, {})
-                    gsv_scores = stored_gsv_by_date.get(d, {})
                 else:
                     # isnaps para señales de activo (hist + current-si-es-hoy
                     # + virtual)
@@ -914,23 +731,12 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     sv_scores = _evaluate_asset_signal_scores(
                         signals=prep["signals"],
                         asset_signals=prep["asset_signals"],
-                        group_signals=prep["group_signals"],
                         params_by_id=prep["params_by_id"],
-                        compiled_by_id=prep["compiled_by_id"], isnaps=isnaps,
-                        asset_groups=asset_groups, gscores=gscores)
+                        compiled_by_id=prep["compiled_by_id"], isnaps=isnaps)
                     for (sig_id, aid), v in sv_scores.items():
                         sv_by_sig.setdefault(sig_id, []).append(
                             (aid, d_str, v))
                     flush_rows += len(sv_scores)
-
-                    gsv_scores = _evaluate_group_signal_scores(
-                        group_signals=prep["group_signals"],
-                        params_by_id=prep["params_by_id"],
-                        gscores=gscores.values())
-                    gsv_rows.extend(
-                        (k[0], k[1], k[2], d_str, v)
-                        for k, v in gsv_scores.items())
-                    flush_rows += len(gsv_scores)
 
                 # Índice por señal, UNA pasada por fecha: sin esto cada
                 # estrategia rebarre los ~8000 scores del día y el costo
@@ -960,7 +766,7 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                                 if op_id is not None else {})
                     scored = rank_strategy_assets(
                         components=ctx["components"], asset_groups=groups_sub,
-                        signal_scores=sv_scores, group_scores=gsv_scores,
+                        signal_scores=sv_scores,
                         filter_tree=ctx["tree"], operand_values=operand_values)
                     pcts = percent_ranks([score for _, score in scored])
                     sr_by_strat.setdefault(ctx["id"], []).extend(
@@ -975,14 +781,14 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                 # Flush intermedio por volumen: en la era densa un chunk
                 # entero acumularía ~2M filas (memoria + transacción gigante)
                 if flush_rows >= _MAX_ROWS_PER_FLUSH:
-                    _emit(batch_dates, sv_by_sig, gsv_rows, gs_rows,
+                    _emit(batch_dates, sv_by_sig, gs_rows,
                           sr_by_strat, marker_rows)
                     sv_by_sig, sr_by_strat = {}, {}
-                    gsv_rows, gs_rows, marker_rows = [], [], []
+                    gs_rows, marker_rows = [], []
                     batch_dates = []
                     flush_rows = 0
 
-            _emit(batch_dates, sv_by_sig, gsv_rows, gs_rows, sr_by_strat,
+            _emit(batch_dates, sv_by_sig, gs_rows, sr_by_strat,
                   marker_rows)
             # cómputo = loop menos lo que _emit pasó bloqueado esperando
             _t_compute[0] += ((time.perf_counter() - _tc0)

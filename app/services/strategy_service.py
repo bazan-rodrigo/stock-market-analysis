@@ -12,7 +12,6 @@ import sqlalchemy as sa
 from app.database import get_session
 from app.models import (
     Asset,
-    GroupSignalValue,
     Strategy,
     StrategyComponent,
 )
@@ -25,39 +24,18 @@ logger = logging.getLogger(__name__)
 def _compute_asset_score(
     components: list[StrategyComponent],
     asset_id: int,
-    asset_groups: dict[int, dict],
     signal_scores: dict[tuple, float],
-    group_scores: dict[tuple, float],
 ) -> float | None:
     """
     Calcula el score ponderado de una estrategia para un activo.
 
     signal_scores: {(signal_id, asset_id): score}
-    group_scores:  {(signal_id, group_type, group_id): score}
     """
     total_weight = 0.0
     weighted_sum = 0.0
 
-    groups = asset_groups.get(asset_id, {})
-
     for comp in components:
-        scope = comp.scope
-
-        if scope is None or scope == "":
-            # Señal de activo directo
-            score = signal_scores.get((comp.signal_id, asset_id))
-        elif scope == "own_group":
-            # Grupo al que pertenece el activo según group_type del componente
-            group_id = groups.get(comp.group_type)
-            if group_id is None:
-                continue
-            score = group_scores.get((comp.signal_id, comp.group_type, group_id))
-        elif scope == "specific_group":
-            # Grupo fijo definido en el componente
-            score = group_scores.get((comp.signal_id, comp.group_type, comp.group_id))
-        else:
-            continue
-
+        score = signal_scores.get((comp.signal_id, asset_id))
         if score is None:
             continue
 
@@ -100,11 +78,14 @@ def percent_ranks(values: list[float]) -> list[float]:
 
 
 def rank_strategy_assets(*, components, asset_groups, signal_scores,
-                         group_scores, filter_tree, operand_values,
+                         filter_tree, operand_values,
                          ) -> list[tuple[int, float]]:
     """[(asset_id, score)] ordenado por score desc (el primero es el mejor) —
     LÓGICA PURA compartida por el camino por-fecha y el modo rango: filtro
-    de elegibilidad + score ponderado + orden."""
+    de elegibilidad + score ponderado + orden.
+
+    asset_groups: {asset_id: {atributo: id}} — enumera los activos candidatos
+    y alimenta las condiciones de atributo del filtro de elegibilidad."""
     asset_ids = list(asset_groups.keys())
     if filter_tree is not None and asset_ids:
         passing = strategy_filter.evaluate_tree_bulk(
@@ -114,9 +95,7 @@ def rank_strategy_assets(*, components, asset_groups, signal_scores,
 
     scored: list[tuple[int, float]] = []
     for asset_id in asset_ids:
-        score = _compute_asset_score(
-            components, asset_id, asset_groups, signal_scores, group_scores
-        )
+        score = _compute_asset_score(components, asset_id, signal_scores)
         if score is not None:
             scored.append((asset_id, score))
 
@@ -152,25 +131,9 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
                 .where(t.c.date == target_date)):
             signal_scores[(sig_id, aid)] = score
 
-    # Cargar group_signal_value relevantes del día
-    grows = (
-        s.query(
-            GroupSignalValue.signal_id,
-            GroupSignalValue.group_type,
-            GroupSignalValue.group_id,
-            GroupSignalValue.score,
-        )
-        .filter(
-            GroupSignalValue.signal_id.in_(signal_ids),
-            GroupSignalValue.date == target_date,
-        )
-        .all()
-    )
-    group_scores: dict[tuple, float] = {
-        (r.signal_id, r.group_type, r.group_id): r.score for r in grows
-    }
-
     # Solo cargar grupos de activos que aparecen en los datos de señales del día
+    # (los atributos alimentan el filtro de elegibilidad; el score sale de
+    # signal_scores, no de agregados de grupo)
     asset_ids_with_data = list({asset_id for _, asset_id in signal_scores})
     if asset_ids_with_data:
         q = s.query(
@@ -197,7 +160,7 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
     )
     scored = rank_strategy_assets(
         components=components, asset_groups=asset_groups,
-        signal_scores=signal_scores, group_scores=group_scores,
+        signal_scores=signal_scores,
         filter_tree=filter_tree, operand_values=operand_values)
 
     # Upsert del día en la tabla propia strat_res_{id}
@@ -411,9 +374,6 @@ def save_strategy(
             strategy_id=strat.id,
             signal_id=sig.id,
             weight=float(comp_data.get("weight") or 1.0),
-            scope=comp_data.get("scope") or None,
-            group_type=comp_data.get("group_type") or None,
-            group_id=comp_data.get("group_id") or None,
         )
         s.add(comp)
 
@@ -482,7 +442,7 @@ def get_strategy_results_with_breakdown(
     - resultados: [{asset_id, ticker, name, sector_id, market_id, score,
                     delta_score, component_scores: {signal_key: score}}]
       ordenados por score desc (el orden ES el ranking).
-    - componentes: [{signal_key, signal_name, weight, scope, group_type}]
+    - componentes: [{signal_key, signal_name, weight}]
     """
     from app.models import SignalDefinition
 
@@ -530,34 +490,11 @@ def get_strategy_results_with_breakdown(
                        t.c.asset_id.in_(asset_ids))):
             sv_map[(sig_id, aid)] = score
 
-    gsv_map: dict[tuple, float] = {
-        (gsv.signal_id, gsv.group_type, gsv.group_id): gsv.score
-        for gsv in s.query(
-            GroupSignalValue.signal_id,
-            GroupSignalValue.group_type,
-            GroupSignalValue.group_id,
-            GroupSignalValue.score,
-        )
-        .filter(
-            GroupSignalValue.signal_id.in_(sig_ids),
-            GroupSignalValue.date == target_date,
-        )
-        .all()
-    }
-
-    asset_group_map: dict[int, dict] = {
-        row.id: {"sector": row.sector_id, "market": row.market_id}
-        for row in s.query(Asset.id, Asset.sector_id, Asset.market_id)
-                    .filter(Asset.id.in_(asset_ids)).all()
-    }
-
     comp_meta = [
         {
             "signal_key":  sigs_by_id[c.signal_id].key  if c.signal_id in sigs_by_id else str(c.signal_id),
             "signal_name": sigs_by_id[c.signal_id].name if c.signal_id in sigs_by_id else "?",
             "weight":      c.weight,
-            "scope":       c.scope,
-            "group_type":  c.group_type,
         }
         for c in components
     ]
@@ -578,23 +515,12 @@ def get_strategy_results_with_breakdown(
 
     results = []
     for asset_id, r_score, ticker, name, s_id, m_id in rows:
-        groups = asset_group_map.get(asset_id, {})
         comp_scores: dict[str, float | None] = {}
 
         for comp in components:
             sig = sigs_by_id.get(comp.signal_id)
             key = sig.key if sig else str(comp.signal_id)
-            scope = comp.scope
-
-            if scope is None or scope == "":
-                score = sv_map.get((comp.signal_id, asset_id))
-            elif scope == "own_group":
-                grp_id = groups.get(comp.group_type)
-                score = gsv_map.get((comp.signal_id, comp.group_type, grp_id)) if grp_id else None
-            else:
-                score = gsv_map.get((comp.signal_id, comp.group_type, comp.group_id))
-
-            comp_scores[key] = score
+            comp_scores[key] = sv_map.get((comp.signal_id, asset_id))
 
         prev_sc   = prev_score_map.get(asset_id)
         delta_score = round(r_score - prev_sc, 4) if (prev_sc is not None and r_score is not None) else None
@@ -705,7 +631,7 @@ def export_strategies_excel() -> bytes:
     ws_s.append(["name", "description", "filter_conditions", "publica"])
 
     ws_c = wb.create_sheet("Componentes")
-    ws_c.append(["strategy_name", "signal_key", "weight", "scope", "group_type", "group_id"])
+    ws_c.append(["strategy_name", "signal_key", "weight"])
 
     s = get_session()
     all_sig_ids = {comp.signal_id for strat in strategies for comp in strat.components}
@@ -721,9 +647,7 @@ def export_strategies_excel() -> bytes:
         for comp in strat.components:
             sig = sigs_by_id.get(comp.signal_id)
             ws_c.append([
-                strat.name, sig.key if sig else "",
-                comp.weight, comp.scope or "",
-                comp.group_type or "", comp.group_id or "",
+                strat.name, sig.key if sig else "", comp.weight,
             ])
 
     buf = BytesIO()
@@ -784,13 +708,18 @@ def import_strategies_excel(file_bytes: bytes,
             if sname not in strategies:
                 continue
             try:
-                strategies[sname]["components"].append({
+                comp = {
                     "signal_key": str(data.get("signal_key") or "").strip(),
                     "weight": float(data.get("weight") or 1.0),
-                    "scope": str(data.get("scope") or "") or None,
-                    "group_type": str(data.get("group_type") or "") or None,
-                    "group_id": int(data.get("group_id")) if data.get("group_id") else None,
-                })
+                }
+                # El Alcance de grupo (scope) se removió: rechazar en vez de
+                # descartarlo en silencio, que cambiaría el score de la estrategia.
+                scope = str(data.get("scope") or "").strip()
+                if scope:
+                    strategies[sname].setdefault("errors", []).append(
+                        f"el alcance '{scope}' ya no se soporta: el Alcance de "
+                        f"grupo se removió")
+                strategies[sname]["components"].append(comp)
             except (TypeError, ValueError) as exc:
                 strategies[sname].setdefault("errors", []).append(
                     f"componente inválido: {exc}")
@@ -881,9 +810,6 @@ def import_strategies_excel(file_bytes: bytes,
                     strategy_id=strat.id,
                     signal_id=sig_ids_by_key[comp_data["signal_key"]],
                     weight=comp_data["weight"],
-                    scope=comp_data["scope"],
-                    group_type=comp_data["group_type"],
-                    group_id=comp_data["group_id"],
                 ))
 
             db.flush()

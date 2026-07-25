@@ -26,13 +26,11 @@ razones.
 
 **Alimenta los agregados de tendencia.** El promedio de régimen de los activos
 de un sector es lo que se ve en el
-[Mapa de Tendencia de Mercado](/manual/mapa-de-tendencia) y lo que consumen las
-señales de grupo. Una señal puede preguntar "¿el sector de este activo viene
-bien?" y eso sale de acá.
+[Mapa de Tendencia de Mercado](/manual/mapa-de-tendencia): un vistazo de qué
+sectores vienen alcistas o bajistas.
 
-**Es el criterio de rotación por excelencia.** Las estrategias que rotan entre
-sectores usan esta dimensión en su filtro de elegibilidad y en sus componentes
-de grupo.
+**Es un criterio central para filtrar.** Las estrategias que se enfocan en
+ciertos sectores usan esta dimensión en su filtro de elegibilidad.
 
 ## La jerarquía sector → industria
 

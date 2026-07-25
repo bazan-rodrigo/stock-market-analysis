@@ -5,7 +5,18 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-23T16:10:32.706Z
+  modified: 2026-07-25T01:59:30.444Z
+---
+
+**Sesión 24-jul-2026: REMOVIDAS las señales de grupo y el Alcance de grupo en
+estrategias** (ver [[remover-senales-grupo-y-alcance]]). Paso 1 (UI gate, commit
+19ac3c7) pusheado; paso 2 (remoción de raíz + migración 0090) commiteado.
+**PENDIENTE en Railway = producción: `alembic upgrade head`** para aplicar la
+0090 (dropea `group_signal_value` + columnas `signal.source/group_type` y
+`strategy_component.scope/group_type/group_id`). Es DDL irreversible; el push del
+código NO la corre. Después: confirmar que el Mapa de Mercado sigue con datos y
+que las estrategias rankean. La suite local (904) es la única red hasta entonces.
+
 ---
 
 **Sesión 23-jul-2026: el corte a PostgreSQL-only quedó DESCARTADO — el

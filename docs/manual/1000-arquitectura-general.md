@@ -102,7 +102,7 @@ indicadores         por activo, independientes entre si
 group_scores        agregado por sector, mercado,
   |                 industria, pais y tipo
   v
-senales             sig_{id} y group_signal_value
+senales             sig_{id} (una tabla por senal)
   |
   v
 ranking             strat_res_{id} (score, pct)
@@ -140,7 +140,7 @@ orden de las llamadas.
 El segundo tramo corre por fecha, en `signal_service`, y tampoco es negociable
 porque cada paso consume lo que el anterior persistió:
 `group_score_service.run_daily(d)` → `compute_signal_values(d)` →
-`compute_group_signal_values(d)` → `compute_strategy_results(...)`. La fecha
+`compute_strategy_results(...)`. La fecha
 objetivo nunca es `date.today()` sino `get_default_target_date()` —la última
 fecha con precios—, porque con `today()` el pipeline se quedaría sin datos los
 fines de semana y feriados.

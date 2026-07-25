@@ -8,8 +8,12 @@ metadata:
 
 # Remover señales de grupo + Alcance en estrategias
 
-**Estado:** APROBADO en concepto (opción B, remoción de raíz, posible rollout en
-2 pasos). Pendiente el "sí" final sobre este detalle antes de tocar código.
+**Estado:** IMPLEMENTADO (24-jul-2026). Paso 1 (UI gate, commit 19ac3c7) y paso 2
+(remoción de raíz + migración 0090) hechos, suite 904 verde. Decisiones tomadas:
+(1) dropear `source`/`group_type`; (2) el import RECHAZA grupo/scope; (3) rollout
+en 2 pasos. Opción (a): el backfill conserva group_scores de la última fecha para
+el Mapa de Mercado (no se tocó ningún archivo del mapa). **PENDIENTE: aplicar la
+0090 (`alembic upgrade head`) en Railway** — ver [[remover-senales-grupo-y-alcance]].
 
 ## Por qué
 

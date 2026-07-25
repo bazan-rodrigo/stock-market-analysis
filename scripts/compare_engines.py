@@ -39,7 +39,7 @@ import sqlalchemy as sa
 # se comparan: se importan idénticas por fuera del pipeline)
 _FIXED_TABLES = (
     "prices", "current_indicator_values", "ind_asset_meta",
-    "group_scores", "group_signal_value", "signal_eval_log",
+    "group_scores", "signal_eval_log",
 )
 
 

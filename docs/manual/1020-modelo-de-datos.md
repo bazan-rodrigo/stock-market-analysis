@@ -31,7 +31,7 @@ que heredan de `Base`). El índice de importación es `app/models/__init__.py`:
 | Referencia | `countries`, `currencies`, `markets`, `instrument_types`, `sectors`, `industries`, `price_sources`, `catalog_aliases` |
 | Activos y precios | `assets`, `prices`, `synthetic_formula`, `synthetic_component`, `currency_conversion_divisor` |
 | Fundamentales | `fundamental_sources`, `fundamental_quarterly`, `fundamental_update_log` |
-| Pipeline | `indicator_definitions`, `current_indicator_values`, `ind_asset_meta`, `group_scores`, `signal`, `group_signal_value`, `signal_eval_log`, `strategy`, `strategy_component` |
+| Pipeline | `indicator_definitions`, `current_indicator_values`, `ind_asset_meta`, `group_scores`, `signal`, `signal_eval_log`, `strategy`, `strategy_component` |
 | Backtest | `backtest_run`, `backtest_quantile_stat`, `backtest_ic_point` |
 | Carteras | `portfolio`, `portfolio_member`, `portfolio_run`, `portfolio_run_point`, `portfolio_transaction` |
 | Config de análisis | `drawdown_config`, `regime_config`, `volatility_config`, `sr_config`, `pnf_config` |

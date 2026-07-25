@@ -25,55 +25,29 @@ def test_evaluate_composite_devuelve_none():
 
 # ── _compute_asset_score (estrategias) ────────────────────────────────────────
 
-def _comp(signal_id, weight=1.0, scope=None, group_type=None, group_id=None):
-    return SimpleNamespace(signal_id=signal_id, weight=weight, scope=scope,
-                           group_type=group_type, group_id=group_id)
+def _comp(signal_id, weight=1.0):
+    return SimpleNamespace(signal_id=signal_id, weight=weight)
 
 
 def test_score_ponderado_de_senales_de_activo():
     comps = [_comp(1, weight=1), _comp(2, weight=3)]
     score = _compute_asset_score(
-        comps, asset_id=7, asset_groups={7: {}},
-        signal_scores={(1, 7): 100.0, (2, 7): 0.0}, group_scores={},
+        comps, asset_id=7,
+        signal_scores={(1, 7): 100.0, (2, 7): 0.0},
     )
     assert score == 25.0
 
 def test_score_ignora_senales_sin_valor():
     comps = [_comp(1, weight=1), _comp(2, weight=9)]
     score = _compute_asset_score(
-        comps, asset_id=7, asset_groups={7: {}},
-        signal_scores={(1, 7): 80.0}, group_scores={},
+        comps, asset_id=7,
+        signal_scores={(1, 7): 80.0},
     )
     assert score == 80.0
 
 def test_score_todo_faltante_es_none():
     comps = [_comp(1)]
-    assert _compute_asset_score(comps, 7, {7: {}}, {}, {}) is None
-
-def test_score_own_group_usa_el_grupo_del_activo():
-    comps = [_comp(1, scope="own_group", group_type="sector")]
-    score = _compute_asset_score(
-        comps, asset_id=7, asset_groups={7: {"sector": 3}},
-        signal_scores={}, group_scores={(1, "sector", 3): 42.0},
-    )
-    assert score == 42.0
-
-def test_score_specific_group_usa_el_grupo_fijo():
-    comps = [_comp(1, scope="specific_group", group_type="market", group_id=9)]
-    score = _compute_asset_score(
-        comps, asset_id=7, asset_groups={7: {"market": 1}},   # el del activo NO se usa
-        signal_scores={}, group_scores={(1, "market", 9): 33.0},
-    )
-    assert score == 33.0
-
-def test_score_activo_sin_grupo_saltea_el_componente():
-    comps = [_comp(1, scope="own_group", group_type="sector"),
-             _comp(2, weight=1)]
-    score = _compute_asset_score(
-        comps, asset_id=7, asset_groups={7: {"sector": None}},
-        signal_scores={(2, 7): 60.0}, group_scores={(1, "sector", 3): 999.0},
-    )
-    assert score == 60.0
+    assert _compute_asset_score(comps, 7, {}) is None
 
 
 # ── Backfill de señales: qué fechas correr ────────────────────────────────────

@@ -10,7 +10,6 @@ from app.callbacks.strategy_filter_ui import (
     empty_filter_store, store_to_tree, store_to_text, tree_to_store,
     _capture_fields,
 )
-from app.pages.admin_strategies import _SCOPE_OPTS, _GROUP_TYPE_OPTS
 from app.components.ui_constants import TH as _th, TD as _td
 
 
@@ -150,9 +149,6 @@ def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
             ivs[str(idx)] = {
                 "signal_key": sig.key if sig else "",
                 "weight":     comp.weight,
-                "scope":      comp.scope or "",
-                "group_type": comp.group_type or "",
-                "group_id":   comp.group_id,
             }
         store = {"uids": uids, "counter": len(uids), "initial_values": ivs}
         return (True, "Editar estrategia", strat.name, strat.description or "",
@@ -180,7 +176,6 @@ def render_comp_rows(uid_store, signal_opts):
     rows = []
     for uid in uids:
         iv = ivs.get(str(uid), {})
-        scope_val = iv.get("scope", "")
         rows.append(dbc.Row([
             dbc.Col(
                 dcc.Dropdown(
@@ -190,7 +185,7 @@ def render_comp_rows(uid_store, signal_opts):
                     placeholder="Señal...",
                     style={"fontSize": "0.80rem"},
                 ),
-                md=4,
+                md=8,
             ),
             dbc.Col(
                 dbc.Input(
@@ -199,28 +194,7 @@ def render_comp_rows(uid_store, signal_opts):
                     min=0, step=0.01,
                     style={"fontSize": "0.80rem"},
                 ),
-                md=2,
-            ),
-            dbc.Col(
-                dcc.Dropdown(
-                    id={"type": "str-comp-scope", "index": uid},
-                    options=_SCOPE_OPTS,
-                    value=scope_val,
-                    clearable=False,
-                    style={"fontSize": "0.80rem"},
-                ),
                 md=3,
-            ),
-            dbc.Col(
-                dcc.Dropdown(
-                    id={"type": "str-comp-group-type", "index": uid},
-                    options=_GROUP_TYPE_OPTS,
-                    value=iv.get("group_type") or None,
-                    placeholder="Tipo...",
-                    style={"fontSize": "0.80rem",
-                           "display": "block" if scope_val else "none"},
-                ),
-                md=2,
             ),
             dbc.Col(
                 dbc.Button("×", id={"type": "str-remove-comp", "index": uid},
@@ -236,10 +210,6 @@ def render_comp_rows(uid_store, signal_opts):
 
 # ── Previsualización de la fórmula (score + filtro) ───────────────────────────
 
-_SCOPE_TEXT = {"own_group": "grupo propio", "specific_group": "grupo fijo"}
-_GTYPE_TEXT = {o["value"]: o["label"] for o in _GROUP_TYPE_OPTS}
-
-
 def _fmt_w(w) -> str:
     try:
         w = float(w)
@@ -248,7 +218,7 @@ def _fmt_w(w) -> str:
     return str(int(w)) if w.is_integer() else str(w)
 
 
-def _score_text(uids, signals, weights, scopes, group_types) -> str:
+def _score_text(uids, signals, weights) -> str:
     """SCORE = Σ(peso·señal)/Σpeso, tal como lo calcula _compute_asset_score."""
     terms, total_w = [], 0.0
     for i, _uid in enumerate(uids):
@@ -260,13 +230,7 @@ def _score_text(uids, signals, weights, scopes, group_types) -> str:
             w = float(w_raw) if w_raw is not None else 1.0
         except (TypeError, ValueError):
             w = 1.0
-        scope = scopes[i] if i < len(scopes) else ""
-        gtype = group_types[i] if i < len(group_types) else None
-        term = f"{_fmt_w(w)}·{sig}"
-        if scope in _SCOPE_TEXT:
-            gt_lbl = _GTYPE_TEXT.get(gtype, gtype or "?")
-            term += f" [{_SCOPE_TEXT[scope]}: {gt_lbl}]"
-        terms.append(term)
+        terms.append(f"{_fmt_w(w)}·{sig}")
         total_w += w
     if not terms:
         return "SCORE = (sin componentes)"
@@ -277,8 +241,6 @@ def _score_text(uids, signals, weights, scopes, group_types) -> str:
     Output("str-formula-preview", "value"),
     Input({"type": "str-comp-signal",     "index": ALL}, "value"),
     Input({"type": "str-comp-weight",     "index": ALL}, "value"),
-    Input({"type": "str-comp-scope",      "index": ALL}, "value"),
-    Input({"type": "str-comp-group-type", "index": ALL}, "value"),
     Input({"type": "strf-left",    "index": ALL}, "value"),
     Input({"type": "strf-op",      "index": ALL}, "value"),
     Input({"type": "strf-val",     "index": ALL}, "value"),
@@ -293,13 +255,13 @@ def _score_text(uids, signals, weights, scopes, group_types) -> str:
     State({"type": "strf-groupop", "index": ALL}, "id"),
     State("str-filter-opts", "data"),
 )
-def live_formula(signals, weights, scopes, group_types,
+def live_formula(signals, weights,
                  f_lefts, f_ops, f_vals, f_vss, f_groupops, filter_store,
                  uid_store, ids_left, ids_op, ids_val, ids_vs, ids_groupop, opts):
     import copy
 
     uids = (uid_store or {}).get("uids", [])
-    score = _score_text(uids, signals, weights, scopes, group_types)
+    score = _score_text(uids, signals, weights)
 
     filt = "(sin filtro: todos los activos)"
     if filter_store:
@@ -327,11 +289,9 @@ def live_formula(signals, weights, scopes, group_types,
     State("str-uid-store",                                  "data"),
     State({"type": "str-comp-signal",    "index": ALL},     "value"),
     State({"type": "str-comp-weight",    "index": ALL},     "value"),
-    State({"type": "str-comp-scope",     "index": ALL},     "value"),
-    State({"type": "str-comp-group-type","index": ALL},     "value"),
     prevent_initial_call=True,
 )
-def update_comp_store(add_n, remove_ns, store, signals, weights, scopes, group_types):
+def update_comp_store(add_n, remove_ns, store, signals, weights):
     trigger  = ctx.triggered_id
     uids     = store.get("uids", [])
     counter  = store.get("counter", 0)
@@ -341,12 +301,10 @@ def update_comp_store(add_n, remove_ns, store, signals, weights, scopes, group_t
         ivs[str(uid)] = {
             "signal_key": signals[i]     if i < len(signals)     else None,
             "weight":     weights[i]     if i < len(weights)     else 1.0,
-            "scope":      scopes[i]      if i < len(scopes)      else "",
-            "group_type": group_types[i] if i < len(group_types) else None,
         }
 
     if trigger == "str-btn-add-comp":
-        ivs[str(counter)] = {"signal_key": None, "weight": 1.0, "scope": "", "group_type": None}
+        ivs[str(counter)] = {"signal_key": None, "weight": 1.0}
         uids = uids + [counter]
         counter += 1
     elif isinstance(trigger, dict) and trigger.get("type") == "str-remove-comp":
@@ -376,8 +334,6 @@ def update_comp_store(add_n, remove_ns, store, signals, weights, scopes, group_t
     State("str-uid-store",    "data"),
     State({"type": "str-comp-signal",    "index": ALL}, "value"),
     State({"type": "str-comp-weight",    "index": ALL}, "value"),
-    State({"type": "str-comp-scope",     "index": ALL}, "value"),
-    State({"type": "str-comp-group-type","index": ALL}, "value"),
     State("str-editing-id",   "data"),
     State("str-filter-store", "data"),
     State("str-filter-opts",  "data"),
@@ -392,7 +348,7 @@ def update_comp_store(add_n, remove_ns, store, signals, weights, scopes, group_t
     prevent_initial_call=True,
 )
 def save(_, name, description, is_public, uid_store,
-         signals, weights, scopes, group_types,
+         signals, weights,
          editing_id, filter_store, filter_opts,
          f_lefts, f_ids_left, f_ops, f_ids_op, f_vals, f_ids_val, f_vss, f_ids_vs):
 
@@ -412,14 +368,9 @@ def save(_, name, description, is_public, uid_store,
         if not sig_key:
             return err(f"Seleccioná la señal del componente {i + 1}.")
         weight  = float(weights[i]) if (i < len(weights) and weights[i] is not None) else 1.0
-        scope   = scopes[i] if i < len(scopes) else ""
-        gtype   = group_types[i] if i < len(group_types) else None
         components.append({
             "signal_key": sig_key,
             "weight":     weight,
-            "scope":      scope or None,
-            "group_type": gtype or None,
-            "group_id":   None,
         })
 
     # Filtro de elegibilidad: volcar los controles al store y serializar

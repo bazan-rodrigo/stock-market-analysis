@@ -21,7 +21,6 @@ def test_classify_table_familias():
     assert ms.classify_table("ind_daily") == "Indicadores"
     assert ms.classify_table("current_indicator_values") == "Indicadores"
     assert ms.classify_table("sig_3") == "Señales"
-    assert ms.classify_table("group_signal_value") == "Señales"
     assert ms.classify_table("strat_res_2") == "Estrategias"
     assert ms.classify_table("strategy_result") == "Estrategias"
     assert ms.classify_table("group_scores") == "Scores de grupo"

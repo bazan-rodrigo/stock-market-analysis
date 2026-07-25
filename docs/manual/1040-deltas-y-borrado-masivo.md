@@ -38,12 +38,9 @@ las ya guardadas.
 
 > Un activo nuevo **no aparece nunca** en la historia de señales por más deltas
 > que corras: como no agrega fechas nuevas, no hay nada que dispare trabajo. Su
-> historia de indicadores, en cambio, se completa sola. Hay que pedir
-> "Recalcular completo".
-
-Para que eso no pase en silencio,
-`signals_and_strategies_affected_by_new_assets` busca las señales `source=group`
-de los grupos que tocan los activos nuevos y arma el aviso.
+> historia de indicadores, en cambio, se completa sola. Y como el ranking de las
+> estrategias es transversal (depende de todos los activos de la fecha), la
+> historia queda desactualizada. Hay que pedir "Recalcular completo".
 
 ## La última fecha siempre se recalcula
 

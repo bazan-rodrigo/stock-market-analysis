@@ -295,25 +295,9 @@ def poll_remove(_):
     prevent_initial_call=True,
 )
 def start_sync(_):
-    # ANTES de arrancar (el sync puede tardar): avisar qué señales/estrategias
-    # van a quedar desactualizadas en la historia. Los sintéticos nuevos entran
-    # a los agregados de sus grupos; sus señales/estrategias propias entran
-    # solas en la próxima corrida, lo transversal (grupo) no. Se deriva de las
-    # bases pendientes (heredan los grupos de sus sintéticos).
-    from app.services.signal_service import (
-        signals_and_strategies_affected_by_new_assets)
-    afectados = signals_and_strategies_affected_by_new_assets(
-        svc.pending_sync_base_asset_ids())
     _sync_state.update({"running": True, "current": 0, "total": 0,
                         "msg": "", "error": None, "color": "success"})
-
-    if afectados:
-        pre_msg = ("Sincronizando… Al terminar corré «Recalcular completo» de "
-                   "Señales y Estrategias — se desactualizarán en la historia: "
-                   + ", ".join(afectados) + ".")
-        pre_color = "warning"
-    else:
-        pre_msg, pre_color = "Sincronizando…", "info"
+    pre_msg, pre_color = "Sincronizando…", "info"
 
     def _run():
         def _progress(cur, tot):
@@ -322,7 +306,7 @@ def start_sync(_):
         try:
             result = svc.sync_all(progress_cb=_progress)
             n_err  = len(result["errors"])
-            _sync_state["color"] = "warning" if (n_err or afectados) else "success"
+            _sync_state["color"] = "warning" if n_err else "success"
             msg = (
                 f"Sincronización completa: {result['created']} creados, "
                 f"{result['already_existed']} ya existían"

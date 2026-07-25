@@ -5,19 +5,7 @@ from dash import dash_table, dcc, html
 from app.components.help import help_link
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
-from app.components.ui_constants import (
-    GROUP_TYPE_OPTS as _GROUP_TYPE_OPTS,
-    STATUS_STYLE,
-)
-
-# El Alcance de grupo (own_group / specific_group) se retiró como opción de alta:
-# la funcionalidad de grupo se está removiendo (ver
-# docs/notes/design_remover_senales_grupo_y_alcance.md). El backend todavía la
-# soporta en este paso; solo se cierra la vía de creación desde la UI, así que
-# todo componente nuevo puntúa por el valor de la señal en el activo.
-_SCOPE_OPTS = [
-    {"label": "Activo directo",          "value": ""},
-]
+from app.components.ui_constants import STATUS_STYLE
 
 
 def layout(**kwargs):
@@ -61,10 +49,8 @@ def layout(**kwargs):
 
             # Cabecera fija
             dbc.Row([
-                dbc.Col(html.Small("Señal (key)", className="text-muted"), md=4),
-                dbc.Col(html.Small("Peso",        className="text-muted"), md=2),
-                dbc.Col(html.Small("Alcance",     className="text-muted"), md=3),
-                dbc.Col(html.Small("Tipo grupo",  className="text-muted"), md=2),
+                dbc.Col(html.Small("Señal (key)", className="text-muted"), md=8),
+                dbc.Col(html.Small("Peso",        className="text-muted"), md=3),
                 dbc.Col(style={"width": "32px"}),
             ], className="g-1 mb-1"),
 

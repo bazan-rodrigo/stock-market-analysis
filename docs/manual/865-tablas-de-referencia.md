@@ -46,9 +46,9 @@ cerró, se guardó.
 ## Por qué importan estas tablas
 
 No son burocracia: son las dimensiones por las que después se agrupa y filtra
-todo el sistema. El sector y el mercado de un activo alimentan los agregados de
-grupo que consumen las señales de grupo, y son los criterios que usás en el
-filtro de elegibilidad de una estrategia. Está explicado en
+todo el sistema. El sector y el mercado de un activo alimentan el Mapa de
+Tendencia de Mercado, y son los criterios que usás en el filtro de elegibilidad
+de una estrategia. Está explicado en
 [Activos, sintéticos y grupos](/manual/activos-y-grupos).
 
 > **Cambiar la agrupación de un activo cambia el pasado.** Si movés un activo

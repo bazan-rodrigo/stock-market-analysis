@@ -29,8 +29,6 @@ DATASETS = {
                      "combos": ["asset"]},
     "signal_asset": {"label": "Señal – por activo",
                      "combos": ["signal", "asset"]},
-    "signal_group": {"label": "Señal – por grupo",
-                     "combos": ["signal", "group_type", "group"]},
     "group_scores": {"label": "Group scores (tendencia de grupo)",
                      "combos": ["group_type", "group"]},
     "strategy":     {"label": "Resultado de estrategia",
@@ -119,19 +117,6 @@ def signal_asset(signal_id: int, asset_id: int):
         [{"date": str(d), "score": sc} for d, sc in rows]
 
 
-def signal_group(signal_id: int, group_type: str, group_id: int):
-    from app.models.group_signal_value import GroupSignalValue
-
-    s = get_session()
-    rows = (s.query(GroupSignalValue.date, GroupSignalValue.score)
-            .filter(GroupSignalValue.signal_id == signal_id,
-                    GroupSignalValue.group_type == group_type,
-                    GroupSignalValue.group_id == group_id)
-            .order_by(GroupSignalValue.date).limit(MAX_ROWS).all())
-    return "group_signal_value", ["date", "score"], \
-        [{"date": str(d), "score": sc} for d, sc in rows]
-
-
 def group_scores(group_type: str, group_id: int):
     from app.models.group_scores import GroupScore
 
@@ -175,8 +160,6 @@ def fetch(dataset: str, *, indicator=None, asset=None, signal=None,
         return fundamentals(int(asset))
     if dataset == "signal_asset":
         return signal_asset(int(signal), int(asset))
-    if dataset == "signal_group":
-        return signal_group(int(signal), group_type, int(group))
     if dataset == "group_scores":
         return group_scores(group_type, int(group))
     if dataset == "strategy":

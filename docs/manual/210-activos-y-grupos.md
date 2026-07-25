@@ -113,11 +113,9 @@ estrategia podés pedir «solo el sector energía» o «solo este mercado».
 **2. Alimentar los agregados de grupo.** Esta es la importante. Todos los días,
 para cada grupo, el sistema promedia el **régimen de tendencia** de los activos
 que lo integran —en escala diaria, semanal y mensual— y guarda ese promedio junto
-con la cantidad de activos que lo componen. Ese promedio es exactamente lo que
-consumen las **señales de grupo** descritas en
-[Cómo se calcula todo](/manual/conceptos-pipeline): es lo que permite preguntar
-«¿el sector de este activo viene bien?» y usar la respuesta como componente de
-una estrategia.
+con la cantidad de activos que lo componen. Ese promedio es lo que muestra el
+[Mapa de Tendencia de Mercado](/manual/mapa-de-tendencia): un vistazo de qué
+sectores, mercados y países vienen alcistas o bajistas.
 
 Dos detalles de cómo se arma ese promedio:
 
@@ -128,12 +126,7 @@ Dos detalles de cómo se arma ese promedio:
   aportando a su país, su mercado y su tipo de instrumento. Cada dimensión se
   resuelve por separado.
 
-> **Cambiar la agrupación de un activo afecta la historia.** Los agregados se
-> calculan con los grupos tal como están definidos en el momento del cálculo, así
-> que la historia ya calculada conserva la agrupación anterior. Lo mismo pasa al
-> **incorporar activos nuevos**: pasan a integrar los agregados de sus grupos, y
-> eso desactualiza las señales de grupo y las estrategias que las usan en toda la
-> historia. En ambos casos hace falta un **recálculo completo** para que quede
-> consistente. Al sincronizar conversiones de moneda la aplicación te avisa
-> qué señales y estrategias quedan desactualizadas; si cambiás la agrupación
-> de un activo a mano, el recálculo queda a tu cargo — no hay aviso.
+> **Incorporar activos nuevos afecta la historia de las estrategias.** El ranking
+> de una estrategia es transversal —depende de todos los activos de la fecha—, así
+> que sumar (o eliminar) un activo desactualiza la historia ya calculada. Hace
+> falta un **recálculo completo** para que quede consistente, y queda a tu cargo.
