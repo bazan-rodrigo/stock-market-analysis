@@ -31,11 +31,14 @@ El orden de operaciones ante crash siempre deja el lado benigno:
   queda una tabla huérfana inofensiva, que reconcile_dynamic_tables()
   detecta y dropea.
 """
+import os
 import re
 import threading
 
+import sqlalchemy as sa
 from sqlalchemy import (Column, Date, Float, Index, Integer, MetaData,
                         PrimaryKeyConstraint, Table)
+from sqlalchemy.engine import Engine
 
 from app.database import engine
 
@@ -173,3 +176,145 @@ def reconcile_dynamic_tables(session) -> dict:
     for sid in sorted(strat_ids - set(strat_tables)):
         created.append(ensure_strat_table(sid).name)
     return {"dropped": dropped, "created": created}
+
+
+# ── Tablas ANCHAS de señales/estrategias (footprint) ──────────────────────────
+# Optimización de footprint (docs/notes/design_sig_wide_tables.md): las señales
+# son ~50% de la base (medido en Railway), ~80% overhead de fila+índice pagado N
+# veces (una tabla por señal). El modelo ancho —una fila por (asset_id, date),
+# una COLUMNA por señal (`sig_{id}`) / dos por estrategia (`strat_{id}_score`,
+# `strat_{id}_pct`)— paga ese overhead UNA vez por fecha y hace que float4 por
+# fin rinda (varias columnas float empacadas, sin el padding MAXALIGN que anula
+# el ahorro en una tabla de un solo score). Mismo modelo que los indicadores
+# (indicator_store._WIDE), con una diferencia: acá las columnas son DINÁMICAS
+# (una por señal/estrategia, que se crean/borran en runtime) → ADD/DROP COLUMN
+# en vez de CREATE/DROP TABLE.
+#
+# FASE 1 (fundaciones): las tablas base y las primitivas de columna existen pero
+# NADA las lee/escribe todavía (use_wide_signal_tables default OFF). El cutover
+# de lectura/escritura es fase 2-4 del diseño. La migración 0091 crea las tablas
+# base en Railway; ensure_wide_signal_tables las materializa en bases create_all.
+SIG_WIDE_TABLE   = "signal_values_wide"
+STRAT_WIDE_TABLE = "strategy_results_wide"
+
+
+def use_wide_signal_tables() -> bool:
+    """Ruteo a las tablas anchas de señales/estrategias
+    (docs/notes/design_sig_wide_tables.md). Default OFF: en fase 1 nada lee/
+    escribe las anchas — el camino vivo sigue siendo sig_{id}/strat_res_{id}.
+    En el cutover (fase 5) pasa a default ON, como use_wide_ind_tables."""
+    return os.environ.get("USE_WIDE_SIGNAL_TABLES", "0").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def sig_column_name(signal_id: int) -> str:
+    """Columna de una señal en signal_values_wide — el mismo `sig_{id}` que hoy
+    nombra su tabla per-señal (identidad por ID inmutable, ver _build)."""
+    return f"sig_{int(signal_id)}"
+
+
+def strat_score_column(strategy_id: int) -> str:
+    return f"strat_{int(strategy_id)}_score"
+
+
+def strat_pct_column(strategy_id: int) -> str:
+    return f"strat_{int(strategy_id)}_pct"
+
+
+def ensure_wide_signal_tables(bind=None) -> None:
+    """Crea signal_values_wide / strategy_results_wide (base: solo asset_id +
+    date, sin columnas de valor — se agregan por señal/estrategia con
+    ensure_*_column). Idempotente (inspección por tabla). Mismo esquema que la
+    migración 0091 y que las sig_{id} per-entidad: PK (date, asset_id) — date
+    primero para el append cronológico del backfill —, índice secundario
+    (asset_id, date) para las lecturas por activo, sin FK a assets (purge_assets
+    limpia estas tablas explícitamente, igual que las per-entidad)."""
+    b = bind or engine
+    insp = sa.inspect(b)
+    for name in (SIG_WIDE_TABLE, STRAT_WIDE_TABLE):
+        if insp.has_table(name):
+            continue
+        tmp = MetaData()
+        t = Table(
+            name, tmp,
+            Column("asset_id", Integer, nullable=False),
+            Column("date",     Date,    nullable=False),
+            PrimaryKeyConstraint("date", "asset_id"),
+            Index(f"ix_{name}_asset_date", "asset_id", "date"),
+        )
+        tmp.create_all(b, tables=[t])
+
+
+def _wide_columns(bind, table: str) -> set[str]:
+    return {c["name"] for c in sa.inspect(bind or engine).get_columns(table)}
+
+
+def _run_ddl(bind, statements: list[str]) -> None:
+    """Ejecuta ALTER TABLE (DDL) sobre un Engine o Connection. Con Engine abre
+    una transacción propia (begin) — en Connection/Session el llamador controla
+    el commit (patrón de ensure_sig_table(bind=s.connection()))."""
+    if not statements:
+        return
+    b = bind or engine
+    if isinstance(b, Engine):
+        with b.begin() as conn:
+            for st in statements:
+                conn.execute(sa.text(st))
+    else:
+        for st in statements:
+            b.execute(sa.text(st))
+
+
+def _alter_add(bind, table: str, cols: list[tuple[str, object]]) -> None:
+    """ADD COLUMN de las columnas faltantes (checkfirst por introspección: no
+    depende de ADD COLUMN IF NOT EXISTS, que MySQL 8 no tiene). El tipo se
+    compila por dialecto (Float(precision=24) → REAL en PG, FLOAT en MySQL)."""
+    from app.services.db_compat import quote_ident
+    b = bind or engine
+    existing = _wide_columns(b, table)
+    stmts = []
+    for name, ctype in cols:
+        if name in existing:
+            continue
+        type_sql = ctype.compile(dialect=b.dialect)
+        stmts.append(f"ALTER TABLE {quote_ident(b, table)} "
+                     f"ADD COLUMN {quote_ident(b, name)} {type_sql}")
+    _run_ddl(b, stmts)
+
+
+def _alter_drop(bind, table: str, names: list[str]) -> None:
+    """DROP COLUMN de las que existan (checkfirst). En PostgreSQL el espacio no
+    se libera hasta reescribir la tabla (el rebuild completo la recrea con las
+    columnas vivas — ver design_sig_wide_tables.md)."""
+    from app.services.db_compat import quote_ident
+    b = bind or engine
+    existing = _wide_columns(b, table)
+    stmts = [f"ALTER TABLE {quote_ident(b, table)} "
+             f"DROP COLUMN {quote_ident(b, name)}"
+             for name in names if name in existing]
+    _run_ddl(b, stmts)
+
+
+# Float(precision=24) = precisión simple: REAL (4 B) en PG, FLOAT en MySQL. score
+# vive en -100..100 y pct en 0..100 → float4 (~7 dígitos) los cubre de sobra.
+# En la ancha float4 SÍ rinde (varias columnas float empacadas), a diferencia de
+# la tabla per-señal de un solo score (ver #4 en project_reduccion_footprint).
+def ensure_sig_column(signal_id: int, bind=None) -> None:
+    _alter_add(bind, SIG_WIDE_TABLE,
+               [(sig_column_name(signal_id), Float(precision=24))])
+
+
+def drop_sig_column(signal_id: int, bind=None) -> None:
+    _alter_drop(bind, SIG_WIDE_TABLE, [sig_column_name(signal_id)])
+
+
+def ensure_strat_columns(strategy_id: int, bind=None) -> None:
+    _alter_add(bind, STRAT_WIDE_TABLE, [
+        (strat_score_column(strategy_id), Float(precision=24)),
+        (strat_pct_column(strategy_id),   Float(precision=24)),
+    ])
+
+
+def drop_strat_columns(strategy_id: int, bind=None) -> None:
+    _alter_drop(bind, STRAT_WIDE_TABLE, [
+        strat_score_column(strategy_id), strat_pct_column(strategy_id)])

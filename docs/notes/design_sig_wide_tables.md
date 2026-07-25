@@ -133,10 +133,30 @@ master: **0090** → las nuevas encadenan **0091+**.
 
 ## Estado (jul-2026)
 
-- **Fase 0 HECHA:** `scripts/measure_signal_storage.py` escrito, compila.
-  **PENDIENTE: correrlo en Railway** (con y sin `--exact-union`) y decidir con el
-  número real.
-- Fases 1-5 sin empezar.
+- **Fase 0 HECHA y MEDIDA en Railway:** `scripts/measure_signal_storage.py`.
+  Resultado real: señales 53,2% de la base (1,19 GB), idx/dat 1,01; `--exact-union`
+  = 4.052.162 filas ≈ la mayor `sig_` sola (+77) → grillas casi idénticas, cero
+  penalización por dispersión. **Señales ancha: 3,1× / −825 MB.** Estrategias:
+  1,0× hoy (una sola). Decisión del usuario: **hacer AMBAS** (señales + estrategias).
+- **Fase 1 HECHA (código, sin cutover — flag OFF, 916 tests):**
+  - `signal_store.py`: `use_wide_signal_tables()` (default OFF), `SIG_WIDE_TABLE`/
+    `STRAT_WIDE_TABLE`, helpers de columna (`sig_column_name`, `strat_score_column`,
+    `strat_pct_column`), `ensure_wide_signal_tables` (tablas base) y primitivas
+    `ensure_sig_column`/`ensure_strat_columns`/`drop_*` (ADD/DROP COLUMN dinámico,
+    checkfirst por introspección, tipo compilado por dialecto). float4.
+  - Migración **0091**: crea `signal_values_wide` + `strategy_results_wide` base
+    (asset_id + date, PK (date,asset_id), ix (asset_id,date), sin columnas de valor
+    ni FK). Portable (sa puro).
+  - Tests: `tests/test_wide_signal_tables.py`.
+  - **Decisión de wiring:** en fase 1 `ensure_wide_signal_tables` NO se cablea al
+    arranque (`ensure_builtin_data`) — la migración 0091 es la ÚNICA creadora en
+    Railway. Como las migraciones se aplican A MANO en Railway, cablear el ensure
+    al arranque crearía la tabla antes de la migración → `op.create_table` chocaría.
+    El cableo al startup + save/delete + reconcile-por-columna va en el cutover
+    (fases 3-5), cuando la 0091 ya corrió en Railway (mismo orden que indicadores).
+  - **PENDIENTE Railway:** pushear + `alembic upgrade head` (crea las 2 tablas base,
+    vacías; con el flag OFF nada las toca — deploy-safe).
+- Fases 2-5 sin empezar.
 
 > Coordinación de migraciones: esta línea usa **0091/0092/0093**. Si hay trabajo
 > paralelo (Backtest/Carteras del usuario), encadenar después para no chocar
