@@ -3,7 +3,10 @@ from dash import Input, Output, State, callback, html, no_update
 import app.services.strategy_service as svc
 # Directo del origen y no vía app.pages.screener_signals: importar la página
 # dispara su register_page, que exige la app ya instanciada.
-from app.components.ui_constants import TH_NOWRAP as _th, TD as _td
+from app.components.ui_constants import (
+    BG_CARD, COLOR_NEGATIVE, COLOR_NEUTRAL, COLOR_POSITIVE, TD as _td, TEXT_DIM,
+    TEXT_FAINT, TEXT_MUTED, TH_NOWRAP as _th
+)
 
 
 # ── Opciones de estrategias (carga inicial) ───────────────────────────────────
@@ -109,20 +112,20 @@ def do_search(_, strategy_id, date_str, sector_id, market_id, limit):
 def _score_cell(score: float | None, max_abs: float) -> html.Td:
     """Celda de score con mini-barra y valor numérico."""
     if score is None:
-        return html.Td("—", style={**_td, "color": "#4b5563", "textAlign": "center"})
+        return html.Td("—", style={**_td, "color": TEXT_FAINT, "textAlign": "center"})
 
     pct = int((score / max_abs) * 50 + 50) if max_abs else 50
     color = (
-        "#4ade80" if score >= 20 else
-        "#f87171" if score <= -20 else
-        "#94a3b8"
+        COLOR_POSITIVE if score >= 20 else
+        COLOR_NEGATIVE if score <= -20 else
+        COLOR_NEUTRAL
     )
     return html.Td(
         html.Div([
             html.Div(
                 html.Div(style={"width": f"{pct}%", "height": "100%",
                                 "backgroundColor": color, "borderRadius": "2px"}),
-                style={"width": "40px", "height": "8px", "backgroundColor": "#1f2937",
+                style={"width": "40px", "height": "8px", "backgroundColor": BG_CARD,
                        "borderRadius": "2px", "overflow": "hidden", "display": "inline-block",
                        "verticalAlign": "middle"},
             ),
@@ -138,9 +141,9 @@ def _score_cell(score: float | None, max_abs: float) -> html.Td:
 def _delta_cell(delta_score: float | None) -> html.Td:
     """Celda compacta de variación del score respecto de la fecha anterior."""
     if delta_score is None:
-        return html.Td("—", style={**_td, "color": "#4b5563", "textAlign": "center"})
+        return html.Td("—", style={**_td, "color": TEXT_FAINT, "textAlign": "center"})
 
-    color  = "#4ade80" if delta_score > 0.5 else "#f87171" if delta_score < -0.5 else "#94a3b8"
+    color  = COLOR_POSITIVE if delta_score > 0.5 else COLOR_NEGATIVE if delta_score < -0.5 else COLOR_NEUTRAL
     prefix = "+" if delta_score > 0 else ""
 
     return html.Td(
@@ -188,7 +191,7 @@ def render_table(rows_data, comp_meta, sort_col):
                                 "textOverflow": "ellipsis", "whiteSpace": "nowrap",
                                 "fontSize": "0.71rem"}),
                 html.Div(f"×{c['weight']:g}",
-                         style={"fontSize": "0.68rem", "color": "#6b7280"}),
+                         style={"fontSize": "0.68rem", "color": TEXT_DIM}),
             ]),
             style=_th,
         )
@@ -225,14 +228,14 @@ def render_table(rows_data, comp_meta, sort_col):
                         " hist.",
                         href=f"/historial-senales?asset_id={r['asset_id']}",
                         target="_blank",
-                        style={"fontSize": "0.68rem", "color": "#6b7280",
+                        style={"fontSize": "0.68rem", "color": TEXT_DIM,
                                "textDecoration": "none", "marginLeft": "4px"},
                     ),
                 ]),
                 style=_td,
             ),
             html.Td(r["name"],
-                    style={**_td, "color": "#9ca3af", "fontSize": "0.76rem",
+                    style={**_td, "color": TEXT_MUTED, "fontSize": "0.76rem",
                            "maxWidth": "180px", "overflow": "hidden",
                            "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
             _score_cell(r["score"], max_abs_total),

@@ -43,15 +43,10 @@ LINEAS_DE_DATOS = re.compile(
     re.I,
 )
 
-# TEMPORAL — estos archivos estaban modificados por otra sesión cuando se hizo
-# la consolidación, así que quedaron afuera para no pisar ese trabajo. NO son
-# una excepción de diseño: hay que pasarles los tres paquetes (colores a
-# constantes, encabezado a page_header) y borrarlos de esta lista.
-PENDIENTES_DE_CONSOLIDAR = {
-    "app/pages/screener_signals.py",
-    "app/callbacks/screener_signals_callbacks.py",
-    "app/callbacks/price_viewer_callbacks.py",
-}
+# Escotilla para archivos que todavía no pasaron por la consolidación (p. ej.
+# porque otra sesión los tenía tomados). Vacía = toda la UI está bajo las reglas.
+# Agregar acá es SIEMPRE temporal: lo que entra tiene que salir.
+PENDIENTES_DE_CONSOLIDAR: set[str] = set()
 
 
 def _fuentes(incluir_pendientes: bool = False):
@@ -166,7 +161,7 @@ def test_los_modulos_de_ui_importan_sin_nameerror():
 # Techo del estado tras la consolidación. Los que quedan son colores sin rol
 # compartido (paletas del RRG, escala de tendencia, semáforos puntuales).
 # Bajarlo cuando se consoliden más; subirlo solo con una razón escrita acá.
-TECHO_COLORES_SUELTOS = 175
+TECHO_COLORES_SUELTOS = 164
 
 
 def test_el_presupuesto_de_colores_sueltos_no_crece():

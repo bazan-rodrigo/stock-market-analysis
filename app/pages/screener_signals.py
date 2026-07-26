@@ -2,9 +2,11 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
-from app.components.ui_constants import TH_NOWRAP as _th, TD as _td, CARD_STYLE
+from app.components.ui_constants import (
+    CARD_STYLE, COLOR_NEUTRAL, TD as _td, TEXT_BODY, TH_NOWRAP as _th
+)
 
 _SORT_OPTS = [
     {"label": "Score ↓",      "value": "score"},
@@ -37,7 +39,7 @@ def layout(**kwargs):
         dcc.Download(id="ss-download"),
 
         dbc.Row([
-            dbc.Col(html.H4(["Screener de Señales ", help_link("screener-de-senales")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Screener de Señales", "screener-de-senales", className="mb-0"), width="auto"),
         ], className="mb-3 align-items-center"),
 
         # ── Filtros ──────────────────────────────────────────────────────────
@@ -74,9 +76,9 @@ def layout(**kwargs):
                     dbc.Label(" ", style={"fontSize": "0.82rem"}),
                     dcc.Loading(
                         html.Div(id="ss-result-count",
-                                 style={"fontSize": "0.80rem", "color": "#94a3b8",
+                                 style={"fontSize": "0.80rem", "color": COLOR_NEUTRAL,
                                         "paddingTop": "6px"}),
-                        type="circle", color="#dee2e6",
+                        type="circle", color=TEXT_BODY,
                     ),
                 ], md=1),
             ], className="g-2 mb-2"),
