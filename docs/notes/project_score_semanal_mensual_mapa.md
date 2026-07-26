@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: efee85dd-9d14-4abb-a9ea-6f7458a1a84b
-  modified: 2026-07-25T19:29:32.704Z
+  modified: 2026-07-26T00:54:58.336Z
 ---
 
 25-jul: **el Mapa de Tendencia de Mercado ahora calcula los scores de grupo AL
@@ -39,19 +39,20 @@ group_scores (fuera `_Sweep.covering/exact`, extensión de ventana, `gs_rows`);
 market_map con DatePickerSingle + dcc.Store y callbacks partidos. Costo del
 al-vuelo: decenas de ms hoy, sub-segundo a 10k (**a medir en Railway**).
 
-**Fase 3 DIFERIDA (dropear la tabla group_scores): NO hecha.** Requiere editar
-`cleanup_service` + `maintenance_service` + sus tests y una migración en el
-bloque 0091-0093, y la **sesión paralela está editando esos archivos en vivo**
-(observé `cleanup_service.py` cambiar a mitad de sesión). La tabla queda como
-huérfana inofensiva (nadie la lee ni escribe). Retomar cuando cierre la sesión
-paralela: migración `op.drop_table("group_scores")` (down_rev = head de
-entonces), sacar el modelo `GroupScore` + refs en data_explorer/cleanup/
-maintenance, y `test_db_utils_y_escritor` usa group_scores como tabla de muestra
-para delete_by_ranges → cambiarla a otra (p.ej. signal_eval_log).
+**Fase 3 HECHA (25-jul, b8e6d43): la tabla group_scores se dropeó.** Migración
+`0092_drop_group_scores` (down_rev 0091; downgrade la recrea vacía; portable,
+cubierta por test_bootstrap_portability; head único = 0092). Se removió el modelo
+`GroupScore` + su export, el dataset del data_explorer, y las refs en
+cleanup_service/maintenance_service (listas de limpieza/bloat + clasificador);
+`test_db_utils_y_escritor` pasó a usar signal_eval_log como tabla de muestra para
+delete_by_ranges. 912 passed. Se pudo hacer sin colisión porque el árbol estaba
+limpio (la sesión paralela había commiteado sus cambios de cleanup/maintenance).
 
-**PENDIENTE verificar en Railway:** que el mapa renderice con el selector, muestre
-Diario+Semanal+Mensual en Sectores, y cronometrar `group_scores_for` a escala.
-Ver [[feedback-entorno-verificacion]].
+**PENDIENTE en Railway:** (1) `alembic upgrade head` para dropear la tabla real
+(o la nueva del sig-wide si la sesión paralela sumó migraciones — verificar head);
+(2) que el mapa renderice con el selector y muestre Diario+Semanal+Mensual en
+Sectores; (3) cronometrar `group_scores_for` a escala. Ver
+[[feedback-entorno-verificacion]].
 
 **Why:** el mapa ([get_market_map_data]) era el único consumidor de group_scores;
 calcularlo al vuelo elimina la clase de bugs de cache. Relacionado con
