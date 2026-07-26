@@ -111,6 +111,20 @@ def test_read_views_filtran_nulls():
     assert v5.name == "signal_values_wide"   # drop-in: .name como la tabla
 
 
+def test_drop_all_percode_tables_dropea_las_per_entidad():
+    """En modo ancho el arranque dropea las sig_{id}/strat_res_{id} remanentes
+    (reconcile_dynamic_tables las recrearía en cada arranque tras la 0094)."""
+    from app.database import engine
+    signal_store.ensure_sig_table(991, bind=engine)
+    signal_store.ensure_strat_table(992, bind=engine)
+
+    dropped = signal_store.drop_all_percode_tables()
+    assert "sig_991" in dropped and "strat_res_992" in dropped
+
+    sig, strat = signal_store._list_dynamic_tables()
+    assert 991 not in sig and 992 not in strat
+
+
 def test_reconcile_wide_columns_agrega_y_dropea():
     """reconcile asegura una columna por señal/estrategia viva y dropea las de
     ids que ya no existen (red de seguridad de arranque)."""

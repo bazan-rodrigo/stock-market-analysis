@@ -146,6 +146,20 @@ def _list_dynamic_tables(bind=None) -> tuple[dict[int, str], dict[int, str]]:
     return sig, strat
 
 
+def drop_all_percode_tables() -> list[str]:
+    """Dropea todas las tablas per-entidad sig_{id}/strat_res_{id} que existan.
+    En modo ancho la data vive en signal_values_wide/strategy_results_wide, así
+    que las per-entidad no deben existir — pero reconcile_dynamic_tables las
+    recrearía en cada arranque; el arranque en modo ancho llama a esta en su
+    lugar (ver startup_service). Devuelve los nombres dropeados."""
+    sig_tables, strat_tables = _list_dynamic_tables()
+    dropped: list[str] = []
+    for name in sorted(list(sig_tables.values()) + list(strat_tables.values())):
+        _drop(name)
+        dropped.append(name)
+    return dropped
+
+
 def reconcile_dynamic_tables(session) -> dict:
     """Red de seguridad bidireccional (el DDL de MySQL no es transaccional,
     un crash entre commit y CREATE/DROP puede dejar mitades):

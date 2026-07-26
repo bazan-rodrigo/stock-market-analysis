@@ -162,25 +162,30 @@ def ensure_builtin_data() -> None:
     except Exception as exc:
         logger.warning("No se pudieron asegurar las tablas ind_*: %s", exc)
 
-    # Tablas dinámicas sig_{id}/strat_res_{id}: reparar en el arranque los
-    # dos estados que un crash puede dejar (tabla huérfana / definición sin
-    # tabla) — el DDL de MySQL no es transaccional, esta es la red.
+    # Almacenamiento dinámico de señales/estrategias: reparar en el arranque los
+    # estados que un crash puede dejar (el DDL de MySQL no es transaccional).
     from app.models import signal_store
     try:
-        rec = signal_store.reconcile_dynamic_tables(s)
-        if rec["dropped"] or rec["created"]:
-            logger.info("Tablas de señal/estrategia reconciliadas: "
-                        "%d huérfanas dropeadas, %d faltantes creadas",
-                        len(rec["dropped"]), len(rec["created"]))
-        # Modo ancho: además asegurar una columna por señal/estrategia viva y
-        # dropear las de ids que ya no existen (análogo por columna). Gateado
-        # por el flag: con flag OFF las anchas están vacías y no se tocan.
         if signal_store.use_wide_signal_tables():
+            # Modo ancho: NO reconciliar las per-entidad — reconcile_dynamic_tables
+            # RECREARÍA una sig_{id}/strat_res_{id} vacía por definición en CADA
+            # arranque, deshaciendo el drop de la 0094. Dropear las remanentes
+            # (la data vive en las anchas) y reconciliar las columnas anchas.
+            dropped = signal_store.drop_all_percode_tables()
+            if dropped:
+                logger.info("Tablas per-entidad remanentes dropeadas (modo "
+                            "ancho, superseded por las anchas): %d", len(dropped))
             wrec = signal_store.reconcile_wide_columns(s)
             if wrec["added"] or wrec["dropped"]:
                 logger.info("Columnas anchas reconciliadas: %d agregadas, "
                             "%d dropeadas", len(wrec["added"]),
                             len(wrec["dropped"]))
+        else:
+            rec = signal_store.reconcile_dynamic_tables(s)
+            if rec["dropped"] or rec["created"]:
+                logger.info("Tablas de señal/estrategia reconciliadas: "
+                            "%d huérfanas dropeadas, %d faltantes creadas",
+                            len(rec["dropped"]), len(rec["created"]))
     except Exception as exc:
         # p.ej. base sin migrar todavía (alembic upgrade pendiente)
-        logger.warning("No se pudo reconciliar tablas dinámicas: %s", exc)
+        logger.warning("No se pudo reconciliar almacenamiento dinámico: %s", exc)
