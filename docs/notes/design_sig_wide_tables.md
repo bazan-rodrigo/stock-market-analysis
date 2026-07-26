@@ -154,9 +154,41 @@ master: **0090** → las nuevas encadenan **0091+**.
     al arranque crearía la tabla antes de la migración → `op.create_table` chocaría.
     El cableo al startup + save/delete + reconcile-por-columna va en el cutover
     (fases 3-5), cuando la 0091 ya corrió en Railway (mismo orden que indicadores).
-  - **PENDIENTE Railway:** pushear + `alembic upgrade head` (crea las 2 tablas base,
-    vacías; con el flag OFF nada las toca — deploy-safe).
-- Fases 2-5 sin empezar.
+  - Railway: 0091 aplicada (tablas base creadas).
+- **Fases 2-5 HECHAS (código, 919 tests) — flag default TODAVÍA OFF:**
+  - **Fase 2 (escritores, 58aa94d):** `signal_backfill_range` (rango: truncate+
+    INSERT plano en rebuild total; NULL-de-columnas+UPSERT en parcial/delta),
+    `compute_signal_values` (diario), `compute_strategy_results` (diario). Helpers
+    en `signal_store`: `wide_upsert/insert`, `wide_null_columns(_ranges)`,
+    `sig/strat_wide_rows`, `load_wide_signal_scores`.
+  - **Fase 3 (lectores + ciclo de vida, 58aa94d):** vistas subquery
+    (`_sig_view`/`_strat_view`) con `col IS NOT NULL` HORNEADO (drop-in de
+    sig_{id}/strat_res_{id}, evita la lección "diferencias falsas"). `read_sig_table`/
+    `read_strat_table` ruteados en 14 call-sites (backtest, portfolio, rules,
+    optimizer, chart, data_explorer, signal_history, strategy_service,
+    strategy_filter, rebuild scope). `ensure/drop_signal|strategy_storage`
+    (columna en modo ancho) en save/delete/import. `reconcile_wide_columns` en
+    el arranque (gateado por el flag).
+  - **Fase 4 (migración 0093, 00c4698):** pobla las anchas — descubre las tablas
+    dinámicas, ADD COLUMN por entidad, merge-en-Python sin bloat. NO borra las viejas.
+  - **Fase 5 drop (migración 0094, 00c4698):** DROP de sig_{id}/strat_res_{id}
+    (dinámica, guard offline; downgrade recrea+repuebla). PUNTO DE NO RETORNO.
+  - Tests: `test_signal_range_parity_wide` (rango/diario/rebuild/strategy_only ==
+    per-entidad), `test_wide_signal_tables` (vistas filtran NULL, reconcile,
+    pivot 0093).
+- **PENDIENTE — validación en Railway (paso del usuario):**
+  1. `alembic upgrade head` (aplica 0093, puebla las anchas; NO aplica 0094 aún
+     si se corta la cadena — OJO: `upgrade head` aplica 0094 también). Para validar
+     ANTES del drop, aplicar hasta 0093: `alembic upgrade 0093`.
+  2. `USE_WIDE_SIGNAL_TABLES=1` (env) y validar: señales/rankings/backtests/
+     pantallas idénticos, correr un recálculo, medir footprint con
+     `measure_signal_storage.py`.
+  3. Si OK: `alembic upgrade 0094` (drop, libera el espacio) + **flip del flag
+     default a ON** (commit aparte) + quitar el env override.
+- **DIFERIDO (optimización, no bloquea):** el rebuild total que RECREA la tabla
+  (DROP+CREATE con columnas vivas) para reclamar el espacio de columnas dropeadas
+  en PG — hoy `reconcile_wide_columns` dropea las columnas muertas (correcto), pero
+  el espacio se reclama recién con un rewrite (VACUUM FULL / futuro).
 
 > Coordinación de migraciones: esta línea usa **0091/0092/0093**. Si hay trabajo
 > paralelo (Backtest/Carteras del usuario), encadenar después para no chocar
