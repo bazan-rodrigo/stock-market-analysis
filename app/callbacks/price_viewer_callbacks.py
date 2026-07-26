@@ -3,6 +3,32 @@ from dash import Input, Output, callback, no_update
 from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df, get_latest_prices_all
 
+# Topes de la VISTA (no del cálculo): la DataTable manda todas las filas al
+# navegador aunque pagine de a 50, así que sin tope el catálogo entero o una
+# historia larga lo clavan.
+_MAX_HISTORY_ROWS = 2000   # ≈ 8 años de rueda diaria
+_MAX_LATEST_ROWS  = 1000
+
+
+def _miles(n: int) -> str:
+    """10000 → '10.000' (separador de miles rioplatense)."""
+    return f"{n:,}".replace(",", ".")
+
+
+def _tail(rows: list, max_rows: int) -> tuple[list, bool]:
+    """Últimas `max_rows` filas + si hubo corte. En una serie ordenada por
+    fecha lo que interesa es la cola, no el arranque."""
+    if len(rows) <= max_rows:
+        return rows, False
+    return rows[-max_rows:], True
+
+
+def _history_info(total: int, first_date: str, last_date: str, shown: int) -> str:
+    info = f"{_miles(total)} registros — {first_date} → {last_date}"
+    if shown < total:
+        info += f" (mostrando los últimos {_miles(shown)})"
+    return info
+
 
 @callback(
     Output("pv-asset-select", "options"),
@@ -23,8 +49,14 @@ def load_pv_assets(_):
 )
 def switch_mode(mode):
     if mode == "latest":
-        rows = get_latest_prices_all()
-        info = f"{len(rows)} instrumentos con precio disponible."
+        # +1 para saber si hay más sin pagar un COUNT sobre todo el catálogo
+        rows = get_latest_prices_all(limit=_MAX_LATEST_ROWS + 1)
+        if len(rows) > _MAX_LATEST_ROWS:
+            rows = rows[:_MAX_LATEST_ROWS]
+            info = (f"Mostrando los primeros {_miles(_MAX_LATEST_ROWS)} "
+                    f"instrumentos por ticker (hay más).")
+        else:
+            info = f"{_miles(len(rows))} instrumentos con precio disponible."
         return (
             {"display": "none"},
             {"display": "none"},
@@ -58,5 +90,7 @@ def query_history(asset_id):
         return [], "No hay precios descargados para este instrumento.", True, ""
 
     rows = df.assign(date=df["date"].astype(str)).to_dict("records")
-    info = f"{len(rows)} registros — {rows[0]['date']} → {rows[-1]['date']}"
-    return rows, "", False, info
+    info = _history_info(len(rows), rows[0]["date"], rows[-1]["date"],
+                         min(len(rows), _MAX_HISTORY_ROWS))
+    shown, _capped = _tail(rows, _MAX_HISTORY_ROWS)
+    return shown, "", False, info

@@ -707,8 +707,10 @@ def clear_update_logs() -> None:
     s.commit()
 
 
-def get_latest_prices_all() -> list[dict]:
-    """Devuelve el último precio (OHLCV) de cada activo con sus datos de referencia."""
+def get_latest_prices_all(limit: int | None = None) -> list[dict]:
+    """Devuelve el último precio (OHLCV) de cada activo con sus datos de
+    referencia, ordenado por ticker. `limit` topea las filas traídas (la
+    pantalla lo usa para no mandarle el catálogo entero al navegador)."""
     from sqlalchemy import func
     from app.models import Currency, InstrumentType, Country, Market, PriceSource
 
@@ -728,8 +730,10 @@ def get_latest_prices_all() -> list[dict]:
         .outerjoin(Market,         Asset.market_id          == Market.id)
         .join(PriceSource,         Asset.price_source_id    == PriceSource.id)
         .order_by(Asset.ticker)
-        .all()
     )
+    if limit is not None:
+        rows = rows.limit(limit)
+    rows = rows.all()
     return [
         {
             "ticker":          asset.ticker,

@@ -1,7 +1,9 @@
 from dash import Input, Output, State, callback, html, no_update
 
 import app.services.strategy_service as svc
-from app.pages.screener_signals import _th, _td
+# Directo del origen y no vía app.pages.screener_signals: importar la página
+# dispara su register_page, que exige la app ya instanciada.
+from app.components.ui_constants import TH_NOWRAP as _th, TD as _td
 
 
 # ── Opciones de estrategias (carga inicial) ───────────────────────────────────
@@ -49,9 +51,22 @@ def update_filters(strategy_id, current_date):
 
 # ── Buscar: guardar resultados en stores ──────────────────────────────────────
 
+def _miles(n: int) -> str:
+    """10000 → '10.000' (separador de miles rioplatense)."""
+    return f"{n:,}".replace(",", ".")
+
+
+def _result_label(shown: int, total: int) -> tuple[str, bool]:
+    """Texto del contador y si el ranking quedó cortado por el tope."""
+    if total > shown:
+        return f"{_miles(shown)} de {_miles(total)} activos", True
+    return f"{_miles(shown)} activos", False
+
+
 @callback(
     Output("ss-results-store", "data"),
     Output("ss-comp-meta",     "data"),
+    Output("ss-query-store",   "data"),
     Output("ss-result-count",  "children"),
     Output("ss-btn-export",    "disabled"),
     Input("ss-btn-search",     "n_clicks"),
@@ -59,25 +74,34 @@ def update_filters(strategy_id, current_date):
     State("ss-date",           "date"),
     State("ss-sector-filter",  "value"),
     State("ss-market-filter",  "value"),
+    State("ss-limit",          "value"),
     prevent_initial_call=True,
 )
-def do_search(_, strategy_id, date_str, sector_id, market_id):
+def do_search(_, strategy_id, date_str, sector_id, market_id, limit):
     if not strategy_id or not date_str:
-        return None, [], "", True
+        return None, [], None, "", True
 
     from datetime import date as dt_date
     target_date = dt_date.fromisoformat(date_str)
 
-    rows_data, comp_meta = svc.get_strategy_results_with_breakdown(
+    rows_data, comp_meta, total = svc.get_strategy_results_with_breakdown(
         strategy_id, target_date,
         sector_id=sector_id or None,
         market_id=market_id or None,
+        limit=int(limit or 0) or None,     # "Todos" viaja como 0
     )
 
     if not rows_data:
-        return None, [], f"0 activos", True
+        return None, [], None, "0 activos", True
 
-    return rows_data, comp_meta, f"{len(rows_data)} activos", False
+    # La consulta que se mostró, congelada: el export saca de acá y no de los
+    # filtros vivos, que el usuario pudo tocar sin volver a buscar.
+    query = {"strategy_id": strategy_id, "date": date_str,
+             "sector_id": sector_id or None, "market_id": market_id or None}
+
+    label, truncated = _result_label(len(rows_data), total)
+    count = html.Span(label, style={"color": "#f59e0b"} if truncated else None)
+    return rows_data, comp_meta, query, count, False
 
 
 # ── Renderizar tabla (desde store + orden) ────────────────────────────────────
@@ -228,11 +252,22 @@ def render_table(rows_data, comp_meta, sort_col):
 @callback(
     Output("ss-download",      "data"),
     Input("ss-btn-export",     "n_clicks"),
-    State("ss-results-store",  "data"),
+    State("ss-query-store",    "data"),
     State("ss-comp-meta",      "data"),
     prevent_initial_call=True,
 )
-def export_excel(_, rows_data, comp_meta):
+def export_excel(_, query, comp_meta):
+    if not query:
+        return no_update
+
+    # El Excel lleva el ranking COMPLETO: el tope es de la pantalla (para no
+    # colgar el navegador), no del archivo.
+    from datetime import date as dt_date
+    rows_data, _meta, _total = svc.get_strategy_results_with_breakdown(
+        query["strategy_id"], dt_date.fromisoformat(query["date"]),
+        sector_id=query.get("sector_id"),
+        market_id=query.get("market_id"),
+    )
     if not rows_data:
         return no_update
 

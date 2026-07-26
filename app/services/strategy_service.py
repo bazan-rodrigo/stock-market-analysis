@@ -466,20 +466,27 @@ def get_strategy_results_with_breakdown(
     *,
     sector_id: int | None = None,
     market_id: int | None = None,
-) -> tuple[list[dict], list[dict]]:
+    limit: int | None = None,
+) -> tuple[list[dict], list[dict], int]:
     """
-    Devuelve (resultados, componentes) donde:
+    Devuelve (resultados, componentes, total) donde:
     - resultados: [{asset_id, ticker, name, sector_id, market_id, score,
                     delta_score, component_scores: {signal_key: score}}]
       ordenados por score desc (el orden ES el ranking).
     - componentes: [{signal_key, signal_name, weight}]
+    - total: cuántos activos tiene el ranking completo, ignorando `limit`
+      (para que la UI pueda decir cuántos quedaron afuera del tope).
+
+    `limit` corta el ranking en el servidor: se queda con los primeros N por
+    score. No es solo cosmética — recorta también las lecturas por señal y la
+    de la fecha anterior, que van con un IN sobre los asset_id traídos.
     """
     from app.models import SignalDefinition
 
     s = get_session()
     strategy = s.query(Strategy).filter(Strategy.id == strategy_id).first()
     if strategy is None:
-        return [], []
+        return [], [], 0
 
     components = strategy.components
     sig_ids = [c.signal_id for c in components]
@@ -503,11 +510,24 @@ def get_strategy_results_with_breakdown(
         q = q.where(Asset.sector_id == sector_id)
     if market_id is not None:
         q = q.where(Asset.market_id == market_id)
+
+    # El total se cuenta aparte solo cuando hay tope; sin tope las filas SON
+    # el total y una query de más no compra nada.
+    total = 0
+    if limit is not None:
+        total = s.execute(
+            sa.select(sa.func.count()).select_from(q.subquery())
+        ).scalar() or 0
+
     q = q.order_by(*db_compat.order_desc_nulls_last(rt.c.score))
+    if limit is not None:
+        q = q.limit(limit)
     rows = s.execute(q).all()
+    if limit is None:
+        total = len(rows)
 
     if not rows:
-        return [], []
+        return [], [], total
 
     asset_ids = [aid for aid, *_ in rows]
 
@@ -567,7 +587,7 @@ def get_strategy_results_with_breakdown(
             "comp_scores": comp_scores,
         })
 
-    return results, comp_meta
+    return results, comp_meta, total
 
 
 def get_filter_options(strategy_id: int, target_date) -> dict:

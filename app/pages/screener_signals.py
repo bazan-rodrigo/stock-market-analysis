@@ -12,6 +12,18 @@ _SORT_OPTS = [
     {"label": "Ticker A-Z",   "value": "ticker"},
 ]
 
+# Tope de filas traídas del servidor. Sin tope, un catálogo grande dibuja una
+# fila por activo y cada celda de score es un árbol de divs: el navegador se
+# clava. El corte es por score, o sea por el ranking mismo.
+_LIMIT_OPTS = [
+    {"label": "Top 100",   "value": 100},
+    {"label": "Top 500",   "value": 500},
+    {"label": "Top 1000",  "value": 1000},
+    {"label": "Top 2000",  "value": 2000},
+    {"label": "Todos",     "value": 0},
+]
+_DEFAULT_LIMIT = 500
+
 
 def layout(**kwargs):
     from flask_login import current_user
@@ -21,6 +33,7 @@ def layout(**kwargs):
     return html.Div([
         dcc.Store(id="ss-comp-meta",    data=[]),
         dcc.Store(id="ss-results-store", data=None),
+        dcc.Store(id="ss-query-store",   data=None),
         dcc.Download(id="ss-download"),
 
         dbc.Row([
@@ -76,11 +89,19 @@ def layout(**kwargs):
                                  value="score", clearable=False,
                                  style={"fontSize": "0.83rem"}),
                 ], md=3),
+                dbc.Col(html.Div([
+                    dbc.Label("Mostrar", style={"fontSize": "0.82rem"}),
+                    dcc.Dropdown(id="ss-limit", options=_LIMIT_OPTS,
+                                 value=_DEFAULT_LIMIT, clearable=False,
+                                 style={"fontSize": "0.83rem"}),
+                ], title="Cuántos activos del ranking se traen. "
+                         "El orden de arriba reordena solo los traídos."), md=2),
                 dbc.Col([
                     dbc.Label(" ", style={"fontSize": "0.82rem"}),
                     dbc.Button("Exportar Excel", id="ss-btn-export", color="secondary",
                                size="sm", outline=True, disabled=True,
-                               style={"display": "block"}),
+                               style={"display": "block"},
+                               title="Exporta el ranking completo, sin el tope de filas."),
                 ], md=2, className="d-flex flex-column"),
             ], className="g-2"),
         ]), className="mb-3",

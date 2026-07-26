@@ -39,6 +39,11 @@ Arriba de la tabla se indica cuántos instrumentos tienen precio disponible. Los
 activos **sin ningún precio descargado no aparecen acá** — si buscás uno y no
 está, ese es el dato: nunca se le bajó la serie.
 
+Con catálogos grandes la lista viene **topeada en los primeros 1.000 por
+ticker**, y en ese caso el texto de arriba lo aclara ("hay más"). Es para que
+la pantalla no se trabe: si el activo que buscás quedó afuera del tope, usá el
+modo «Historia de un instrumento», que va directo al que elijas.
+
 ### Para qué se usa realmente
 
 **Para detectar activos atrasados.** Ordená por **Fecha** de menor a mayor: los
@@ -59,13 +64,20 @@ más problemas que cualquier error de cálculo.
 
 ## Modo «Historia de un instrumento»
 
-Elegís un activo en el selector y la tabla muestra **toda su serie diaria**, de
-la fecha más vieja a la más nueva, con las mismas columnas de precio y volumen.
+Elegís un activo en el selector y la tabla muestra su serie diaria, de la fecha
+más vieja a la más nueva, con las mismas columnas de precio y volumen.
 
 Debajo del selector se indica cuántos registros hay y entre qué fechas van, que
 es la forma más rápida de responder "¿desde cuándo tengo historia de este
 activo?" — dato clave antes de meterlo en un backtest, porque un activo con
 poca historia arrastra conclusiones frágiles.
+
+En series largas la tabla muestra **los últimos 2.000 registros** (unos ocho
+años de rueda diaria) y lo aclara al lado del total. Prestá atención a la
+distinción: el conteo y el rango de fechas son siempre los **completos** —o
+sea que la respuesta a "desde cuándo tengo historia" sigue siendo confiable—,
+lo que se recorta es únicamente lo que se dibuja. Los precios viejos siguen
+guardados y los cálculos los usan todos.
 
 Si el activo no tiene precios descargados, la pantalla lo avisa explícitamente
 en vez de mostrar una tabla vacía sin explicación.
@@ -81,6 +93,10 @@ Las dos tablas funcionan igual:
   cualquier columna. En el modo «último precio» es lo que te deja quedarte solo
   con un mercado, una moneda o un tipo de instrumento.
 - **Paginado**: 50 filas por página.
+
+Ordenar y filtrar trabajan sobre **lo que la pantalla trajo**, no sobre toda la
+base. Si el listado vino topeado, tenelo en cuenta: ordenar por fecha te da el
+más atrasado *de los 1.000 traídos*.
 
 ---
 

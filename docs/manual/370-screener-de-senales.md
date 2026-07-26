@@ -26,11 +26,24 @@ estrategia y la fecha que elijas (el porqué está en
 | **Fecha** | El día del ranking. Al elegir una estrategia se posiciona sola en la **fecha más reciente que tenga resultados calculados** para esa estrategia. |
 | **Sector** | Restringe a un sector. Las opciones son solo los sectores que efectivamente tienen activos en el resultado de esa fecha. |
 | **Mercado** | Ídem, por mercado. |
+| **Mostrar** | Cuántos activos del ranking se traen: **Top 100**, **Top 500** (por defecto), **Top 1000**, **Top 2000** o **Todos**. |
 | **Buscar** | Ejecuta la consulta. Al lado aparece la cantidad de activos encontrados. |
 
-Cambiar la estrategia, la fecha, el sector o el mercado **no actualiza la tabla
-sola**: hay que apretar **Buscar**. Es a propósito, para que puedas armar la
-combinación completa antes de disparar la consulta.
+Cambiar la estrategia, la fecha, el sector, el mercado o el tope **no actualiza
+la tabla sola**: hay que apretar **Buscar**. Es a propósito, para que puedas
+armar la combinación completa antes de disparar la consulta.
+
+### El tope de filas
+
+El tope corta **por score**, es decir que te quedás con la cabeza del ranking,
+que es justo lo que se suele mirar. Cuando el listado quedó cortado, el
+contador te lo dice en ámbar —por ejemplo **500 de 10.000 activos**—, así que
+nunca vas a estar viendo una parte sin saberlo.
+
+Existe por una razón concreta: la pantalla dibuja una fila por activo con una
+barra en cada celda, y con miles de activos el navegador se traba. Si
+necesitás el universo entero, tenés dos caminos mejores que subir el tope:
+acotar por sector o mercado, o **exportar a Excel**, que nunca viene topeado.
 
 > Si el listado sale vacío o mucho más corto de lo esperado, lo más probable es
 > que la fecha elegida no tenga resultados calculados para esa estrategia, o
@@ -43,11 +56,22 @@ combinación completa antes de disparar la consulta.
 | Control | Qué hace |
 |---|---|
 | **Ordenar por** | **Score ↓** (el ranking, es el orden por defecto), **Δ Score ↓** (los que más mejoraron desde la fecha anterior) o **Ticker A-Z**. |
-| **Exportar Excel** | Baja la tabla completa —con todas las columnas de señales— a una planilla. Se habilita recién después de la primera búsqueda. |
+| **Exportar Excel** | Baja el ranking **completo**, sin el tope de la pantalla, con todas las columnas de señales. Se habilita recién después de la primera búsqueda. |
 
 Reordenar es instantáneo y **no vuelve a consultar**: trabaja sobre los mismos
 resultados que ya trajiste. Podés cambiar de orden todas las veces que quieras
 sin costo.
+
+Eso tiene una consecuencia que conviene entender: **el orden reacomoda lo que
+trajiste, no busca de nuevo**. Si pediste Top 500 y ordenás por **Δ Score ↓**,
+estás viendo las mayores variaciones *dentro de esos 500 mejores por score* —
+no las mayores variaciones del universo. Un activo con un salto enorme pero
+score bajo no va a aparecer. Cuando lo que buscás es exactamente eso, subí el
+tope o usá la exportación.
+
+La planilla, en cambio, sale siempre con el ranking entero y respetando los
+filtros de la búsqueda que estás viendo, aunque después hayas tocado los
+selectores sin volver a buscar.
 
 ---
 

@@ -1,11 +1,31 @@
 ---
 name: pendientes-proxima-sesion
-description: Log de pendientes sesión por sesión (más reciente arriba); al 23-jul-2026, el corte a PostgreSQL-only quedó DESCARTADO (el dual se mantiene) y sigue pendiente la etapa 0 en Railway
+description: Log de pendientes sesión por sesión (más reciente arriba); al 26-jul-2026, etapa 0 de grillas hecha (verificación pendiente en Railway) y varias migraciones sin aplicar
 metadata: 
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-26T18:40:50.743Z
+  modified: 2026-07-26T21:17:14.785Z
+---
+
+**Sesión 26-jul-2026: DevExtreme descartado; etapa 0 de grillas HECHA** (ver
+[[project_grillas_10k]]). La pregunta era por gráficos DevExtreme — el beneficio
+es ~nulo (Dash no consume JS arbitrario sin empaquetar un componente React;
+Lightweight Charts y Plotly ya cubren mejor lo financiero y lo estadístico;
+licencia comercial). El problema real son las GRILLAS camino a 10.000 activos:
+toda `DataTable` manda el dataset completo al navegador (`page_action` default),
+y el peor caso no era una DataTable sino el **screener `/senales`**, un
+`html.Table` a mano sin tope ni virtualización. Plan acordado: `dash-ag-grid`
+(Community, MIT) por etapas. **Etapa 0 HECHA** (topes, sin dependencia nueva,
+952 passed): tope "Mostrar" con LIMIT real en SQL en el screener + contador
+ámbar + Excel siempre completo; topes de vista en `/price-viewer` conservando
+conteo y rango reales. **PENDIENTE en Railway = producción:** que "Top 500" y
+"Todos" den la misma cabeza de ranking, que aparezca el contador ámbar y que el
+Excel baje completo. Sin migraciones. Ojo con lo que salió al paso: **los
+layouts no tienen red automatizada** (`dbc.Col` no acepta `title=` y eso rompía
+`/senales` al renderizar; `test_module_registration` valida por regex, no
+construye layouts).
+
 ---
 
 **Sesión 26-jul-2026: "Promover cartera" ahora HEREDA la config gated** (ver
