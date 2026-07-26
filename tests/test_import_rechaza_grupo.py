@@ -141,6 +141,27 @@ def test_import_estrategia_de_activo_sigue_funcionando(db):
     assert len(strat.components) == 1 and strat.components[0].weight == 2
 
 
+def test_import_planilla_de_senales_en_estrategias_se_rechaza(db):
+    """Subir la planilla de SEÑALES en la pantalla de estrategias (comparten
+    name/description) creaba estrategias vacías con los nombres de las señales,
+    sin avisar. Ahora se detecta por las columnas propias de señales y se rechaza."""
+    from app.services import strategy_service
+    from app.models import Strategy
+
+    data = _xlsx([   # headers de la planilla de SEÑALES, no de estrategias
+        ("Señales", [
+            ["key", "name", "description", "indicator_key", "formula_type",
+             "params", "publica"],
+            ["rsi_sig", "RSI señal", "desc", "trend_daily", "discrete_map",
+             _MAP, "si"],
+        ]),
+    ])
+    res = strategy_service.import_strategies_excel(data)
+    assert res[0]["status"] == "error"
+    assert "señales" in res[0]["detail"].lower()
+    assert get_session().query(Strategy).count() == 0
+
+
 def test_import_estrategia_sin_componentes_se_rechaza(db):
     """Una estrategia sin componentes (planilla sin hoja 'Componentes', o con
     strategy_name que no matchea) no puntúa nada → el import la rechaza en vez

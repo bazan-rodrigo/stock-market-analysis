@@ -703,6 +703,17 @@ def import_strategies_excel(file_bytes: bytes,
         return []
 
     headers_s = [str(h).strip().lower() for h in rows_s[0]]
+    # Guard: la planilla de SEÑALES comparte name/description/publica con la de
+    # estrategias, así que subirla acá por error creaba "estrategias" con los
+    # nombres de las señales y 0 componentes, en silencio. Las columnas
+    # formula_type/indicator_key/params son propias de señales → rechazar claro.
+    if {"formula_type", "indicator_key", "params"} & set(headers_s):
+        return [{
+            "name": "(archivo)", "status": "error",
+            "detail": "esta planilla parece de SEÑALES (tiene columnas como "
+                      "formula_type / indicator_key), no de estrategias. "
+                      "Importala en la pantalla de Señales, o exportá la "
+                      "plantilla de estrategias desde esta pantalla."}]
     strategies: dict[str, dict] = {}
     for row in rows_s[1:]:
         data = dict(zip(headers_s, row))
