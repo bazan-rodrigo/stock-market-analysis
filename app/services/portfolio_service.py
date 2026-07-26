@@ -198,7 +198,8 @@ def public_ref_error(session, *, is_public, composition_method,
 def create_portfolio(session, name, ptype, owner_id, *, is_public=False,
                      base_currency=None, benchmark_asset_id=None,
                      linked_portfolio_id=None, composition_method=None,
-                     strategy_id=None, top_n=None):
+                     strategy_id=None, top_n=None, sim_spec=None,
+                     source_run_id=None):
     err = public_ref_error(session, is_public=is_public,
                            composition_method=composition_method,
                            strategy_id=strategy_id)
@@ -209,7 +210,7 @@ def create_portfolio(session, name, ptype, owner_id, *, is_public=False,
                   benchmark_asset_id=benchmark_asset_id,
                   linked_portfolio_id=linked_portfolio_id,
                   composition_method=composition_method, strategy_id=strategy_id,
-                  top_n=top_n)
+                  top_n=top_n, sim_spec=sim_spec, source_run_id=source_run_id)
     session.add(p)
     session.commit()
     return p

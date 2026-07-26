@@ -110,12 +110,15 @@ guardar la corrida que vos mismo lanzaste, y una vez guardada hay que volver a
 correr para guardar de nuevo.
 
 **↗ Promover a seguimiento** crea una cartera teórica en
-[Carteras](/manual/carteras) que sigue el top-N de esa estrategia hacia
-adelante. Es el puente entre el laboratorio y el día a día.
+[Carteras](/manual/carteras) que **hereda la simulación que estás viendo**: el
+top-N, el rebalanceo, los costos **y tus reglas** de entrada y salida. Congela la
+curva **Con reglas (gated)** como una foto que después podés volver a calcular con
+los datos del día. Es el puente entre el laboratorio y el día a día.
 
-> **La cartera promovida se queda con la estrategia y el top-N, no con tus
-> reglas.** Sigue el ranking puro: los stops, el take profit y el enfriamiento
-> que configuraste acá **no** viajan con ella.
+> **Se promueve lo que corriste, no lo que quedó en los campos.** Primero
+> **Correr** la simulación —el botón toma ese resultado, no los controles—. Si
+> cambiaste algún control después de correr y no volviste a correr, promové recién
+> cuando la curva en pantalla sea la que querés guardar.
 
 ## Qué no modela esta simulación
 

@@ -116,11 +116,21 @@ mirarla en el tiempo. Muestra además su **curva de rendimiento**, calculada com
 rebalancearas todos los días a los pesos objetivo.
 
 **Derivada de estrategia** — los **Top-N** activos por score de una estrategia, en
-partes iguales, resueltos a la última fecha con scores. No es una foto: **se
-actualiza sola** a medida que el ranking cambia, así que responde "¿qué me estaría
-diciendo hoy esta estrategia?". No dibuja su curva acá: para eso corré la estrategia
-en [Backtest → Cartera](/manual/backtest-cartera), donde además **Promover a
-seguimiento** crea la derivada con el top-N que estabas probando.
+partes iguales, resueltos a la última fecha con scores. Los **Miembros vigentes**
+no son una foto: **se actualizan solos** a medida que el ranking cambia, así que
+responden "¿qué me estaría diciendo hoy esta estrategia?". Hay dos maneras de tener
+una, y se ven distinto en el detalle:
+
+- **Creada acá a mano** (Método → Derivada de estrategia): muestra sus miembros
+  pero **no dibuja curva** —sería el ranking puro, sin reglas—. Para verla rendir,
+  corré la estrategia en [Backtest → Cartera](/manual/backtest-cartera).
+- **Promovida desde el backtest** (con **Promover a seguimiento**): llega con **su
+  curva de rendimiento con reglas** —la que estabas viendo al promover—, sus stops
+  y su rebalanceo, y el detalle los muestra arriba con sus indicadores. Esa curva
+  es una **foto congelada** a la fecha en que promoviste; el botón **Recalcular
+  curva** la vuelve a simular con los datos de hoy. Los **Miembros vigentes** de
+  abajo siguen siendo el top-N por ranking: la selección con reglas se lee en la
+  curva, no en esa lista.
 
 | Métrica | Qué dice |
 |---|---|

@@ -157,6 +157,9 @@ def layout(**kwargs):
         dcc.Store(id="cart-selected-id", data=None),
         dcc.Store(id="cart-detail-refresh", data=0),
         dcc.Store(id="cart-reload", data=0),
+        # Recalcular curva (carteras 'strategy' promovidas): interval de progreso
+        # persistente (el botón vive en el detalle dinámico, esto no).
+        dcc.Interval(id="cart-recalc-interval", interval=1200, disabled=True),
 
         dbc.Row([
             dbc.Col(html.H4(["Carteras ", help_link("carteras")], className="mb-0"), width="auto"),
@@ -200,6 +203,11 @@ def layout(**kwargs):
             sort_action="native",
             filter_action="native",
         ),
+
+        # Estado del "Recalcular curva" (persistente, sobrevive al re-render del
+        # detalle mientras corre la simulación de fondo).
+        dbc.Alert(id="cart-recalc-alert", is_open=False, dismissable=True,
+                  className="mt-3 mb-0"),
 
         # Detalle de la cartera seleccionada (equity/tenencias)
         html.Div(id="cart-detail", className="mt-3"),

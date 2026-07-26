@@ -243,33 +243,51 @@ def _render_port(res):
     Output("bt-port-promote-alert", "is_open"),
     Output("bt-port-promote-alert", "color"),
     Input("bt-port-promote", "n_clicks"),
-    State("bt-port-strategy", "value"),
-    State("bt-port-topn", "value"),
     prevent_initial_call=True,
 )
 @safe_callback(lambda exc: (f"Error: {exc}", True, "danger"))
-def promote_to_seguimiento(_, strategy_id, topn):
-    """Crea una cartera teórica (seguimiento) derivada del top-N de la estrategia
-    con la config actual — el 'promover a seguimiento' del rediseño."""
-    if not strategy_id:
-        return "Elegí una estrategia primero.", True, "warning"
+def promote_to_seguimiento(_):
+    """Crea una cartera teórica (seguimiento) que HEREDA la corrida gated que se
+    está viendo: reglas + rebalanceo + costo, no sólo el top-N. Congela el
+    resultado como un PortfolioRun (snapshot) y lo vincula a la cartera
+    (sim_spec + source_run_id) → /carteras dibuja esa curva y puede recalcularla.
+
+    Fuente de verdad = `_port_state` (la corrida real), no el form: promover es
+    'guardar lo que corriste'. Sin una corrida completa no hay nada que promover.
+    """
+    import json
+
+    if _port_state["running"]:
+        return "Esperá a que termine la simulación.", True, "warning"
+    if not _port_state.get("result"):
+        return ("Corré la simulación primero: se promueve la curva con reglas que "
+                "estás viendo.", True, "warning")
+
     from app.database import get_session
     from app.services import portfolio_service as ps
+    from app.services.portfolio_backtest_service import save_portfolio_run
     from app.services.strategy_service import get_visible_strategies
     from app.services.visibility import current_viewer
 
-    user_id, _is_admin = current_viewer()
+    strategy_id = _port_state.get("strategy_id")
     visible = {st.id: st.name for st in get_visible_strategies(*current_viewer())}
-    if int(strategy_id) not in visible:
+    if strategy_id not in visible:
         return "Estrategia no visible.", True, "warning"
 
-    top_n = max(1, int(_num(topn) or 20))
-    name = f"Seguimiento: {visible[int(strategy_id)]} · top-{top_n}"
-    ps.create_portfolio(get_session(), name, "seg", owner_id=user_id,
-                        composition_method="strategy",
-                        strategy_id=int(strategy_id), top_n=top_n)
-    return (f"Cartera de seguimiento «{name}» creada — vela en /carteras.",
-            True, "success")
+    user_id, _is_admin = current_viewer()
+    config = dict(_port_state["config"])          # {top_n, rebalance, cost_bps, spec}
+    top_n = int(config.get("top_n") or 20)
+    name = f"Seguimiento: {visible[strategy_id]} · top-{top_n} (con reglas)"
+
+    s = get_session()
+    run = save_portfolio_run(s, user_id, strategy_id, name, config,
+                             _port_state["result"])
+    ps.create_portfolio(s, name, "seg", owner_id=user_id,
+                        composition_method="strategy", strategy_id=strategy_id,
+                        top_n=top_n, sim_spec=json.dumps(config),
+                        source_run_id=run.id)
+    return (f"Cartera de seguimiento «{name}» creada con su curva —"
+            " vela en /carteras.", True, "success")
 
 
 # ── Nivel D: guardar corrida + comparar ───────────────────────────────────────

@@ -1,36 +1,56 @@
 ---
 name: project_hallazgo_promover_cartera
-description: "DIFERIDO — \"Promover a seguimiento\" descarta reglas/rebalanceo/costos; la cartera creada sigue el ranking puro, no la curva gated"
-metadata: 
+description: "IMPLEMENTADO (26-jul) — 'Promover a seguimiento' ahora hereda la corrida gated (reglas+rebalanceo+costo) como snapshot; /carteras la dibuja + botón Recalcular"
+metadata:
   node_type: memory
   type: project
   originSessionId: 87013aa9-b8a1-4676-b6de-fce6bdf7294c
-  modified: 2026-07-20T20:03:09.954Z
+  modified: 2026-07-26T17:11:32.134Z
 ---
 
-Hallazgo #2 de la verificación del manual (20-jul-2026), **diferido por el
-usuario** para más adelante.
+Hallazgo #2 de la verificación del manual (20-jul-2026). Estuvo DIFERIDO y se
+**IMPLEMENTÓ el 26-jul-2026** (aprobado por el usuario; elección de alcance:
+"snapshot + botón Recalcular").
 
-**Problema:** en el Backtest nivel Cartera, el botón "Promover a seguimiento"
-crea una cartera teórica que solo hereda `strategy_id` y `top_n`. Las reglas de
-entrada/salida, el rebalanceo y los costos de la simulación NO viajan, así que
-la cartera promovida sigue el *ranking puro* (top-N equal-weight, ver
-`portfolio_service._strategy_topn_members`), no la curva **gated** que el usuario
-estaba mirando cuando apretó el botón. Es un hueco de producto: el botón aparenta
-promover lo que se ve.
+**El problema (original):** "Promover a seguimiento" del Backtest de cartera creaba
+una teórica que sólo heredaba `strategy_id`+`top_n`; el spec (reglas), el rebalanceo
+y el costo NO viajaban. Peor que lo anotado antes: una teórica `strategy` en
+/carteras **ni siquiera dibujaba curva** —mostraba el top-N y un texto "corré esto en
+/backtest"—. (La `curated_equity_series` constant-mix es sólo para las CURADAS.)
 
-**Por qué es grande (no es un fix de una línea):**
-1. El modelo `Portfolio` no tiene dónde guardar el spec de simulación (reglas,
-   rebalanceo, costos) → requiere **migración** (columna nueva, tipo Text/JSON;
-   portable ≥0076).
-2. La valuación de una cartera de seguimiento (`portfolio_service.equity_series`
-   + `_strategy_topn_members`) es un **motor distinto** al de la simulación
-   gated del backtest (`portfolio_backtest_service.run_portfolio_backtest`).
-   Hacer que la cartera siga la curva gated implica cablear el spec en esa
-   valuación — cambio sustancial en `/carteras`.
-3. No se puede verificar en esta PC (sin BD). Necesita el Codespace.
+**La solución (v1):** al promover, `_port_state["result"]` ya tiene la curva gated
+que el usuario ve → se **congela como PortfolioRun** (reusa `save_portfolio_run` /
+`PortfolioRun`/`PortfolioRunPoint`, ya existían) y se vincula a la cartera. Nada
+pesado al promover.
 
-Guardar solo el spec sin que la valuación lo consuma sería un no-op + migración
-inútil: hay que hacer las dos partes juntas.
+- **Migración 0095** (`0095_portfolio_sim_spec.py`): `portfolio.sim_spec` (Text/JSON
+  `{top_n, rebalance, cost_bps, spec}`, autocontenida/re-corrible) + `source_run_id`
+  (Integer **plano, SIN FK de BD**, igual criterio que `strategy_id`: tolera run
+  borrado y renderiza offline sin ADD CONSTRAINT). Portable, `test_bootstrap_portability` verde.
+- **`promote_to_seguimiento`** ([app/callbacks/portfolio_backtest_callbacks.py]):
+  ahora lee de `_port_state` (la corrida real, no los States del form); refuse si
+  no hay `result` o si corre; persiste el run y crea la cartera con sim_spec +
+  source_run_id. Nombre: "Seguimiento: … · top-N (con reglas)".
+- **Servicio** (`portfolio_backtest_service.py`): `strategy_gated_equity_series`
+  (lee la serie gated del snapshot, barato, para /carteras) y
+  `snapshot_strategy_portfolio` (re-corre → nuevo run → repunta source_run_id, NO
+  borra el viejo). `create_portfolio` acepta sim_spec/source_run_id.
+- **/carteras** ([app/callbacks/carteras_callbacks.py] + [app/pages/carteras.py]):
+  una `strategy` CON sim_spec dibuja la curva gated + KPIs + badges de config, con
+  botón **Recalcular curva** (lock `_recalc_lock` + thread + `cart-recalc-interval`
+  de progreso persistente en el layout). Una `strategy` sin sim_spec = comportamiento
+  viejo intacto.
+- Tests: `test_portfolio_backtest_service.py` (curva desde snapshot / None sin
+  snapshot / None si el run se borró / snapshot repunta) y `test_portfolio_service.py`
+  (create_portfolio persiste/omite sim_spec). Suite dirigida verde.
+
+**Fuera de v1 (diferido):** auto-avance por scheduler (el snapshot sólo avanza al
+apretar Recalcular). "Miembros vigentes" sigue siendo top-N por ranking (etiquetado;
+el gate as-of exigiría re-simular = pesado).
+
+**PENDIENTE en Railway = producción:** `alembic upgrade head` (aplicar 0095 —
+confirmar el head real, las sesiones sig-wide en paralelo pueden haber sumado otra
+migración y renumerar) + verificar el flujo vivo (promover → ver curva → Recalcular).
+No verificado contra la app viva; la suite local es la única red.
 
 Relacionado: [[project_manual_usuario]] (de donde salió), [[project_backtest]].

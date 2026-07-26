@@ -4,6 +4,8 @@ Sub-paso A: listar (con visibilidad propia+pública), alta/edición/baja con el
 modal ABM que NO se cierra ante error (solo el guardado exitoso lo cierra). El
 detalle (equity/tenencias/operaciones) se cablea en el sub-paso B.
 """
+import threading
+
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 
@@ -14,6 +16,13 @@ from app.services.visibility import can_edit, current_viewer, publica_str
 _TIPO_LBL = {"seg": "Seguimiento", "real": "Real"}
 _KIND_LBL = {"buy": "Compra", "sell": "Venta", "dividend": "Dividendo",
              "split": "Split"}
+
+# Estado del "Recalcular curva" de una cartera 'strategy' promovida: corre
+# run_portfolio_backtest en un thread (pesado, todo el universo) y repunta el
+# snapshot. Un recálculo a la vez (lock). Sobrevive al re-render del detalle.
+_recalc_state = {"running": False, "current": 0, "total": 0, "phase": "",
+                 "error": None, "pid": None}
+_recalc_lock = threading.Lock()
 
 
 @callback(
@@ -271,6 +280,54 @@ def _table(headers, rows):
         bordered=False, hover=True, size="sm", className="small mb-0")
 
 
+def _spec_summary(spec):
+    """Texto humano de las reglas del simulador guardadas en el spec."""
+    if not spec:
+        return "Sin reglas de entrada/salida."
+    parts = []
+    ent = []
+    for e in spec.get("entries", []):
+        if e.get("type") == "score":
+            ent.append(f"score ≥ {e['th']:g}")
+        elif e.get("type") == "pct":
+            ent.append(f"percentil ≥ {e['th']:g}")
+    if ent:
+        parts.append("Entrada: " + " y ".join(ent))
+    ex = [f"score < {e['x']:g}" for e in spec.get("score_exits", [])
+          if e.get("type") == "absolute"]
+    _CAP = {"max_bars": lambda c: f"máx {c['n']} barras",
+            "stop_loss": lambda c: f"stop loss {c['pct']:g}%",
+            "trailing_stop": lambda c: f"trailing {c['pct']:g}%",
+            "take_profit": lambda c: f"take profit {c['pct']:g}%"}
+    for c in spec.get("caps", []):
+        fn = _CAP.get(c.get("type"))
+        if fn:
+            ex.append(fn(c))
+    if ex:
+        parts.append("Salida: " + ", ".join(ex))
+    if spec.get("cooldown"):
+        parts.append(f"cooldown {spec['cooldown']}")
+    if spec.get("rearm"):
+        parts.append("re-arme")
+    return " · ".join(parts) if parts else "Sin reglas de entrada/salida."
+
+
+def _config_badges(config):
+    """Badges + resumen de la config gated de una cartera promovida."""
+    spec = config.get("spec") or {}
+    badges = html.Div([
+        dbc.Badge(f"Top-{config.get('top_n') or '?'}", color="primary",
+                  className="me-1"),
+        dbc.Badge(f"Rebalanceo cada {config.get('rebalance') or 1}",
+                  color="secondary", className="me-1"),
+        dbc.Badge(f"Costo {config.get('cost_bps') or 0:g} bps",
+                  color="secondary", className="me-1"),
+    ], className="mb-1")
+    return html.Div([badges, html.Small(_spec_summary(spec),
+                                        className="text-muted d-block")],
+                    className="mb-2")
+
+
 @callback(
     Output("cart-detail", "children"),
     Input("cart-selected-id", "data"),
@@ -337,11 +394,52 @@ def render_detail(sel_id, _refresh):
                       "values": [v * 100 for v in es["equity"]]}], x=es["dates"])
                 chart = html.Div([tiles, dcc.Graph(
                     figure=fig, config=pv.graph_config())], className="mt-2")
+        elif p.composition_method == "strategy" and p.sim_spec:
+            from app.services.portfolio_backtest_service import (
+                strategy_gated_equity_series)
+            es = strategy_gated_equity_series(s, sel_id)
+            if es and es["dates"]:
+                k = es["kpis"]
+                tiles = pv.kpi_tiles([
+                    {"label": "Retorno total",
+                     "value": pv.fmt_mult(k.get("total_return"))},
+                    {"label": "CAGR", "value": pv.fmt_pct(k.get("cagr"),
+                                                          signed=True),
+                     "good": (k.get("cagr") or 0) >= 0},
+                    {"label": "Sharpe", "value": pv.fmt_ratio(k.get("sharpe"))},
+                    {"label": "Máx drawdown",
+                     "value": pv.fmt_pct(k.get("max_drawdown")), "good": False},
+                ])
+                fig = pv.equity_figure(
+                    [{"name": "Con reglas (gated)",
+                      "values": [v * 100 for v in es["equity"]]}], x=es["dates"])
+                when = es["run_created_at"]
+                chart = html.Div([
+                    _config_badges(es["config"]),
+                    tiles,
+                    dcc.Graph(figure=fig, config=pv.graph_config()),
+                    html.Small(
+                        ("Curva congelada al "
+                         f"{when:%Y-%m-%d %H:%M}" if when else "Curva congelada")
+                        + " · «Recalcular» la actualiza con los datos de hoy.",
+                        className="text-muted d-block mt-1"),
+                    (dbc.Button("Recalcular curva", id="cart-btn-recalc",
+                                color="secondary", size="sm", className="mt-2")
+                     if editable else html.Div()),
+                ], className="mt-2")
+            else:
+                extra.append(html.Small(
+                    "El snapshot de la curva no está disponible. Volvé a promoverla "
+                    "desde /backtest → Cartera.", className="text-muted d-block"))
         elif p.composition_method == "strategy":
             extra.append(html.Small(
-                f"Top-{p.top_n or 20} por score. Para la curva de equity, corré "
-                "esta estrategia en /backtest → Cartera.",
+                f"Top-{p.top_n or 20} por score (ranking puro). Para una curva con "
+                "reglas, promovéla desde /backtest → Cartera.",
                 className="text-muted d-block"))
+        members_note = (html.Small(
+            "Miembros = top-N por ranking (la selección con reglas se ve en la "
+            "curva).", className="text-muted d-block")
+            if p.composition_method == "strategy" and p.sim_spec else html.Div())
         return html.Div([
             header,
             html.Div([html.Span("Composición: ", className="text-muted"),
@@ -349,6 +447,7 @@ def render_detail(sel_id, _refresh):
             *extra,
             chart,
             html.H6("Miembros vigentes", className="mt-2"),
+            members_note,
             body,
         ])
 
@@ -548,3 +647,90 @@ def save_txn(_n, pid, asset_id, kind, trade_date, qty, price, commission, taxes,
         return err("No se pudo registrar la operación.")
 
     return False, no_update, False, (refresh or 0) + 1
+
+
+# ── Recalcular la curva de una cartera 'strategy' promovida ────────────────────
+
+@callback(
+    Output("cart-recalc-alert", "children"),
+    Output("cart-recalc-alert", "is_open"),
+    Output("cart-recalc-alert", "color"),
+    Output("cart-recalc-interval", "disabled"),
+    Input("cart-btn-recalc", "n_clicks"),
+    State("cart-selected-id", "data"),
+    prevent_initial_call=True,
+)
+def start_recalc(_n, pid):
+    """Re-corre el motor gated con el sim_spec de la cartera (todo el universo, en
+    un thread) y repunta el snapshot. Un recálculo a la vez."""
+    if not pid:
+        return no_update, no_update, no_update, no_update
+    import json
+
+    from app.database import get_session
+    s = get_session()
+    p = svc.get_portfolio(s, pid)
+    if p is None or not p.sim_spec:
+        return ("Esta cartera no tiene reglas para recalcular.", True, "warning",
+                True)
+    user_id, is_admin = current_viewer()
+    if not can_edit(p.owner_id, user_id, is_admin):
+        return ("No tenés permiso para recalcular esta cartera.", True, "warning",
+                True)
+    if not _recalc_lock.acquire(blocking=False):
+        return "Ya hay un recálculo en curso.", True, "warning", no_update
+
+    config = json.loads(p.sim_spec or "{}")
+    strategy_id = p.strategy_id
+    _recalc_state.update({"running": True, "current": 0, "total": 0, "phase": "",
+                          "error": None, "pid": pid})
+
+    def _run():
+        from app.database import Session, get_session
+        from app.services.portfolio_backtest_service import (
+            run_portfolio_backtest, snapshot_strategy_portfolio)
+
+        def _progress(cur, tot, phase):
+            (_recalc_state["current"], _recalc_state["total"],
+             _recalc_state["phase"]) = cur, tot, phase
+
+        try:
+            result = run_portfolio_backtest(
+                strategy_id, config.get("spec") or {},
+                top_n=int(config.get("top_n") or 20),
+                rebalance_every=int(config.get("rebalance") or 1),
+                cost_bps=float(config.get("cost_bps") or 0.0),
+                progress_cb=_progress)
+            snapshot_strategy_portfolio(get_session(), pid, result)
+        except Exception as exc:
+            _recalc_state["error"] = str(exc)
+        finally:
+            _recalc_state["running"] = False
+            _recalc_lock.release()
+            Session.remove()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return "Recalculando la curva…", True, "info", False
+
+
+@callback(
+    Output("cart-recalc-alert", "children", allow_duplicate=True),
+    Output("cart-recalc-alert", "is_open", allow_duplicate=True),
+    Output("cart-recalc-alert", "color", allow_duplicate=True),
+    Output("cart-recalc-interval", "disabled", allow_duplicate=True),
+    Output("cart-detail-refresh", "data", allow_duplicate=True),
+    Input("cart-recalc-interval", "n_intervals"),
+    State("cart-detail-refresh", "data"),
+    prevent_initial_call=True,
+)
+def poll_recalc(_n, refresh):
+    if _recalc_state["running"]:
+        cur, tot = _recalc_state["current"], _recalc_state["total"] or 0
+        label = (f"Recalculando… {_recalc_state['phase']} {cur}/{tot}"
+                 if tot else "Recalculando la curva…")
+        return label, True, "info", False, no_update
+    if _recalc_state["error"]:
+        return (f"Error al recalcular: {_recalc_state['error']}", True, "danger",
+                True, no_update)
+    # Terminó bien: apaga el interval y redibuja el detalle con la curva nueva.
+    return ("Curva recalculada.", True, "success", True, (refresh or 0) + 1)

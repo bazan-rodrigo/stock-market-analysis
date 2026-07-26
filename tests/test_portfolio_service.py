@@ -285,6 +285,31 @@ def test_resolve_membership_no_method_is_empty():
     assert ps.resolve_membership(s, p.id) == []
 
 
+def test_create_portfolio_persists_sim_spec_and_source_run():
+    """Una 'strategy' promovida guarda el spec de simulación + el snapshot."""
+    import json
+
+    from app.models import Portfolio
+    s = _session()
+    cfg = {"top_n": 5, "rebalance": 2, "cost_bps": 10.0, "spec": {"entries": []}}
+    p = ps.create_portfolio(s, "Seg", "seg", owner_id=1,
+                            composition_method="strategy", strategy_id=7,
+                            top_n=5, sim_spec=json.dumps(cfg), source_run_id=42)
+    got = s.get(Portfolio, p.id)
+    assert json.loads(got.sim_spec) == cfg
+    assert got.source_run_id == 42
+
+
+def test_create_portfolio_defaults_sim_spec_none():
+    """Una 'strategy' creada a mano (sin promover) no toca los campos nuevos."""
+    from app.models import Portfolio
+    s = _session()
+    p = ps.create_portfolio(s, "Manual", "seg", owner_id=1,
+                            composition_method="strategy", strategy_id=7, top_n=5)
+    got = s.get(Portfolio, p.id)
+    assert got.sim_spec is None and got.source_run_id is None
+
+
 def test_resolve_membership_curated_mixed_weights():
     """M6: pesos mezclados (algunos None) → los None valen 0.0 y se normaliza por
     la suma de los definidos (regla `w or 0.0`). set_members([10,20],[3.0,None])

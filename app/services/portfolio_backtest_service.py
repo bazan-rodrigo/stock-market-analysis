@@ -215,6 +215,49 @@ def curated_equity_series(session, portfolio_id):
             **pm.summary(res["equity"], dates=dates)}
 
 
+def strategy_gated_equity_series(session, portfolio_id):
+    """Curva gated de una cartera de seguimiento 'strategy' PROMOVIDA, leída de su
+    snapshot (source_run_id → PortfolioRun). Es la curva con reglas que el usuario
+    vio al promover; NO se recalcula acá (barato, para la vista de /carteras).
+
+    Devuelve {'dates', 'equity', 'config', 'kpis', 'run_created_at'} o None si la
+    cartera no tiene snapshot vinculado (o el run ya no existe / no trae gated)."""
+    from app.models import Portfolio
+
+    p = session.get(Portfolio, portfolio_id)
+    if p is None or not p.source_run_id:
+        return None
+    data = get_portfolio_run(session, p.source_run_id)
+    if data is None:
+        return None
+    gated = data["series"].get("gated")
+    if not gated or not gated.get("dates"):
+        return None
+    return {"dates": gated["dates"], "equity": gated["equity"],
+            "config": data["config"], "kpis": data["summary"].get("gated", {}),
+            "run_created_at": data["run"].created_at}
+
+
+def snapshot_strategy_portfolio(session, portfolio_id, result):
+    """Persiste `result` (de run_portfolio_backtest) como PortfolioRun nuevo y lo
+    vincula a la cartera (source_run_id), usando su `sim_spec` como config. Para el
+    botón "Recalcular curva". NO borra el snapshot anterior (queda para comparar en
+    /backtest nivel D). Devuelve el PortfolioRun."""
+    import json
+
+    from app.models import Portfolio
+
+    p = session.get(Portfolio, portfolio_id)
+    if p is None:
+        raise ValueError("La cartera ya no existe.")
+    config = json.loads(p.sim_spec or "{}")
+    run = save_portfolio_run(session, p.owner_id, p.strategy_id, p.name, config,
+                             result)
+    p.source_run_id = run.id
+    session.commit()
+    return run
+
+
 # ── Persistencia de corridas (nivel D — comparar) ─────────────────────────────
 
 _SUBMODES = (("gated", "gated"), ("ranking", "ranking"),

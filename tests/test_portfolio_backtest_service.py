@@ -206,6 +206,79 @@ def test_list_portfolio_runs_visibility():
     assert len(pbs.list_portfolio_runs(s, 1, True)) == 2
 
 
+# ── carteras 'strategy' promovidas: curva gated desde el snapshot ─────────────
+
+_PROMO_CFG = {"top_n": 5, "rebalance": 2, "cost_bps": 10.0,
+              "spec": {"entries": [{"type": "score", "th": 2.0}],
+                       "score_exits": [], "caps": [], "rearm": False,
+                       "cooldown": 0}}
+
+
+def _promote(s, owner_id, strategy_id, dates, gated_eq, cfg=_PROMO_CFG):
+    """Simula el promover: guarda el run y crea la cartera vinculada (como el
+    callback promote_to_seguimiento, pero sin Dash)."""
+    import json
+    result = _mini_result(dates, gated_eq, [1.0] * len(dates), [1.0] * len(dates))
+    run = pbs.save_portfolio_run(s, owner_id, strategy_id, "Seg", cfg, result)
+    p = ps.create_portfolio(s, "Seg", "seg", owner_id=owner_id,
+                            composition_method="strategy",
+                            strategy_id=strategy_id, top_n=cfg["top_n"],
+                            sim_spec=json.dumps(cfg), source_run_id=run.id)
+    return p, run
+
+
+def test_strategy_gated_equity_series_from_snapshot():
+    s = _session()
+    d1, d2 = date(2026, 1, 2), date(2026, 1, 3)
+    p, _run = _promote(s, owner_id=1, strategy_id=7, dates=[d1, d2],
+                       gated_eq=[1.0, 1.2])
+    out = pbs.strategy_gated_equity_series(s, p.id)
+    assert out is not None
+    assert out["dates"] == [d1, d2]
+    assert out["equity"] == [1.0, 1.2]           # la curva GATED, no la ranking
+    assert out["config"]["cost_bps"] == 10.0
+    assert out["kpis"]["cagr"] == 0.5
+    assert out["run_created_at"] is not None
+
+
+def test_strategy_gated_equity_series_none_without_snapshot():
+    s = _session()
+    p = ps.create_portfolio(s, "Sin snapshot", "seg", owner_id=1,
+                            composition_method="strategy", strategy_id=7,
+                            top_n=5)
+    assert pbs.strategy_gated_equity_series(s, p.id) is None
+
+
+def test_strategy_gated_equity_series_none_when_run_deleted():
+    from app.models import PortfolioRun
+    s = _session()
+    p, run = _promote(s, owner_id=1, strategy_id=7, dates=[date(2026, 1, 2)],
+                      gated_eq=[1.0])
+    s.delete(s.get(PortfolioRun, run.id))
+    s.commit()
+    # source_run_id quedó apuntando a un run inexistente → cae a None con gracia
+    assert pbs.strategy_gated_equity_series(s, p.id) is None
+
+
+def test_snapshot_strategy_portfolio_repoints_run():
+    from app.models import Portfolio
+    s = _session()
+    p, old_run = _promote(s, owner_id=3, strategy_id=9, dates=[date(2026, 1, 2)],
+                          gated_eq=[1.0])
+    d1, d2 = date(2026, 1, 2), date(2026, 1, 3)
+    result = _mini_result([d1, d2], [1.0, 1.3], [1.0, 1.2], [1.0, 1.1])
+    new_run = pbs.snapshot_strategy_portfolio(s, p.id, result)
+
+    assert new_run.id != old_run.id                       # run NUEVO
+    assert s.get(Portfolio, p.id).source_run_id == new_run.id   # repuntó
+    assert new_run.owner_id == 3 and new_run.strategy_id == 9
+    got = pbs.get_portfolio_run(s, new_run.id)
+    assert got["config"] == _PROMO_CFG                    # usó el sim_spec
+    assert got["series"]["gated"]["equity"] == [1.0, 1.3]
+    # NO borra el snapshot viejo (queda para comparar en nivel D)
+    assert pbs.get_portfolio_run(s, old_run.id) is not None
+
+
 # ── walk-forward (helpers puros) ──────────────────────────────────────────────
 
 def test_window_splits_anchored_expanding():

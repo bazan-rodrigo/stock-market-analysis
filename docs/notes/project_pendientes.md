@@ -8,6 +8,23 @@ metadata:
   modified: 2026-07-25T01:59:30.444Z
 ---
 
+**Sesión 26-jul-2026: "Promover cartera" ahora HEREDA la config gated** (ver
+[[project_hallazgo_promover_cartera]] — deja de ser DIFERIDO). Antes el botón
+promovía sólo strategy_id+top_n y la teórica derivada ni dibujaba curva; ahora el
+promover congela la corrida gated que se está viendo (reglas+rebalanceo+costo) como
+un `PortfolioRun` y la vincula a la cartera (`sim_spec` + `source_run_id`).
+/carteras dibuja esa curva y hay botón **Recalcular curva** (re-corre el motor
+pesado en thread y repunta el snapshot). Migración **0095** (add_column `sim_spec`
+Text + `source_run_id` Integer plano, portable; `source_run_id` SIN FK de BD como
+`strategy_id`). Fuera de v1: auto-avance por scheduler; "Miembros vigentes" sigue
+siendo top-N por ranking (etiquetado). **PENDIENTE en Railway = producción:**
+`alembic upgrade head` (aplica 0095; confirmar el head real por las sesiones
+sig-wide en paralelo — puede haber otra migración nueva y renumerar) y verificar el
+flujo vivo: promover desde /backtest → Cartera, ver la curva en /carteras, y
+Recalcular. La suite local es la única red hasta entonces.
+
+---
+
 **Sesión 24-jul-2026: REMOVIDAS las señales de grupo y el Alcance de grupo en
 estrategias** (ver [[remover-senales-grupo-y-alcance]]). Paso 1 (UI gate, commit
 19ac3c7) pusheado; paso 2 (remoción de raíz + migración 0090) commiteado.

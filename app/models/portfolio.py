@@ -45,6 +45,14 @@ class Portfolio(Base):
     composition_method  = Column(String(10))
     strategy_id         = Column(Integer)
     top_n               = Column(Integer)
+    # sim_spec / source_run_id: sólo las 'strategy' promovidas desde el Backtest
+    # de cartera. sim_spec (JSON {top_n, rebalance, cost_bps, spec}) hace la
+    # cartera autocontenida y re-corrible; source_run_id apunta al PortfolioRun
+    # cuyo snapshot gated se dibuja. Integer plano (sin FK de BD, como
+    # strategy_id): el servicio tolera que el run ya no exista. Una 'strategy'
+    # creada a mano por la UI deja ambos en NULL y se comporta como antes.
+    sim_spec            = Column(Text)
+    source_run_id       = Column(Integer)
     created_at          = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
