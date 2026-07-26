@@ -139,6 +139,59 @@ def test_reconcile_wide_columns_agrega_y_dropea():
         sess.close()
 
 
+def test_migracion_0093_pivotea_sin_perder_datos():
+    """El pivot de la 0093 (merge-en-Python) copia sig_{id}/strat_res_{id} a las
+    anchas, con NULL donde una señal no cubre un activo (dispersión)."""
+    import importlib.util
+    import pathlib
+
+    spec = importlib.util.spec_from_file_location(
+        "mig0093",
+        pathlib.Path("alembic/versions/0093_populate_sig_strat_wide.py"))
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+
+    eng = sa.create_engine("sqlite://")
+    with eng.begin() as conn:
+        signal_store.ensure_wide_signal_tables(bind=conn)
+        for i in (5, 6):
+            conn.execute(sa.text(
+                f"CREATE TABLE sig_{i} (asset_id INT, date DATE, score FLOAT, "
+                "PRIMARY KEY (date, asset_id))"))
+        conn.execute(sa.text(
+            "CREATE TABLE strat_res_7 (asset_id INT, date DATE, score FLOAT, "
+            "pct FLOAT, PRIMARY KEY (date, asset_id))"))
+        conn.execute(sa.text(
+            "INSERT INTO sig_5 VALUES (1,'2026-01-05',10),(2,'2026-01-05',11)"))
+        conn.execute(sa.text("INSERT INTO sig_6 VALUES (1,'2026-01-05',20)"))
+        conn.execute(sa.text(
+            "INSERT INTO strat_res_7 VALUES (1,'2026-01-05',3.5,90)"))
+
+        sig_tables, strat_tables = mig._dynamic_tables(conn)
+        assert sig_tables == {5: "sig_5", 6: "sig_6"}
+        assert strat_tables == {7: "strat_res_7"}
+
+        mig._add_columns(conn, "signal_values_wide", ["sig_5", "sig_6"])
+        mig._pivot(conn, "?", "signal_values_wide",
+                   [("sig_5", [("score", "sig_5")]),
+                    ("sig_6", [("score", "sig_6")])])
+        mig._add_columns(conn, "strategy_results_wide",
+                         ["strat_7_score", "strat_7_pct"])
+        mig._pivot(conn, "?", "strategy_results_wide",
+                   [("strat_res_7", [("score", "strat_7_score"),
+                                     ("pct", "strat_7_pct")])])
+
+        sig_rows = conn.execute(sa.text(
+            "SELECT asset_id, sig_5, sig_6 FROM signal_values_wide "
+            "ORDER BY asset_id")).fetchall()
+        # activo 2 no tenía sig_6 → NULL (dispersión preservada)
+        assert sig_rows == [(1, 10.0, 20.0), (2, 11.0, None)]
+        srow = conn.execute(sa.text(
+            "SELECT asset_id, strat_7_score, strat_7_pct "
+            "FROM strategy_results_wide")).fetchone()
+        assert tuple(srow) == (1, 3.5, 90.0)
+
+
 def test_columnas_de_dos_entidades_conviven():
     # Varias señales/estrategias comparten la misma tabla ancha: cada una suma
     # su(s) columna(s), sin pisarse.
