@@ -778,6 +778,14 @@ def import_strategies_excel(file_bytes: bytes,
         errors = sdata.setdefault("errors", [])
         existing = existing_by_name.get(name)
         sdata["owner_id"] = existing.owner_id if existing else owner_id
+        # Una estrategia sin componentes no puntúa nada (el pipeline la saltea):
+        # rechazarla en vez de crearla vacía en silencio. El caso típico es la
+        # planilla sin la hoja "Componentes" (o con strategy_name que no matchea).
+        if not sdata["components"]:
+            errors.append(
+                "estrategia sin componentes: agregá la hoja 'Componentes' "
+                "(columnas strategy_name, signal_key, weight) con al menos una "
+                "señal para esta estrategia")
         for comp in sdata["components"]:
             if not comp["signal_key"]:
                 errors.append("componente sin signal_key")

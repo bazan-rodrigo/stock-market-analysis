@@ -139,3 +139,20 @@ def test_import_estrategia_de_activo_sigue_funcionando(db):
     strat = get_session().query(Strategy).one()
     assert strat.name == "E1"
     assert len(strat.components) == 1 and strat.components[0].weight == 2
+
+
+def test_import_estrategia_sin_componentes_se_rechaza(db):
+    """Una estrategia sin componentes (planilla sin hoja 'Componentes', o con
+    strategy_name que no matchea) no puntúa nada → el import la rechaza en vez
+    de crearla vacía en silencio (antes importaba OK sin avisar)."""
+    from app.services import strategy_service
+    from app.models import Strategy
+
+    data = _xlsx([   # solo hoja Estrategias, sin Componentes
+        ("Estrategias", [["name", "description", "filter_conditions", "publica"],
+                         ["E1", "", "", "no"]]),
+    ])
+    res = strategy_service.import_strategies_excel(data)
+    assert res[0]["status"] == "error"
+    assert "sin componentes" in res[0]["detail"].lower()
+    assert get_session().query(Strategy).count() == 0
