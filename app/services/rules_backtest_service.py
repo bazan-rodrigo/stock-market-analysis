@@ -79,7 +79,7 @@ def run_rules_backtest(strategy_id, spec, *, progress_cb=None):
     from app.services.trade_simulator import simulate_trades, summarize_trades
 
     s = get_session()
-    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rt = signal_store.read_strat_table(s, strategy_id)
     asset_ids = sorted(r[0] for r in s.execute(
         sa.select(rt.c.asset_id).where(rt.c.score.isnot(None)).distinct()).all())
     if not asset_ids:

@@ -23,8 +23,9 @@ def get_asset_signal_history(
     s = get_session()
     result: dict[int, list] = {sid: [] for sid in signal_ids}
     for sig_id in signal_ids:
-        t = signal_store.ensure_sig_table(sig_id, bind=s.connection())
-        q = sa.select(t.c.date, t.c.score).where(t.c.asset_id == asset_id)
+        t = signal_store.read_sig_table(s, sig_id)
+        q = (sa.select(t.c.date, t.c.score)
+             .where(t.c.asset_id == asset_id, t.c.score.isnot(None)))
         if date_from:
             q = q.where(t.c.date >= date_from)
         if date_to:

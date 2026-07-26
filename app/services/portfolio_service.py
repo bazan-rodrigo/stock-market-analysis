@@ -397,8 +397,7 @@ def _strategy_topn_members(session, strategy_id, top_n, as_of=None):
 
     from app.models import signal_store
     try:
-        rt = signal_store.ensure_strat_table(strategy_id,
-                                             bind=session.connection())
+        rt = signal_store.read_strat_table(session, strategy_id)
     except Exception:
         return []
     q = sa.select(sa.func.max(rt.c.date)).where(rt.c.score.isnot(None))

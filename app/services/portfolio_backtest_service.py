@@ -147,7 +147,7 @@ def run_portfolio_backtest(strategy_id, spec, *, top_n, rebalance_every=1,
     from app.services.trade_simulator import simulate_trades
 
     s = get_session()
-    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rt = signal_store.read_strat_table(s, strategy_id)
     asset_ids = sorted(r[0] for r in s.execute(
         sa.select(rt.c.asset_id).where(rt.c.score.isnot(None)).distinct()).all())
     if not asset_ids:
@@ -405,7 +405,7 @@ def _load_raw(session, rt, asset_ids, progress_cb=None):
             prices[aid].append((d, float(c)))
         srows = session.execute(
             sa.select(rt.c.asset_id, rt.c.date, rt.c.score, rt.c.pct)
-            .where(rt.c.asset_id.in_(batch))).all()
+            .where(rt.c.asset_id.in_(batch), rt.c.score.isnot(None))).all()
         scmap = defaultdict(dict)
         for aid, d, x, p in srows:
             scmap[aid][d] = (float(x) if x is not None else None,
@@ -433,7 +433,7 @@ def _load_universe(session, strategy_id):
     import sqlalchemy as sa
 
     from app.models import signal_store
-    rt = signal_store.ensure_strat_table(strategy_id, bind=session.connection())
+    rt = signal_store.read_strat_table(session, strategy_id)
     asset_ids = sorted(r[0] for r in session.execute(
         sa.select(rt.c.asset_id).where(rt.c.score.isnot(None)).distinct()).all())
     return _load_raw(session, rt, asset_ids)

@@ -172,6 +172,15 @@ def ensure_builtin_data() -> None:
             logger.info("Tablas de señal/estrategia reconciliadas: "
                         "%d huérfanas dropeadas, %d faltantes creadas",
                         len(rec["dropped"]), len(rec["created"]))
+        # Modo ancho: además asegurar una columna por señal/estrategia viva y
+        # dropear las de ids que ya no existen (análogo por columna). Gateado
+        # por el flag: con flag OFF las anchas están vacías y no se tocan.
+        if signal_store.use_wide_signal_tables():
+            wrec = signal_store.reconcile_wide_columns(s)
+            if wrec["added"] or wrec["dropped"]:
+                logger.info("Columnas anchas reconciliadas: %d agregadas, "
+                            "%d dropeadas", len(wrec["added"]),
+                            len(wrec["dropped"]))
     except Exception as exc:
         # p.ej. base sin migrar todavía (alembic upgrade pendiente)
         logger.warning("No se pudo reconciliar tablas dinámicas: %s", exc)

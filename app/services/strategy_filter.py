@@ -168,12 +168,18 @@ def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
                 logger.warning("strategy_filter: señal '%s' no encontrada", key)
                 values[(t, key, resolution)] = {}
                 continue
-            st = signal_store.ensure_sig_table(sig_id,
-                                               bind=session.connection())
-            rows = session.execute(
-                sa.select(st.c.asset_id, st.c.score)
-                .where(st.c.date == target_date)).all()
-            values[(t, key, resolution)] = {aid: score for aid, score in rows}
+            if signal_store.use_wide_signal_tables():
+                values[(t, key, resolution)] = {
+                    aid: score for _dt, aid, _sid, score in
+                    signal_store.load_wide_signal_scores(
+                        session, [sig_id], target_date, target_date)}
+            else:
+                st = signal_store.ensure_sig_table(sig_id,
+                                                   bind=session.connection())
+                rows = session.execute(
+                    sa.select(st.c.asset_id, st.c.score)
+                    .where(st.c.date == target_date)).all()
+                values[(t, key, resolution)] = {aid: score for aid, score in rows}
 
     return values
 

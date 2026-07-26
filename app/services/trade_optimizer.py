@@ -242,10 +242,10 @@ def load_series(asset_id: int, strategy_id: int):
     prows = (db.query(Price.date, Price.close)
              .filter(Price.asset_id == asset_id, Price.close.isnot(None))
              .order_by(Price.date).all())
-    rt = signal_store.ensure_strat_table(strategy_id, bind=db.connection())
+    rt = signal_store.read_strat_table(db, strategy_id)
     srows = db.execute(
         sa.select(rt.c.date, rt.c.score, rt.c.pct)
-        .where(rt.c.asset_id == asset_id)).all()
+        .where(rt.c.asset_id == asset_id, rt.c.score.isnot(None))).all()
     sc_by_date = {d: (float(s) if s is not None else None,
                       float(p) if p is not None else None)
                   for d, s, p in srows}

@@ -122,14 +122,20 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
 
     signal_ids = list({c.signal_id for c in components})
 
-    # Cargar los scores de señal relevantes del día (una tabla por señal)
+    # Cargar los scores de señal relevantes del día
     signal_scores: dict[tuple, float] = {}
-    for sig_id in signal_ids:
-        t = signal_store.ensure_sig_table(sig_id, bind=s.connection())
-        for aid, score in s.execute(
-                sa.select(t.c.asset_id, t.c.score)
-                .where(t.c.date == target_date)):
-            signal_scores[(sig_id, aid)] = score
+    if signal_store.use_wide_signal_tables():
+        signal_store.ensure_wide_signal_tables(bind=s.connection())
+        for _dt, aid, sid, score in signal_store.load_wide_signal_scores(
+                s, signal_ids, target_date, target_date):
+            signal_scores[(sid, aid)] = score
+    else:
+        for sig_id in signal_ids:  # una tabla por señal
+            t = signal_store.ensure_sig_table(sig_id, bind=s.connection())
+            for aid, score in s.execute(
+                    sa.select(t.c.asset_id, t.c.score)
+                    .where(t.c.date == target_date)):
+                signal_scores[(sig_id, aid)] = score
 
     # Solo cargar grupos de activos que aparecen en los datos de señales del día
     # (los atributos alimentan el filtro de elegibilidad; el score sale de
@@ -162,6 +168,30 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
         components=components, asset_groups=asset_groups,
         signal_scores=signal_scores,
         filter_tree=filter_tree, operand_values=operand_values)
+
+    if signal_store.use_wide_signal_tables():
+        # Camino ancho: dos columnas (score, pct) de esta estrategia en
+        # strategy_results_wide. NULL de la fecha + UPSERT deja la fila
+        # consistente (borra filas obsoletas) sin tocar otras estrategias.
+        conn = s.connection()
+        signal_store.ensure_wide_signal_tables(bind=conn)
+        signal_store.ensure_strat_columns(strategy_id, bind=conn)
+        d_str = str(target_date)
+        cols = signal_store.strat_columns([strategy_id])
+        pcts = percent_ranks([score for _, score in scored])
+        signal_store.wide_null_columns(
+            s, signal_store.STRAT_WIDE_TABLE, cols, [d_str])
+        signal_store.wide_upsert(
+            s, signal_store.STRAT_WIDE_TABLE, cols,
+            signal_store.strat_wide_rows(
+                {strategy_id: [(aid, d_str, score, pct)
+                               for (aid, score), pct in zip(scored, pcts)]},
+                [strategy_id]))
+        s.commit()
+        logger.info("strategy_service: %d resultados escritos (ancho) para "
+                    "strategy_id=%d en %s", len(scored), strategy_id,
+                    target_date)
+        return len(scored)
 
     # Upsert del día en la tabla propia strat_res_{id}
     rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
@@ -382,9 +412,9 @@ def save_strategy(
     except Exception:
         s.rollback()
         raise
-    # DESPUÉS del commit (ver signal_store: definición sin tabla es el lado
-    # benigno ante crash; el id inmutable es el nombre de la tabla)
-    signal_store.ensure_strat_table(strat.id)
+    # DESPUÉS del commit (ver signal_store: definición sin tabla/columna es el
+    # lado benigno ante crash; el id inmutable es el nombre del almacenamiento)
+    signal_store.ensure_strategy_storage(strat.id)
     return strat
 
 
@@ -408,14 +438,14 @@ def delete_strategy(strategy_id: int, *, acting_user_id: int | None = None,
     except Exception:
         s.rollback()
         raise
-    # DROP después del commit: un crash deja tabla huérfana inofensiva
-    # (reconcile_dynamic_tables la barre), nunca definición sin tabla
-    signal_store.drop_strat_table(strategy_id)
+    # DROP después del commit: un crash deja tabla/columna huérfana inofensiva
+    # (reconcile la barre), nunca definición sin dato
+    signal_store.drop_strategy_storage(strategy_id)
 
 
 def get_strategy_results(strategy_id: int, target_date) -> list[dict]:
     s = get_session()
-    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rt = signal_store.read_strat_table(s, strategy_id)
     rows = s.execute(
         sa.select(rt.c.asset_id, Asset.ticker, Asset.name, rt.c.score)
         .join_from(rt, Asset, Asset.id == rt.c.asset_id)
@@ -462,7 +492,7 @@ def get_strategy_results_with_breakdown(
     }
 
     # Resultado base
-    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rt = signal_store.read_strat_table(s, strategy_id)
     q = (
         sa.select(rt.c.asset_id, rt.c.score, Asset.ticker, Asset.name,
                   Asset.sector_id, Asset.market_id)
@@ -483,7 +513,7 @@ def get_strategy_results_with_breakdown(
 
     sv_map: dict[tuple, float] = {}
     for sig_id in set(sig_ids):
-        t = signal_store.ensure_sig_table(sig_id, bind=s.connection())
+        t = signal_store.read_sig_table(s, sig_id)
         for aid, score in s.execute(
                 sa.select(t.c.asset_id, t.c.score)
                 .where(t.c.date == target_date,
@@ -545,7 +575,7 @@ def get_filter_options(strategy_id: int, target_date) -> dict:
     from app.models import Sector, Market
     s = get_session()
 
-    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rt = signal_store.read_strat_table(s, strategy_id)
     asset_ids = [
         aid for (aid,) in s.execute(
             sa.select(rt.c.asset_id).where(rt.c.date == target_date))
@@ -578,7 +608,7 @@ def get_filter_options(strategy_id: int, target_date) -> dict:
 def get_available_dates(strategy_id: int) -> list:
     """Devuelve las fechas con resultados para una estrategia, ordenadas desc."""
     s = get_session()
-    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rt = signal_store.read_strat_table(s, strategy_id)
     dates = s.execute(
         sa.select(rt.c.date).distinct().order_by(rt.c.date.desc())
     ).all()
@@ -595,7 +625,7 @@ def get_strategy_score_history(
     {asset_id: [(date, score), ...]} ordenado por fecha asc.
     """
     s = get_session()
-    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rt = signal_store.read_strat_table(s, strategy_id)
     q = sa.select(rt.c.asset_id, rt.c.date, rt.c.score).where(
         rt.c.asset_id.in_(asset_ids))
     if date_from:
@@ -828,7 +858,7 @@ def import_strategies_excel(file_bytes: bytes,
             for n in names
         ]
 
-    # Tablas strat_res_{id} después del commit (mismo orden que save_strategy)
+    # Almacenamiento después del commit (mismo orden que save_strategy)
     for r in results:
-        signal_store.ensure_strat_table(r.pop("_strat_id"))
+        signal_store.ensure_strategy_storage(r.pop("_strat_id"))
     return results

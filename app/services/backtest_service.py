@@ -94,7 +94,7 @@ def _execute(s, run_id, strategy_id, cfg, progress_cb):
     horizons = cfg["horizons"]
 
     # ── Scores de la estrategia ───────────────────────────────────────────
-    rt = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    rt = signal_store.read_strat_table(s, strategy_id)
     q = (sa.select(rt.c.date, rt.c.asset_id, rt.c.score)
          .where(rt.c.score.isnot(None)))
     if cfg["date_from"]:

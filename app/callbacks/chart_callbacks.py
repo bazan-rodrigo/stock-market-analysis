@@ -343,11 +343,10 @@ def load_strategy_overlay(enabled, strategy_id, asset_id):
     # pipeline — migración 0071) salen de la misma query indexada. pct puede
     # ser NULL en historia previa a la migración: el modo percentil del
     # simulador simplemente no ve esas fechas hasta un "Recalcular completo".
-    rt = signal_store.ensure_strat_table(int(strategy_id),
-                                         bind=db.connection())
+    rt = signal_store.read_strat_table(db, int(strategy_id))
     rows = db.execute(
         sa.select(rt.c.date, rt.c.score, rt.c.pct)
-        .where(rt.c.asset_id == int(asset_id))
+        .where(rt.c.asset_id == int(asset_id), rt.c.score.isnot(None))
         .order_by(rt.c.date)).all()
 
     return {

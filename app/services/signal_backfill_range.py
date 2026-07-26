@@ -294,13 +294,30 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
     signal_ids_all  = [sig.id for sig in prep["signals"]]
     strat_ids       = [c["id"] for c in strat_ctx]
 
-    # Tablas dinámicas del alcance: asegurarlas ANTES de arrancar el
+    # Ruteo a tablas anchas (design_sig_wide_tables.md). Con el flag OFF todo el
+    # camino de escritura/lectura es idéntico al per-entidad de hoy.
+    wide = signal_store.use_wide_signal_tables()
+    # Rebuild TOTAL (todo el alcance: todas las señales y estrategias) → se puede
+    # TRUNCAR la ancha e insertar plano (sin conflicto → sin bloat). Alcance
+    # PARCIAL (una estrategia/señal) o delta → NULL de columnas + UPSERT.
+    wide_full_rebuild = wide and force and whole_history and scope_kind is None
+    _sig_cols   = signal_store.sig_columns(signal_ids_all)
+    _strat_cols = signal_store.strat_columns(strat_ids)
+
+    # Estructuras dinámicas del alcance: asegurarlas ANTES de arrancar el
     # escritor asíncrono (el thread escritor nunca hace DDL) y antes de las
     # lecturas de strategy_only. checkfirst: solo inspección si ya existen.
-    for sig_id in signal_ids_all:
-        signal_store.ensure_sig_table(sig_id, bind=s.connection())
-    for st_id in strat_ids:
-        signal_store.ensure_strat_table(st_id, bind=s.connection())
+    if wide:
+        signal_store.ensure_wide_signal_tables(bind=s.connection())
+        for sig_id in signal_ids_all:
+            signal_store.ensure_sig_column(sig_id, bind=s.connection())
+        for st_id in strat_ids:
+            signal_store.ensure_strat_columns(st_id, bind=s.connection())
+    else:
+        for sig_id in signal_ids_all:
+            signal_store.ensure_sig_table(sig_id, bind=s.connection())
+        for st_id in strat_ids:
+            signal_store.ensure_strat_table(st_id, bind=s.connection())
     s.commit()
 
     total = len(dates)
@@ -343,6 +360,27 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             SignalEvalLog.ref_id == eval_ref,
             SignalEvalLog.date >= dates[0],
             SignalEvalLog.date <= dates[-1]))
+        if wide:
+            # Rebuild TOTAL: truncar (después INSERT plano, sin bloat). Parcial/
+            # horizonte: NULL de las columnas del alcance por ventanas (deja
+            # intactas las de otras señales/estrategias); el UPSERT las repuebla.
+            if wide_full_rebuild:
+                _wipe_table(ws, signal_store.SIG_WIDE_TABLE)
+                _wipe_table(ws, signal_store.STRAT_WIDE_TABLE)
+            else:
+                cols_windows = (
+                    [(str(dates[0]), str(dates[-1]))] if whole_history
+                    else windows)
+                if not strategy_only:
+                    signal_store.wide_null_columns_ranges(
+                        ws, signal_store.SIG_WIDE_TABLE, _sig_cols, cols_windows)
+                signal_store.wide_null_columns_ranges(
+                    ws, signal_store.STRAT_WIDE_TABLE, _strat_cols, cols_windows)
+            ws.commit()
+            logger.info("signal_backfill_range: limpieza inicial de rebuild "
+                        "ANCHO completada (%s)",
+                        "truncate" if wide_full_rebuild else "null por columnas")
+            return
         if not strategy_only:
             for sig_id in signal_ids_all:
                 name = signal_store.sig_table_name(sig_id)
@@ -376,6 +414,30 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
             f"INSERT INTO {table_name} ({cols}) VALUES ({ph})", rows)
 
     def _flush_once(ws, batch_dates, sv_by_sig, sr_by_strat, marker_rows):
+        if wide:
+            # Delta (no force): limpiar las columnas del alcance de las fechas del
+            # batch (equivalente al DELETE de fila per-entidad). En rebuild la
+            # limpieza ya la hizo _initial_cleanup (truncate o null por rango).
+            if not force:
+                if not strategy_only:
+                    signal_store.wide_null_columns(
+                        ws, signal_store.SIG_WIDE_TABLE, _sig_cols, batch_dates)
+                signal_store.wide_null_columns(
+                    ws, signal_store.STRAT_WIDE_TABLE, _strat_cols, batch_dates)
+            # Rebuild total → INSERT plano (post-truncate, sin bloat); resto →
+            # UPSERT por (fecha,activo).
+            _write = (signal_store.wide_insert if wide_full_rebuild
+                      else signal_store.wide_upsert)
+            if not strategy_only:
+                _write(ws, signal_store.SIG_WIDE_TABLE, _sig_cols,
+                       signal_store.sig_wide_rows(sv_by_sig, signal_ids_all))
+            _write(ws, signal_store.STRAT_WIDE_TABLE, _strat_cols,
+                   signal_store.strat_wide_rows(sr_by_strat, strat_ids))
+            _bulk_insert(ws, "signal_eval_log",
+                         ("scope_kind", "ref_id", "date"), marker_rows)
+            ws.commit()
+            return
+
         if not force:
             dates_in = ", ".join(f"'{d}'" for d in batch_dates)
             for sig_id in signal_ids_all:
@@ -560,10 +622,19 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     ("closes", None, (_load_price_closes,
                                       (chunk[0], window_end))))
             if strategy_only:
-                read_tasks.extend(
-                    ("sig", sig_id, (_load_stored_scores,
-                                     (sig_id, chunk[0], chunk[-1])))
-                    for sig_id in signal_ids_all)
+                if wide:
+                    # Un scan de la ancha trae todas las señales del alcance (una
+                    # columna por señal) en vez de N tablas — as-of fiel por
+                    # columna (IS NOT NULL) dentro de load_wide_signal_scores.
+                    read_tasks.append(
+                        ("sigwide", None,
+                         (signal_store.load_wide_signal_scores,
+                          (signal_ids_all, chunk[0], chunk[-1]))))
+                else:
+                    read_tasks.extend(
+                        ("sig", sig_id, (_load_stored_scores,
+                                         (sig_id, chunk[0], chunk[-1])))
+                        for sig_id in signal_ids_all)
 
             fetched = _run_reads([t[2] for t in read_tasks])
 
@@ -577,7 +648,12 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
                     for dt, aid, close in rows:
                         if close is not None:
                             closes_by_date.setdefault(dt, {})[aid] = float(close)
-                else:  # sig
+                elif kind == "sigwide":
+                    for dt, aid, sid, sc in rows:
+                        if sc is not None:
+                            stored_sv_by_date.setdefault(
+                                dt, {})[(sid, aid)] = float(sc)
+                else:  # sig (per-entidad)
                     for dt, aid, sc in rows:
                         if sc is not None:
                             stored_sv_by_date.setdefault(

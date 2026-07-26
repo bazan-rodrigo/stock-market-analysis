@@ -318,3 +318,299 @@ def ensure_strat_columns(strategy_id: int, bind=None) -> None:
 def drop_strat_columns(strategy_id: int, bind=None) -> None:
     _alter_drop(bind, STRAT_WIDE_TABLE, [
         strat_score_column(strategy_id), strat_pct_column(strategy_id)])
+
+
+def sig_columns(signal_ids) -> list[str]:
+    return [sig_column_name(sid) for sid in signal_ids]
+
+
+def strat_columns(strategy_ids) -> list[str]:
+    """Columnas de valor de las estrategias, en orden score,pct por estrategia."""
+    cols: list[str] = []
+    for sid in strategy_ids:
+        cols.append(strat_score_column(sid))
+        cols.append(strat_pct_column(sid))
+    return cols
+
+
+# ── Escritura/lectura de las anchas (cutover, fases 2-4) ───────────────────────
+# El cómputo NO cambia (los evaluadores son los mismos): solo cambia el blanco de
+# persistencia. La semántica per-columna espeja la per-entidad:
+#   - DELETE de fila (per-entidad) → NULL de columna (ancha): limpia un score que
+#     dejó de puntuar sin tocar las columnas de otras señales/estrategias.
+#   - INSERT/UPSERT per-tabla → UPSERT/INSERT de la fila ancha (una fila por
+#     (activo,fecha), todas las columnas del alcance).
+# Un rebuild TOTAL (todo el alcance) trunca la tabla y hace INSERT plano (sin
+# conflicto → sin bloat, Opción B de indicadores); un alcance PARCIAL (una
+# estrategia, una señal) o el delta hacen NULL de columnas + UPSERT (paga bloat
+# de tuplas muertas que recupera autovacuum — ver design_sig_wide_tables.md).
+
+def _q(bind, name: str) -> str:
+    from app.services.db_compat import quote_ident
+    return quote_ident(bind, name)
+
+
+def wide_null_columns(session, table: str, columns, dates) -> None:
+    """UPDATE table SET col=NULL,... WHERE date IN (dates). Equivalente por
+    columna al DELETE de fila del camino per-entidad en el delta."""
+    columns = list(columns)
+    if not columns or not dates:
+        return
+    sets = ", ".join(f"{_q(session, c)} = NULL" for c in columns)
+    dates_in = ", ".join(f"'{d}'" for d in dates)
+    session.execute(sa.text(
+        f"UPDATE {_q(session, table)} SET {sets} WHERE date IN ({dates_in})"))
+
+
+def wide_null_columns_ranges(session, table: str, columns, windows) -> None:
+    """NULL de columnas por VENTANAS de fechas que avanzan (force con horizonte,
+    convención delete_by_ranges). windows: [(d0, d1), ...] como strings."""
+    columns = list(columns)
+    if not columns or not windows:
+        return
+    sets = ", ".join(f"{_q(session, c)} = NULL" for c in columns)
+    qtbl = _q(session, table)
+    for d0, d1 in windows:
+        session.execute(sa.text(
+            f"UPDATE {qtbl} SET {sets} "
+            f"WHERE date >= '{d0}' AND date <= '{d1}'"))
+
+
+def wide_upsert(session, table: str, value_columns, rows) -> None:
+    """UPSERT (asset_id, date, *value_columns) por executemany (exec_driver_sql):
+    ON CONFLICT (date, asset_id) update de las value_columns. rows: tuplas
+    posicionales (asset_id, date, *values)."""
+    value_columns = list(value_columns)
+    if not rows or not value_columns:
+        return
+    from app.services.db_compat import upsert_sql
+    cols = ("asset_id", "date", *value_columns)
+    stmt = upsert_sql(session, table, cols, tuple(value_columns),
+                      ("date", "asset_id"), quote_table=True)
+    session.connection().exec_driver_sql(stmt, rows)
+
+
+def wide_insert(session, table: str, value_columns, rows) -> None:
+    """INSERT plano (post-TRUNCATE: sin conflicto → sin tuplas muertas) por
+    executemany. Para el rebuild total, donde cada (activo,fecha) se inserta una
+    sola vez (los batches particionan las fechas)."""
+    value_columns = list(value_columns)
+    if not rows or not value_columns:
+        return
+    from app.services.db_compat import placeholder
+    cols = ("asset_id", "date", *value_columns)
+    colsql = ", ".join(_q(session, c) for c in cols)
+    ph = ", ".join([placeholder(session)] * len(cols))
+    session.connection().exec_driver_sql(
+        f"INSERT INTO {_q(session, table)} ({colsql}) VALUES ({ph})", rows)
+
+
+def sig_wide_rows(sv_by_sig: dict, signal_ids) -> list[tuple]:
+    """Pivota {sig_id: [(aid, d_str, score), ...]} a filas anchas
+    [(aid, d_str, score_a, score_b, ...)] en el orden de signal_ids — None donde
+    una señal no puntuó ese (activo,fecha)."""
+    by_key: dict = {}
+    for sid, rows in sv_by_sig.items():
+        for aid, d_str, score in rows:
+            by_key.setdefault((aid, d_str), {})[sid] = score
+    signal_ids = list(signal_ids)
+    return [(aid, d_str, *(scores.get(sid) for sid in signal_ids))
+            for (aid, d_str), scores in by_key.items()]
+
+
+def strat_wide_rows(sr_by_strat: dict, strategy_ids) -> list[tuple]:
+    """Pivota {strat_id: [(aid, d_str, score, pct), ...]} a filas anchas con
+    (score, pct) por estrategia en el orden de strategy_ids."""
+    by_key: dict = {}
+    for sid, rows in sr_by_strat.items():
+        for aid, d_str, score, pct in rows:
+            by_key.setdefault((aid, d_str), {})[sid] = (score, pct)
+    strategy_ids = list(strategy_ids)
+    out: list[tuple] = []
+    for (aid, d_str), vals in by_key.items():
+        flat: list = []
+        for sid in strategy_ids:
+            sp = vals.get(sid)
+            flat.extend(sp if sp is not None else (None, None))
+        out.append((aid, d_str, *flat))
+    return out
+
+
+def load_wide_signal_scores(session, signal_ids, d0, d1) -> list[tuple]:
+    """Filas (date, asset_id, sig_id, score) de signal_values_wide para las
+    señales dadas en [d0, d1], solo columnas no-NULL (as-of fiel por columna).
+    Reemplaza los N reads per-tabla de strategy_only por UN scan de la ancha."""
+    signal_ids = list(signal_ids)
+    if not signal_ids:
+        return []
+    cols = [sig_column_name(sid) for sid in signal_ids]
+    colsql = ", ".join(_q(session, c) for c in cols)
+    not_null = " OR ".join(f"{_q(session, c)} IS NOT NULL" for c in cols)
+    rows = session.execute(sa.text(
+        f"SELECT date, asset_id, {colsql} FROM {_q(session, SIG_WIDE_TABLE)} "
+        f"WHERE date >= :d0 AND date <= :d1 AND ({not_null})"),
+        # str: las fechas se guardan/comparan como strings ISO (mismo criterio
+        # que el _bulk_insert per-entidad); un objeto date no matchea la columna
+        # string en sqlite, y PG/MySQL coercionan el string a DATE igual.
+        {"d0": str(d0), "d1": str(d1)}).fetchall()
+    out: list[tuple] = []
+    for r in rows:
+        dt, aid = _as_date(r[0]), r[1]
+        for sid, val in zip(signal_ids, r[2:]):
+            if val is not None:
+                out.append((dt, aid, sid, val))
+    return out
+
+
+def _as_date(v):
+    """Normaliza la fecha a objeto date. El SQL crudo devuelve string en sqlite
+    y objeto date en PostgreSQL; el consumidor (stored_sv_by_date del modo rango)
+    la usa como key contra objetos date, así que hay que unificar — el select
+    TIPADO del camino per-entidad ya coercionaba a date en todos los motores."""
+    import datetime as _dt
+    if isinstance(v, _dt.datetime):
+        return v.date()
+    if isinstance(v, _dt.date):
+        return v
+    return _dt.datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
+
+
+# ── Vistas de LECTURA sobre las anchas (drop-in de la tabla per-entidad) ───────
+# Espejo del _CodeView de indicadores: un objeto liviano que expone `.c.score`/
+# `.c.date`/`.c.asset_id` (y `.c.pct` para estrategias) mapeados a las columnas
+# de la ancha, para que los lectores existentes (sa.select(t.c.date, t.c.score)
+# .where(t.c.asset_id == ...)) compilen contra la ancha SIN cambiar su forma.
+# Se arma con sa.table()/sa.column() TIPADOS (sin autoload): sin query al
+# catálogo, sin caché que se desactualice cuando ALTER agrega/quita columnas, y
+# con coerción de tipos (fecha, float) igual que el select per-entidad.
+#
+# OJO (lección de indicadores, "diferencias falsas"): en la ancha la fila de un
+# (activo,fecha) EXISTE aunque ESTA señal no puntúe (la escribió otra) con la
+# columna en NULL — los lectores DEBEN filtrar `.where(t.c.score.isnot(None))`.
+# Es no-op en las tablas per-entidad (score nunca es NULL), así que se agrega
+# incondicionalmente en cada lector.
+
+def _sig_view(sig_id: int):
+    """Subquery `SELECT asset_id, date, <sig_col> AS score FROM signal_values_wide
+    WHERE <sig_col> IS NOT NULL`, nombrada como la tabla. El filtro NULL va
+    HORNEADO (la fila existe aunque esta señal no puntúe — la escribió otra), así
+    los lectores existentes (sa.select(rt.c.date, rt.c.score).where(...)) no
+    tienen que agregarlo. sa.table()/sa.column() TIPADOS: sin autoload (la ancha
+    tiene columnas dinámicas), con coerción de fecha/float igual que el select
+    per-entidad. Es un drop-in de la tabla sig_{id}: soporta .c, .name, join_from."""
+    col = sig_column_name(sig_id)
+    t = sa.table(SIG_WIDE_TABLE,
+                 sa.column("asset_id", Integer),
+                 sa.column("date", Date),
+                 sa.column(col, Float))
+    return (sa.select(t.c.asset_id, t.c.date, t.c[col].label("score"))
+            .where(t.c[col].isnot(None))
+            .subquery(SIG_WIDE_TABLE))
+
+
+def _strat_view(strategy_id: int):
+    """Ídem para una estrategia: expone score y pct (filtra por score no-NULL)."""
+    sc, pc = strat_score_column(strategy_id), strat_pct_column(strategy_id)
+    t = sa.table(STRAT_WIDE_TABLE,
+                 sa.column("asset_id", Integer),
+                 sa.column("date", Date),
+                 sa.column(sc, Float),
+                 sa.column(pc, Float))
+    return (sa.select(t.c.asset_id, t.c.date,
+                      t.c[sc].label("score"), t.c[pc].label("pct"))
+            .where(t.c[sc].isnot(None))
+            .subquery(STRAT_WIDE_TABLE))
+
+
+def read_sig_table(session, sig_id: int):
+    """Objeto para LEER una señal: subquery sobre signal_values_wide (flag ON, con
+    el filtro NULL horneado) o la tabla per-entidad sig_{id} (flag OFF). Ambos
+    soportan sa.select(rt.c.date, rt.c.score), .where, join_from, .name."""
+    if use_wide_signal_tables():
+        return _sig_view(sig_id)
+    return ensure_sig_table(sig_id, bind=session.connection())
+
+
+def read_strat_table(session, strategy_id: int):
+    """Ídem para una estrategia (score+pct)."""
+    if use_wide_signal_tables():
+        return _strat_view(strategy_id)
+    return ensure_strat_table(strategy_id, bind=session.connection())
+
+
+# ── Ciclo de vida (alta/baja) — despacha per-entidad o ancha según el flag ─────
+def ensure_signal_storage(sig_id: int, bind=None) -> None:
+    """Alta de una señal: crea sig_{id} (flag OFF) o asegura la columna ancha
+    (flag ON). Idempotente."""
+    if use_wide_signal_tables():
+        ensure_wide_signal_tables(bind=bind)
+        ensure_sig_column(sig_id, bind=bind)
+    else:
+        ensure_sig_table(sig_id, bind=bind)
+
+
+def drop_signal_storage(sig_id: int, bind=None) -> None:
+    """Baja de una señal: dropea sig_{id} (checkfirst, no-op si ya no existe tras
+    el cutover) y, en modo ancho, su columna."""
+    drop_sig_table(sig_id, bind=bind)
+    if use_wide_signal_tables():
+        drop_sig_column(sig_id, bind=bind)
+
+
+def ensure_strategy_storage(strategy_id: int, bind=None) -> None:
+    if use_wide_signal_tables():
+        ensure_wide_signal_tables(bind=bind)
+        ensure_strat_columns(strategy_id, bind=bind)
+    else:
+        ensure_strat_table(strategy_id, bind=bind)
+
+
+def drop_strategy_storage(strategy_id: int, bind=None) -> None:
+    drop_strat_table(strategy_id, bind=bind)
+    if use_wide_signal_tables():
+        drop_strat_columns(strategy_id, bind=bind)
+
+
+_STRAT_COL_RE = re.compile(r"^strat_(\d+)_(?:score|pct)$")
+
+
+def reconcile_wide_columns(session) -> dict:
+    """Red de seguridad de las columnas anchas (análogo de
+    reconcile_dynamic_tables): asegura una columna por señal viva y dos por
+    estrategia viva, y dropea las columnas de ids que ya no existen. Corre en el
+    arranque en modo ancho. Devuelve {"added": [...], "dropped": [...]}."""
+    from app.services.db_compat import quote_ident
+    conn = session.connection()
+    ensure_wide_signal_tables(bind=conn)
+
+    qsig = quote_ident(session, "signal")
+    sig_ids   = {i for (i,) in session.execute(sa.text(f"SELECT id FROM {qsig}"))}
+    strat_ids = {i for (i,) in session.execute(sa.text("SELECT id FROM strategy"))}
+
+    sig_cols   = _wide_columns(conn, SIG_WIDE_TABLE)
+    strat_cols = _wide_columns(conn, STRAT_WIDE_TABLE)
+    added, dropped = [], []
+
+    for sid in sorted(sig_ids):
+        if sig_column_name(sid) not in sig_cols:
+            ensure_sig_column(sid, bind=conn)
+            added.append(sig_column_name(sid))
+    for sid in sorted(strat_ids):
+        if strat_score_column(sid) not in strat_cols:
+            ensure_strat_columns(sid, bind=conn)
+            added.append(strat_score_column(sid))
+
+    for col in sig_cols:
+        m = _SIG_RE.match(col)
+        if m and int(m.group(1)) not in sig_ids:
+            _alter_drop(conn, SIG_WIDE_TABLE, [col])
+            dropped.append(col)
+    dead_strat = {int(m.group(1)) for col in strat_cols
+                  if (m := _STRAT_COL_RE.match(col))
+                  and int(m.group(1)) not in strat_ids}
+    for sid in sorted(dead_strat):
+        drop_strat_columns(sid, bind=conn)
+        dropped.append(strat_score_column(sid))
+
+    session.commit()
+    return {"added": added, "dropped": dropped}

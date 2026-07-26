@@ -81,6 +81,64 @@ def test_ensure_strat_columns_add_idempotente_y_drop():
         "strategy_results_wide")} == {"asset_id", "date"}
 
 
+def test_read_views_filtran_nulls():
+    """Las vistas de lectura (subquery) excluyen las filas donde ESTA señal/
+    estrategia no puntúa (columna NULL porque la escribió otra) — la corrección
+    clave del modelo ancho (lección 'diferencias falsas' de indicadores)."""
+    eng = sa.create_engine("sqlite://")
+    signal_store.ensure_wide_signal_tables(bind=eng)
+    signal_store.ensure_sig_column(5, bind=eng)
+    signal_store.ensure_sig_column(6, bind=eng)
+    signal_store.ensure_strat_columns(7, bind=eng)
+    with eng.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO signal_values_wide (asset_id, date, sig_5, sig_6) "
+            "VALUES (1, '2026-01-05', 10, NULL), (2, '2026-01-05', NULL, 20)"))
+        conn.execute(sa.text(
+            "INSERT INTO strategy_results_wide "
+            "(asset_id, date, strat_7_score, strat_7_pct) "
+            "VALUES (1, '2026-01-05', 3.5, 90), (2, '2026-01-05', NULL, NULL)"))
+
+    v5 = signal_store._sig_view(5)
+    v7 = signal_store._strat_view(7)
+    with eng.connect() as conn:
+        r5 = conn.execute(sa.select(v5.c.asset_id, v5.c.score)
+                          .order_by(v5.c.asset_id)).fetchall()
+        r7 = conn.execute(sa.select(v7.c.asset_id, v7.c.score, v7.c.pct)).fetchall()
+    assert r5 == [(1, 10.0)]          # activo 2: sig_5 NULL → excluido
+    assert r7 == [(1, 3.5, 90.0)]     # activo 2: strat_7 NULL → excluido
+    assert v5.name == "signal_values_wide"   # drop-in: .name como la tabla
+
+
+def test_reconcile_wide_columns_agrega_y_dropea():
+    """reconcile asegura una columna por señal/estrategia viva y dropea las de
+    ids que ya no existen (red de seguridad de arranque)."""
+    from sqlalchemy.orm import Session
+    eng = sa.create_engine("sqlite://")
+    with eng.begin() as conn:
+        conn.execute(sa.text('CREATE TABLE "signal" (id INTEGER PRIMARY KEY)'))
+        conn.execute(sa.text("CREATE TABLE strategy (id INTEGER PRIMARY KEY)"))
+        conn.execute(sa.text('INSERT INTO "signal" (id) VALUES (5), (6)'))
+        conn.execute(sa.text("INSERT INTO strategy (id) VALUES (7)"))
+    sess = Session(eng)
+    try:
+        signal_store.reconcile_wide_columns(sess)
+        assert {"sig_5", "sig_6"} <= signal_store._wide_columns(
+            eng, signal_store.SIG_WIDE_TABLE)
+        assert {"strat_7_score", "strat_7_pct"} <= signal_store._wide_columns(
+            eng, signal_store.STRAT_WIDE_TABLE)
+
+        # baja de la señal 5 → reconcile dropea su columna, deja la 6
+        with eng.begin() as conn:
+            conn.execute(sa.text('DELETE FROM "signal" WHERE id = 5'))
+        signal_store.reconcile_wide_columns(sess)
+        cols = signal_store._wide_columns(eng, signal_store.SIG_WIDE_TABLE)
+        assert "sig_5" not in cols
+        assert "sig_6" in cols
+    finally:
+        sess.close()
+
+
 def test_columnas_de_dos_entidades_conviven():
     # Varias señales/estrategias comparten la misma tabla ancha: cada una suma
     # su(s) columna(s), sin pisarse.

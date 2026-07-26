@@ -106,10 +106,10 @@ def signal_asset(signal_id: int, asset_id: int):
     from app.models import signal_store
 
     s = get_session()
-    t = signal_store.ensure_sig_table(signal_id, bind=s.connection())
+    t = signal_store.read_sig_table(s, signal_id)
     rows = s.execute(
         sa.select(t.c.date, t.c.score)
-        .where(t.c.asset_id == asset_id)
+        .where(t.c.asset_id == asset_id, t.c.score.isnot(None))
         .order_by(t.c.date).limit(MAX_ROWS)).all()
     return t.name, ["date", "score"], \
         [{"date": str(d), "score": sc} for d, sc in rows]
@@ -120,10 +120,10 @@ def strategy_result(strategy_id: int, asset_id: int):
     from app.models import signal_store
 
     s = get_session()
-    t = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
+    t = signal_store.read_strat_table(s, strategy_id)
     rows = s.execute(
         sa.select(t.c.date, t.c.score)
-        .where(t.c.asset_id == asset_id)
+        .where(t.c.asset_id == asset_id, t.c.score.isnot(None))
         .order_by(t.c.date).limit(MAX_ROWS)).all()
     return t.name, ["date", "score"], \
         [{"date": str(d), "score": sc} for d, sc in rows]

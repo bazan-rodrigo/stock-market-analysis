@@ -171,6 +171,33 @@ def compute_signal_values(target_date: date_type,
         signals=signals, asset_signals=asset_signals,
         params_by_id=params_by_id, isnaps=isnaps)
 
+    written = len(scores)
+
+    if signal_store.use_wide_signal_tables():
+        # Camino ancho: una fila por (activo,fecha) en signal_values_wide, una
+        # columna por señal. El diario computa TODO el alcance para la fecha →
+        # NULL de las columnas del alcance + UPSERT deja la fila consistente
+        # (score donde puntúa, NULL donde no) sin tocar otras señales.
+        conn = s.connection()
+        signal_store.ensure_wide_signal_tables(bind=conn)
+        signal_ids = [sig.id for sig in signals]
+        for sid in signal_ids:
+            signal_store.ensure_sig_column(sid, bind=conn)
+        cols = signal_store.sig_columns(signal_ids)
+        d_str = str(target_date)
+        sv_by_sig: dict[int, list] = {}
+        for (sig_id, asset_id), score in scores.items():
+            sv_by_sig.setdefault(sig_id, []).append((asset_id, d_str, score))
+        signal_store.wide_null_columns(
+            s, signal_store.SIG_WIDE_TABLE, cols, [d_str])
+        signal_store.wide_upsert(
+            s, signal_store.SIG_WIDE_TABLE, cols,
+            signal_store.sig_wide_rows(sv_by_sig, signal_ids))
+        s.commit()
+        logger.info("signal_service: %d signal_value escritos para %s",
+                    written, target_date)
+        return written
+
     # Cada señal escribe en su propia tabla sig_{id} (upsert de la fecha)
     by_sig: dict[int, dict[int, float]] = {}
     for (sig_id, asset_id), score in scores.items():
@@ -376,10 +403,10 @@ def save_signal(
     except Exception:
         s.rollback()
         raise
-    # DESPUÉS del commit (orden ante crash: definición sin tabla es el lado
-    # benigno — cualquier ensure_* posterior la repara). El id es el nombre
-    # de la tabla, inmutable: renombrar la key no toca el almacenamiento.
-    signal_store.ensure_sig_table(sig.id)
+    # DESPUÉS del commit (orden ante crash: definición sin tabla/columna es el
+    # lado benigno — cualquier ensure_* posterior la repara). El id es inmutable:
+    # renombrar la key no toca el almacenamiento (tabla per-entidad o columna ancha).
+    signal_store.ensure_signal_storage(sig.id)
     return sig
 
 
@@ -413,11 +440,11 @@ def delete_signal(signal_id: int, *, acting_user_id: int | None = None,
     except Exception:
         s.rollback()
         raise
-    # DROP después del commit: si crashea en el medio queda una tabla
-    # huérfana inofensiva (la barre reconcile_dynamic_tables), nunca una
-    # definición sin tabla. DROP es instantáneo — antes el CASCADE de
-    # signal_value borraba millones de filas reteniendo locks.
-    signal_store.drop_sig_table(sig_id)
+    # DROP después del commit: si crashea en el medio queda una tabla/columna
+    # huérfana inofensiva (la barre reconcile), nunca una definición sin dato.
+    # DROP es instantáneo — antes el CASCADE de signal_value borraba millones
+    # de filas reteniendo locks.
+    signal_store.drop_signal_storage(sig_id)
 
 
 # ── Export / Import Excel ──────────────────────────────────────────────────────
@@ -589,10 +616,10 @@ def import_signals_excel(file_bytes: bytes,
             for p in parsed
         ]
 
-    # Tablas sig_{id} después del commit (mismo orden ante crash que
-    # save_signal); ensure es idempotente para las ya existentes
+    # Almacenamiento después del commit (mismo orden ante crash que
+    # save_signal); ensure es idempotente para los ya existentes
     for r in results:
-        signal_store.ensure_sig_table(r.pop("_sig_id"))
+        signal_store.ensure_signal_storage(r.pop("_sig_id"))
     return results
 
 
@@ -710,8 +737,8 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
 
     if scope_kind == "strategy":
         eval_kind, eval_ref = "strategy", strategy_id
-        t = signal_store.ensure_strat_table(strategy_id, bind=s.connection())
-        computed = set() if force else _distinct_dates(t)
+        computed = set() if force else _distinct_dates(
+            signal_store.read_strat_table(s, strategy_id))
     elif scope_kind == "signal":
         # La señal pedida (no sus dependencias) define el "ya calculado"
         target_sig = s.query(SignalDefinition).filter(
@@ -722,8 +749,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             computed = set()
         else:
             computed = _distinct_dates(
-                signal_store.ensure_sig_table(target_sig.id,
-                                              bind=s.connection()))
+                signal_store.read_sig_table(s, target_sig.id))
     else:
         eval_kind, eval_ref = "all", 0
         computed = set()
@@ -732,7 +758,7 @@ def _signal_history_run(progress_cb=None, days: int | None = None,
             # una query barata por tabla)
             for (sid,) in s.query(SignalDefinition.id):
                 computed |= _distinct_dates(
-                    signal_store.ensure_sig_table(sid, bind=s.connection()))
+                    signal_store.read_sig_table(s, sid))
 
     # Fechas ya evaluadas que produjeron 0 filas (nadie pasó el filtro, señal
     # sin datos ese día): sin este registro parecen huecos y el delta las
