@@ -2,10 +2,10 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
-from app.components.ui_constants import STATUS_STYLE
+from app.components.ui_constants import BG_CODE, BG_INPUT, STATUS_STYLE, TEXT_BODY
 
 
 def layout(**kwargs):
@@ -85,7 +85,7 @@ def layout(**kwargs):
             dbc.Textarea(
                 id="str-formula-preview", readOnly=True, rows=6,
                 style={"fontSize": "0.78rem", "fontFamily": "monospace",
-                       "resize": "vertical", "backgroundColor": "#1e1e1e",
+                       "resize": "vertical", "backgroundColor": BG_CODE,
                        "color": "#dcdcdc", "whiteSpace": "pre"},
             ),
 
@@ -109,7 +109,7 @@ def layout(**kwargs):
         dcc.Download(id="str-download"),
 
         dbc.Row([
-            dbc.Col(html.H4(["Estrategias ", help_link("configuracion-estrategias")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Estrategias", "configuracion-estrategias", className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nueva", id="str-btn-add", color="primary", size="sm"),
                     className="d-flex align-items-center"),
         ] + ([
@@ -137,7 +137,7 @@ def layout(**kwargs):
             dcc.DatePickerSingle(id="str-calc-date",
                                  display_format="YYYY-MM-DD",
                                  style={"fontSize": "0.82rem", "marginLeft": "8px",
-                                        "width": "150px", "backgroundColor": "#2c2c2c",
+                                        "width": "150px", "backgroundColor": BG_INPUT,
                                         "border": "1px solid #555", "borderRadius": "4px"}),
             dbc.Button("Calcular historia", id="str-btn-history",
                        color="outline-warning", size="sm", disabled=True,
@@ -155,7 +155,7 @@ def layout(**kwargs):
 
         dcc.Loading(
             html.Div(id="str-status", style=STATUS_STYLE),
-            type="circle", color="#dee2e6",
+            type="circle", color=TEXT_BODY,
         ),
 
         dbc.Alert(id="str-alert", is_open=False, dismissable=True, className="mb-3"),

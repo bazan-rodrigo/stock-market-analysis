@@ -29,6 +29,7 @@ import json
 
 from dash import ALL, Input, Output, State, callback, ctx, dcc, html, no_update
 import dash_bootstrap_components as dbc
+from app.components.ui_constants import COLOR_NEGATIVE, TEXT_FAINT, TEXT_MUTED
 
 _FS = {"fontSize": "0.80rem"}
 
@@ -173,7 +174,7 @@ def build_pb_opts() -> dict:
 def _del_btn(type_, uid):
     return dbc.Button("×", id={"type": type_, "index": uid},
                       color="link", size="sm",
-                      style={"color": "#ef5350", "padding": "0 6px",
+                      style={"color": COLOR_NEGATIVE, "padding": "0 6px",
                              "lineHeight": 1, "fontSize": "1rem"})
 
 
@@ -493,7 +494,7 @@ def cache_pb_opts(is_open):
 
 def _preview_base_figure(title: str | None = None):
     import plotly.graph_objects as go
-    from app.components.ui_constants import PLOTLY_AXIS, PLOTLY_DARK
+    from app.components.ui_constants import COLOR_NEGATIVE, PLOTLY_AXIS, PLOTLY_DARK
 
     fig = go.Figure()
     fig.update_layout(
@@ -512,7 +513,7 @@ def _preview_note(text: str):
     fig.update_xaxes(visible=False)
     fig.update_yaxes(visible=False)
     fig.add_annotation(text=text, showarrow=False,
-                       font=dict(size=11, color="#9ca3af"),
+                       font=dict(size=11, color=TEXT_MUTED),
                        xref="paper", yref="paper", x=0.5, y=0.5)
     return fig
 
@@ -585,7 +586,7 @@ def preview_figure(ftype: str, store: dict):
                         line=dict(color=COLOR_POSITIVE, width=2),
                         hovertemplate="score %{y:.0f}<extra></extra>")
         for l in limits:
-            fig.add_vline(x=l, line=dict(color="#4b5563", width=1, dash="dot"))
+            fig.add_vline(x=l, line=dict(color=TEXT_FAINT, width=1, dash="dot"))
         _score_axis(fig)
         fig.update_xaxes(title_text="valor del indicador", title_font=dict(size=10))
         return fig

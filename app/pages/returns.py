@@ -2,9 +2,10 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
+from app.components.ui_constants import BG_CARD, BG_DEEP, BG_INPUT, BORDER_CARD, TEXT_BODY
 
-_BG = "#111827"
+_BG = BG_DEEP
 
 # Los textos dicen días CORRIDOS porque es lo que resta el cálculo
 # (returns_service._range). Decían "5 días hábiles" / "~21 días hábiles":
@@ -66,13 +67,13 @@ def layout(**kwargs):
     mode_opts = [{"label": lbl, "value": val} for val, lbl in _MODES]
     dim_opts  = [{"label": lbl, "value": val} for val, lbl in _DIMS]
 
-    _card = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRadius": "8px"}
-    _sel  = {"backgroundColor": "#2c2c2c", "color": "#dee2e6", "borderColor": "#555",
+    _card = {"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}", "borderRadius": "8px"}
+    _sel  = {"backgroundColor": BG_INPUT, "color": TEXT_BODY, "borderColor": "#555",
               "fontSize": "0.82rem"}
 
     return html.Div([
         dbc.Row([
-            dbc.Col(html.H4(["Comparador de Retornos ", help_link("comparador-de-retornos")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Comparador de Retornos", "comparador-de-retornos", className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small("Comparación de retorno porcentual para un lapso de tiempo.",
                            className="text-muted", style={"fontSize": "0.75rem"}),
@@ -202,7 +203,7 @@ def layout(**kwargs):
                 style={"height": "420px", "display": "none"},
             ),
             type="circle",
-            color="#dee2e6",
+            color=TEXT_BODY,
         ),
 
     ], style={"padding": "0 8px"})

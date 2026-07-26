@@ -3,15 +3,18 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from app.components.help import help_link
+from app.components.ui_constants import (
+    BG_CARD, BG_CODE, BORDER_CARD, COLOR_INFO, COLOR_POSITIVE, TEXT_BODY, TEXT_MUTED
+)
 
-_SMA_COLORS  = ["#ff9800", "#e91e63", "#4caf50"]
+_SMA_COLORS  = ["#ff9800", "#e91e63", COLOR_POSITIVE]
 _EMA_COLORS  = ["#00bcd4", "#9c27b0", "#ffeb3b"]
 _SMA_DEF     = [20, 50, 200]
 _EMA_DEF     = [9,  21,  50]
 
 _TIP_STYLE = {"fontSize": "0.75rem", "maxWidth": "300px",
-              "backgroundColor": "#1f2937", "color": "#dee2e6",
-              "border": "1px solid #374151"}
+              "backgroundColor": BG_CARD, "color": TEXT_BODY,
+              "border": f"1px solid {BORDER_CARD}"}
 
 
 def _tip(target, text):
@@ -94,13 +97,13 @@ def _strategy_help():
         return html.Tr([
             html.Td(name, style={"fontWeight": "bold", "whiteSpace": "nowrap",
                                  "padding": "2px 10px 2px 0",
-                                 "verticalAlign": "top", "color": "#38bdf8"}),
+                                 "verticalAlign": "top", "color": COLOR_INFO}),
             html.Td(desc, style={"padding": "2px 0"}),
         ])
 
     def title(text):
         return html.Div(text, className="fw-semibold mt-2 mb-1",
-                        style={"color": "#dee2e6"})
+                        style={"color": TEXT_BODY})
 
     return html.Div([
         html.Div(["Tres grupos de condiciones, todas combinables con el "
@@ -196,7 +199,7 @@ def _sim_group(title, children, key=None, tip=None):
     return html.Div(
         items,
         className="d-flex align-items-center gap-1 flex-wrap",
-        style={"borderLeft": "1px solid #374151", "paddingLeft": "8px"},
+        style={"borderLeft": f"1px solid {BORDER_CARD}", "paddingLeft": "8px"},
     )
 
 
@@ -342,7 +345,7 @@ def layout(**kwargs):
                 html.Div(id="chart-load-output", style={"display": "none"}),
                 html.Div(
                     id="lwc-container",
-                    style={"backgroundColor": "#1e1e1e", "padding": "8px", "borderRadius": "4px"},
+                    style={"backgroundColor": BG_CODE, "padding": "8px", "borderRadius": "4px"},
                 ),
                 # P&F clásico (Plotly): visible solo con chart-type = pnf_classic
                 dcc.Graph(
@@ -352,7 +355,7 @@ def layout(**kwargs):
                 ),
             ],
             type="circle",
-            color="#dee2e6",
+            color=TEXT_BODY,
         ),
     ])
 
@@ -361,7 +364,7 @@ def layout(**kwargs):
         dbc.Alert(id="fund-alert", is_open=False, dismissable=True, className="mb-2"),
         dcc.Loading(
             html.Div(id="fund-content"),
-            type="circle", color="#dee2e6",
+            type="circle", color=TEXT_BODY,
         ),
     ])
 
@@ -372,7 +375,7 @@ def layout(**kwargs):
             html.Div(style={"height": "12px"}),
             dcc.Loading(
                 html.Div(id="indicators-panel-content"),
-                type="circle", color="#dee2e6",
+                type="circle", color=TEXT_BODY,
             ),
         ],
     )
@@ -395,7 +398,7 @@ def layout(**kwargs):
                 ),
                 dbc.Col(
                     [
-                        html.Small("Ancho de bin", style={"color": "#9ca3af", "whiteSpace": "nowrap"}),
+                        html.Small("Ancho de bin", style={"color": TEXT_MUTED, "whiteSpace": "nowrap"}),
                         dbc.Input(
                             id="dist-bin-size",
                             type="number", value=5, min=0, max=1000, step=1,
@@ -413,7 +416,7 @@ def layout(**kwargs):
                     config={"displayModeBar": False},
                     style={"height": "450px"},
                 ),
-                type="circle", color="#dee2e6",
+                type="circle", color=TEXT_BODY,
             ),
         ],
     )
@@ -597,14 +600,14 @@ def layout(**kwargs):
                                           "lineHeight": "1.4"}),
                         dbc.Popover(
                             dbc.PopoverBody(_strategy_help(), style={
-                                "fontSize": "0.75rem", "color": "#dee2e6",
-                                "backgroundColor": "#1f2937",
+                                "fontSize": "0.75rem", "color": TEXT_BODY,
+                                "backgroundColor": BG_CARD,
                             }),
                             target="chart-strategy-help-btn", trigger="legacy",
                             placement="bottom",
                             style={"maxWidth": "480px",
-                                   "backgroundColor": "#1f2937",
-                                   "border": "1px solid #374151"},
+                                   "backgroundColor": BG_CARD,
+                                   "border": f"1px solid {BORDER_CARD}"},
                         ),
                     # Sin "d-flex" (ver _simple_slot): el display lo maneja
                     # toggle_strategy_params (flex/none inline).
@@ -649,7 +652,7 @@ def layout(**kwargs):
                 dbc.Button("Ejecutar", id="chart-opt-run", color="primary",
                            size="sm", className="mb-2"),
                 dcc.Loading(html.Div(id="chart-opt-results"),
-                            type="circle", color="#dee2e6"),
+                            type="circle", color=TEXT_BODY),
             ]),
             dbc.ModalFooter(dbc.Button("Cerrar", id="chart-opt-close",
                                        color="secondary", size="sm")),

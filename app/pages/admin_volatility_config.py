@@ -2,7 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 _HELP_ALGO = (
     "Calcula el ATR y lo clasifica por percentiles históricos propios de cada activo y temporalidad. "
@@ -30,7 +30,7 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     return html.Div([
-        html.H4(["Volatilidad ATR — Configuración ", help_link("volatilidad-atr")], className="mb-2"),
+        page_header("Volatilidad ATR — Configuración", "volatilidad-atr"),
         dbc.Alert(_HELP_ALGO, color="info", className="mb-3 small py-2"),
 
         dbc.Card(dbc.CardBody([

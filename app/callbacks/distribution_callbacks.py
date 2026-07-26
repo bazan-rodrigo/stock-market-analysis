@@ -8,8 +8,9 @@ import dash_bootstrap_components as dbc
 from app.database import get_session
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import get_ind_table
+from app.components.ui_constants import BG_CARD, BG_DEEP, BORDER_CARD, COLOR_INFO, TEXT_BODY
 
-_BG = "#111827"
+_BG = BG_DEEP
 
 
 def _bin_distribution(series: pd.Series, bin_size: float):
@@ -122,7 +123,7 @@ def load_distribution_chart(asset_id, active_tab, indicator_code, bin_size):
     current_label, distribution = _bin_distribution(series, bin_size)
 
     x_title = defn.name + (f"  ({defn.scale})" if defn.scale else "")
-    colors  = ["#38bdf8" if lbl == current_label else "#374151"
+    colors  = [COLOR_INFO if lbl == current_label else BORDER_CARD
                 for lbl in distribution.index]
     texts   = [f"Actual: {current_raw:.4g}" if lbl == current_label else ""
                 for lbl in distribution.index]
@@ -133,20 +134,20 @@ def load_distribution_chart(asset_id, active_tab, indicator_code, bin_size):
         marker_color=colors,
         text=texts,
         textposition="outside",
-        textfont=dict(size=11, color="#38bdf8"),
+        textfont=dict(size=11, color=COLOR_INFO),
         cliponaxis=False,
     ))
     fig.update_layout(
         plot_bgcolor=_BG, paper_bgcolor=_BG,
-        font=dict(color="#dee2e6", size=11),
+        font=dict(color=TEXT_BODY, size=11),
         margin=dict(l=50, r=20, t=20, b=110),
         xaxis=dict(
             title=dict(text=x_title, font=dict(size=11)),
             tickangle=-45,
-            gridcolor="#1f2937",
+            gridcolor=BG_CARD,
             tickfont=dict(size=10),
         ),
-        yaxis=dict(title="% del historial", ticksuffix="%", gridcolor="#1f2937"),
+        yaxis=dict(title="% del historial", ticksuffix="%", gridcolor=BG_CARD),
         showlegend=False,
         bargap=0.15,
     )
@@ -155,7 +156,7 @@ def load_distribution_chart(asset_id, active_tab, indicator_code, bin_size):
 
     stats = html.Div([
         html.Span("Valor actual: ",        className="text-muted"),
-        html.Span(f"{current_raw:.4g}  ",  style={"fontWeight": "700", "color": "#38bdf8"}),
+        html.Span(f"{current_raw:.4g}  ",  style={"fontWeight": "700", "color": COLOR_INFO}),
         html.Span("Percentil histórico: ", className="text-muted"),
         html.Span(f"{percentile:.0f}°  ",  style={"fontWeight": "700"}),
         html.Span(f"sobre {len(series)} observaciones", className="text-muted",

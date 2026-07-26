@@ -2,10 +2,12 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
-from app.components.ui_constants import CARD_STYLE, STATUS_STYLE
+from app.components.ui_constants import (
+    BG_INPUT, CARD_STYLE, COLOR_INFO, STATUS_STYLE, TEXT_BODY
+)
 
 _FORMULA_OPTS = [
     {"label": "Mapa discreto (discrete_map)", "value": "discrete_map"},
@@ -145,7 +147,7 @@ def layout(**kwargs):
                 html.Strong("Señales: ", style={"color": "#e5e7eb"}),
                 "fórmulas que transforman indicadores técnicos (de indicator_values) en scores "
                 "normalizados de −100 a +100. Usá ",
-                html.Strong('"Ejecutar pipeline"', style={"color": "#38bdf8"}),
+                html.Strong('"Ejecutar pipeline"', style={"color": COLOR_INFO}),
                 " para calcular señales → estrategias para la fecha seleccionada. "
                 "Requiere que los indicadores estén actualizados.",
             ], className="mb-0", style={"fontSize": "0.78rem", "color": "#d1d5db"}),
@@ -157,7 +159,7 @@ def layout(**kwargs):
         dcc.Download(id="sig-download"),
 
         dbc.Row([
-            dbc.Col(html.H4(["Señales ", help_link("configuracion-senales")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Señales", "configuracion-senales", className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nueva", id="sig-btn-add", color="primary", size="sm"),
                     className="d-flex align-items-center"),
         ] + ([
@@ -197,13 +199,13 @@ def layout(**kwargs):
             dcc.DatePickerSingle(id="sig-recalc-date",
                                  display_format="YYYY-MM-DD",
                                  style={"fontSize": "0.82rem", "marginLeft": "8px",
-                                        "width": "150px", "backgroundColor": "#2c2c2c",
+                                        "width": "150px", "backgroundColor": BG_INPUT,
                                         "border": "1px solid #555", "borderRadius": "4px"}),
         ] if is_admin else []), className="mb-2 d-flex align-items-center"),
 
         dcc.Loading(
             html.Div(id="sig-status", style=STATUS_STYLE),
-            type="circle", color="#dee2e6",
+            type="circle", color=TEXT_BODY,
         ),
 
         dbc.Alert(id="sig-alert", is_open=False, dismissable=True, className="mb-3"),

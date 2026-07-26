@@ -2,7 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 
 def layout(**kwargs):
@@ -13,7 +13,7 @@ def layout(**kwargs):
     return html.Div([
         dcc.Interval(id="scheduler-interval", interval=10_000, n_intervals=0),
 
-        html.H4(["Scheduler de precios ", help_link("scheduler")], className="mb-4"),
+        page_header("Scheduler de precios", "scheduler", className="mb-4"),
 
         dbc.Alert(id="scheduler-alert", is_open=False, dismissable=True, className="mb-3"),
 

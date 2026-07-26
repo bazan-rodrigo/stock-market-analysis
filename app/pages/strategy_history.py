@@ -4,7 +4,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
+from app.components.ui_constants import BG_CARD, BORDER_CARD, TEXT_BODY
 
 
 def layout(**kwargs):
@@ -19,7 +20,7 @@ def layout(**kwargs):
         dcc.Location(id="sth-url", refresh=False),
 
         dbc.Row([
-            dbc.Col(html.H4(["Evolución de Estrategia ", help_link("evolucion-de-estrategia")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Evolución de Estrategia", "evolucion-de-estrategia", className="mb-0"), width="auto"),
         ], className="mb-3 align-items-center"),
 
         dbc.Card(dbc.CardBody([
@@ -73,11 +74,11 @@ def layout(**kwargs):
                 ], className="g-2"),
             ]),
         ]), className="mb-3",
-            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+            style={"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}"}),
 
         dcc.Loading(
             html.Div(id="sth-chart-container"),
-            type="circle", color="#dee2e6",
+            type="circle", color=TEXT_BODY,
         ),
 
     ], style={"padding": "0 8px"})

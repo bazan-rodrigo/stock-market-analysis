@@ -11,6 +11,7 @@ from app.models import (
 from app.services import run_history_service as _rh
 from app.services import run_lock_service as _rl
 from app.services import write_stats_service as _ws
+from app.components.ui_constants import COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_FAINT, TEXT_MUTED
 
 _OPS          = ("prices", "fund", "snap", "indicators", "synth", "signals")
 _HAS_NEW_ONLY = {"prices", "fund"}
@@ -633,9 +634,9 @@ def _register(op_id):
         else:
             bar_style = {"height": "5px", "display": "none"}
 
-        msg_color = ("#f87171" if st["error"]
-                     else "#4ade80" if done
-                     else "#9ca3af")
+        msg_color = (COLOR_NEGATIVE if st["error"]
+                     else COLOR_POSITIVE if done
+                     else TEXT_MUTED)
 
         t_start = _fmt_time(st.get("start_time"))
         t_end   = _fmt_time(st.get("end_time"))
@@ -676,20 +677,20 @@ def _register(op_id):
                     # + actividad actual — no el % (las tres avanzan casi en
                     # paralelo y triplicarían la barra)
                     mark  = "✓" if dn >= tn else " "
-                    color = ("#4ade80" if dn >= tn
-                             else "#d1d5db" if dn > 0 else "#4b5563")
+                    color = (COLOR_POSITIVE if dn >= tn
+                             else "#d1d5db" if dn > 0 else TEXT_FAINT)
                     text  = (f"{mark} {code:<{name_w}}{prog}"
                              f"  {w['secs']:>5.0f}s{wk_tag}"
                              f"  {w.get('detail', '')}")
                 elif dn >= tn:
-                    color = "#4ade80"
+                    color = COLOR_POSITIVE
                     text  = (f"✓ {code:<{name_w}}{prog}   {ws} → {we}"
                              f"  ({_fmt_dur(w['start'], w['end'])}){wk_tag}{slow_tag}")
                 elif dn > 0:
                     color = "#d1d5db"
                     text  = f"  {code:<{name_w}}{prog}   desde {ws}{wk_tag}"
                 else:
-                    color = "#4b5563"
+                    color = TEXT_FAINT
                     text  = f"  {code:<{name_w}}{'—':>4}"
                 rows.append(html.Div(text, style={"fontSize": "0.72rem",
                                                    "color": color,
@@ -711,7 +712,7 @@ def _register(op_id):
                            f"{done_cnt} / {len(workers)} listos  •  "
                            f"{t_start} → {t_end}")
             msg_children = [
-                html.Div(overall, style={"fontSize": "0.73rem", "color": "#9ca3af",
+                html.Div(overall, style={"fontSize": "0.73rem", "color": TEXT_MUTED,
                                          "marginBottom": "4px",
                                          "fontVariantNumeric": "tabular-nums"}),
                 html.Div(rows),
@@ -763,16 +764,16 @@ def sync_buttons_mutex(*_):
 # ── Reporte de escrituras por corrida (diagnóstico) ───────────────────────────
 
 _WRITES_LEVEL_STYLE = {
-    "ok":   ("✓", "#4ade80"),
+    "ok":   ("✓", COLOR_POSITIVE),
     "warn": ("⚠", "#fbbf24"),
-    "high": ("✗", "#f87171"),
-    "na":   ("·", "#9ca3af"),
+    "high": ("✗", COLOR_NEGATIVE),
+    "na":   ("·", TEXT_MUTED),
 }
 
 _RUN_STATUS_STYLE = {
     "running": ("▶", "#60a5fa"),
-    "ok":      ("✓", "#4ade80"),
-    "error":   ("✗", "#f87171"),
+    "ok":      ("✓", COLOR_POSITIVE),
+    "error":   ("✗", COLOR_NEGATIVE),
     "aborted": ("⚠", "#fbbf24"),
 }
 
@@ -795,7 +796,7 @@ def _history_blocks(mono):
         "Historial de corridas (persistido — sobrevive al reinicio)",
         style={**mono, "fontWeight": "bold", "marginTop": "4px"})]
     for r in hist:
-        icon, color = _RUN_STATUS_STYLE.get(r["status"], ("·", "#9ca3af"))
+        icon, color = _RUN_STATUS_STYLE.get(r["status"], ("·", TEXT_MUTED))
         t0 = r["started_at"].strftime("%m-%d %H:%M") if r["started_at"] else "—"
         t1 = r["finished_at"].strftime("%H:%M") if r["finished_at"] else "—"
         dur = _fmt_dur(r["started_at"], r["finished_at"])
@@ -836,7 +837,7 @@ def render_writes_report(_n):
             "Escrituras por tabla (esta sesión)",
             style={**mono, "fontWeight": "bold", "marginTop": "10px"}))
     for r in runs:
-        icon, color = _WRITES_LEVEL_STYLE.get(r["level"], ("·", "#9ca3af"))
+        icon, color = _WRITES_LEVEL_STYLE.get(r["level"], ("·", TEXT_MUTED))
         t0 = r["started"].strftime("%H:%M:%S") if r["started"] else "—"
         t1 = r["finished"].strftime("%H:%M:%S") if r["finished"] else "—"
         if r["total"] and r.get("unit"):

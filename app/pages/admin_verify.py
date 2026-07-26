@@ -2,7 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
+from app.components.ui_constants import BG_DEEP
 
 
 def layout(**kwargs):
@@ -15,7 +16,7 @@ def layout(**kwargs):
 
     _PRE_STYLE = {
         "maxHeight": "420px", "overflowY": "auto", "overflowX": "auto",
-        "backgroundColor": "#111827", "color": "#e5e7eb",
+        "backgroundColor": BG_DEEP, "color": "#e5e7eb",
         "padding": "0.75rem", "borderRadius": "4px", "fontSize": "0.78rem",
         "whiteSpace": "pre-wrap",
     }
@@ -34,7 +35,7 @@ def layout(**kwargs):
         )
 
     return html.Div([
-        html.H3(["Verificación de Datos ", help_link("verificacion-de-datos")], className="mb-3"),
+        page_header("Verificación de Datos", "verificacion-de-datos", className="mb-3"),
 
         # ── Suite de tests (pytest) ─────────────────────────────────────────
         dbc.Card([

@@ -7,6 +7,7 @@ import dash_bootstrap_components as dbc
 
 import app.services.synthetic_service as svc
 from app.pages.admin_synthetic import _help_card, _th, _td
+from app.components.ui_constants import COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_MUTED
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +276,7 @@ def render_components(uid_store, ft, all_opts):
             dbc.Col(
                 dbc.Button("×", id={"type": "syn-remove-comp", "index": uid},
                            color="link", size="sm",
-                           style={"color": "#ef5350", "padding": "0 6px",
+                           style={"color": COLOR_NEGATIVE, "padding": "0 6px",
                                   "lineHeight": 1, "fontSize": "1rem"}),
                 style={"width": "32px", "minWidth": "32px"},
             ),
@@ -589,14 +590,14 @@ def import_formulas(contents, filename):
 
     imported = [r for r in results if r["status"] == "imported"]
     errors   = [r for r in results if r["status"] == "error"]
-    _STATUS_COLOR = {"imported": "#4ade80", "error": "#f87171"}
+    _STATUS_COLOR = {"imported": COLOR_POSITIVE, "error": COLOR_NEGATIVE}
 
     rows = [
         html.Tr([
             html.Td(r["ticker"], style=_td),
             html.Td(r["status"].capitalize(),
-                    style={**_td, "color": _STATUS_COLOR.get(r["status"], "#9ca3af")}),
-            html.Td(r["detail"], style={**_td, "fontSize": "0.75rem", "color": "#9ca3af"}),
+                    style={**_td, "color": _STATUS_COLOR.get(r["status"], TEXT_MUTED)}),
+            html.Td(r["detail"], style={**_td, "fontSize": "0.75rem", "color": TEXT_MUTED}),
         ])
         for r in results
     ]

@@ -2,7 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
+from app.components.ui_constants import TEXT_DIM
 
 _ENTITY_TABS = [
     ("tab-country",          "País"),
@@ -26,7 +27,7 @@ def layout(**kwargs):
         html.Button(id="mapper-drop-trigger", style={"display": "none"}, n_clicks=0),
 
         dbc.Row([
-            dbc.Col(html.H5(["Mapper de Catálogo ", help_link("mapper-de-catalogo")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Mapper de Catálogo", "mapper-de-catalogo", className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small(
                     "Arrastrá una entidad sobre otra para fusionarlas. "
@@ -50,7 +51,7 @@ def layout(**kwargs):
             ], md=5),
             dbc.Col(
                 html.Div("→", style={"fontSize": "1.2rem", "textAlign": "center", "paddingTop": "4px",
-                                     "color": "#6b7280"}),
+                                     "color": TEXT_DIM}),
                 md=2,
             ),
             dbc.Col([

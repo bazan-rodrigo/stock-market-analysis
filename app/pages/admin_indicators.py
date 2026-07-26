@@ -1,9 +1,10 @@
 import dash
 from dash import dash_table, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER
+from app.components.ui_constants import COLOR_NEUTRAL
 
 
 def layout(**kwargs):
@@ -33,7 +34,7 @@ def layout(**kwargs):
     ]
 
     return html.Div([
-        html.H3(["Indicadores del Sistema ", help_link("configuracion-indicadores")], className="mb-1"),
+        page_header("Indicadores del Sistema", "configuracion-indicadores", className="mb-1"),
         html.P(
             "Indicadores técnicos disponibles como input para las señales. "
             "Se calculan automáticamente a partir del historial de precios "
@@ -59,7 +60,7 @@ def layout(**kwargs):
             style_filter=FILTER,
             style_cell_conditional=[
                 {"if": {"column_id": "code"},        "fontFamily": "monospace",
-                 "color": "#94a3b8", "width": "180px", "minWidth": "180px"},
+                 "color": COLOR_NEUTRAL, "width": "180px", "minWidth": "180px"},
                 {"if": {"column_id": "category"},    "width": "160px", "minWidth": "160px"},
                 {"if": {"column_id": "type"},        "width": "60px",  "minWidth": "60px"},
                 {"if": {"column_id": "scale"},       "width": "110px", "minWidth": "110px"},

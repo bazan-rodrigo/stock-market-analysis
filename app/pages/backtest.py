@@ -2,7 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
+from app.components.ui_constants import BG_CARD, BORDER_CARD, TEXT_BODY
 
 _HELP = (
     "Mide si el ranking de la estrategia predice retornos: cada fecha parte "
@@ -30,7 +31,7 @@ def layout(**kwargs):
         dcc.Store(id="bt-cmp-reload", data=0),
 
         dbc.Row([
-            dbc.Col(html.H4(["Backtest de Estrategia ", help_link("backtest")], className="mb-0"),
+            dbc.Col(page_header("Backtest de Estrategia", "backtest", className="mb-0"),
                     width="auto"),
         ], className="mb-3 align-items-center"),
 
@@ -87,7 +88,7 @@ def layout(**kwargs):
             dbc.Alert(id="bt-alert", is_open=False, dismissable=True,
                       className="mt-2 small py-1"),
         ]), className="mb-3",
-            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+            style={"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}"}),
 
         # ── Runs guardados ────────────────────────────────────────────────
         dbc.Row([
@@ -99,7 +100,7 @@ def layout(**kwargs):
         ], className="mb-3 g-2"),
 
         # ── Resultados ────────────────────────────────────────────────────
-        dcc.Loading(html.Div(id="bt-results"), type="circle", color="#dee2e6"),
+        dcc.Loading(html.Div(id="bt-results"), type="circle", color=TEXT_BODY),
                   ])),
 
           dbc.Tab(label="Reglas — rendimiento sobre el universo",
@@ -156,10 +157,10 @@ def layout(**kwargs):
             dbc.Alert(id="bt-rules-alert", is_open=False, dismissable=True,
                       className="mt-2 small py-1"),
         ]), className="mb-3",
-            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+            style={"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}"}),
 
         dcc.Loading(html.Div(id="bt-rules-results"), type="circle",
-                    color="#dee2e6"),
+                    color=TEXT_BODY),
                   ])),
 
           dbc.Tab(label="Cartera — simulación top-N", tab_id="bt-tab-cartera",
@@ -238,10 +239,10 @@ def layout(**kwargs):
             dbc.Alert(id="bt-port-promote-alert", is_open=False, dismissable=True,
                       className="mt-2 small py-1"),
         ]), className="mb-3",
-            style={"backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+            style={"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}"}),
 
         dcc.Loading(html.Div(id="bt-port-results"), type="circle",
-                    color="#dee2e6"),
+                    color=TEXT_BODY),
                   ])),
 
           dbc.Tab(label="Comparar", tab_id="bt-tab-comparar",
@@ -256,7 +257,7 @@ def layout(**kwargs):
                          placeholder="Elegí corridas para comparar…",
                          style=_IN)], md=8)], className="mb-2"),
         dcc.Loading(html.Div(id="bt-cmp-results"), type="circle",
-                    color="#dee2e6"),
+                    color=TEXT_BODY),
                   ])),
 
           dbc.Tab(label="Walk-forward", tab_id="bt-tab-wf",
@@ -298,7 +299,7 @@ def layout(**kwargs):
         dbc.Alert(id="bt-wf-alert", is_open=False, dismissable=True,
                   className="mt-2 small py-1"),
         dcc.Loading(html.Div(id="bt-wf-results"), type="circle",
-                    color="#dee2e6"),
+                    color=TEXT_BODY),
                   ])),
         ], className="mb-3"),
 

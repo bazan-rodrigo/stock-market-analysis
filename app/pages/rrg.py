@@ -3,6 +3,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from app.components.help import help_link
+from app.components.ui_constants import BORDER_CARD, TEXT_BODY
 
 
 def layout(**kwargs):
@@ -33,7 +34,7 @@ def layout(**kwargs):
                     tooltip={
                         "placement": "bottom",
                         "always_visible": True,
-                        "style": {"color": "#dee2e6", "background": "#374151",
+                        "style": {"color": TEXT_BODY, "background": BORDER_CARD,
                                   "borderRadius": "4px", "padding": "2px 8px"},
                     },
                     updatemode="drag",

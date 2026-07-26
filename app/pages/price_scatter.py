@@ -3,6 +3,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from app.components.help import help_link
+from app.components.ui_constants import TEXT_BODY
 
 
 def layout(**kwargs):
@@ -111,7 +112,7 @@ def layout(**kwargs):
                 },
             ),
             type="circle",
-            color="#dee2e6",
+            color=TEXT_BODY,
         ),
 
         html.Div(id="scatter-stats", className="mt-2 text-muted",

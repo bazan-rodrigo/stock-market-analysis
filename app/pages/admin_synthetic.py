@@ -2,10 +2,13 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 from app.components.table_styles import CELL, DATA, HEADER, SELECTED_ROW
-from app.components.ui_constants import TH as _th, TD as _td, CARD_STYLE
+from app.components.ui_constants import (
+    BG_CARD, BG_DEEP, BG_HELP_CARD, BORDER_CARD, CARD_STYLE, COLOR_INFO, COLOR_NEUTRAL,
+    COLOR_POSITIVE, COLOR_PURPLE, COLOR_RANGE, TD as _td, TEXT_BODY, TH as _th
+)
 
 _FORMULA_TYPES = [
     {"label": "Ratio (cociente ponderado)",     "value": "ratio"},
@@ -16,7 +19,7 @@ _FORMULA_TYPES = [
 
 _HELP = {
     "ratio": {
-        "color": "#38bdf8",
+        "color": COLOR_INFO,
         "title": "Ratio — cociente ponderado",
         "formula": "Precio = Σ(wᵢ × Pᵢ  |  Numerador) / Σ(wᵢ × Pᵢ  |  Denominador)",
         "desc": (
@@ -31,7 +34,7 @@ _HELP = {
         ],
     },
     "weighted_avg": {
-        "color": "#4ade80",
+        "color": COLOR_POSITIVE,
         "title": "Promedio ponderado de precios",
         "formula": "Precio = Σ(wᵢ × Pᵢ) / Σ(wᵢ)",
         "desc": (
@@ -45,7 +48,7 @@ _HELP = {
         ],
     },
     "weighted_sum": {
-        "color": "#fb923c",
+        "color": COLOR_RANGE,
         "title": "Suma ponderada de precios",
         "formula": "Precio = Σ(wᵢ × Pᵢ)",
         "desc": (
@@ -58,7 +61,7 @@ _HELP = {
         ],
     },
     "index": {
-        "color": "#c084fc",
+        "color": COLOR_PURPLE,
         "title": "Índice base desde fecha",
         "formula": "Precio = Valor_base × Σ(wᵢ × Pᵢ/P₀ᵢ) / Σ(wᵢ)",
         "desc": (
@@ -89,7 +92,7 @@ def _help_card(ft: str | None):
             html.Strong(h["title"], style={"color": c, "fontSize": "0.85rem"}),
             html.Code(h["formula"],
                       style={"display": "block", "fontSize": "0.78rem",
-                             "backgroundColor": "#111827", "padding": "4px 8px",
+                             "backgroundColor": BG_DEEP, "padding": "4px 8px",
                              "borderRadius": "4px", "margin": "6px 0",
                              "color": c, "fontFamily": "monospace"}),
             html.P(h["desc"], style={"fontSize": "0.78rem", "color": "#d1d5db", "margin": "0 0 6px"}),
@@ -99,7 +102,7 @@ def _help_card(ft: str | None):
                 for p, d in h["params"]
             ], style={"paddingLeft": "16px", "margin": 0}),
         ]),
-    ]), style={"backgroundColor": "#1a2332", "border": f"1px solid {c}33",
+    ]), style={"backgroundColor": BG_HELP_CARD, "border": f"1px solid {c}33",
                "borderLeft": f"3px solid {c}"}, className="mb-3")
 
 
@@ -161,9 +164,9 @@ def layout(**kwargs):
 
             html.Div(id="syn-formula-preview",
                      className="mt-2 p-2",
-                     style={"backgroundColor": "#111827", "borderRadius": "4px",
+                     style={"backgroundColor": BG_DEEP, "borderRadius": "4px",
                             "fontSize": "0.78rem", "fontFamily": "monospace",
-                            "color": "#94a3b8", "minHeight": "24px"}),
+                            "color": COLOR_NEUTRAL, "minHeight": "24px"}),
 
             dbc.Alert(id="syn-modal-error", is_open=False, color="danger",
                       className="mt-2 mb-0 small py-1"),
@@ -195,7 +198,7 @@ def layout(**kwargs):
 
         # ── Fila 1: creación e importación ────────────────────────────────
         dbc.Row([
-            dbc.Col(html.H4(["Activos Sintéticos ", help_link("activos-sinteticos")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Activos Sintéticos", "activos-sinteticos", className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nuevo", id="syn-btn-add",
                                color="primary", size="sm"),
                     className="d-flex align-items-center"),
@@ -222,8 +225,8 @@ def layout(**kwargs):
                 "Más rápido; mantiene el historial existente.",
                 target="syn-btn-calc-sel", placement="bottom",
                 style={"maxWidth": "230px", "fontSize": "0.78rem",
-                       "backgroundColor": "#1f2937", "color": "#dee2e6",
-                       "border": "1px solid #374151"},
+                       "backgroundColor": BG_CARD, "color": TEXT_BODY,
+                       "border": f"1px solid {BORDER_CARD}"},
             ),
             dbc.Button("Calcular Completo", id="syn-btn-full-sel",
                        color="outline-warning", size="sm", disabled=True, className="me-1"),
@@ -232,8 +235,8 @@ def layout(**kwargs):
                 "Más lento pero garantiza consistencia total.",
                 target="syn-btn-full-sel", placement="bottom",
                 style={"maxWidth": "230px", "fontSize": "0.78rem",
-                       "backgroundColor": "#1f2937", "color": "#dee2e6",
-                       "border": "1px solid #374151"},
+                       "backgroundColor": BG_CARD, "color": TEXT_BODY,
+                       "border": f"1px solid {BORDER_CARD}"},
             ),
             dbc.Button("Eliminar",  id="syn-btn-delete-sel",
                        color="danger", size="sm", disabled=True, className="me-3"),
@@ -273,7 +276,7 @@ def layout(**kwargs):
                 {"if": {"column_id": "name"},   "width": "200px", "minWidth": "140px"},
                 {"if": {"column_id": "type"},   "width": "130px", "minWidth": "110px"},
                 {"if": {"column_id": "formula"},
-                 "fontFamily": "monospace", "fontSize": "0.74rem", "color": "#94a3b8",
+                 "fontFamily": "monospace", "fontSize": "0.74rem", "color": COLOR_NEUTRAL,
                  "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
             ],
             page_size=50,

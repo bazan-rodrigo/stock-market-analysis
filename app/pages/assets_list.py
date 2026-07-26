@@ -2,7 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 _BULK_FIELDS = [
@@ -85,7 +85,7 @@ def layout(**kwargs):
     return html.Div([
         dcc.Store(id="assets-editing-id", data=None),
         html.Div([
-            html.H3(["Activos ", help_link("gestion-de-activos")], className="d-inline-block me-3"),
+            page_header("Activos", "gestion-de-activos", className="d-inline-block me-3"),
             *admin_buttons,
             dbc.Button("Sel. todos", id="assets-btn-select-all", color="outline-secondary", size="sm", className="me-1"),
             dbc.Button("Desel. todos", id="assets-btn-deselect-all", color="outline-secondary", size="sm"),

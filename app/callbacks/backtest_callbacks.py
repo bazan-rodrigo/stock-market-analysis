@@ -6,11 +6,15 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html, no_update
 
 from app.utils import safe_callback
+from app.components.ui_constants import (
+    BG_CARD, BG_DEEP, BORDER_CARD, COLOR_INFO, COLOR_POSITIVE, COLOR_RANGE, TEXT_BODY,
+    TEXT_MUTED
+, TEXT_DIM)
 
-_BG = "#111827"
-_GRID = "#1f2937"
-_H_COLORS = ["#38bdf8", "#4ade80", "#fbbf24", "#f472b6", "#a78bfa",
-             "#34d399", "#fb923c"]
+_BG = BG_DEEP
+_GRID = BG_CARD
+_H_COLORS = [COLOR_INFO, COLOR_POSITIVE, "#fbbf24", "#f472b6", "#a78bfa",
+             "#34d399", COLOR_RANGE]
 
 # Estado del run en curso (thread daemon + polling, mismo patrón que
 # Centro de Datos / sincronización de divisas).
@@ -153,9 +157,9 @@ def poll_run(_):
 
 def _fig_layout(fig, title, ytitle, ysuffix=""):
     fig.update_layout(
-        title=dict(text=title, font=dict(size=13, color="#dee2e6")),
+        title=dict(text=title, font=dict(size=13, color=TEXT_BODY)),
         plot_bgcolor=_BG, paper_bgcolor=_BG,
-        font=dict(color="#dee2e6", size=11),
+        font=dict(color=TEXT_BODY, size=11),
         margin=dict(l=50, r=20, t=40, b=40),
         xaxis=dict(gridcolor=_GRID),
         yaxis=dict(title=ytitle, gridcolor=_GRID, ticksuffix=ysuffix),
@@ -208,9 +212,9 @@ def show_results(run_id):
             ]
         else:
             body.append(html.Div("IC no computable (universo chico)",
-                                 style={"fontSize": "0.78rem", "color": "#9ca3af"}))
+                                 style={"fontSize": "0.78rem", "color": TEXT_MUTED}))
         cards.append(dbc.Col(dbc.Card(dbc.CardBody(body), style={
-            "backgroundColor": "#1f2937", "border": "1px solid #374151"}),
+            "backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}"}),
             md=3, className="mb-2"))
 
     # ── Barras: retorno medio por cuantil ─────────────────────────────────
@@ -245,10 +249,10 @@ def show_results(run_id):
                 y=[v * 100 for v in _rolling_mean([v for _, v in sps])],
                 mode="lines", name=f"{h}r", line=dict(color=color, width=1.5))
     _fig_layout(fig_ic, "IC (Spearman) — media móvil 60 fechas", "IC")
-    fig_ic.add_hline(y=0, line_color="#6b7280", line_width=1)
+    fig_ic.add_hline(y=0, line_color=TEXT_DIM, line_width=1)
     _fig_layout(fig_sp, "Spread top − bottom — media móvil 60 fechas",
                 "Spread", "%")
-    fig_sp.add_hline(y=0, line_color="#6b7280", line_width=1)
+    fig_sp.add_hline(y=0, line_color=TEXT_DIM, line_width=1)
 
     meta = (f"Run #{run.id} · {run.date_from} → {run.date_to} · "
             f"{run.n_dates} fechas · lag {cfg['lag']} · "

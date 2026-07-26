@@ -22,6 +22,7 @@ import json
 
 from dash import ALL, Input, Output, State, callback, ctx, dcc, html, no_update
 import dash_bootstrap_components as dbc
+from app.components.ui_constants import COLOR_NEGATIVE
 
 _NUM_OPS = [{"label": o, "value": o} for o in ("=", "!=", ">", ">=", "<", "<=")]
 _CAT_OPS = [{"label": "=", "value": "="}, {"label": "!=", "value": "!="},
@@ -389,7 +390,7 @@ def _render_cond(uid, node, opts):
             dbc.Col(
                 dbc.Button("×", id={"type": "strf-remove", "index": uid},
                            color="link", size="sm",
-                           style={"color": "#ef5350", "padding": "0 6px",
+                           style={"color": COLOR_NEGATIVE, "padding": "0 6px",
                                   "lineHeight": 1, "fontSize": "1rem"}),
                 style={"width": "32px"},
             ),
@@ -427,7 +428,7 @@ def _render_group(uid, nodes, opts, is_root):
         dbc.Col(
             dbc.Button("×", id={"type": "strf-remove", "index": uid},
                        color="link", size="sm",
-                       style={"color": "#ef5350", "padding": "0 6px",
+                       style={"color": COLOR_NEGATIVE, "padding": "0 6px",
                               "lineHeight": 1, "fontSize": "1rem",
                               "visibility": "hidden" if is_root else "visible"}),
             width="auto",

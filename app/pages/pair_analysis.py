@@ -5,6 +5,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from app.components.help import help_link
+from app.components.ui_constants import BG_DEEP, BG_INPUT, TEXT_BODY
 
 _radio_sm = {"fontSize": "0.80rem"}
 
@@ -52,7 +53,7 @@ def layout(**kwargs):
                     dcc.DatePickerSingle(
                         id="pair-date-from", date=one_year.isoformat(),
                         display_format="YYYY-MM-DD",
-                        style={"fontSize": "0.85rem", "backgroundColor": "#2c2c2c",
+                        style={"fontSize": "0.85rem", "backgroundColor": BG_INPUT,
                                "border": "1px solid #555", "borderRadius": "4px"},
                     ),
                 ], md=2),
@@ -61,7 +62,7 @@ def layout(**kwargs):
                     dcc.DatePickerSingle(
                         id="pair-date-to", date=today.isoformat(),
                         display_format="YYYY-MM-DD",
-                        style={"fontSize": "0.85rem", "backgroundColor": "#2c2c2c",
+                        style={"fontSize": "0.85rem", "backgroundColor": BG_INPUT,
                                "border": "1px solid #555", "borderRadius": "4px"},
                     ),
                 ], md=2),
@@ -87,10 +88,10 @@ def layout(**kwargs):
             dbc.Tab(
                 dcc.Loading(
                     dcc.Graph(id="pair-graph-comp", style={"height": "520px"},
-                              figure={"layout": {"paper_bgcolor": "#111827", "plot_bgcolor": "#111827"}},
+                              figure={"layout": {"paper_bgcolor": BG_DEEP, "plot_bgcolor": BG_DEEP}},
                               config={"scrollZoom": True,
                                       "modeBarButtonsToRemove": ["lasso2d", "select2d"]}),
-                    type="circle", color="#dee2e6",
+                    type="circle", color=TEXT_BODY,
                 ),
                 label="Comparación", tab_id="tab-comp",
             ),
@@ -99,10 +100,10 @@ def layout(**kwargs):
             dbc.Tab(
                 dcc.Loading(
                     dcc.Graph(id="pair-graph-ratio", style={"height": "520px"},
-                              figure={"layout": {"paper_bgcolor": "#111827", "plot_bgcolor": "#111827"}},
+                              figure={"layout": {"paper_bgcolor": BG_DEEP, "plot_bgcolor": BG_DEEP}},
                               config={"scrollZoom": True,
                                       "modeBarButtonsToRemove": ["lasso2d", "select2d"]}),
-                    type="circle", color="#dee2e6",
+                    type="circle", color=TEXT_BODY,
                 ),
                 label="Ratio", tab_id="tab-ratio",
             ),
@@ -159,11 +160,11 @@ def layout(**kwargs):
                     dcc.Graph(
                         id="pair-graph-corr",
                         style={"height": "520px"},
-                        figure={"layout": {"paper_bgcolor": "#111827", "plot_bgcolor": "#111827"}},
+                        figure={"layout": {"paper_bgcolor": BG_DEEP, "plot_bgcolor": BG_DEEP}},
                         config={"scrollZoom": True,
                                 "modeBarButtonsToRemove": ["lasso2d", "select2d"]},
                     ),
-                    type="circle", color="#dee2e6",
+                    type="circle", color=TEXT_BODY,
                 ),
                 html.Div(id="pair-scatter-stats", className="mt-2 text-muted",
                          style={"fontSize": "0.78rem"}),

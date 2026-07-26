@@ -5,9 +5,13 @@ from dash import Input, Output, callback, html
 import dash_bootstrap_components as dbc
 
 import app.services.fundamental_service as svc
+from app.components.ui_constants import (
+    BG_CARD, BG_DEEP, BORDER_CARD, COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_BODY, TEXT_DIM,
+    TEXT_MUTED
+)
 
-_BG   = "#111827"
-_CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRadius": "8px"}
+_BG   = BG_DEEP
+_CARD = {"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}", "borderRadius": "8px"}
 
 
 def _pct(v):
@@ -17,8 +21,8 @@ def _val(v, fmt=".2f", suffix="x"):
     return f"{v:{fmt}}{suffix}" if v is not None else "—"
 
 def _color_val(v):
-    if v is None: return "#6b7280"
-    return "#4ade80" if v >= 0 else "#f87171"
+    if v is None: return TEXT_DIM
+    return COLOR_POSITIVE if v >= 0 else COLOR_NEGATIVE
 
 
 def _ratio_card(key, label, display, color=None, tip=None):
@@ -31,7 +35,7 @@ def _ratio_card(key, label, display, color=None, tip=None):
     if tip:
         label_children.append(
             html.Span(" ⓘ", id=tip_id,
-                      style={"cursor": "help", "fontSize": "0.65rem", "color": "#6b7280",
+                      style={"cursor": "help", "fontSize": "0.65rem", "color": TEXT_DIM,
                              "verticalAlign": "super"})
         )
     col = dbc.Col(dbc.Card(dbc.CardBody([
@@ -90,14 +94,14 @@ def _bar_chart(data, y_key, title, color="#60a5fa", pct=False):
     scale = 100 if pct else 1e-6
     ys_s  = [v * scale if v is not None else None for v in ys]
     sfx   = "%" if pct else "M"
-    colors = ["#6b7280" if q.get("_partial") else color for q in data]
+    colors = [TEXT_DIM if q.get("_partial") else color for q in data]
     fig = go.Figure(go.Bar(
         x=xs, y=ys_s,
         marker_color=colors,
         text=[f"{v:.1f}{sfx}{'*' if q.get('_partial') else ''}" if v is not None else ""
               for v, q in zip(ys_s, data)],
         textposition="outside",
-        textfont=dict(size=10, color="#dee2e6"),
+        textfont=dict(size=10, color=TEXT_BODY),
         cliponaxis=False,
     ))
     vals    = [v for v in ys_s if v is not None]
@@ -105,12 +109,12 @@ def _bar_chart(data, y_key, title, color="#60a5fa", pct=False):
     ymin    = min(vals, default=0)
     padding = max(abs(ymax), abs(ymin)) * 0.2 or 1
     fig.update_layout(
-        title=dict(text=title, font=dict(color="#9ca3af", size=13), x=0),
+        title=dict(text=title, font=dict(color=TEXT_MUTED, size=13), x=0),
         plot_bgcolor=_BG, paper_bgcolor=_BG,
-        font=dict(color="#dee2e6", size=10),
+        font=dict(color=TEXT_BODY, size=10),
         margin=dict(l=40, r=10, t=40, b=40),
-        xaxis=dict(tickfont=dict(size=9), gridcolor="#1f2937"),
-        yaxis=dict(ticksuffix=sfx, gridcolor="#1f2937",
+        xaxis=dict(tickfont=dict(size=9), gridcolor=BG_CARD),
+        yaxis=dict(ticksuffix=sfx, gridcolor=BG_CARD,
                    range=[min(ymin - padding, 0), ymax + padding]),
         showlegend=False,
     )
@@ -134,7 +138,7 @@ def _graph(fig, h=240):
 def _charts_row(data):
     return dbc.Row([
         _graph(_bar_chart(data, "revenue",          "Revenue",        "#60a5fa")),
-        _graph(_bar_chart(data, "net_income",       "Net Income",     "#4ade80")),
+        _graph(_bar_chart(data, "net_income",       "Net Income",     COLOR_POSITIVE)),
         _graph(_bar_chart(data, "gross_profit",     "Gross Profit",   "#a78bfa")),
         _graph(_bar_chart(data, "ebitda",           "EBITDA",         "#f59e0b")),
         _graph(_bar_chart(data, "fcf",              "Free Cash Flow", "#34d399")),
@@ -218,7 +222,7 @@ def load_fundamentals(asset_id, active_tab):
                       style={"fontSize": "0.75rem"}),
         ], className="mb-2"),
         _ratio_section(ratio_defs, ratios),
-        html.Hr(style={"borderColor": "#374151"}),
+        html.Hr(style={"borderColor": BORDER_CARD}),
         dbc.Tabs([
             dbc.Tab(_charts_row(quarters), label="Trimestral", tab_id="q"),
             dbc.Tab(

@@ -32,12 +32,18 @@ def help_link(slug: str, tooltip: str = "Abrir el manual de esta pantalla"):
     )
 
 
-def page_header(title: str, slug: str, level: str = "h4", **kwargs):
+def page_header(title: str, slug: str, **kwargs):
     """Encabezado de pantalla con el ícono de ayuda al lado.
 
-    `level` acepta "h3"/"h4"/"h5" para respetar el tamaño que ya usaba cada
-    pantalla; el resto de kwargs va al componente (className, style, etc.).
+    El nivel es SIEMPRE h4: el título de una pantalla es el título de una
+    pantalla, y que cada una eligiera el suyo (había h3, h4, h5 y h6 conviviendo)
+    es lo que hacía que la app se viera armada por partes. Antes esta función
+    tenía un parámetro `level` "para respetar el tamaño que ya usaba cada
+    pantalla" — o sea que codificaba la inconsistencia en vez de resolverla.
+
+    `kwargs` va al componente. El margen inferior default es `mb-2`; las
+    pantallas que ponen el título dentro de una fila de controles pasan
+    `className="mb-0"` para alinearlo con los botones.
     """
-    componente = {"h3": html.H3, "h4": html.H4, "h5": html.H5}.get(level, html.H4)
     kwargs.setdefault("className", "mb-2")
-    return componente([title, " ", help_link(slug)], **kwargs)
+    return html.H4([title, " ", help_link(slug)], **kwargs)

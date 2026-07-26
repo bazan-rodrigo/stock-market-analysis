@@ -2,7 +2,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
+from app.components.ui_constants import BG_CARD, BORDER_CARD, TEXT_BODY
 
 _HELP = (
     "Genera automáticamente activos sintéticos para cada activo en la moneda configurada, "
@@ -38,7 +39,7 @@ def layout(**kwargs):
             ),
         ], id="ars-remove-modal", is_open=False, centered=True),
 
-        html.H4(["Activos en Divisa — Sintéticos Automáticos ", help_link("activos-en-divisa")], className="mb-2"),
+        page_header("Activos en Divisa — Sintéticos Automáticos", "activos-en-divisa"),
         dbc.Alert(_HELP, color="info", className="mb-3 small py-2"),
 
         # ── Configuración de divisores ────────────────────────────────────────
@@ -101,8 +102,8 @@ def layout(**kwargs):
                 "Los que ya existen no se modifican.",
                 target="ars-btn-sync", placement="right",
                 style={"maxWidth": "260px", "fontSize": "0.78rem",
-                       "backgroundColor": "#1f2937", "color": "#dee2e6",
-                       "border": "1px solid #374151"},
+                       "backgroundColor": BG_CARD, "color": TEXT_BODY,
+                       "border": f"1px solid {BORDER_CARD}"},
             ),
 
             dbc.Progress(id="ars-progress", value=0, striped=True, animated=True,

@@ -7,6 +7,9 @@ import plotly.graph_objects as go
 import app.services.evolution_service as svc
 import app.services.reference_service as ref_svc
 from app.services.asset_service import get_assets
+from app.components.ui_constants import (
+    BG_CARD, BG_CHART_ALT, BORDER_CARD, COLOR_NEGATIVE, TEXT_BODY
+)
 
 
 # ── Poblar dropdowns ──────────────────────────────────────────────────────────
@@ -375,13 +378,13 @@ def render_series_list(series):
                 html.I(className="fa fa-times"),
                 id={"type": "evol-remove", "index": aid},
                 color="link", size="sm", className="p-0",
-                style={"color": "#ef5350", "fontSize": "0.7rem",
+                style={"color": COLOR_NEGATIVE, "fontSize": "0.7rem",
                        "marginLeft": "2px", "lineHeight": "1"},
             ),
         ], style={
             "display": "inline-flex", "alignItems": "center",
-            "border": "1px solid #374151", "borderRadius": "4px",
-            "padding": "2px 6px", "backgroundColor": "#1f2937",
+            "border": f"1px solid {BORDER_CARD}", "borderRadius": "4px",
+            "padding": "2px 6px", "backgroundColor": BG_CARD,
         }))
 
     return chips
@@ -482,9 +485,9 @@ def render_chart(series, date_from, date_to, show_events):
 
 def _style_fig(fig):
     fig.update_layout(
-        paper_bgcolor="#1e2126",
-        plot_bgcolor="#1e2126",
-        font_color="#dee2e6",
+        paper_bgcolor=BG_CHART_ALT,
+        plot_bgcolor=BG_CHART_ALT,
+        font_color=TEXT_BODY,
         margin={"l": 50, "r": 120, "t": 40, "b": 40},
         hovermode="x unified",
         showlegend=False,

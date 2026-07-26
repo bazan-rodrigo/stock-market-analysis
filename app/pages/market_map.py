@@ -3,9 +3,12 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
-from app.components.ui_constants import TH as _th_base
+from app.components.ui_constants import (
+    BG_CARD, BG_DEEP, BORDER_CARD, COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_BODY, TEXT_DIM,
+    TEXT_FAINT, TEXT_MUTED, TH as _th_base
+)
 
 _DIMS = [
     ("sector",   "Sectores"),
@@ -15,18 +18,18 @@ _DIMS = [
     ("market",   "Mercados"),
 ]
 
-_BG = "#111827"
+_BG = BG_DEEP
 
 
 def _score_label(score):
     if score is None:
-        return None, "#4b5563"
+        return None, TEXT_FAINT
     if score >= 50:
-        return "Alcista", "#4caf50"
+        return "Alcista", COLOR_POSITIVE
     if score >= 20:
         return "Mejorando", "#a5d6a7"
     if score <= -50:
-        return "Bajista", "#ef5350"
+        return "Bajista", COLOR_NEGATIVE
     if score <= -20:
         return "Deteriorando", "#ef9a9a"
     return "Lateral", "#90a4ae"
@@ -34,7 +37,7 @@ def _score_label(score):
 
 def _score_badge(score):
     if score is None:
-        return html.Td("—", style={"color": "#4b5563", "textAlign": "center"})
+        return html.Td("—", style={"color": TEXT_FAINT, "textAlign": "center"})
     label, color = _score_label(score)
     return html.Td(
         html.Div([
@@ -59,7 +62,7 @@ def _build_table(dim_data: dict) -> html.Table:
                            "overflow": "hidden", "textOverflow": "ellipsis",
                            "maxWidth": "200px"}),
             html.Td(str(g["n"]),
-                    style={"textAlign": "center", "color": "#9ca3af", "fontSize": "0.78rem"}),
+                    style={"textAlign": "center", "color": TEXT_MUTED, "fontSize": "0.78rem"}),
             _score_badge(g.get("d")),
             _score_badge(g.get("w")),
             _score_badge(g.get("m")),
@@ -80,14 +83,14 @@ def _build_table(dim_data: dict) -> html.Table:
 
 def _quad_info(sm, sd):
     if sm is None or sd is None:
-        return "Sin datos", "#6b7280"
+        return "Sin datos", TEXT_DIM
     if sm >= 0 and sd >= 0:
-        return "Alcista confirmado", "#4caf50"
+        return "Alcista confirmado", COLOR_POSITIVE
     if sm < 0 and sd >= 0:
         return "Rebotando", "#64b5f6"
     if sm >= 0 and sd < 0:
         return "Corrigiendo", "#ffa726"
-    return "Bajista confirmado", "#ef5350"
+    return "Bajista confirmado", COLOR_NEGATIVE
 
 
 def _build_quadrant_figure(dim_data: dict) -> go.Figure:
@@ -103,17 +106,17 @@ def _build_quadrant_figure(dim_data: dict) -> go.Figure:
         dict(type="rect", x0=0,    y0=-105, x1=105, y1=0,
              fillcolor="rgba(255,167,38,0.08)", line_width=0),
         dict(type="line", x0=0, y0=-105, x1=0, y1=105,
-             line=dict(color="#4b5563", width=1, dash="dot")),
+             line=dict(color=TEXT_FAINT, width=1, dash="dot")),
         dict(type="line", x0=-105, y0=0, x1=105, y1=0,
-             line=dict(color="#4b5563", width=1, dash="dot")),
+             line=dict(color=TEXT_FAINT, width=1, dash="dot")),
     ]
 
     quad_annotations = [
         dict(x=-52, y=100, text="Rebotando",          font=dict(color="#64b5f6", size=11),
              showarrow=False, xanchor="center", yanchor="top"),
-        dict(x=52,  y=100, text="Alcista confirmado", font=dict(color="#4caf50", size=11),
+        dict(x=52,  y=100, text="Alcista confirmado", font=dict(color=COLOR_POSITIVE, size=11),
              showarrow=False, xanchor="center", yanchor="top"),
-        dict(x=-52, y=-100, text="Bajista confirmado", font=dict(color="#ef5350", size=11),
+        dict(x=-52, y=-100, text="Bajista confirmado", font=dict(color=COLOR_NEGATIVE, size=11),
              showarrow=False, xanchor="center", yanchor="bottom"),
         dict(x=52,  y=-100, text="Corrigiendo",        font=dict(color="#ffa726", size=11),
              showarrow=False, xanchor="center", yanchor="bottom"),
@@ -139,7 +142,7 @@ def _build_quadrant_figure(dim_data: dict) -> go.Figure:
             x=[sm], y=[sd],
             mode="markers+text",
             marker=dict(size=size, color=color, opacity=0.85,
-                        line=dict(color="#1f2937", width=1)),
+                        line=dict(color=BG_CARD, width=1)),
             text=[g["name"]],
             textposition="top center",
             textfont=dict(color=color, size=9),
@@ -150,21 +153,21 @@ def _build_quadrant_figure(dim_data: dict) -> go.Figure:
     fig.update_layout(
         plot_bgcolor=_BG,
         paper_bgcolor=_BG,
-        font=dict(color="#dee2e6", size=11),
+        font=dict(color=TEXT_BODY, size=11),
         shapes=shapes,
         annotations=quad_annotations,
         xaxis=dict(
             title="Score Mensual  →  tendencia de largo plazo",
             range=[-105, 105],
-            gridcolor="#1f2937",
-            zerolinecolor="#4b5563",
+            gridcolor=BG_CARD,
+            zerolinecolor=TEXT_FAINT,
             tickfont=dict(size=10),
         ),
         yaxis=dict(
             title="Score Diario  →  momentum / dirección reciente",
             range=[-105, 105],
-            gridcolor="#1f2937",
-            zerolinecolor="#4b5563",
+            gridcolor=BG_CARD,
+            zerolinecolor=TEXT_FAINT,
             tickfont=dict(size=10),
         ),
         margin=dict(l=60, r=20, t=15, b=50),
@@ -175,11 +178,11 @@ def _build_quadrant_figure(dim_data: dict) -> go.Figure:
 
 def _legend_card():
     _st = {"fontSize": "0.78rem", "marginBottom": "6px", "color": "#d1d5db"}
-    _card_style = {"backgroundColor": "#1f2937", "border": "1px solid #374151"}
+    _card_style = {"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}"}
     return dbc.Card(
         dbc.CardBody([
             html.H6("¿Cómo leer el Mapa de Tendencia de Mercado?",
-                    className="mb-2", style={"fontSize": "0.85rem", "color": "#9ca3af"}),
+                    className="mb-2", style={"fontSize": "0.85rem", "color": TEXT_MUTED}),
             html.P([
                 html.Strong("Score de tendencia (−100 a +100): ", style={"color": "#e5e7eb"}),
                 "Promedio de los scores de régimen de todos los activos del grupo. "
@@ -200,13 +203,13 @@ def _legend_card():
             ], style=_st),
             html.P([
                 html.Strong("Categorías: ", style={"color": "#e5e7eb"}),
-                html.Span("Alcista", style={"color": "#4caf50", "fontWeight": "bold"}), " (≥ 50)  ·  ",
+                html.Span("Alcista", style={"color": COLOR_POSITIVE, "fontWeight": "bold"}), " (≥ 50)  ·  ",
                 html.Span("Mejorando", style={"color": "#a5d6a7", "fontWeight": "bold"}), " (20–49)  ·  ",
                 html.Span("Lateral", style={"color": "#90a4ae", "fontWeight": "bold"}), " (−19 a 19)  ·  ",
                 html.Span("Deteriorando", style={"color": "#ef9a9a", "fontWeight": "bold"}), " (−20 a −49)  ·  ",
-                html.Span("Bajista", style={"color": "#ef5350", "fontWeight": "bold"}), " (≤ −50).",
+                html.Span("Bajista", style={"color": COLOR_NEGATIVE, "fontWeight": "bold"}), " (≤ −50).",
             ], style=_st),
-            html.Hr(style={"borderColor": "#374151", "margin": "8px 0"}),
+            html.Hr(style={"borderColor": BORDER_CARD, "margin": "8px 0"}),
             html.P([
                 html.Strong("Cuadrantes: ", style={"color": "#e5e7eb"}),
                 "Cada grupo se posiciona según su ",
@@ -218,13 +221,13 @@ def _legend_card():
             ], style=_st),
             dbc.Row([
                 dbc.Col(html.Span("■ Alcista confirmado",
-                                  style={"color": "#4caf50", "fontSize": "0.75rem"}), width="auto"),
+                                  style={"color": COLOR_POSITIVE, "fontSize": "0.75rem"}), width="auto"),
                 dbc.Col(html.Span("■ Rebotando",
                                   style={"color": "#64b5f6", "fontSize": "0.75rem"}), width="auto"),
                 dbc.Col(html.Span("■ Corrigiendo",
                                   style={"color": "#ffa726", "fontSize": "0.75rem"}), width="auto"),
                 dbc.Col(html.Span("■ Bajista confirmado",
-                                  style={"color": "#ef5350", "fontSize": "0.75rem"}), width="auto"),
+                                  style={"color": COLOR_NEGATIVE, "fontSize": "0.75rem"}), width="auto"),
             ], className="g-3 mt-1"),
         ]),
         className="mt-3",
@@ -249,7 +252,7 @@ def layout(**kwargs):
         # cómputo (al cambiar la fecha) del render (al cambiar de pestaña).
         dcc.Store(id="market-map-store"),
         dbc.Row([
-            dbc.Col(html.H4(["Mapa de Tendencia de Mercado ", help_link("mapa-de-tendencia")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Mapa de Tendencia de Mercado", "mapa-de-tendencia", className="mb-0"), width="auto"),
             dbc.Col(
                 html.Small(
                     "Score de tendencia por grupo, calculado al vuelo para la "
@@ -261,7 +264,7 @@ def layout(**kwargs):
             ),
             dbc.Col([
                 dbc.Label("Fecha", style={"fontSize": "0.72rem", "marginBottom": "2px",
-                                          "color": "#9ca3af"}),
+                                          "color": TEXT_MUTED}),
                 dcc.DatePickerSingle(
                     id="market-map-date",
                     date=default_str,
@@ -283,7 +286,7 @@ def layout(**kwargs):
         dcc.Loading(
             html.Div(id="market-map-content", className="mt-3"),
             type="circle",
-            color="#dee2e6",
+            color=TEXT_BODY,
         ),
 
         _legend_card(),

@@ -2,9 +2,10 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
+from app.components.ui_constants import COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_DIM
 
 _LOG_COLUMNS = [
     {"name": "Ticker",         "id": "ticker"},
@@ -27,7 +28,7 @@ def layout(**kwargs):
         dcc.Interval(id="fund-upd-interval", interval=800, disabled=True, n_intervals=0),
 
         html.Div([
-            html.H3(["Actualización de Fundamentales ", help_link("actualizacion-de-fundamentales")], className="d-inline-block me-3"),
+            page_header("Actualización de Fundamentales", "actualizacion-de-fundamentales", className="d-inline-block me-3"),
             dbc.Button("Limpiar log", id="fund-upd-btn-clear",
                        color="link", size="sm"),
         ], className="d-flex align-items-center mb-2"),
@@ -58,13 +59,13 @@ def layout(**kwargs):
             style_cell=CELL,
             style_filter=FILTER,
             style_data_conditional=SELECTED_ROW + [
-                {"if": {"filter_query": '{result} = "Éxito"'}, "color": "#4caf50"},
-                {"if": {"filter_query": '{result} = "Error"'}, "color": "#ef5350"},
-                {"if": {"filter_query": '{result} = "—"'},     "color": "#6b7280"},
+                {"if": {"filter_query": '{result} = "Éxito"'}, "color": COLOR_POSITIVE},
+                {"if": {"filter_query": '{result} = "Error"'}, "color": COLOR_NEGATIVE},
+                {"if": {"filter_query": '{result} = "—"'},     "color": TEXT_DIM},
                 {"if": {"filter_query": '{indicator_result} = "Éxito"', "column_id": "indicator_result"},
-                 "color": "#4caf50"},
+                 "color": COLOR_POSITIVE},
                 {"if": {"filter_query": '{indicator_result} = "Error"', "column_id": "indicator_result"},
-                 "color": "#ef5350"},
+                 "color": COLOR_NEGATIVE},
             ],
             page_size=30,
             sort_action="native",

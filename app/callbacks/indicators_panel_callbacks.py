@@ -5,35 +5,22 @@ import dash_bootstrap_components as dbc
 from app.database import get_session
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import get_ind_table
+from app.components.ui_constants import (
+    BG_CARD, BORDER_CARD, COLOR_NEGATIVE, COLOR_POSITIVE, COLOR_RANGE, TEXT_BODY, TEXT_DIM,
+    TREND_LABELS, VOL_LABELS
+)
 
-_CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRadius": "8px"}
+_CARD = {"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}", "borderRadius": "8px"}
 
-_TREND_LABELS = {
-    "bullish_strong":         ("Alcista Fuerte",          "#2e7d32"),
-    "bullish_nascent_strong": ("Alcista Naciente Fuerte", "#66bb6a"),
-    "bullish":                ("Alcista",                 "#4caf50"),
-    "bullish_nascent":        ("Alcista Naciente",        "#a5d6a7"),
-    "lateral_nascent":        ("Lateral Naciente",        "#90caf9"),
-    "lateral":                ("Lateral",                 "#6495ed"),
-    "bearish_nascent":        ("Bajista Naciente",        "#ef9a9a"),
-    "bearish_nascent_strong": ("Bajista Naciente Fuerte", "#ef5350"),
-    "bearish":                ("Bajista",                 "#ef5350"),
-    "bearish_strong":         ("Bajista Fuerte",          "#b71c1c"),
-}
-
-_VOL_REGIME_COLOR = {
-    "extrema": "#ef5350",
-    "alta":    "#ff9800",
-    "normal":  "#90a4ae",
-    "baja":    "#42a5f5",
-}
+_TREND_LABELS = TREND_LABELS
+_VOL_REGIME_COLOR = {k: color for k, (_, color) in VOL_LABELS.items()}
 
 
 def _fmt(defn: IndicatorDefinition, value) -> tuple[str, str]:
     """Devuelve (texto_a_mostrar, color_hex). value es el valor crudo de la columna."""
 
-    NEUTRAL = "#dee2e6"
-    MUTED   = "#6b7280"
+    NEUTRAL = TEXT_BODY
+    MUTED   = TEXT_DIM
 
     if defn.type == "str":
         val = value or "—"
@@ -56,19 +43,19 @@ def _fmt(defn: IndicatorDefinition, value) -> tuple[str, str]:
     scale = defn.scale or ""
 
     if scale == "%":
-        color = "#4ade80" if num > 0 else "#f87171" if num < 0 else MUTED
+        color = COLOR_POSITIVE if num > 0 else COLOR_NEGATIVE if num < 0 else MUTED
         return f"{num:+.2f}%", color
 
     if scale == "% (negative)":
-        color = "#f87171" if num < -15 else "#fb923c" if num < -5 else MUTED
+        color = COLOR_NEGATIVE if num < -15 else COLOR_RANGE if num < -5 else MUTED
         return f"{num:.2f}%", color
 
     if scale == "0 – 100":
-        color = "#4ade80" if num <= 30 else "#f87171" if num >= 70 else "#f59e0b"
+        color = COLOR_POSITIVE if num <= 30 else COLOR_NEGATIVE if num >= 70 else "#f59e0b"
         return f"{num:.1f}", color
 
     if scale == "σ":
-        color = "#4ade80" if num > 0 else "#f87171" if num < 0 else MUTED
+        color = COLOR_POSITIVE if num > 0 else COLOR_NEGATIVE if num < 0 else MUTED
         return f"{num:+.2f}σ", color
 
     if scale == "ratio":
@@ -109,7 +96,7 @@ def _section(category: str, items: list) -> html.Div:
     cards = [_indicator_card(defn, value) for defn, value in items]
     return html.Div([
         html.Span(category, style={"fontWeight": "600", "fontSize": "0.85rem"}),
-        html.Hr(style={"borderColor": "#374151"}),
+        html.Hr(style={"borderColor": BORDER_CARD}),
         dbc.Row(cards, className="g-2 mb-3"),
     ])
 

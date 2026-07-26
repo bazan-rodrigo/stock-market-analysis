@@ -13,22 +13,25 @@ from dash import ALL, Input, Output, State, callback, ctx, html, no_update
 from app.callbacks.chart_callbacks import _sim_control_deps
 from app.services.trade_optimizer import load_series, spec_from_controls
 from app.utils import safe_callback
+from app.components.ui_constants import (
+    BG_INPUT, BORDER_CARD, COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_BODY, TEXT_DIM, TEXT_MUTED
+)
 
 _TOP_N = 10
 
 
 def _fmt_pct(v, colored=True):
     if v is None:
-        return html.Span("—", style={"color": "#6b7280"})
+        return html.Span("—", style={"color": TEXT_DIM})
     txt = f"{'+' if v >= 0 else ''}{v * 100:.1f}%"
-    color = ("#4ade80" if v >= 0 else "#ef5350") if colored else "#dee2e6"
+    color = (COLOR_POSITIVE if v >= 0 else COLOR_NEGATIVE) if colored else TEXT_BODY
     return html.Span(txt, style={"color": color})
 
 
-_TH = {"fontSize": "0.72rem", "color": "#9ca3af", "padding": "3px 8px",
-       "borderBottom": "1px solid #374151", "textAlign": "left"}
+_TH = {"fontSize": "0.72rem", "color": TEXT_MUTED, "padding": "3px 8px",
+       "borderBottom": f"1px solid {BORDER_CARD}", "textAlign": "left"}
 _TD = {"fontSize": "0.78rem", "padding": "3px 8px",
-       "borderBottom": "1px solid #2c2c2c"}
+       "borderBottom": f"1px solid {BG_INPUT}"}
 
 
 def _results_table(out) -> html.Div:

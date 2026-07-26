@@ -1,13 +1,33 @@
-"""Constantes de UI compartidas entre páginas del módulo de señales y estrategias."""
+"""Sistema de diseño de la aplicación — paleta y estilos compartidos por TODAS
+las pantallas.
+
+La paleta es Tailwind (escala gray-* para el chrome, *-400 para los colores
+semánticos). Un color nuevo se agrega ACÁ con nombre; escribirlo a mano en una
+pantalla rompe `tests/test_ui_consistency.py`, que es lo que evita que la UI
+vuelva a derivar pantalla por pantalla.
+
+Excepciones legítimas al sistema, documentadas donde viven:
+  - la escala de tendencia (TREND_COLORS, abajo) usa tonos propios porque el
+    tono ES el dato: codifica el grado de la tendencia, no un estado de UI;
+  - el JS de velas de `chart_callbacks.py` usa la convención de mercado
+    (verde/rojo de vela), que no es chrome de interfaz.
+"""
 
 # ── Colores semánticos ────────────────────────────────────────────────────────
-COLOR_POSITIVE = "#4caf50"   # verde   — score positivo / bullish  (Material Green 500)
-COLOR_NEGATIVE = "#ef5350"   # rojo    — score negativo / bearish  (Material Red 400)
-COLOR_NEUTRAL  = "#94a3b8"   # gris    — sin tendencia clara
-COLOR_WARNING  = "#facc15"   # amarillo — advertencia
-COLOR_INFO     = "#38bdf8"   # azul    — discrete_map, info
-COLOR_RANGE    = "#fb923c"   # naranja — fórmula range
-COLOR_PURPLE   = "#c084fc"   # violeta
+COLOR_POSITIVE = "#4ade80"   # verde   — score positivo / bullish   (Tailwind green-400)
+COLOR_NEGATIVE = "#f87171"   # rojo    — score negativo / bearish   (Tailwind red-400)
+COLOR_NEUTRAL  = "#94a3b8"   # gris    — sin tendencia clara        (Tailwind slate-400)
+COLOR_WARNING  = "#facc15"   # amarillo — advertencia               (Tailwind yellow-400)
+COLOR_INFO     = "#38bdf8"   # azul    — discrete_map, info         (Tailwind sky-400)
+COLOR_RANGE    = "#fb923c"   # naranja — fórmula range              (Tailwind orange-400)
+COLOR_PURPLE   = "#c084fc"   # violeta                              (Tailwind purple-400)
+
+# ── Escala tipográfica de grises ─────────────────────────────────────────────
+# Jerarquía, no sinónimos: cada nivel baja un escalón de énfasis.
+TEXT_BODY  = "#dee2e6"      # texto principal
+TEXT_MUTED = "#9ca3af"      # etiquetas, texto secundario   (Tailwind gray-400)
+TEXT_DIM   = "#6b7280"      # notas, texto terciario        (Tailwind gray-500)
+TEXT_FAINT = "#4b5563"      # placeholders, "sin dato"      (Tailwind gray-600)
 
 # ── Fondos y bordes ───────────────────────────────────────────────────────────
 BG_CARD      = "#1f2937"    # fondo de cards de filtros / contenedores principales
@@ -16,6 +36,40 @@ BG_CHART     = "#111827"    # alias semántico de BG_DEEP para fondos de gráfic
 BG_HELP_CARD = "#1a2332"    # fondo de help cards contextuales
 BORDER_CARD  = "#374151"    # borde de cards
 BORDER_ROW   = "#1f2937"    # separador entre filas de tabla
+
+# ── Fondos de controles — LEGIBILIDAD, no estética ───────────────────────────
+# Estos tonos salieron de pedidos explícitos de legibilidad y NO se unifican con
+# los BG_* de arriba: se eligieron para que el control se despegue del card que
+# lo contiene. Cambiarlos revierte un arreglo (ver los commits citados).
+BG_INPUT     = "#2c2c2c"    # inputs y date pickers   (a4cb43a: dark theme date pickers)
+BG_CHART_ALT = "#1e2126"    # gráficos de Evolución   (8a9609a: fondos oscuros en gráficos)
+BG_CODE      = "#1e1e1e"    # textareas de fórmula y bloques monoespaciados
+
+# ── Escala de tendencia (régimen) ────────────────────────────────────────────
+# Acá el tono ES el dato: codifica el grado de la tendencia, así que la escala
+# no se colapsa a COLOR_POSITIVE/COLOR_NEGATIVE. Vivía duplicada en
+# chart_callbacks y indicators_panel con etiquetas distintas ("Alcista Fuerte"
+# vs "Alcista fuerte"); el mismo régimen tiene que verse igual en toda la app.
+TREND_LABELS = {
+    "bullish_strong":         ("Alcista fuerte",          "#2e7d32"),
+    "bullish_nascent_strong": ("Alcista naciente fuerte", "#66bb6a"),
+    "bullish":                ("Alcista",                 COLOR_POSITIVE),
+    "bullish_nascent":        ("Alcista naciente",        "#a5d6a7"),
+    "lateral_nascent":        ("Lateral naciente",        "#90caf9"),
+    "lateral":                ("Lateral",                 "#6495ed"),
+    "bearish_nascent":        ("Bajista naciente",        "#ef9a9a"),
+    "bearish_nascent_strong": ("Bajista naciente fuerte", COLOR_NEGATIVE),
+    "bearish":                ("Bajista",                 COLOR_NEGATIVE),
+    "bearish_strong":         ("Bajista fuerte",          "#b71c1c"),
+}
+
+# ── Escala de volatilidad ────────────────────────────────────────────────────
+VOL_LABELS = {
+    "extrema": ("Extrema", COLOR_NEGATIVE),
+    "alta":    ("Alta",    "#ff9800"),
+    "normal":  ("Normal",  "#90a4ae"),
+    "baja":    ("Baja",    "#42a5f5"),
+}
 
 # ── Tema Plotly oscuro (compartido entre todos los gráficos Plotly) ───────────
 PLOTLY_DARK = dict(

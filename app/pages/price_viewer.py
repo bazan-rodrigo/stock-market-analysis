@@ -2,7 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
@@ -50,7 +50,7 @@ def layout(**kwargs):
         return html.Div()
 
     return html.Div([
-        html.H3(["Visualizador de precios ", help_link("visualizador-de-precios")], className="mb-3"),
+        page_header("Visualizador de precios", "visualizador-de-precios", className="mb-3"),
 
         dbc.RadioItems(
             id="pv-mode",

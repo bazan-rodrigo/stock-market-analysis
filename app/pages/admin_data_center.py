@@ -2,15 +2,16 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
+from app.components.ui_constants import BG_CARD, BG_DEEP, BORDER_CARD, TEXT_DIM, TEXT_MUTED
 
-_CARD = {"backgroundColor": "#1f2937", "border": "1px solid #374151", "borderRadius": "8px"}
-_HEADER = {"backgroundColor": "#111827", "padding": "8px 14px"}
+_CARD = {"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}", "borderRadius": "8px"}
+_HEADER = {"backgroundColor": BG_DEEP, "padding": "8px 14px"}
 _BODY   = {"padding": "12px 14px"}
 
 _TXT_SM  = {"fontSize": "0.76rem", "lineHeight": "1.4"}
-_TXT_XS  = {"fontSize": "0.72rem", "color": "#6b7280"}
-_TXT_MSG = {"fontSize": "0.74rem", "minHeight": "16px", "color": "#9ca3af", "marginBottom": "10px"}
+_TXT_XS  = {"fontSize": "0.72rem", "color": TEXT_DIM}
+_TXT_MSG = {"fontSize": "0.74rem", "minHeight": "16px", "color": TEXT_MUTED, "marginBottom": "10px"}
 
 
 # ── Sección de operación (cuerpo de una card standalone) ───────────────────────
@@ -48,13 +49,13 @@ def _op_section(op_id, description, *, has_new_only=False,
     if has_new_only:
         extra = [dbc.Switch(id=f"dc-new-only-{op_id}", label="Solo activos nuevos",
                             value=False,
-                            style={"fontSize": "0.74rem", "color": "#9ca3af", "marginBottom": "8px"})]
+                            style={"fontSize": "0.74rem", "color": TEXT_MUTED, "marginBottom": "8px"})]
     if has_days:
         extra.append(html.Div([
             dbc.Row([
                 dbc.Col([
                     html.Span("Horizonte (días): ",
-                              style={"fontSize": "0.74rem", "color": "#9ca3af"}),
+                              style={"fontSize": "0.74rem", "color": TEXT_MUTED}),
                     dbc.Input(id=f"dc-days-{op_id}", type="number", value=None,
                               placeholder="todo", min=1, step=1, size="sm",
                               style={"width": "80px", "display": "inline-block",
@@ -72,7 +73,7 @@ def _op_section(op_id, description, *, has_new_only=False,
                     dbc.Switch(
                         id=f"dc-with-signals-{op_id}",
                         label="Incluir señales", value=True,
-                        style={"fontSize": "0.74rem", "color": "#9ca3af"}),
+                        style={"fontSize": "0.74rem", "color": TEXT_MUTED}),
                 ], width="auto", className="d-flex align-items-center"),
             ], className="g-2 mb-1 align-items-center"),
             html.Small("El horizonte y el alcance aplican a los dos botones "
@@ -103,7 +104,7 @@ def _op_section(op_id, description, *, has_new_only=False,
     return html.Div([
         html.P(description, className="text-muted mb-2", style=_TXT_SM),
         html.Div(id=f"dc-status-{op_id}", className="mb-2",
-                 style={**_TXT_XS, "borderTop": "1px solid #374151", "paddingTop": "8px"}),
+                 style={**_TXT_XS, "borderTop": f"1px solid {BORDER_CARD}", "paddingTop": "8px"}),
         dbc.Progress(id=f"dc-progress-{op_id}", value=0, striped=True, animated=True,
                      style={"height": "4px", "display": "none"}, className="mb-1"),
         html.Div(id=f"dc-msg-{op_id}", style=_TXT_MSG),
@@ -148,7 +149,7 @@ def layout(**kwargs):
         return html.Div()
 
     return html.Div([
-        html.H4(["Centro de Datos ", help_link("centro-de-datos")], className="mb-1"),
+        page_header("Centro de Datos", "centro-de-datos", className="mb-1"),
         html.P("Estado de los datos y operaciones de actualización.",
                className="text-muted mb-4", style={"fontSize": "0.8rem"}),
 

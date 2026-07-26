@@ -2,8 +2,9 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
+from app.components.ui_constants import COLOR_NEGATIVE, COLOR_POSITIVE
 
 _LOG_COLUMNS = [
     {"name": "Ticker", "id": "ticker"},
@@ -24,7 +25,7 @@ def layout(**kwargs):
 
     return html.Div([
         html.Div([
-            html.H3(["Actualización de precios ", help_link("actualizacion-de-precios")], className="d-inline-block me-3"),
+            page_header("Actualización de precios", "actualizacion-de-precios", className="d-inline-block me-3"),
             dbc.Button("Limpiar log", id="prices-btn-clear-log", color="link", size="sm"),
         ], className="d-flex align-items-center mb-2"),
         html.Div([
@@ -51,12 +52,12 @@ def layout(**kwargs):
             style_cell=CELL,
             style_filter=FILTER,
             style_data_conditional=SELECTED_ROW + [
-                {"if": {"filter_query": '{result} = "Éxito"'}, "color": "#4caf50"},
-                {"if": {"filter_query": '{result} = "Error"'}, "color": "#ef5350"},
+                {"if": {"filter_query": '{result} = "Éxito"'}, "color": COLOR_POSITIVE},
+                {"if": {"filter_query": '{result} = "Error"'}, "color": COLOR_NEGATIVE},
                 {"if": {"filter_query": '{indicator_result} = "Éxito"', "column_id": "indicator_result"},
-                 "color": "#4caf50"},
+                 "color": COLOR_POSITIVE},
                 {"if": {"filter_query": '{indicator_result} = "Error"', "column_id": "indicator_result"},
-                 "color": "#ef5350"},
+                 "color": COLOR_NEGATIVE},
             ],
             page_size=30,
             sort_action="native",

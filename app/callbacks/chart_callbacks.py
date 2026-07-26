@@ -19,6 +19,9 @@ from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df
 import app.services.event_service as event_svc
 import app.services.sr_service as sr_svc
+from app.components.ui_constants import (
+    BG_CODE, COLOR_NEGATIVE, COLOR_POSITIVE, TREND_LABELS, VOL_LABELS
+)
 
 
 # ─── Configuración de slots ───────────────────────────────────────────────────
@@ -1743,18 +1746,7 @@ clientside_callback(
 )
 
 
-_REGIME_LABELS = {
-    "bullish_nascent_strong": ("Alcista naciente fuerte", "#66bb6a"),
-    "bullish_nascent":        ("Alcista naciente",        "#a5d6a7"),
-    "bullish_strong":         ("Alcista fuerte",          "#2e7d32"),
-    "bullish":                ("Alcista",                 "#4caf50"),
-    "lateral_nascent":        ("Lateral naciente",        "#90caf9"),
-    "lateral":                ("Lateral",                 "#6495ed"),
-    "bearish_nascent_strong": ("Bajista naciente fuerte", "#ef5350"),
-    "bearish_nascent":        ("Bajista naciente",        "#ef9a9a"),
-    "bearish_strong":         ("Bajista fuerte",          "#b71c1c"),
-    "bearish":                ("Bajista",                 "#ef5350"),
-}
+_REGIME_LABELS = TREND_LABELS
 
 
 # ─── Etiqueta de régimen actual junto al toggle ────────────────────────────────
@@ -1778,12 +1770,7 @@ def update_regime_label(chart_data, freq):
 
 _VOL_LABELS_ES = {
     f"{vr}_{dr}": (f"{vl} | {dl}", clr)
-    for (vr, vl, clr) in [
-        ("extrema", "Extrema", "#ef5350"),
-        ("alta",    "Alta",    "#ff9800"),
-        ("normal",  "Normal",  "#90a4ae"),
-        ("baja",    "Baja",    "#42a5f5"),
-    ]
+    for vr, (vl, clr) in VOL_LABELS.items()
     for dr, dl in [("larga", "Larga"), ("media", "Media"), ("corta", "Corta")]
 }
 
@@ -1817,9 +1804,9 @@ clientside_callback(
 def _fmt_sr_label(resist_pct, support_pct):
     parts = []
     if resist_pct is not None:
-        parts.append(html.Span(f"↑+{resist_pct:.1f}%", style={"color": "#f87171"}))
+        parts.append(html.Span(f"↑+{resist_pct:.1f}%", style={"color": COLOR_NEGATIVE}))
     if support_pct is not None:
-        parts.append(html.Span(f" ↓{support_pct:.1f}%", style={"color": "#4ade80"}))
+        parts.append(html.Span(f" ↓{support_pct:.1f}%", style={"color": COLOR_POSITIVE}))
     return parts or ""
 
 
@@ -1910,13 +1897,13 @@ def update_ma_dist_labels(chart_data, freq, s1, s2, s3, e1, e2, e3):
 def _colored_dist(label: str):
     if not label:
         return ""
-    color = "#4ade80" if label.startswith("+") else "#f87171"
+    color = COLOR_POSITIVE if label.startswith("+") else COLOR_NEGATIVE
     return html.Span(label, style={"color": color, "fontSize": "0.68rem"})
 
 
 # ─── P&F clásico (Plotly): alterna visibilidad con el gráfico lightweight ────
 
-_LWC_STYLE = {"backgroundColor": "#1e1e1e", "padding": "8px", "borderRadius": "4px"}
+_LWC_STYLE = {"backgroundColor": BG_CODE, "padding": "8px", "borderRadius": "4px"}
 
 
 @callback(

@@ -4,14 +4,13 @@ from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 
 import app.services.signal_service as svc
 from app.services.visibility import can_edit, current_viewer, publica_str
+from app.components.ui_constants import (
+    COLOR_NEGATIVE, COLOR_POSITIVE, TD as _td, TEXT_MUTED, TH as _th,
+    formula_help_card as _help_card
+)
 from app.callbacks.signal_params_ui import (
     PB_FIELD_STATES, builder_from_params, empty_params_store,
     params_from_builder, pb_capture_from_args,
-)
-from app.components.ui_constants import (
-    TH as _th, TD as _td,
-    COLOR_POSITIVE, COLOR_NEGATIVE,
-    formula_help_card as _help_card,
 )
 
 
@@ -356,8 +355,8 @@ def import_excel(contents, filename):
         html.Tr([
             html.Td(r["key"],    style=_td),
             html.Td(r["status"].upper(),
-                    style={**_td, "color": _COLOR.get(r["status"], "#9ca3af")}),
-            html.Td(r["detail"], style={**_td, "fontSize": "0.75rem", "color": "#9ca3af"}),
+                    style={**_td, "color": _COLOR.get(r["status"], TEXT_MUTED)}),
+            html.Td(r["detail"], style={**_td, "fontSize": "0.75rem", "color": TEXT_MUTED}),
         ])
         for r in results
     ]

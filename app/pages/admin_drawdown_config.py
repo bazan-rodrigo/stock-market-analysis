@@ -2,7 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 _HELP = (
     "Identifica grandes caídas históricas: desde un máximo histórico (ATH) hasta la recuperación. "
@@ -18,7 +18,7 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     return html.Div([
-        html.H4(["Drawdowns — Configuración ", help_link("drawdowns")], className="mb-2"),
+        page_header("Drawdowns — Configuración", "drawdowns"),
         dbc.Alert(_HELP, color="info", className="mb-3 small py-2"),
 
         dbc.Card(dbc.CardBody([

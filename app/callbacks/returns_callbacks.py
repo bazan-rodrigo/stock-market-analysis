@@ -9,8 +9,11 @@ from app.services.evolution_service import (
     get_benchmark_assets_options,
     get_synthetic_assets_options,
 )
+from app.components.ui_constants import (
+    BG_CARD, BG_DEEP, COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_BODY, TEXT_FAINT
+, TEXT_FAINT)
 
-_BG = "#111827"
+_BG = BG_DEEP
 
 
 # ── Poblar dropdowns al cargar ────────────────────────────────────────────────
@@ -141,7 +144,7 @@ def calc_returns(_, period, date_from, date_to, mode,
     c_starts = [r["close_start"] for r in results]
     c_ends   = [r["close_end"]   for r in results]
 
-    colors = ["#4ade80" if v >= 0 else "#f87171" for v in returns]
+    colors = [COLOR_POSITIVE if v >= 0 else COLOR_NEGATIVE for v in returns]
 
     hover = [
         f"<b>{tickers[i]}</b> — {names[i]}<br>"
@@ -159,14 +162,14 @@ def calc_returns(_, period, date_from, date_to, mode,
         marker_color=colors,
         text=text_labels,
         textposition="outside",
-        textfont=dict(size=11, color="#dee2e6"),
+        textfont=dict(size=11, color=TEXT_BODY),
         hovertemplate="%{customdata}<extra></extra>",
         customdata=hover,
         cliponaxis=False,
     ))
 
     # Línea de cero
-    fig.add_hline(y=0, line_color="#4b5563", line_width=1)
+    fig.add_hline(y=0, line_color=TEXT_FAINT, line_width=1)
 
     _period_lbl = {
         "1D": "1 Día", "1S": "1 Semana", "1M": "1 Mes",
@@ -185,17 +188,17 @@ def calc_returns(_, period, date_from, date_to, mode,
         title=dict(text=title, font=dict(color="#f59e0b", size=16), x=0),
         plot_bgcolor=_BG,
         paper_bgcolor=_BG,
-        font=dict(color="#dee2e6", size=11),
+        font=dict(color=TEXT_BODY, size=11),
         margin=dict(l=50, r=20, t=50, b=60),
         xaxis=dict(
             tickfont=dict(size=10),
-            gridcolor="#1f2937",
+            gridcolor=BG_CARD,
             tickangle=tickangle,
         ),
         yaxis=dict(
             ticksuffix="%",
-            gridcolor="#1f2937",
-            zerolinecolor="#4b5563",
+            gridcolor=BG_CARD,
+            zerolinecolor=TEXT_FAINT,
             range=[min(0, min(returns)) - ypad, max(0, max(returns)) + ypad],
         ),
         bargap=0.25,

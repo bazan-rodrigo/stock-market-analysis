@@ -2,9 +2,9 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
-from app.components.ui_constants import BORDER_CARD
+from app.components.ui_constants import BG_CARD, BG_INPUT, BORDER_CARD, TEXT_DIM, TEXT_MUTED
 
 _PRICE_META = {
     "Yahoo Finance": {
@@ -32,13 +32,13 @@ _FUND_META = {
     },
 }
 
-_CARD_HEADER = {"backgroundColor": "#2c2c2c", "borderBottom": f"1px solid {BORDER_CARD}"}
-_CARD_BODY   = {"backgroundColor": "#1f2937"}
+_CARD_HEADER = {"backgroundColor": BG_INPUT, "borderBottom": f"1px solid {BORDER_CARD}"}
+_CARD_BODY   = {"backgroundColor": BG_CARD}
 _CARD_STYLE  = {"border": f"1px solid {BORDER_CARD}", "height": "100%"}
 
-_LABEL_STYLE = {"fontSize": "0.78rem", "color": "#9ca3af", "fontWeight": "600"}
+_LABEL_STYLE = {"fontSize": "0.78rem", "color": TEXT_MUTED, "fontWeight": "600"}
 _VALUE_STYLE = {"fontSize": "0.78rem", "color": "#d1d5db"}
-_NOTE_STYLE  = {"fontSize": "0.78rem", "color": "#6b7280"}
+_NOTE_STYLE  = {"fontSize": "0.78rem", "color": TEXT_DIM}
 _DESC_STYLE  = {"fontSize": "0.83rem", "color": "#d1d5db"}
 
 
@@ -105,12 +105,12 @@ def layout(**kwargs):
                    for fs in fund_sources]
 
     return html.Div([
-        html.H3(["Fuentes de Datos ", help_link("fuentes-de-datos")], className="mb-4"),
+        page_header("Fuentes de Datos", "fuentes-de-datos", className="mb-4"),
 
-        html.H5("Fuentes de Precios", className="mb-3", style={"color": "#9ca3af"}),
+        html.H5("Fuentes de Precios", className="mb-3", style={"color": TEXT_MUTED}),
         dbc.Row(price_cards),
 
-        html.H5("Fuentes de Fundamentales", className="mb-3 mt-2", style={"color": "#9ca3af"}),
+        html.H5("Fuentes de Fundamentales", className="mb-3 mt-2", style={"color": TEXT_MUTED}),
         dbc.Row(fund_cards),
     ])
 

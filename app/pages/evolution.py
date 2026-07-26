@@ -5,6 +5,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from app.components.help import help_link
+from app.components.ui_constants import BG_CHART_ALT, BG_INPUT, TEXT_BODY
 
 
 def layout(**kwargs):
@@ -61,7 +62,7 @@ def layout(**kwargs):
                     dcc.DatePickerSingle(
                         id="evol-date-from", date=one_year.isoformat(),
                         display_format="YYYY-MM-DD",
-                        style={"fontSize": "0.85rem", "backgroundColor": "#2c2c2c",
+                        style={"fontSize": "0.85rem", "backgroundColor": BG_INPUT,
                                "border": "1px solid #555", "borderRadius": "4px"},
                     ),
                 ], md=2),
@@ -70,7 +71,7 @@ def layout(**kwargs):
                     dcc.DatePickerSingle(
                         id="evol-date-to", date=today.isoformat(),
                         display_format="YYYY-MM-DD",
-                        style={"fontSize": "0.85rem", "backgroundColor": "#2c2c2c",
+                        style={"fontSize": "0.85rem", "backgroundColor": BG_INPUT,
                                "border": "1px solid #555", "borderRadius": "4px"},
                     ),
                 ], md=2),
@@ -179,14 +180,14 @@ def layout(**kwargs):
             dcc.Graph(
                 id="evol-graph",
                 style={"height": "540px"},
-                figure={"layout": {"paper_bgcolor": "#1e2126", "plot_bgcolor": "#1e2126"}},
+                figure={"layout": {"paper_bgcolor": BG_CHART_ALT, "plot_bgcolor": BG_CHART_ALT}},
                 config={
                     "displayModeBar": True,
                     "modeBarButtonsToRemove": ["lasso2d", "select2d"],
                     "scrollZoom": True,
                 },
             ),
-            type="circle", color="#dee2e6",
+            type="circle", color=TEXT_BODY,
         ),
     ], style={"padding": "0 8px"})
 

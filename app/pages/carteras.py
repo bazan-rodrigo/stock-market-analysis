@@ -2,7 +2,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 
@@ -162,7 +162,7 @@ def layout(**kwargs):
         dcc.Interval(id="cart-recalc-interval", interval=1200, disabled=True),
 
         dbc.Row([
-            dbc.Col(html.H4(["Carteras ", help_link("carteras")], className="mb-0"), width="auto"),
+            dbc.Col(page_header("Carteras", "carteras", className="mb-0"), width="auto"),
             dbc.Col(dbc.Button("+ Nueva cartera", id="cart-btn-add",
                                color="primary", size="sm"),
                     className="d-flex align-items-center"),

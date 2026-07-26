@@ -10,7 +10,10 @@ from app.services.strategy_service import get_visible_strategies
 from app.services.visibility import current_viewer
 from app.pages.signal_history import _th, _td
 
-from app.components.ui_constants import CHART_PALETTE as _PALETTE
+from app.components.ui_constants import (
+    BG_CARD, BG_DEEP, BORDER_CARD, CHART_PALETTE as _PALETTE, COLOR_NEGATIVE,
+    COLOR_NEUTRAL, COLOR_POSITIVE, TEXT_DIM, TEXT_MUTED
+, COLOR_POSITIVE, COLOR_NEGATIVE)
 from app.components.url_params import preselect_from_options
 
 
@@ -122,9 +125,9 @@ def render_chart(sig_ids, asset_id, date_from_str, date_to_str):
 
     # ── Gráfico ───────────────────────────────────────────────────────────────
     fig = go.Figure()
-    fig.add_hrect(y0=20,   y1=100, fillcolor="#4ade80", opacity=0.04, line_width=0)
-    fig.add_hrect(y0=-100, y1=-20, fillcolor="#f87171", opacity=0.04, line_width=0)
-    fig.add_hline(y=0,   line_dash="dot", line_color="#374151",   line_width=1)
+    fig.add_hrect(y0=20,   y1=100, fillcolor=COLOR_POSITIVE, opacity=0.04, line_width=0)
+    fig.add_hrect(y0=-100, y1=-20, fillcolor=COLOR_NEGATIVE, opacity=0.04, line_width=0)
+    fig.add_hline(y=0,   line_dash="dot", line_color=BORDER_CARD,   line_width=1)
     # rgba y no hex de 8 dígitos (#RRGGBBAA): el validador de plotly para
     # shapes no acepta hex con alfa
     fig.add_hline(y=20,  line_dash="dot", line_color="rgba(74, 222, 128, 0.27)", line_width=1)
@@ -148,24 +151,24 @@ def render_chart(sig_ids, asset_id, date_from_str, date_to_str):
         ))
 
     fig.update_layout(
-        paper_bgcolor="#111827",
-        plot_bgcolor="#111827",
+        paper_bgcolor=BG_DEEP,
+        plot_bgcolor=BG_DEEP,
         font={"color": "#d1d5db", "size": 11},
         margin={"l": 48, "r": 16, "t": 24, "b": 40},
         legend={
-            "bgcolor": "#1f2937",
-            "bordercolor": "#374151",
+            "bgcolor": BG_CARD,
+            "bordercolor": BORDER_CARD,
             "borderwidth": 1,
             "font": {"size": 10},
         },
         xaxis={
-            "gridcolor": "#1f2937",
-            "linecolor": "#374151",
+            "gridcolor": BG_CARD,
+            "linecolor": BORDER_CARD,
             "tickformat": "%Y-%m-%d",
         },
         yaxis={
-            "gridcolor": "#1f2937",
-            "linecolor": "#374151",
+            "gridcolor": BG_CARD,
+            "linecolor": BORDER_CARD,
             "range": [-110, 110],
             "tickvals": [-100, -60, -20, 0, 20, 60, 100],
             "zeroline": False,
@@ -179,7 +182,7 @@ def render_chart(sig_ids, asset_id, date_from_str, date_to_str):
                       style={"height": "420px"}),
             style={"padding": "8px"},
         ),
-        style={"backgroundColor": "#1f2937", "border": "1px solid #374151"},
+        style={"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}"},
     )
 
     # ── Tabla resumen (último valor) ──────────────────────────────────────────
@@ -188,16 +191,16 @@ def render_chart(sig_ids, asset_id, date_from_str, date_to_str):
         pts              = history[sg.id]
         last_dt, last_sc = pts[-1]
         color = (
-            "#4ade80" if last_sc >= 20 else
-            "#f87171" if last_sc <= -20 else
-            "#94a3b8"
+            COLOR_POSITIVE if last_sc >= 20 else
+            COLOR_NEGATIVE if last_sc <= -20 else
+            COLOR_NEUTRAL
         )
         table_rows.append(html.Tr([
             html.Td(html.Code(sg.key,
-                              style={"fontSize": "0.76rem", "color": "#6b7280"}),
+                              style={"fontSize": "0.76rem", "color": TEXT_DIM}),
                     style=_td),
             html.Td(sg.name, style=_td),
-            html.Td(str(last_dt), style={**_td, "color": "#9ca3af"}),
+            html.Td(str(last_dt), style={**_td, "color": TEXT_MUTED}),
             html.Td(
                 html.Strong(f"{last_sc:.1f}",
                             style={"color": color, "fontFamily": "monospace"}),

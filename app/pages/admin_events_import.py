@@ -2,9 +2,10 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dash_table, dcc, html
 
-from app.components.help import help_link
+from app.components.help import page_header
 
 from app.components.table_styles import FILTER, HEADER, DATA, CELL
+from app.components.ui_constants import COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_BODY
 
 _LOG_COLUMNS = [
     {"name": "Nombre",  "id": "nombre"},
@@ -19,7 +20,7 @@ def layout(**kwargs):
         return html.Div("Acceso denegado", className="text-danger mt-4")
 
     return html.Div([
-        html.H3(["Importar eventos de mercado ", help_link("importar-eventos")], className="mb-4"),
+        page_header("Importar eventos de mercado", "importar-eventos", className="mb-4"),
         dbc.Row([
             dbc.Col(dbc.Card(dbc.CardBody([
                 html.H5("1. Descargar template"),
@@ -51,7 +52,7 @@ def layout(**kwargs):
                         dbc.Button("Importar", id="ev-import-btn-run", color="success",
                                    size="sm", disabled=True, className="mt-2"),
                     ]),
-                    type="circle", color="#dee2e6",
+                    type="circle", color=TEXT_BODY,
                 ),
                 dcc.Store(id="ev-import-file-store"),
             ])), md=8),
@@ -72,8 +73,8 @@ def layout(**kwargs):
                 style_cell=CELL,
                 style_filter=FILTER,
                 style_data_conditional=[
-                    {"if": {"filter_query": "{status} = imported"}, "color": "#4caf50"},
-                    {"if": {"filter_query": "{status} = error"},    "color": "#ef5350"},
+                    {"if": {"filter_query": "{status} = imported"}, "color": COLOR_POSITIVE},
+                    {"if": {"filter_query": "{status} = error"},    "color": COLOR_NEGATIVE},
                 ],
                 filter_action="native",
                 page_size=50,

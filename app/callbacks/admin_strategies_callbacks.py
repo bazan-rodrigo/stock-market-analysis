@@ -10,7 +10,10 @@ from app.callbacks.strategy_filter_ui import (
     empty_filter_store, store_to_tree, store_to_text, tree_to_store,
     _capture_fields,
 )
-from app.components.ui_constants import TH as _th, TD as _td
+from app.components.ui_constants import (
+    BG_CARD, BORDER_CARD, COLOR_NEGATIVE, COLOR_NEUTRAL, COLOR_POSITIVE, TD as _td,
+    TEXT_MUTED, TH as _th
+)
 
 
 def _visible_strategies():
@@ -199,7 +202,7 @@ def render_comp_rows(uid_store, signal_opts):
             dbc.Col(
                 dbc.Button("×", id={"type": "str-remove-comp", "index": uid},
                            color="link", size="sm",
-                           style={"color": "#ef5350", "padding": "0 6px",
+                           style={"color": COLOR_NEGATIVE, "padding": "0 6px",
                                   "lineHeight": 1, "fontSize": "1rem"}),
                 style={"width": "32px"},
             ),
@@ -509,13 +512,13 @@ def calc_results(_, selected_ids, date_str):
                 html.Tr([
                     html.Td(html.Strong(r["ticker"]), style=_td),
                     html.Td(r["name"] or "—",
-                            style={**_td, "color": "#9ca3af", "fontSize": "0.76rem"}),
+                            style={**_td, "color": TEXT_MUTED, "fontSize": "0.76rem"}),
                     html.Td(
                         html.Span(f"{r['score']:.1f}",
                                   style={"fontFamily": "monospace",
-                                         "color": "#4ade80" if (r["score"] or 0) >= 20
-                                                  else "#f87171" if (r["score"] or 0) <= -20
-                                                  else "#94a3b8"}),
+                                         "color": COLOR_POSITIVE if (r["score"] or 0) >= 20
+                                                  else COLOR_NEGATIVE if (r["score"] or 0) <= -20
+                                                  else COLOR_NEUTRAL}),
                         style=_td,
                     ),
                 ])
@@ -539,7 +542,7 @@ def calc_results(_, selected_ids, date_str):
                     ])),
                     html.Tbody(rows),
                 ], style={"width": "100%", "borderCollapse": "collapse"}),
-            ]), style={"backgroundColor": "#1f2937", "border": "1px solid #374151"})
+            ]), style={"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}"})
 
     if insample_alert is not None:
         preview = html.Div([insample_alert, preview])
@@ -586,14 +589,14 @@ def import_excel(contents, filename):
 
     ok_count  = sum(1 for r in results if r["status"] == "ok")
     err_count = sum(1 for r in results if r["status"] == "error")
-    _COLOR = {"ok": "#4ade80", "error": "#f87171"}
+    _COLOR = {"ok": COLOR_POSITIVE, "error": COLOR_NEGATIVE}
 
     rows = [
         html.Tr([
             html.Td(r["name"],   style=_td),
             html.Td(r["status"].upper(),
-                    style={**_td, "color": _COLOR.get(r["status"], "#9ca3af")}),
-            html.Td(r["detail"], style={**_td, "fontSize": "0.75rem", "color": "#9ca3af"}),
+                    style={**_td, "color": _COLOR.get(r["status"], TEXT_MUTED)}),
+            html.Td(r["detail"], style={**_td, "fontSize": "0.75rem", "color": TEXT_MUTED}),
         ])
         for r in results
     ]

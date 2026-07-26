@@ -6,8 +6,9 @@ import dash_bootstrap_components as dbc
 
 import app.services.scatter_service as svc
 from app.utils import safe_callback
+from app.components.ui_constants import BG_CARD, BG_DEEP, COLOR_WARNING, TEXT_BODY, TEXT_FAINT
 
-_BG = "#111827"
+_BG = BG_DEEP
 
 
 def _scatter_error(exc):
@@ -142,9 +143,9 @@ function(scatterData, trendType, polyDegree, logScale) {
   var EMPTY = {
     data: [],
     layout: {
-      plot_bgcolor:'#111827', paper_bgcolor:'#111827',
-      font:{color:'#dee2e6'},
-      xaxis:{gridcolor:'#1f2937'}, yaxis:{gridcolor:'#1f2937'},
+      plot_bgcolor:BG_DEEP, paper_bgcolor:BG_DEEP,
+      font:{color:TEXT_BODY},
+      xaxis:{gridcolor:BG_CARD}, yaxis:{gridcolor:BG_CARD},
       margin:{l:60,r:20,t:20,b:50}
     }
   };
@@ -308,7 +309,7 @@ function(scatterData, trendType, polyDegree, logScale) {
     traces.push({
       x:[ev.p1], y:[ev.p2],
       mode:'markers+text',
-      marker:{size:14,color:ev.color,symbol:'star',line:{color:'#1f2937',width:1}},
+      marker:{size:14,color:ev.color,symbol:'star',line:{color:BG_CARD,width:1}},
       text:[ev.name], textposition:'top center',
       textfont:{color:ev.color,size:8},
       hovertemplate:'<b>'+ev.name+'</b><br>'+ev.start_date+' → '+ev.end_date+'<extra></extra>',
@@ -324,7 +325,7 @@ function(scatterData, trendType, polyDegree, logScale) {
       traces.push({
         x:tr.xLine, y:tr.yLine,
         mode:'lines',
-        line:{color:'#facc15',width:1.5,dash:'dash'},
+        line:{color:COLOR_WARNING,width:1.5,dash:'dash'},
         name:tr.eq+'  (R² = '+tr.r2Val.toFixed(4)+')',
         hoverinfo:'skip'
       });
@@ -332,7 +333,7 @@ function(scatterData, trendType, polyDegree, logScale) {
         xref:'paper',yref:'paper', x:0.01,y:0.99,
         text:'<b>R² = '+tr.r2Val.toFixed(4)+'</b>',
         showarrow:false,
-        font:{size:11,color:'#facc15'},
+        font:{size:11,color:COLOR_WARNING},
         bgcolor:'rgba(0,0,0,0.5)', borderpad:4,
         xanchor:'left',yanchor:'top'
       });
@@ -344,16 +345,16 @@ function(scatterData, trendType, polyDegree, logScale) {
   return {
     data:traces,
     layout:{
-      plot_bgcolor:'#111827', paper_bgcolor:'#111827',
-      font:{color:'#dee2e6',size:11},
-      xaxis:{title:scatterData.label1,type:at,gridcolor:'#1f2937',
-             zerolinecolor:'#4b5563',tickfont:{size:10}},
-      yaxis:{title:scatterData.label2,type:at,gridcolor:'#1f2937',
-             zerolinecolor:'#4b5563',tickfont:{size:10}},
+      plot_bgcolor:BG_DEEP, paper_bgcolor:BG_DEEP,
+      font:{color:TEXT_BODY,size:11},
+      xaxis:{title:scatterData.label1,type:at,gridcolor:BG_CARD,
+             zerolinecolor:TEXT_FAINT,tickfont:{size:10}},
+      yaxis:{title:scatterData.label2,type:at,gridcolor:BG_CARD,
+             zerolinecolor:TEXT_FAINT,tickfont:{size:10}},
       margin:{l:60,r:90,t:20,b:50},
       hovermode:'closest',
       annotations:annotations,
-      legend:{x:0.01,y:0.01,font:{size:9,color:'#facc15'},
+      legend:{x:0.01,y:0.01,font:{size:9,color:COLOR_WARNING},
               bgcolor:'rgba(0,0,0,0)',xanchor:'left',yanchor:'bottom'}
     }
   };

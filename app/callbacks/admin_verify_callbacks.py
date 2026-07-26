@@ -6,6 +6,7 @@ from pathlib import Path
 
 from dash import ALL, Input, Output, State, callback, ctx, html, no_update
 from flask_login import current_user
+from app.components.ui_constants import BG_DEEP
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -208,7 +209,7 @@ def _split_by_category(result: dict) -> tuple[list, list]:
 
 
 _TREE_PRE_STYLE = {
-    "backgroundColor": "#111827", "color": "#e5e7eb",
+    "backgroundColor": BG_DEEP, "color": "#e5e7eb",
     "padding": "0.5rem 0.75rem", "borderRadius": "4px",
     "fontSize": "0.76rem", "whiteSpace": "pre-wrap", "margin": "0.25rem 0 0.5rem 0",
 }

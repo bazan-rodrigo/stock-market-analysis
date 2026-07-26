@@ -7,7 +7,10 @@ import dash_bootstrap_components as dbc
 from dash import html
 
 import app.services.rrg_service as rrg_svc
-from app.components.ui_constants import TH_NOWRAP as _th_base, BG_CHART as _BG
+from app.components.ui_constants import (
+    BG_CARD, BG_CHART as _BG, BORDER_CARD, COLOR_NEGATIVE, TEXT_BODY, TEXT_FAINT,
+    TEXT_MUTED, TH_NOWRAP as _th_base
+)
 
 logger = logging.getLogger(__name__)
 
@@ -258,9 +261,9 @@ def _apply_layout(fig: go.Figure, x_range: list, y_range: list, uirevision: str 
         dict(type="rect", x0=cx, y0=ylo, x1=xhi, y1=cy,
              fillcolor="rgba(230,119,0,0.18)",  line_width=0),
         dict(type="line", x0=cx, y0=ylo, x1=cx, y1=yhi,
-             line=dict(color="#4b5563", width=1)),
+             line=dict(color=TEXT_FAINT, width=1)),
         dict(type="line", x0=xlo, y0=cy, x1=xhi, y1=cy,
-             line=dict(color="#4b5563", width=1)),
+             line=dict(color=TEXT_FAINT, width=1)),
     ]
 
     annotations = [
@@ -282,26 +285,26 @@ def _apply_layout(fig: go.Figure, x_range: list, y_range: list, uirevision: str 
         uirevision=uirevision,
         plot_bgcolor=_BG,
         paper_bgcolor=_BG,
-        font=dict(color="#dee2e6", size=11),
+        font=dict(color=TEXT_BODY, size=11),
         shapes=shapes,
         annotations=annotations,
         xaxis=dict(
             title="JdK RS-Ratio",
             range=x_range,
-            gridcolor="#1f2937",
-            zerolinecolor="#4b5563",
+            gridcolor=BG_CARD,
+            zerolinecolor=TEXT_FAINT,
             tickfont=dict(size=10),
         ),
         yaxis=dict(
             title="JdK RS-Momentum",
             range=y_range,
-            gridcolor="#1f2937",
-            zerolinecolor="#4b5563",
+            gridcolor=BG_CARD,
+            zerolinecolor=TEXT_FAINT,
             tickfont=dict(size=10),
         ),
         legend=dict(
-            bgcolor="#1f2937",
-            bordercolor="#374151",
+            bgcolor=BG_CARD,
+            bordercolor=BORDER_CARD,
             borderwidth=1,
             font=dict(size=10),
             orientation="v",
@@ -326,7 +329,7 @@ def _build_table(asset_ids: list, raw_data: dict, skipped_labels: dict = None) -
         momentum = f"{trail[-1]['momentum']:.2f}" if trail else "—"
         date_lbl = trail[-1]["date"]               if trail else "—"
 
-        row_style = {"borderBottom": "1px solid #1f2937"}
+        row_style = {"borderBottom": f"1px solid {BG_CARD}"}
         if skipped:
             row_style["opacity"] = "0.45"
 
@@ -337,16 +340,16 @@ def _build_table(asset_ids: list, raw_data: dict, skipped_labels: dict = None) -
             })),
             html.Td(ticker,  style={"fontWeight": "bold",  "fontSize": "0.82rem", "paddingLeft": "6px"}),
             html.Td(name,    style={
-                "color": "#9ca3af", "maxWidth": "180px", "overflow": "hidden",
+                "color": TEXT_MUTED, "maxWidth": "180px", "overflow": "hidden",
                 "textOverflow": "ellipsis", "whiteSpace": "nowrap", "paddingRight": "16px",
             }),
-            html.Td(date_lbl, style={"textAlign": "center", "color": "#9ca3af", "whiteSpace": "nowrap"}),
+            html.Td(date_lbl, style={"textAlign": "center", "color": TEXT_MUTED, "whiteSpace": "nowrap"}),
             html.Td(ratio,    style={"textAlign": "center"}),
             html.Td(momentum, style={"textAlign": "center"}),
             html.Td(
                 dbc.Button("×", id={"type": "rrg-remove", "index": aid},
                            color="link", size="sm",
-                           style={"color": "#ef5350", "padding": "0 4px", "lineHeight": 1}),
+                           style={"color": COLOR_NEGATIVE, "padding": "0 4px", "lineHeight": 1}),
             ),
         ], style=row_style))
 

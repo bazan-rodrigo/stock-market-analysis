@@ -3,6 +3,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from app.components.abm import make_abm_layout
+from app.components.ui_constants import COLOR_NEGATIVE, COLOR_POSITIVE
 
 _SCOPE_OPTIONS = [
     {"label": "Global (todos los activos)", "value": "global"},
@@ -12,9 +13,9 @@ _SCOPE_OPTIONS = [
 
 _COLOR_OPTIONS = [
     {"label": "Naranja",  "value": "#ff9800"},
-    {"label": "Rojo",     "value": "#ef5350"},
+    {"label": "Rojo",     "value": COLOR_NEGATIVE},
     {"label": "Azul",     "value": "#2196f3"},
-    {"label": "Verde",    "value": "#4caf50"},
+    {"label": "Verde",    "value": COLOR_POSITIVE},
     {"label": "Violeta",  "value": "#9c27b0"},
     {"label": "Amarillo", "value": "#ffeb3b"},
     {"label": "Cian",     "value": "#00bcd4"},
