@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 58c4a97c-9a03-42ba-8cf6-706cfcedde17
-  modified: 2026-07-25T19:02:15.183Z
+  modified: 2026-07-26T07:39:04.894Z
 ---
 
 25-jul-2026. El usuario pidió estudiar aplicar el modelo de **tablas anchas** de
@@ -78,6 +78,66 @@ el recreate. Ambas mitigadas, documentadas.
   = única creadora en Railway; como las migraciones se aplican a mano, cablearlo
   chocaría con `op.create_table`). El cableo va en el cutover (fases 3-5), con la
   0091 ya aplicada — mismo orden que indicadores.
-- **PENDIENTE:** push + revisión del usuario; después `alembic upgrade head` en
-  Railway (crea las 2 tablas base vacías, deploy-safe con flag OFF). Fases 2-5 sin
-  empezar (escritor ancho, lector strategy_only, cutover 0092, drop 0093).
+- Railway: 0091 aplicada (tablas base creadas).
+
+**Fases 2-5 HECHAS (código, 919 tests, pusheadas 58aa94d + 00c4698) — flag default
+TODAVÍA OFF:**
+- Fase 2 (escritores): signal_backfill_range (rango), compute_signal_values +
+  compute_strategy_results (diario). Rebuild total = truncate+INSERT plano;
+  parcial/delta = NULL-columnas+UPSERT. Helpers wide_upsert/insert/null_columns/
+  pivot/load_wide_signal_scores en signal_store.
+- Fase 3 (lectores): vistas SUBQUERY (_sig_view/_strat_view) con `col IS NOT NULL`
+  HORNEADO (drop-in, evita "diferencias falsas"). read_sig_table/read_strat_table
+  en 14 call-sites (backtest/portfolio/rules/optimizer/chart/data_explorer/
+  signal_history/strategy_service/strategy_filter/rebuild). Ciclo de vida
+  (ensure/drop_*_storage) en save/delete/import + reconcile_wide_columns al arranque.
+- Fase 4: migración **0093** pobla (descubre tablas dinámicas, ADD COLUMN, merge-en-
+  Python sin bloat, NO borra viejas). Fase 5 drop: migración **0094** (dinámica,
+  guard offline, downgrade recrea+repuebla) = PUNTO DE NO RETORNO. Renumeradas de
+  0093/0094 porque la OTRA sesión usó 0092 (drop group_scores).
+- Tests: test_signal_range_parity_wide + test_wide_signal_tables (vistas/reconcile/pivot).
+
+**CUTOVER FINALIZADO (7d2eb2c): flag default ON.** El usuario aplicó `alembic
+upgrade head` (0093+0094) en Railway sin querer, pero **no importa: aún NO había
+cargado activos** → las sig_{id}/strat_res_{id} estaban vacías, el drop no perdió
+nada. Como quedó en el estado final (anchas creadas, per-entidad dropeadas), se
+flipeó el default a ON directamente (evita el medio-estado flag-OFF-recrea-per-
+entidad). conftest fuerza 0 en la suite. 919 tests.
+
+**VALIDADO EN RAILWAY (26-jul): el ahorro 3,1× se materializó.** measure_signal_
+storage (actualizado post-cutover, commit 667824f): **4 señales en 437,5 MB ancha
+vs ~1,34 GB per-entidad = 3,1×**; base 2,2 GB → **1,30 GB**. Heap impecable (200,8 MB
+/ 4,04M = 49,7 B/fila, textbook para 4 float4, CERO bloat de datos). El índice sí
+algo gordo (236,8 MB, ratio 1,18) por inserción date-ordered que fragmenta
+(asset_id,date) → un `REINDEX TABLE signal_values_wide` reclama ~50-75 MB (opcional,
+fragmentación normal de tabla recién poblada, no la trae el modelo ancho).
+
+**BUG ENCONTRADO Y ARREGLADO (c9765ab): las per-entidad revivían.** reconcile_
+dynamic_tables corría SIN gatear por el flag y recreaba una sig_{id}/strat_res_{id}
+VACÍA por definición en cada arranque → deshacía el drop de la 0094 (medido: 4+4
+tablas de 0,1 MB revividas). Fix: en modo ancho el arranque llama
+drop_all_percode_tables (dropea las remanentes) + reconcile_wide_columns; el
+reconcile per-entidad queda para flag-OFF.
+
+**VALIDACIÓN END-TO-END COMPLETA (26-jul):** el usuario recalculó con señales Y
+estrategias cargadas bien. Diagnóstico: `signal_values_wide +4M ins/0 upd`,
+`strategy_results_wide +1,75M ins/0 upd` — **las dos anchas escriben limpio, cero
+bloat**. Ambos caminos (señales + estrategias) ejercitados con datos reales.
+Medición final: señales 4 col en **373,7 MB vs ~1,34 GB per-entidad = 3,7×**
+(mejoró de 3,1×: el índice se desinfló solo con el rebuild limpio, ratio índice/
+dato 1,18→0,86 — el "bloat de índice fresco" que marqué se resolvió con el
+TRUNCATE+insert, REINDEX ya casi innecesario). Estrategia SOLA: 1 en 162,5 MB vs
+~148,9 MB per-entidad = **0,9× (parity, esperado a N=1)** — el ahorro aparece con
+2+ (cada estrategia nueva ~13,4 MB ancha vs ~148,9 MB per-entidad). Base 1,40 GB.
+
+**GAP DE UX que salió de la prueba (todo arreglado, pusheado):** el usuario había
+subido la planilla de SEÑALES en la pantalla de ESTRATEGIAS (comparten name/
+description) → creó 4 estrategias vacías sin avisar. Se agregaron guards de
+validación de planilla a los 5 imports: estrategias rechaza planilla-de-señales +
+sin-componentes; señales exige 'key'; activos/eventos/sintéticos ya validaban.
+Además: measure_signal_storage actualizado al post-cutover; classify_table +
+VACUUM del panel reconocen las anchas; arranque en modo ancho NO recrea per-entidad.
+
+DIFERIDO (no bloquea): rebuild que RECREA la tabla para reclamar en PG el espacio
+de columnas de señales borradas (hoy reconcile las dropea, el espacio se libera
+con rewrite / VACUUM del panel, que ya incluye las anchas).
