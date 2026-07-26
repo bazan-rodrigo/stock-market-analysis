@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 87013aa9-b8a1-4676-b6de-fce6bdf7294c
-  modified: 2026-07-26T17:11:32.134Z
+  modified: 2026-07-26T18:40:32.892Z
 ---
 
 Hallazgo #2 de la verificación del manual (20-jul-2026). Estuvo DIFERIDO y se
@@ -42,15 +42,26 @@ pesado al promover.
   viejo intacto.
 - Tests: `test_portfolio_backtest_service.py` (curva desde snapshot / None sin
   snapshot / None si el run se borró / snapshot repunta) y `test_portfolio_service.py`
-  (create_portfolio persiste/omite sim_spec). Suite dirigida verde.
+  (create_portfolio persiste/omite sim_spec). Repaso post-implementación (26-jul):
+  se agregó `test_carteras_callbacks.py` (4, `_spec_summary`, el único helper puro
+  que había quedado sin cubrir) y se corrigieron dos secciones más del manual que
+  tenían el encuadre viejo (400-backtest.md "siguiendo ese mismo top-N"; celda de la
+  tabla comparativa de 460). Sin código muerto (todo lo nuevo referenciado). Suite
+  completa verde. Sin target nuevo para cProfile (Recalcular reusa
+  run_portfolio_backtest, ya cubierto por [[project_scaling_target]]).
 
 **Fuera de v1 (diferido):** auto-avance por scheduler (el snapshot sólo avanza al
 apretar Recalcular). "Miembros vigentes" sigue siendo top-N por ranking (etiquetado;
 el gate as-of exigiría re-simular = pesado).
 
-**PENDIENTE en Railway = producción:** `alembic upgrade head` (aplicar 0095 —
-confirmar el head real, las sesiones sig-wide en paralelo pueden haber sumado otra
-migración y renumerar) + verificar el flujo vivo (promover → ver curva → Recalcular).
-No verificado contra la app viva; la suite local es la única red.
+**Cadena de migración: LINEAL, sin multi-head.** La sesión de resiliencia pusheó
+**0096** (`run_history`) con `down_revision="0095"` → `0094→0095→0096`, una sola
+cabeza. `alembic upgrade head` en Railway aplica las dos de una (la preocupación de
+multi-head que había flagueado quedó descartada).
+
+**PENDIENTE en Railway = producción:** `alembic upgrade head` (aplica 0095+0096) +
+verificar el flujo vivo (promover → ver curva en /carteras → Recalcular; que la curva
+promovida sea idéntica a la del backtest). No verificado contra la app viva; la suite
+local es la única red.
 
 Relacionado: [[project_manual_usuario]] (de donde salió), [[project_backtest]].

@@ -67,7 +67,8 @@ dos curvas es, justamente, **cuánto aportan los stops**.
 
 Desde esta solapa podés **guardar la corrida** (para verla en Comparar) o
 **promoverla a seguimiento**, que crea una cartera teórica en
-[Carteras](/manual/carteras) siguiendo ese mismo top-N.
+[Carteras](/manual/carteras) que **hereda esa simulación completa** —top-N,
+rebalanceo, costos y tus reglas— con su curva, no sólo el top-N.
 
 ### 4. Comparar
 

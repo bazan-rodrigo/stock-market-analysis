@@ -15,7 +15,7 @@ diferencia cambia de dónde sale la composición y qué se puede calcular con el
 | | **Real** | **Seguimiento (teórica)** |
 |---|---|---|
 | De dónde sale su contenido | Del **registro de operaciones** que cargás vos (plata real) | De una definición: lista curada o top-N de una estrategia |
-| Qué se deriva | Posiciones, precio promedio, P&L realizado y no realizado | Pesos objetivo y, en las curadas, curva de rendimiento |
+| Qué se deriva | Posiciones, precio promedio, P&L realizado y no realizado | Pesos objetivo y curva de rendimiento (en las curadas, y en las promovidas desde el backtest) |
 | Para qué sirve | Llevar y valuar tu operatoria | Seguir una idea sin operarla, y servir de objetivo |
 
 La regla práctica: si querés **medir una idea**, hacé una de seguimiento; si querés

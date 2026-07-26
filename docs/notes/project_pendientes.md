@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-25T01:59:30.444Z
+  modified: 2026-07-26T18:40:50.743Z
 ---
 
 **Sesión 26-jul-2026: "Promover cartera" ahora HEREDA la config gated** (ver
@@ -17,11 +17,12 @@ un `PortfolioRun` y la vincula a la cartera (`sim_spec` + `source_run_id`).
 pesado en thread y repunta el snapshot). Migración **0095** (add_column `sim_spec`
 Text + `source_run_id` Integer plano, portable; `source_run_id` SIN FK de BD como
 `strategy_id`). Fuera de v1: auto-avance por scheduler; "Miembros vigentes" sigue
-siendo top-N por ranking (etiquetado). **PENDIENTE en Railway = producción:**
-`alembic upgrade head` (aplica 0095; confirmar el head real por las sesiones
-sig-wide en paralelo — puede haber otra migración nueva y renumerar) y verificar el
-flujo vivo: promover desde /backtest → Cartera, ver la curva en /carteras, y
-Recalcular. La suite local es la única red hasta entonces.
+siendo top-N por ranking (etiquetado). Cadena de migración LINEAL: la sesión de
+resiliencia pusheó 0096 (`run_history`) con `down_revision="0095"` →
+`0094→0095→0096`, una sola cabeza (multi-head descartado). **PENDIENTE en Railway =
+producción:** `alembic upgrade head` (aplica 0095+0096 de una) y verificar el flujo
+vivo: promover desde /backtest → Cartera, ver la curva en /carteras, y Recalcular.
+La suite local es la única red hasta entonces.
 
 ---
 
