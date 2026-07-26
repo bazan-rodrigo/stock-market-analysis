@@ -5,7 +5,32 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-26T21:17:14.785Z
+  modified: 2026-07-26T21:28:28.901Z
+---
+
+**Sesión 26-jul-2026: arreglada la preselección de activo desde la URL** (los
+links del screener de señales: `/activo?asset_id=N` y
+`/historial-senales?asset_id=N`). Síntoma reportado: "a veces carga solo el
+activo y otras veces no". Causa: **carrera entre dos callbacks** que escribían
+el mismo dropdown sin orden garantizado —uno las `options`, otro el `value`— y
+el `dcc.Dropdown` de Dash 4.4.0 **borra en silencio todo value ausente de sus
+options** (verificado en el bundle instalado: `valueSet.has(value) ||
+setProps({value:null})` en `async-dropdown.js`). Si el value (Python puro) le
+ganaba a las options (consulta a la base), se perdía. El link del screener abre
+con `target="_blank"` = carga completa = el camino con la carrera; navegar
+dentro de la app, con las options ya cargadas, siempre funcionó — de ahí el "a
+veces". Fix: helper único `app/components/url_params.py` que emite el value
+**solo si ya figura entre las options** (si no, `no_update`), y el callback toma
+options y search como **Inputs**, así reintenta cuando las options llegan.
+Aplicado en `chart_callbacks` y `signal_history_callbacks` (los dos únicos con
+`parse_qs`; un test estructural falla si alguien vuelve a parsear la URL a
+mano). 960 passed, sin migraciones. **PENDIENTE en Railway = producción:** abrir
+varias veces el link del screener y confirmar que el selector queda con el
+activo. Si para un id puntual quedara siempre vacío, el diagnóstico se corre a
+"ese id no está en el catálogo" — hoy eso deja el selector como estaba, sin
+aviso explícito (quedó afuera a propósito: necesita Output duplicado sobre
+`chart-load-output`).
+
 ---
 
 **Sesión 26-jul-2026: DevExtreme descartado; etapa 0 de grillas HECHA** (ver

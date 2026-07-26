@@ -14,6 +14,7 @@ Flujo:
 from dash import Input, Output, State, callback, clientside_callback, no_update, html
 
 
+from app.components.url_params import preselect_from_options
 from app.services.asset_service import get_assets
 from app.services.price_service import get_prices_df
 import app.services.event_service as event_svc
@@ -97,22 +98,18 @@ def load_chart_assets(_):
              "value": a.id} for a in assets]
 
 
+# Las options son Input y no State a propósito: el value tiene que escribirse
+# DESPUÉS de que estén cargadas o el Dropdown lo borra (ver
+# app/components/url_params.py). La URL también es Input, así que si llega tarde
+# el callback vuelve a disparar con las options ya en su lugar.
 @callback(
     Output("analysis-asset-select", "value"),
+    Input("analysis-asset-select", "options"),
     Input("url", "search"),
+    prevent_initial_call=True,
 )
-def preselect_asset_from_url(search):
-    if not search:
-        return no_update
-    from urllib.parse import parse_qs
-    params = parse_qs(search.lstrip("?"))
-    asset_ids = params.get("asset_id", [])
-    if not asset_ids:
-        return no_update
-    try:
-        return int(asset_ids[0])
-    except (ValueError, TypeError):
-        return no_update
+def preselect_asset_from_url(options, search):
+    return preselect_from_options(options, search)
 
 
 # ─── Mostrar/ocultar params colapsables ───────────────────────────────────────

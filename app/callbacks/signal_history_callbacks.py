@@ -11,6 +11,7 @@ from app.services.visibility import current_viewer
 from app.pages.signal_history import _th, _td
 
 from app.components.ui_constants import CHART_PALETTE as _PALETTE
+from app.components.url_params import preselect_from_options
 
 
 # ── Opciones de activos y estrategias ────────────────────────────────────────
@@ -32,24 +33,19 @@ def load_opts(_):
 
 
 # ── Pre-seleccionar activo desde URL (?asset_id=...) ─────────────────────────
+# Las options son Input y no State a propósito: el value tiene que escribirse
+# DESPUÉS de que estén cargadas o el Dropdown lo borra (ver
+# app/components/url_params.py). La URL también es Input, así que si llega tarde
+# el callback vuelve a disparar con las options ya en su lugar.
 
 @callback(
     Output("sh-asset-sel", "value"),
+    Input("sh-asset-sel",  "options"),
     Input("sh-url",        "search"),
     prevent_initial_call=True,
 )
-def preselect_from_url(search):
-    if not search:
-        return no_update
-    from urllib.parse import parse_qs
-    params = parse_qs(search.lstrip("?"))
-    ids = params.get("asset_id", [])
-    if not ids:
-        return no_update
-    try:
-        return int(ids[0])
-    except (ValueError, IndexError):
-        return no_update
+def preselect_from_url(options, search):
+    return preselect_from_options(options, search)
 
 
 # ── Al hacer "Ver": poblar signal-sel y mostrar el picker ────────────────────
