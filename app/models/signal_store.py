@@ -200,10 +200,12 @@ STRAT_WIDE_TABLE = "strategy_results_wide"
 
 def use_wide_signal_tables() -> bool:
     """Ruteo a las tablas anchas de señales/estrategias
-    (docs/notes/design_sig_wide_tables.md). Default OFF: en fase 1 nada lee/
-    escribe las anchas — el camino vivo sigue siendo sig_{id}/strat_res_{id}.
-    En el cutover (fase 5) pasa a default ON, como use_wide_ind_tables."""
-    return os.environ.get("USE_WIDE_SIGNAL_TABLES", "0").strip().lower() in (
+    (docs/notes/design_sig_wide_tables.md). Default ON desde el cutover (fase 5):
+    las sig_{id}/strat_res_{id} se dropearon (migración 0094) y el camino vivo es
+    ancho. Se puede forzar per-entidad con USE_WIDE_SIGNAL_TABLES=0 (debug, o
+    bases aún sin migrar/poblar). La suite lo pone en 0 en conftest (usa sqlite y
+    tablas per-entidad); los tests de paridad ancha lo vuelven a 1."""
+    return os.environ.get("USE_WIDE_SIGNAL_TABLES", "1").strip().lower() in (
         "1", "true", "yes", "on")
 
 

@@ -44,6 +44,10 @@ if _prev and not _prev.startswith("sqlite"):
 # el camino per-código (en prod el default de use_wide_ind_tables es wide desde
 # la fase 5). Los tests de tablas anchas lo vuelven a "1" con monkeypatch.
 os.environ["USE_WIDE_IND_TABLES"] = "0"
+# Ídem señales/estrategias: la mayoría de los tests ejercita el camino
+# per-entidad (sig_{id}/strat_res_{id}); en prod el default es ancho desde el
+# cutover. Los tests de paridad ancha lo vuelven a "1" con monkeypatch.
+os.environ["USE_WIDE_SIGNAL_TABLES"] = "0"
 
 
 def pytest_sessionstart(session):

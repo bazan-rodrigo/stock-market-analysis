@@ -8,17 +8,18 @@ import sqlalchemy as sa
 from app.models import signal_store
 
 
-def test_flag_default_off(monkeypatch):
-    # En fase 1 el default es OFF: el camino vivo sigue siendo per-entidad.
+def test_flag_default_on(monkeypatch):
+    # Desde el cutover (fase 5) el default es ON: el camino vivo es ancho.
     monkeypatch.delenv("USE_WIDE_SIGNAL_TABLES", raising=False)
-    assert signal_store.use_wide_signal_tables() is False
-
-
-def test_flag_on_por_env(monkeypatch):
-    monkeypatch.setenv("USE_WIDE_SIGNAL_TABLES", "1")
     assert signal_store.use_wide_signal_tables() is True
-    monkeypatch.setenv("USE_WIDE_SIGNAL_TABLES", "off")
+
+
+def test_flag_off_por_env(monkeypatch):
+    # Se puede forzar per-entidad (debug / base sin migrar).
+    monkeypatch.setenv("USE_WIDE_SIGNAL_TABLES", "0")
     assert signal_store.use_wide_signal_tables() is False
+    monkeypatch.setenv("USE_WIDE_SIGNAL_TABLES", "on")
+    assert signal_store.use_wide_signal_tables() is True
 
 
 def test_column_name_helpers():
