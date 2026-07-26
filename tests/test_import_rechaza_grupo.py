@@ -162,6 +162,19 @@ def test_import_planilla_de_senales_en_estrategias_se_rechaza(db):
     assert get_session().query(Strategy).count() == 0
 
 
+def test_import_planilla_equivocada_en_senales_se_rechaza(db):
+    """Subir una planilla que no es de señales (sin columna 'key') frena con un
+    error claro, en vez de saltear todas las filas en silencio (0 importado)."""
+    from app.services import signal_service
+
+    data = _xlsx([   # headers de estrategias, no de señales (no tiene 'key')
+        ("Estrategias", [["name", "description", "filter_conditions", "publica"],
+                         ["E1", "", "", "no"]]),
+    ])
+    with pytest.raises(ValueError, match="no parece de señales"):
+        signal_service.import_signals_excel(data)
+
+
 def test_import_estrategia_sin_componentes_se_rechaza(db):
     """Una estrategia sin componentes (planilla sin hoja 'Componentes', o con
     strategy_name que no matchea) no puntúa nada → el import la rechaza en vez

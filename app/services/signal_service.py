@@ -492,6 +492,16 @@ def import_signals_excel(file_bytes: bytes,
 
     headers = [str(h).strip().lower() for h in rows[0]]
 
+    # Validar que sea la planilla de señales (como activos/eventos/sintéticos):
+    # 'key' es la columna identificatoria y ninguna otra planilla la tiene, así
+    # que subir un archivo equivocado frena acá con un mensaje claro en vez de
+    # saltear todas las filas en silencio (0 importado sin avisar).
+    if "key" not in headers:
+        raise ValueError(
+            "Esta planilla no parece de señales: falta la columna obligatoria "
+            "'key'. Verificá que estés subiendo la plantilla de señales "
+            "(podés exportarla desde esta pantalla).")
+
     _FORMULA_TYPES = ("discrete_map", "threshold", "range")
 
     # Catálogos para validar referencias (indicadores, señales existentes)
