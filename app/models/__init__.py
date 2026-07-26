@@ -26,7 +26,6 @@ from app.models.fundamental_update_log import FundamentalUpdateLog
 from app.models.user import User
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import CurrentIndicatorValue, IndAssetMeta
-from app.models.group_scores import GroupScore
 from app.models.pnf_config import PnfConfig
 from app.models.signal_definition import SignalDefinition
 from app.models.signal_eval_log import SignalEvalLog
@@ -70,7 +69,6 @@ __all__ = [
     "IndicatorDefinition",
     "CurrentIndicatorValue",
     "IndAssetMeta",
-    "GroupScore",
     "PnfConfig",
     "SignalDefinition",
     "SignalEvalLog",

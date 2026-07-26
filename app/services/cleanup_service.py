@@ -58,7 +58,6 @@ _LEAF_TABLES = [
     # conservarse.
     "current_indicator_values",
     # ── Señales y estrategias (derivados) ──
-    "group_scores",
     # Crítico limpiarla junto con las tablas de señales: si quedaran markers
     # de fechas "ya evaluadas", el delta SALTEARÍA las fechas recién limpiadas.
     "signal_eval_log",
@@ -97,8 +96,6 @@ TABLES_INFO = [
      "Series históricas de indicadores por activo"),
     ("current_indicator_values",  "Valores vigentes de indicadores"),
     ("sig_* / strat_res_*",       "Valores de señales y rankings de estrategias"),
-    ("group_scores",
-     "Agregados de tendencia por grupo"),
     ("backtest_run / portfolio_run",
      "Corridas guardadas de backtest y de cartera"),
     ("market_event",              "Eventos de mercado"),

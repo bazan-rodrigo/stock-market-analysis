@@ -131,7 +131,7 @@ def test_resolve_tables_ignora_las_que_no_existen(tmp_path):
 def test_clean_data_vacia_lo_derivado_y_respeta_lo_curado(tmp_path):
     engine = sa.create_engine(f"sqlite:///{tmp_path/'y.db'}")
     md = sa.MetaData()
-    for name in ("ind_aapl", "sig_1", "strat_res_1", "group_scores",
+    for name in ("ind_aapl", "sig_1", "strat_res_1",
                  "import_log", "run_lock", "portfolio_run_point"):
         sa.Table(name, md, sa.Column("id", sa.Integer, primary_key=True))
     sa.Table("portfolio_run", md, sa.Column("id", sa.Integer, primary_key=True))
@@ -143,7 +143,7 @@ def test_clean_data_vacia_lo_derivado_y_respeta_lo_curado(tmp_path):
     md.create_all(engine)
 
     with engine.begin() as conn:
-        for name in ("ind_aapl", "sig_1", "strat_res_1", "group_scores",
+        for name in ("ind_aapl", "sig_1", "strat_res_1",
                      "import_log", "run_lock", "portfolio_run_point",
                      "portfolio_run", "assets", "prices",
                      "fundamental_quarterly"):
@@ -155,7 +155,7 @@ def test_clean_data_vacia_lo_derivado_y_respeta_lo_curado(tmp_path):
         def count(t):
             return conn.execute(sa.text(f"SELECT COUNT(*) FROM {t}")).scalar()
 
-        for name in ("ind_aapl", "sig_1", "strat_res_1", "group_scores",
+        for name in ("ind_aapl", "sig_1", "strat_res_1",
                      "import_log", "run_lock", "portfolio_run_point",
                      "portfolio_run"):
             assert count(name) == 0, f"{name} debería haber quedado vacía"

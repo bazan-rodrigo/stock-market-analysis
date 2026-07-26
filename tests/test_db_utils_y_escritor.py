@@ -19,31 +19,34 @@ def sv_db():
     import app.models  # noqa: F401
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
-        conn.execute(sa.text("DELETE FROM group_scores"))
+        conn.execute(sa.text("DELETE FROM signal_eval_log"))
     yield
     with engine.begin() as conn:
-        conn.execute(sa.text("DELETE FROM group_scores"))
+        conn.execute(sa.text("DELETE FROM signal_eval_log"))
     get_session().rollback()
 
 
 def test_delete_by_ranges_borra_por_ventanas_y_respeta_filtro(sv_db):
+    # Tabla de muestra cualquiera con columna date + una columna filtrable
+    # (signal_eval_log: scope_kind, ref_id, date).
     s = get_session()
     for i in range(10):
         s.execute(sa.text(
-            "INSERT INTO group_scores (group_type, group_id, date) "
-            "VALUES ('sector', :gid, :d)"),
-            {"gid": 1 if i < 7 else 2, "d": f"2026-01-{i + 1:02d}"})
+            "INSERT INTO signal_eval_log (scope_kind, ref_id, date) "
+            "VALUES ('all', :rid, :d)"),
+            {"rid": 1 if i < 7 else 2, "d": f"2026-01-{i + 1:02d}"})
     s.commit()
-    # dos ventanas que juntas cubren 01..06; el grupo 2 queda intacto aunque
+    # dos ventanas que juntas cubren 01..06; ref_id=2 queda intacto aunque
     # sus fechas caigan dentro (where_extra)
-    n = delete_by_ranges(s, "group_scores", "date",
+    n = delete_by_ranges(s, "signal_eval_log", "date",
                          [("2026-01-01", "2026-01-03"),
                           ("2026-01-04", "2026-01-06")],
-                         "group_id IN (1)")
+                         "ref_id IN (1)")
     assert n == 6
     left = [r[0] for r in s.execute(sa.text(
-        "SELECT date FROM group_scores ORDER BY date")).all()]
-    assert left == ["2026-01-07", "2026-01-08", "2026-01-09", "2026-01-10"]
+        "SELECT date FROM signal_eval_log ORDER BY date")).all()]
+    assert [str(d) for d in left] == ["2026-01-07", "2026-01-08",
+                                      "2026-01-09", "2026-01-10"]
 
 
 # ── _consume_writes ───────────────────────────────────────────────────────────

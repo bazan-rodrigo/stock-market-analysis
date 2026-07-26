@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Tablas fijas propensas a bloat por el churn del pipeline (además de las
 # dinámicas ind_*/sig_*/strat_res_* que se descubren por prefijo).
 _FIXED_BLOAT_TABLES = (
-    "prices", "group_scores", "signal_eval_log", "current_indicator_values",
+    "prices", "signal_eval_log", "current_indicator_values",
     "ind_asset_meta", "price_update_log",
 )
 
@@ -126,8 +126,6 @@ def classify_table(name: str) -> str:
     if n.startswith("strat_res_") or n in (
             "strategy", "strategy_component", "strategy_result"):
         return "Estrategias"
-    if n == "group_scores":
-        return "Scores de grupo"
     if n.startswith("fundamental"):
         return "Fundamentales"
     if n.startswith("backtest") or n.startswith("portfolio"):

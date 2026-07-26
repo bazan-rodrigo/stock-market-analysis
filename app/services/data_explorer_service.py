@@ -29,8 +29,6 @@ DATASETS = {
                      "combos": ["asset"]},
     "signal_asset": {"label": "Señal – por activo",
                      "combos": ["signal", "asset"]},
-    "group_scores": {"label": "Group scores (tendencia de grupo)",
-                     "combos": ["group_type", "group"]},
     "strategy":     {"label": "Resultado de estrategia",
                      "combos": ["strategy", "asset"]},
 }
@@ -117,21 +115,6 @@ def signal_asset(signal_id: int, asset_id: int):
         [{"date": str(d), "score": sc} for d, sc in rows]
 
 
-def group_scores(group_type: str, group_id: int):
-    from app.models.group_scores import GroupScore
-
-    s = get_session()
-    cols = ["date", "regime_score_d", "regime_score_w", "regime_score_m", "n_assets"]
-    rows = (s.query(GroupScore.date, GroupScore.regime_score_d,
-                    GroupScore.regime_score_w, GroupScore.regime_score_m,
-                    GroupScore.n_assets)
-            .filter(GroupScore.group_type == group_type,
-                    GroupScore.group_id == group_id)
-            .order_by(GroupScore.date).limit(MAX_ROWS).all())
-    return "group_scores", cols, \
-        [dict(zip(cols, (str(r[0]), *r[1:]))) for r in rows]
-
-
 def strategy_result(strategy_id: int, asset_id: int):
     import sqlalchemy as sa
     from app.models import signal_store
@@ -160,8 +143,6 @@ def fetch(dataset: str, *, indicator=None, asset=None, signal=None,
         return fundamentals(int(asset))
     if dataset == "signal_asset":
         return signal_asset(int(signal), int(asset))
-    if dataset == "group_scores":
-        return group_scores(group_type, int(group))
     if dataset == "strategy":
         return strategy_result(int(strategy), int(asset))
     raise ValueError(f"Conjunto de datos desconocido: {dataset}")

@@ -10,6 +10,5 @@ def test_bloat_tables_incluye_churn_existentes():
     tables = maintenance_service.bloat_tables()
     # tablas fijas de churn que create_all materializa
     assert "prices" in tables
-    assert "group_scores" in tables
     assert "current_indicator_values" in tables
     assert all(isinstance(t, str) for t in tables)

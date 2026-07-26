@@ -10,7 +10,6 @@ import sqlalchemy as sa
 from app.database import Base, engine, get_session
 from app.models import signal_store
 from app.models.fundamental_quarterly import FundamentalQuarterly
-from app.models.group_scores import GroupScore
 from app.models.indicator_store import CurrentIndicatorValue, get_ind_table
 from app.services import data_explorer_service as des
 
@@ -103,21 +102,6 @@ def test_signal_asset():
     table, cols, recs = des.signal_asset(1, 1)
     assert table == "sig_1"
     assert [r["score"] for r in recs] == [0.5, 0.7]
-
-def test_group_scores():
-    s = get_session()
-    s.query(GroupScore).delete()
-    s.add_all([
-        GroupScore(group_type="sector", group_id=3, date=dt.date(2026, 7, 7),
-                   regime_score_d=1.0, regime_score_w=2.0, regime_score_m=3.0, n_assets=5),
-        GroupScore(group_type="sector", group_id=4, date=dt.date(2026, 7, 7),
-                   regime_score_d=0.0, n_assets=1),
-    ])
-    s.commit()
-    table, cols, recs = des.group_scores("sector", 3)
-    assert table == "group_scores"
-    assert len(recs) == 1
-    assert recs[0]["n_assets"] == 5 and recs[0]["date"] == "2026-07-07"
 
 
 # ── M8: resultado de estrategia, fundamentales ───────────────────────────────

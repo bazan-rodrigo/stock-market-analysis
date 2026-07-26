@@ -23,7 +23,6 @@ def test_classify_table_familias():
     assert ms.classify_table("sig_3") == "Señales"
     assert ms.classify_table("strat_res_2") == "Estrategias"
     assert ms.classify_table("strategy_result") == "Estrategias"
-    assert ms.classify_table("group_scores") == "Scores de grupo"
     assert ms.classify_table("fundamental_quarterly") == "Fundamentales"
     assert ms.classify_table("backtest_run") == "Backtest / Carteras"
     assert ms.classify_table("portfolio_transaction") == "Backtest / Carteras"
