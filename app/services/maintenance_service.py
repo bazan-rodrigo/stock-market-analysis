@@ -21,10 +21,14 @@ from app.services import db_compat
 logger = logging.getLogger(__name__)
 
 # Tablas fijas propensas a bloat por el churn del pipeline (además de las
-# dinámicas ind_*/sig_*/strat_res_* que se descubren por prefijo).
+# dinámicas ind_*/sig_*/strat_res_* que se descubren por prefijo). Las anchas de
+# señales/estrategias son de nombre fijo (post-cutover) → van acá: el delta
+# nullea columnas + UPSERT (tuplas muertas), y un VACUUM FULL recompacta también
+# el índice (asset_id,date) fragmentado por la inserción cronológica.
 _FIXED_BLOAT_TABLES = (
     "prices", "signal_eval_log", "current_indicator_values",
     "ind_asset_meta", "price_update_log",
+    "signal_values_wide", "strategy_results_wide",
 )
 
 
@@ -121,10 +125,12 @@ def classify_table(name: str) -> str:
             "indicator_update_log"):
         return "Indicadores"
     if n.startswith("sig_") or n in (
-            "signal", "signal_value", "signal_eval_log"):
+            "signal", "signal_value", "signal_eval_log",
+            "signal_values_wide"):
         return "Señales"
     if n.startswith("strat_res_") or n in (
-            "strategy", "strategy_component", "strategy_result"):
+            "strategy", "strategy_component", "strategy_result",
+            "strategy_results_wide"):
         return "Estrategias"
     if n.startswith("fundamental"):
         return "Fundamentales"
