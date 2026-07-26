@@ -8,6 +8,7 @@ from app.models import (
     FundamentalUpdateLog, PriceUpdateLog,
     SyntheticFormula,
 )
+from app.services import run_history_service as _rh
 from app.services import run_lock_service as _rl
 from app.services import write_stats_service as _ws
 
@@ -234,6 +235,10 @@ def _run(op_id, service_fn, lock_token=_rl.NO_LOCK):
     # Reporte de escrituras: contadores del motor antes/después de la corrida
     # (ver write_stats_service). snapshot() nunca levanta.
     _stats_before = _ws.snapshot(get_session())
+    # Bitácora persistida: abre la corrida (status='running'). Si el proceso
+    # muere antes del finish_run del finally, queda 'running' y el próximo
+    # arranque la marca 'aborted'. start_run nunca levanta.
+    _hist_id = _rh.start_run(op_id, scope=getattr(service_fn, "__name__", None))
     result = None
 
     def _cb(cur, tot, label=""):
@@ -354,6 +359,15 @@ def _run(op_id, service_fn, lock_token=_rl.NO_LOCK):
             (result or {}).get("total"), (result or {}).get("unit"),
             st.get("start_time"), st["end_time"],
             _stats_before, _ws.snapshot(get_session()))
+        # Cierre de la bitácora persistida: ok/error según el resultado.
+        _res = result or {}
+        _errs = _res.get("errors") or []
+        _ferr = (_errs[0].get("error", "") if _errs
+                 else (st["msg"] if st.get("error") else None))
+        _rh.finish_run(
+            _hist_id, "error" if st.get("error") else "ok",
+            total=_res.get("total"), unit=_res.get("unit"),
+            ok=_res.get("success"), first_error=_ferr)
         _ScopedSession.remove()
 
 
@@ -755,22 +769,72 @@ _WRITES_LEVEL_STYLE = {
     "na":   ("·", "#9ca3af"),
 }
 
+_RUN_STATUS_STYLE = {
+    "running": ("▶", "#60a5fa"),
+    "ok":      ("✓", "#4ade80"),
+    "error":   ("✗", "#f87171"),
+    "aborted": ("⚠", "#fbbf24"),
+}
+
+
+def _fmt_dur(t0, t1) -> str:
+    if not t0 or not t1:
+        return ""
+    secs = (t1 - t0).total_seconds()
+    return f"{secs:.0f}s" if secs < 90 else f"{secs / 60:.0f}m"
+
+
+def _history_blocks(mono):
+    """Bitácora PERSISTIDA (run_history): sobrevive al reinicio, así que acá
+    aparecen las corridas ABORTADAS por un corte del proceso — que el reporte
+    en memoria pierde. Se antepone a ese reporte."""
+    hist = _rh.get_recent(30)
+    if not hist:
+        return []
+    out = [html.Div(
+        "Historial de corridas (persistido — sobrevive al reinicio)",
+        style={**mono, "fontWeight": "bold", "marginTop": "4px"})]
+    for r in hist:
+        icon, color = _RUN_STATUS_STYLE.get(r["status"], ("·", "#9ca3af"))
+        t0 = r["started_at"].strftime("%m-%d %H:%M") if r["started_at"] else "—"
+        t1 = r["finished_at"].strftime("%H:%M") if r["finished_at"] else "—"
+        dur = _fmt_dur(r["started_at"], r["finished_at"])
+        if r["ok"] is not None and r["total"] is not None:
+            n = f"{r['ok']}/{r['total']} {r['unit'] or ''}".rstrip()
+        elif r["total"] is not None:
+            n = f"{r['total']} {r['unit'] or ''}".rstrip()
+        else:
+            n = ""
+        out.append(html.Div(
+            f"{icon} {r['op']:<10} {(r['scope'] or ''):<16} "
+            f"{t0}→{t1} {dur:>5}  {n:<14} {r['status']}",
+            style={**mono, "color": color,
+                   "fontWeight": "bold" if r["status"] == "aborted" else "normal"}))
+        if r["status"] in ("error", "aborted") and r["first_error"]:
+            out.append(html.Div(f"    {r['first_error'][:120]}", style=mono))
+    return out
+
 
 @callback(
     Output("dc-writes-report", "children"),
     Input("dc-writes-refresh", "n_clicks"),
 )
 def render_writes_report(_n):
-    runs = _ws.get_runs()
-    if not runs:
-        return html.Small(
-            "Sin corridas registradas desde el último reinicio de la app. "
-            "Ejecutá una operación de esta pantalla y apretá «Actualizar».",
-            className="text-muted")
-
     mono = {"fontFamily": "monospace", "fontSize": "0.76rem",
             "whiteSpace": "pre", "marginBottom": "2px"}
-    blocks = []
+    hist_blocks = _history_blocks(mono)
+    runs = _ws.get_runs()
+    if not runs and not hist_blocks:
+        return html.Small(
+            "Sin corridas registradas todavía. Ejecutá una operación de esta "
+            "pantalla y apretá «Actualizar».",
+            className="text-muted")
+
+    blocks = list(hist_blocks)
+    if runs:
+        blocks.append(html.Div(
+            "Escrituras por tabla (esta sesión)",
+            style={**mono, "fontWeight": "bold", "marginTop": "10px"}))
     for r in runs:
         icon, color = _WRITES_LEVEL_STYLE.get(r["level"], ("·", "#9ca3af"))
         t0 = r["started"].strftime("%H:%M:%S") if r["started"] else "—"
@@ -798,10 +862,11 @@ def render_writes_report(_n):
             blocks.append(html.Div(
                 f"    … {len(r['diff']) - 6} tablas más", style=mono))
 
-    blocks.append(html.Small(
-        "El veredicto de bloat solo aplica a corridas que escriben "
-        "indicadores · ✓ ~1-3 upd/activo = normal · ⚠ decenas-cientos = "
-        "re-ranking tras dato nuevo (legítimo) · ✗ miles = posible escritura "
-        "por columna · · = no aplica",
-        className="text-muted d-block mt-2"))
+    if runs:
+        blocks.append(html.Small(
+            "El veredicto de bloat solo aplica a corridas que escriben "
+            "indicadores · ✓ ~1-3 upd/activo = normal · ⚠ decenas-cientos = "
+            "re-ranking tras dato nuevo (legítimo) · ✗ miles = posible escritura "
+            "por columna · · = no aplica",
+            className="text-muted d-block mt-2"))
     return blocks

@@ -374,6 +374,20 @@ def create_app():
     except Exception as exc:
         logger.warning("No se pudieron limpiar locks de corrida: %s", exc)
 
+    # Bitácora de corridas (M1/M2): marcar 'aborted' las corridas que quedaron
+    # 'running' de un proceso anterior caído a mitad, y podar las viejas por
+    # retención. Best-effort — si falta la migración 0096, no pasa nada.
+    try:
+        from app.services import run_history_service as _rh
+        n_ab = _rh.abort_orphans()
+        if n_ab:
+            logger.info("Corridas marcadas como abortadas al arranque: %d", n_ab)
+        n_pr = _rh.prune_old()
+        if n_pr:
+            logger.info("Corridas viejas purgadas (retención): %d", n_pr)
+    except Exception as exc:
+        logger.warning("No se pudo limpiar la bitácora de corridas: %s", exc)
+
     # El scheduler arranca solo donde RUN_SCHEDULER está activo: en un
     # deploy multi-proceso (gunicorn/réplicas) va en un worker dedicado
     # (worker.py), no en cada web worker. En dev/Codespace (proceso único,

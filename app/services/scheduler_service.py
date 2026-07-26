@@ -71,6 +71,11 @@ def _daily_update_job() -> None:
         return
     _daily_running = True
     logger.info("Iniciando actualización diaria de precios (scheduled)")
+    # Bitácora persistida: abre la corrida nocturna. Si el proceso muere a
+    # mitad, queda 'running' y el próximo arranque la marca 'aborted'.
+    from app.services import run_history_service as rh
+    hist_id = rh.start_run("daily")
+    status, total, ok, first_error = "ok", None, None, None
     try:
         with rl.heartbeating(rl.HEAVY_WRITE, lock_token):
             try:
@@ -84,6 +89,7 @@ def _daily_update_job() -> None:
                 )
             except Exception as exc:
                 logger.exception("Error crítico en la actualización diaria: %s", exc)
+                status, first_error = "error", str(exc)
                 return
 
             # ── Pipeline de señales/estrategias ─────────────────────────────
@@ -97,9 +103,17 @@ def _daily_update_job() -> None:
                 from app.services.signal_service import update_signal_history
                 result = update_signal_history()
                 logger.info("signal_service backfill delta: %s", result)
+                total, ok = result.get("total"), result.get("success")
+                errs = result.get("errors") or []
+                if errs:
+                    status = "error"
+                    first_error = str(errs[0].get("error", ""))
             except Exception as exc:
                 logger.exception("Error en update_signal_history: %s", exc)
+                status, first_error = "error", str(exc)
     finally:
+        rh.finish_run(hist_id, status, total=total, unit="fechas", ok=ok,
+                      first_error=first_error)
         _daily_running = False
         # El thread del scheduler se reutiliza entre corridas: liberar la
         # sesión scoped para no retener conexión ni objetos entre días.

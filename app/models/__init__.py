@@ -20,6 +20,7 @@ from app.models.synthetic_formula import SyntheticComponent, SyntheticFormula
 from app.models.currency_conversion import CurrencyConversionDivisor
 from app.models.scheduler_config import SchedulerConfig
 from app.models.run_lock import RunLock
+from app.models.run_history import RunHistory
 from app.models.fundamental_source import FundamentalSource
 from app.models.fundamental_quarterly import FundamentalQuarterly
 from app.models.fundamental_update_log import FundamentalUpdateLog
@@ -63,6 +64,7 @@ __all__ = [
     "CurrencyConversionDivisor",
     "SchedulerConfig",
     "RunLock",
+    "RunHistory",
     "FundamentalSource",
     "FundamentalQuarterly",
     "FundamentalUpdateLog",
