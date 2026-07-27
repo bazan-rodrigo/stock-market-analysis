@@ -1,11 +1,11 @@
 ---
 name: project_grillas_10k
-description: "DevExtreme DESCARTADO; el problema real son las grillas camino a 10.000 activos — etapa 0 (topes) HECHA el 26-jul, etapas 1-3 (dash-ag-grid) pendientes"
+description: "DevExtreme DESCARTADO; el problema eran las grillas camino a 10.000 activos — etapas 0/1/2 HECHAS el 26-jul (6 pantallas en ag-grid), falta verificar en Railway y medir la etapa 3"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 8b4c25e3-14d8-4e35-98b2-896513d5e1b5
-  modified: 2026-07-26T21:16:49.346Z
+  modified: 2026-07-27T02:08:23.412Z
 ---
 
 Sesión 26-jul-2026. Arrancó como pregunta ("¿tendríamos algún beneficio usando
@@ -43,9 +43,11 @@ export CSV. OJO: agrupamiento de filas, pivot, export a Excel y el Server-Side R
 Model completo son **Enterprise (pago)** — la Community alcanza porque lo que hace
 falta es virtualización y carga por demanda.
 - **Etapa 0 — HECHA (26-jul):** topes, sin dependencia nueva. Ver abajo.
-- Etapa 1: ag-grid en el screener (la peor, y no arrastra modal ABM).
-- Etapa 2: `/assets` + resultados de corrida (tienen selección múltiple y modal).
-- Etapa 3: Infinite Row Model, solo si la medición lo justifica.
+- **Etapas 1 y 2 — HECHAS (26-jul, commit c1cdd12, 1071 passed):** 6 pantallas
+  a ag-grid. Ver "La migración" más abajo.
+- Etapa 3 (Infinite Row Model): SIGUE PENDIENTE y sigue condicionada a medir.
+  Con la virtualización puesta, el cuello que queda es el tamaño de lo que
+  viaja por la red, no el dibujado — medir antes de encararlo.
 - FUERA de alcance: los ABMs de catálogo y `app/components/abm.py` (genérico:
   tocarlo impacta 15 pantallas sin beneficio).
 
@@ -79,3 +81,63 @@ aparezca, y que el Excel baje completo.
 
 Relacionado: [[project_scaling_target]] (el objetivo de 10.000 activos y el método
 de medición), [[project_manual_usuario]] (las dos secciones tocadas).
+
+---
+
+## La migración a ag-grid (26-jul-2026, commit c1cdd12)
+
+`dash-ag-grid` 35.3.0 (ag-grid 35.3.1). Seis pantallas: `/senales`, `/assets`,
+`/prices`, actualización fundamental, import de activos e import de eventos.
+Config compartida en **`app/components/grids.py`**.
+
+**Lo que costó averiguar (y no está en la doc de Dash):**
+- **ag-grid 35 arranca con la Theming API nueva, que es CLARA y se configura
+  desde JavaScript.** Sin hacer nada, la grilla se ve blanca sobre la app
+  oscura. La salida es `dashGridOptions={"theme": "legacy"}`, que vuelve a los
+  temas por hoja de estilos y ahí sí se configura por variables CSS desde
+  Python/CSS. Verificado que el paquete npm 35.3.1 todavía publica los CSS
+  legacy y que dash-ag-grid tiene una rama explícita para `theme` string.
+- El CSS legacy va por `external_stylesheets` usando `dash_ag_grid.themes.BASE`
+  y `.QUARTZ` — las arma el propio paquete con su `grid_version`, así que no
+  desincronizan al actualizar.
+- **`linkTarget` NO existe más** (react-markdown 9 lo sacó): el cellRenderer
+  markdown abriría los enlaces en la misma pestaña. Por eso el ticker usa un
+  renderer propio, que además evita parsear markdown sobre nombres que vienen
+  de Yahoo.
+- Los renderers propios se registran en `window.dashAgGridComponentFunctions`
+  (`assets/dashAgGridComponentFunctions.js`) y NO necesitan
+  `dangerously_allow_code`; los `{"function": "..."}` sueltos SÍ, y por eso no
+  se usan. `styleConditions` (conditional formatting) tampoco lo necesita.
+- API de selección: la vigente desde v33 es el objeto
+  `{"mode": "multiRow", "checkboxes": True, "headerCheckbox": True,
+  "enableClickSelection": False}`.
+
+**Decisiones:**
+- **El JS no decide nada.** Colores y umbrales (±20 score, ±0,5 delta) viajan
+  desde `ui_constants` por `cellRendererParams`. El renderer solo pinta — así
+  no se repite el problema de semántica duplicada del simulador de trades.
+- `custom.css` y `dark_theme.js` NO se tocaron (zona intocable del sistema de
+  diseño, ver [[project_sistema_diseno_ui]]): todo lo de ag-grid vive en
+  `assets/ag_grid.css`.
+- `floatingFilter: True` en el colDef default para no perder el casillero de
+  filtro que la DataTable mostraba siempre (ag-grid lo esconde en el menú).
+- **Se removió el dropdown "Ordenar por" del screener**: ahora ordena cualquier
+  cabecera, incluidas las columnas de señal, que antes no se podían ordenar.
+- `data`→`rowData` y `selected_rows` (índices) → `selectedRows` (las filas):
+  saca de encima los índices contra el array original, que no coincidían con
+  lo que el usuario veía ordenado/filtrado.
+- `/assets` necesita `getRowId="params.data.id"`: sin eso la selección se
+  pierde cada vez que un callback reescribe las filas.
+
+**Red de tests (33 nuevos):** `test_screener_grid.py` (columnas/filas + ata los
+nombres de renderer al archivo JS: un typo ahí deja celdas en blanco sin
+romper ningún import) y `test_grids_migration.py` (frena una migración a
+medias: props viejas de DataTable o indexado de filas por posición).
+
+**PENDIENTE en Railway = producción — es UI, no hay forma de probarla acá.**
+Por orden de riesgo: (1) que las grillas se vean OSCURAS (si salen blancas,
+falló el `theme: "legacy"`); (2) que los checkboxes aparezcan en `/prices`,
+fundamental y `/assets` (si no, la API de selección cambió — el modo de falla
+es seguro: sin selección los botones quedan deshabilitados y no se puede
+disparar nada destructivo); (3) que la barra de score y los enlaces del ticker
+se dibujen; (4) editar/borrar/masiva en `/assets`.
