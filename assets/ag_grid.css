@@ -1,0 +1,48 @@
+/* Tema oscuro de las grillas ag-grid.
+ *
+ * ag-grid trae su propio tema ("quartz dark" desde el CDN, declarado en
+ * app/__init__.py). Sin esto se ve como una grilla ajena pegada encima de la
+ * app: otro gris de fondo, otro borde, otra tipografía. Acá se lo alinea con el
+ * resto de las pantallas.
+ *
+ * Los valores son los mismos de app/components/ui_constants.py — que sigue
+ * siendo la fuente de verdad. Si cambia un color allá, cambiarlo también acá:
+ * ag-grid se configura por variables CSS y no lee Python.
+ *
+ * NO tocar assets/custom.css ni assets/dark_theme.js (zona intocable del
+ * sistema de diseño): todo lo de ag-grid vive en este archivo.
+ */
+
+.ag-theme-quartz-dark {
+    --ag-background-color: #1f2937;          /* BG_CARD */
+    --ag-header-background-color: #111827;   /* BG_DEEP */
+    --ag-odd-row-background-color: #1f2937;  /* BG_CARD — sin cebra */
+    --ag-foreground-color: #dee2e6;          /* TEXT_BODY */
+    --ag-header-foreground-color: #dee2e6;   /* TEXT_BODY */
+    --ag-border-color: #374151;              /* BORDER_CARD */
+    --ag-row-border-color: #1f2937;          /* BORDER_ROW */
+    --ag-secondary-foreground-color: #9ca3af;/* TEXT_MUTED */
+    --ag-disabled-foreground-color: #6b7280; /* TEXT_DIM */
+    --ag-input-background-color: #2c2c2c;    /* BG_INPUT — legibilidad */
+    --ag-input-border-color: #374151;        /* BORDER_CARD */
+    --ag-row-hover-color: #111827;           /* BG_DEEP */
+    --ag-selected-row-background-color: #1a4a6e;
+
+    --ag-font-size: 0.82rem;
+    --ag-grid-size: 4px;
+    --ag-cell-horizontal-padding: 10px;
+    --ag-borders: solid 1px;
+    --ag-wrapper-border-radius: 4px;
+}
+
+/* La cabecera de las columnas de señal lleva dos renglones (nombre + peso). */
+.ag-theme-quartz-dark .ag-header-cell-text {
+    font-size: 0.71rem;
+    line-height: 1.15;
+    white-space: normal;
+}
+
+/* Los enlaces de la celda de ticker no deben heredar el subrayado de la app. */
+.ag-theme-quartz-dark .ag-cell a:hover {
+    text-decoration: underline;
+}

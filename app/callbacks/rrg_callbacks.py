@@ -8,8 +8,8 @@ from dash import html
 
 import app.services.rrg_service as rrg_svc
 from app.components.ui_constants import (
-    BG_CARD, BG_CHART as _BG, BORDER_CARD, COLOR_NEGATIVE, TEXT_BODY, TEXT_FAINT,
-    TEXT_MUTED, TH_NOWRAP as _th_base
+    BG_CARD, BG_CHART as _BG, BORDER_CARD, COLOR_LINK, COLOR_NEGATIVE, TEXT_BODY,
+    TEXT_FAINT, TEXT_MUTED, TH_NOWRAP as _th_base
 )
 
 logger = logging.getLogger(__name__)
@@ -268,7 +268,7 @@ def _apply_layout(fig: go.Figure, x_range: list, y_range: list, uirevision: str 
 
     annotations = [
         dict(x=xlo + (xhi - xlo) * 0.02, y=yhi, text="Improving",
-             font=dict(color="#93c5fd", size=12), showarrow=False,
+             font=dict(color=COLOR_LINK, size=12), showarrow=False,
              xanchor="left", yanchor="top"),
         dict(x=xhi - (xhi - xlo) * 0.02, y=yhi, text="Leading",
              font=dict(color="#86efac", size=12), showarrow=False,

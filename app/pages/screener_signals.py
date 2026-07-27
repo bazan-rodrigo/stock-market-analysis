@@ -1,22 +1,19 @@
 import dash
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from app.components.grids import DEFAULT_COL_DEF, THEME_CLASS, grid_options
 from app.components.help import page_header
 
 from app.components.ui_constants import (
-    CARD_STYLE, COLOR_NEUTRAL, TD as _td, TEXT_BODY, TH_NOWRAP as _th
+    CARD_STYLE, COLOR_NEUTRAL, TEXT_BODY
 )
 
-_SORT_OPTS = [
-    {"label": "Score ↓",      "value": "score"},
-    {"label": "Δ Score ↓",    "value": "delta_score"},
-    {"label": "Ticker A-Z",   "value": "ticker"},
-]
-
-# Tope de filas traídas del servidor. Sin tope, un catálogo grande dibuja una
-# fila por activo y cada celda de score es un árbol de divs: el navegador se
-# clava. El corte es por score, o sea por el ranking mismo.
+# Tope de filas traídas del servidor. La grilla virtualiza (dibuja solo lo
+# visible), así que el tope ya no es para que el navegador no se trabe
+# dibujando: es para no mandar un catálogo entero por la red ni cargarlo en
+# memoria del cliente. El corte es por score, o sea por el ranking mismo.
 _LIMIT_OPTS = [
     {"label": "Top 100",   "value": 100},
     {"label": "Top 500",   "value": 500},
@@ -83,21 +80,18 @@ def layout(**kwargs):
                 ], md=1),
             ], className="g-2 mb-2"),
 
-            # ── Segunda fila: ordenar + exportar ─────────────────────────────
+            # ── Segunda fila: tope + exportar ────────────────────────────────
+            # El "Ordenar por" se fue con la migración a grilla: ahora se ordena
+            # clickeando cualquier cabecera, incluidas las columnas de señal
+            # (que antes no se podían ordenar de ninguna manera).
             dbc.Row([
-                dbc.Col([
-                    dbc.Label("Ordenar por", style={"fontSize": "0.82rem"}),
-                    dcc.Dropdown(id="ss-sort-col", options=_SORT_OPTS,
-                                 value="score", clearable=False,
-                                 style={"fontSize": "0.83rem"}),
-                ], md=3),
                 dbc.Col(html.Div([
                     dbc.Label("Mostrar", style={"fontSize": "0.82rem"}),
                     dcc.Dropdown(id="ss-limit", options=_LIMIT_OPTS,
                                  value=_DEFAULT_LIMIT, clearable=False,
                                  style={"fontSize": "0.83rem"}),
-                ], title="Cuántos activos del ranking se traen. "
-                         "El orden de arriba reordena solo los traídos."), md=2),
+                ], title="Cuántos activos del ranking se traen. Ordenar la "
+                         "grilla reordena solo los traídos."), md=2),
                 dbc.Col([
                     dbc.Label(" ", style={"fontSize": "0.82rem"}),
                     dbc.Button("Exportar Excel", id="ss-btn-export", color="secondary",
@@ -109,7 +103,18 @@ def layout(**kwargs):
         ]), className="mb-3",
             style=CARD_STYLE),
 
-        html.Div(id="ss-table-container", style={"overflowX": "auto"}),
+        dag.AgGrid(
+            id="ss-grid",
+            columnDefs=[],
+            rowData=[],
+            className=THEME_CLASS,
+            style={"height": "calc(100vh - 260px)", "width": "100%"},
+            defaultColDef=DEFAULT_COL_DEF,
+            # Sin paginación: la grilla virtualiza y el ranking se recorre
+            # scrolleando. Las filas van más compactas que el default para que
+            # entren más activos en pantalla, como en la tabla anterior.
+            dashGridOptions=grid_options(rowHeight=28),
+        ),
 
     ], style={"padding": "0 8px"})
 

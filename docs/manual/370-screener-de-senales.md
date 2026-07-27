@@ -40,10 +40,13 @@ que es justo lo que se suele mirar. Cuando el listado quedó cortado, el
 contador te lo dice en ámbar —por ejemplo **500 de 10.000 activos**—, así que
 nunca vas a estar viendo una parte sin saberlo.
 
-Existe por una razón concreta: la pantalla dibuja una fila por activo con una
-barra en cada celda, y con miles de activos el navegador se traba. Si
-necesitás el universo entero, tenés dos caminos mejores que subir el tope:
-acotar por sector o mercado, o **exportar a Excel**, que nunca viene topeado.
+Existe para no traer un catálogo entero por la red cuando lo que mirás son los
+primeros. Si necesitás el universo completo, tenés dos caminos mejores que
+subir el tope: acotar por sector o mercado, o **exportar a Excel**, que nunca
+viene topeado.
+
+La tabla no pagina: se recorre **scrolleando**, y cada columna tiene su
+casillero de filtro debajo del encabezado.
 
 > Si el listado sale vacío o mucho más corto de lo esperado, lo más probable es
 > que la fecha elegida no tenga resultados calculados para esa estrategia, o
@@ -55,7 +58,7 @@ acotar por sector o mercado, o **exportar a Excel**, que nunca viene topeado.
 
 | Control | Qué hace |
 |---|---|
-| **Ordenar por** | **Score ↓** (el ranking, es el orden por defecto), **Δ Score ↓** (los que más mejoraron desde la fecha anterior) o **Ticker A-Z**. |
+| **Ordenar** | Clic en el encabezado de **cualquier** columna. La tabla llega ordenada por score (que es el ranking); desde ahí podés reordenar por Δ, por ticker o **por cualquier señal**, que antes no se podía. |
 | **Exportar Excel** | Baja el ranking **completo**, sin el tope de la pantalla, con todas las columnas de señales. Se habilita recién después de la primera búsqueda. |
 
 Reordenar es instantáneo y **no vuelve a consultar**: trabaja sobre los mismos
@@ -63,11 +66,11 @@ resultados que ya trajiste. Podés cambiar de orden todas las veces que quieras
 sin costo.
 
 Eso tiene una consecuencia que conviene entender: **el orden reacomoda lo que
-trajiste, no busca de nuevo**. Si pediste Top 500 y ordenás por **Δ Score ↓**,
-estás viendo las mayores variaciones *dentro de esos 500 mejores por score* —
-no las mayores variaciones del universo. Un activo con un salto enorme pero
-score bajo no va a aparecer. Cuando lo que buscás es exactamente eso, subí el
-tope o usá la exportación.
+trajiste, no busca de nuevo**. Si pediste Top 500 y ordenás por **Δ**, estás
+viendo las mayores variaciones *dentro de esos 500 mejores por score* — no las
+mayores variaciones del universo. Un activo con un salto enorme pero score bajo
+no va a aparecer. Cuando lo que buscás es exactamente eso, subí el tope o usá
+la exportación.
 
 La planilla, en cambio, sale siempre con el ranking entero y respetando los
 filtros de la búsqueda que estás viendo, aunque después hayas tocado los

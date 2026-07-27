@@ -22,7 +22,7 @@ def _logs_to_rows(logs) -> list[dict]:
 
 
 @callback(
-    Output("import-log-table", "data"),
+    Output("import-log-table", "rowData"),
     Input("import-log-table", "id"),
 )
 def load_import_logs(_):
@@ -92,7 +92,7 @@ def run_import(_, file_data):
     Output("import-progress",  "label"),
     Output("import-progress",  "style",    allow_duplicate=True),
     Output("import-interval",  "disabled", allow_duplicate=True),
-    Output("import-log-table", "data",     allow_duplicate=True),
+    Output("import-log-table", "rowData",     allow_duplicate=True),
     Output("import-alert",     "children", allow_duplicate=True),
     Output("import-alert",     "is_open",  allow_duplicate=True),
     Output("import-alert",     "color",    allow_duplicate=True),
@@ -124,7 +124,7 @@ def poll_import(_):
 
 
 @callback(
-    Output("import-log-table", "data", allow_duplicate=True),
+    Output("import-log-table", "rowData", allow_duplicate=True),
     Input("import-btn-clear", "n_clicks"),
     prevent_initial_call=True,
 )

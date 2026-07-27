@@ -18,6 +18,7 @@ import pathlib
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
+from dash_ag_grid import themes as ag_themes
 from flask import redirect, render_template_string, request
 from flask_login import current_user, login_user, logout_user
 
@@ -45,6 +46,13 @@ def create_app():
         external_stylesheets=[
             dbc.themes.DARKLY,
             dbc.icons.FONT_AWESOME,
+            # ag-grid 35 arranca con la Theming API nueva (clara). Las grillas
+            # usan el tema CSS "legacy" —dashGridOptions={"theme": "legacy"}—
+            # porque es el que se configura por variables CSS desde
+            # assets/ag_grid.css, sin JavaScript. Las URLs las arma el propio
+            # paquete con la versión que tiene instalada: no desincronizan.
+            ag_themes.BASE,
+            ag_themes.QUARTZ,
         ],
         external_scripts=[
             "https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js",

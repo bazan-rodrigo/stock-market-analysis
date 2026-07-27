@@ -1,9 +1,12 @@
 import dash
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dcc, html
 
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, multi_selection, text_col,
+)
 from app.components.help import page_header
-from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 _BULK_FIELDS = [
     {"label": "Benchmark",               "value": "benchmark_id"},
@@ -17,16 +20,16 @@ _BULK_FIELDS = [
 ]
 
 _COLUMNS = [
-    {"name": "Ticker",    "id": "ticker"},
-    {"name": "Nombre",    "id": "name"},
-    {"name": "País",      "id": "country_name"},
-    {"name": "Mercado",   "id": "market_name"},
-    {"name": "Tipo",      "id": "instrument_type_name"},
-    {"name": "Moneda",    "id": "currency_name"},
-    {"name": "Sector",    "id": "sector_name"},
-    {"name": "Benchmark",       "id": "benchmark_ticker"},
-    {"name": "Fuente precios",  "id": "source_name"},
-    {"name": "Fuente fund.",    "id": "fund_source_name"},
+    text_col("ticker",               "Ticker",    width=110, pinned="left"),
+    text_col("name",                 "Nombre",    width=220),
+    text_col("country_name",         "País",      width=110),
+    text_col("market_name",          "Mercado",   width=160),
+    text_col("instrument_type_name", "Tipo",      width=110),
+    text_col("currency_name",        "Moneda",    width=100),
+    text_col("sector_name",          "Sector",    width=130),
+    text_col("benchmark_ticker",     "Benchmark", width=110),
+    text_col("source_name",          "Fuente precios", width=120),
+    text_col("fund_source_name",     "Fuente fund.",   width=120),
 ]
 
 
@@ -126,34 +129,18 @@ def layout(**kwargs):
             id="assets-bulk-collapse",
             is_open=False,
         ),
-        dash_table.DataTable(
+        dag.AgGrid(
             id="assets-table",
-            columns=_COLUMNS,
-            data=[],
-            row_selectable="multi",
-            selected_rows=[],
-            style_table={"overflowX": "auto"},
-            style_header=HEADER,
-            style_data=DATA,
-            style_cell={**CELL, "overflow": "hidden", "textOverflow": "ellipsis",
-                        "whiteSpace": "nowrap", "maxWidth": "0"},
-            style_filter=FILTER,
-            style_data_conditional=SELECTED_ROW,
-            style_cell_conditional=[
-                {"if": {"column_id": "ticker"},               "width": "80px",  "minWidth": "60px"},
-                {"if": {"column_id": "name"},                 "width": "220px", "minWidth": "120px"},
-                {"if": {"column_id": "country_name"},         "width": "100px", "minWidth": "70px"},
-                {"if": {"column_id": "market_name"},          "width": "160px", "minWidth": "80px"},
-                {"if": {"column_id": "instrument_type_name"}, "width": "100px", "minWidth": "70px"},
-                {"if": {"column_id": "currency_name"},        "width": "90px",  "minWidth": "60px"},
-                {"if": {"column_id": "sector_name"},          "width": "120px", "minWidth": "80px"},
-                {"if": {"column_id": "benchmark_ticker"},     "width": "90px",  "minWidth": "60px"},
-                {"if": {"column_id": "source_name"},          "width": "90px",  "minWidth": "60px"},
-                {"if": {"column_id": "fund_source_name"},     "width": "90px",  "minWidth": "60px"},
-            ],
-            page_size=30,
-            sort_action="native",
-            filter_action="native",
+            columnDefs=_COLUMNS,
+            rowData=[],
+            className=THEME_CLASS,
+            style={"height": "calc(100vh - 300px)", "width": "100%"},
+            defaultColDef=DEFAULT_COL_DEF,
+            # Identidad de fila por id: sin esto, la selección se pierde cada
+            # vez que el callback reescribe las filas (después de un alta, un
+            # borrado o una edición masiva).
+            getRowId="params.data.id",
+            dashGridOptions=grid_options(rowSelection=multi_selection()),
         ),
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle(id="assets-modal-title")),

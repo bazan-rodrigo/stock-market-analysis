@@ -84,7 +84,7 @@ def _get_form_options():
 
 
 @callback(
-    Output("assets-table", "data"),
+    Output("assets-table", "rowData"),
     Input("assets-table", "id"),
 )
 def load_assets(_):
@@ -97,7 +97,7 @@ def load_assets(_):
     Output("assets-btn-delete", "disabled"),
     Output("assets-bulk-collapse", "is_open"),
     Output("assets-bulk-count", "children"),
-    Input("assets-table", "selected_rows"),
+    Input("assets-table", "selectedRows"),
 )
 def assets_row_selection(sel_rows):
     n = len(sel_rows or [])
@@ -137,8 +137,7 @@ def assets_row_selection(sel_rows):
     Input("assets-btn-edit", "n_clicks"),
     Input("assets-btn-cancel", "n_clicks"),
     Input("assets-btn-autocomplete", "n_clicks"),
-    State("assets-table", "selected_rows"),
-    State("assets-table", "data"),
+    State("assets-table", "selectedRows"),
     State("assets-editing-id", "data"),
     State("assets-f-ticker", "value"),
     State("assets-f-price_source_id", "value"),
@@ -149,7 +148,7 @@ def assets_row_selection(sel_rows):
 )
 def assets_modal(
     n_add, n_edit, n_cancel, n_auto,
-    sel_rows, data, editing_id,
+    sel_rows, editing_id,
     ticker, source_id, currency_options, sector_options, industry_options,
 ):
     from dash import ctx
@@ -261,7 +260,7 @@ def assets_modal(
         )
 
     if t == "assets-btn-edit" and sel_rows:
-        a = asset_svc.get_asset_by_id(data[sel_rows[0]]["id"])
+        a = asset_svc.get_asset_by_id(sel_rows[0]["id"])
         return (
             True, f"Editar activo — {a.ticker}",
             a.ticker, a.name,
@@ -283,7 +282,7 @@ def assets_modal(
 
 
 @callback(
-    Output("assets-table", "data", allow_duplicate=True),
+    Output("assets-table", "rowData", allow_duplicate=True),
     Output("assets-alert", "children"),
     Output("assets-alert", "is_open"),
     Output("assets-alert", "color"),
@@ -396,20 +395,19 @@ def assets_save(
     Input("assets-btn-delete", "n_clicks"),
     Input("assets-btn-confirm-delete", "n_clicks"),
     Input("assets-btn-cancel-delete", "n_clicks"),
-    State("assets-table", "selected_rows"),
-    State("assets-table", "data"),
+    State("assets-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def assets_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
+def assets_confirm_modal(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "assets-btn-delete":
         return False, no_update
     n = len(sel_rows or [])
     if n == 1:
-        ticker = (data[sel_rows[0]] or {}).get("ticker", "")
+        ticker = (sel_rows[0] or {}).get("ticker", "")
         body = f"¿Eliminás '{ticker}' y toda su historia de precios?"
     elif n <= 5:
-        tickers = ", ".join(data[i].get("ticker", "") for i in sel_rows)
+        tickers = ", ".join(r.get("ticker", "") for r in sel_rows)
         body = f"¿Eliminás {n} activos y toda su historia de precios? ({tickers})"
     else:
         body = f"¿Eliminás {n} activos y toda su historia de precios? Esta acción no se puede deshacer."
@@ -417,26 +415,25 @@ def assets_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
 
 
 @callback(
-    Output("assets-table", "data", allow_duplicate=True),
+    Output("assets-table", "rowData", allow_duplicate=True),
     Output("assets-alert", "children", allow_duplicate=True),
     Output("assets-alert", "is_open", allow_duplicate=True),
     Output("assets-alert", "color", allow_duplicate=True),
     Input("assets-btn-confirm-delete", "n_clicks"),
-    State("assets-table", "selected_rows"),
-    State("assets-table", "data"),
+    State("assets-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def assets_delete(_, sel_rows, data):
+def assets_delete(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     errors, deleted = [], 0
-    for i in sel_rows:
+    for fila in sel_rows:
         try:
-            conversion_svc.delete_synthetics_for_asset(data[i]["id"])
-            asset_svc.delete_asset(data[i]["id"])
+            conversion_svc.delete_synthetics_for_asset(fila["id"])
+            asset_svc.delete_asset(fila["id"])
             deleted += 1
         except Exception as exc:
-            errors.append(f"{data[i].get('ticker','?')}: {exc}")
+            errors.append(f"{fila.get('ticker','?')}: {exc}")
     aliases = _load_aliases()
     rows = [_asset_to_row(a, aliases) for a in asset_svc.get_assets()]
     if errors:
@@ -487,26 +484,25 @@ def assets_bulk_field_options(field):
 
 # ── Bulk: aplicar / limpiar ───────────────────────────────────────────────────
 @callback(
-    Output("assets-table", "data", allow_duplicate=True),
+    Output("assets-table", "rowData", allow_duplicate=True),
     Output("assets-bulk-alert", "children"),
     Output("assets-bulk-alert", "is_open"),
     Output("assets-bulk-alert", "color"),
-    Output("assets-table", "selected_rows", allow_duplicate=True),
+    Output("assets-table", "selectedRows", allow_duplicate=True),
     Input("assets-bulk-apply", "n_clicks"),
     Input("assets-bulk-clear", "n_clicks"),
     State("assets-bulk-field", "value"),
     State("assets-bulk-value", "value"),
-    State("assets-table", "selected_rows"),
-    State("assets-table", "data"),
+    State("assets-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def assets_bulk_action(n_apply, n_clear, field, value, sel_rows, data):
+def assets_bulk_action(n_apply, n_clear, field, value, sel_rows):
     from dash import ctx
     _nu = no_update
     if not sel_rows or not field:
         return _nu, "Seleccioná filas y un campo.", True, "warning", _nu
 
-    ids = [data[i]["id"] for i in sel_rows]
+    ids = [r["id"] for r in sel_rows]
     new_value = None if ctx.triggered_id == "assets-bulk-clear" else (int(value) if value else None)
 
     if ctx.triggered_id == "assets-bulk-apply" and value is None:
@@ -523,14 +519,16 @@ def assets_bulk_action(n_apply, n_clear, field, value, sel_rows, data):
 
 
 @callback(
-    Output("assets-table", "selected_rows", allow_duplicate=True),
+    Output("assets-table", "selectedRows", allow_duplicate=True),
     Input("assets-btn-select-all", "n_clicks"),
     Input("assets-btn-deselect-all", "n_clicks"),
-    State("assets-table", "data"),
+    State("assets-table", "rowData"),
     prevent_initial_call=True,
 )
-def assets_select_all(n_sel, n_desel, data):
+def assets_select_all(n_sel, n_desel, filas):
+    """La grilla selecciona por FILA (antes eran índices): "todos" es la
+    lista de filas y "ninguno" la lista vacía."""
     from dash import ctx
     if ctx.triggered_id == "assets-btn-deselect-all":
         return []
-    return list(range(len(data or [])))
+    return list(filas or [])

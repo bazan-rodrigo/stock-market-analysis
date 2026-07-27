@@ -69,7 +69,7 @@ def run_import(_, contents):
     Output("ev-import-progress",   "label"),
     Output("ev-import-progress",   "style",    allow_duplicate=True),
     Output("ev-import-interval",   "disabled", allow_duplicate=True),
-    Output("ev-import-log-table",  "data",     allow_duplicate=True),
+    Output("ev-import-log-table",  "rowData",     allow_duplicate=True),
     Output("ev-import-alert",      "children", allow_duplicate=True),
     Output("ev-import-alert",      "is_open",  allow_duplicate=True),
     Output("ev-import-alert",      "color",    allow_duplicate=True),
@@ -96,7 +96,7 @@ def poll_import(_):
 
 
 @callback(
-    Output("ev-import-log-table", "data", allow_duplicate=True),
+    Output("ev-import-log-table", "rowData", allow_duplicate=True),
     Input("ev-import-btn-clear", "n_clicks"),
     prevent_initial_call=True,
 )

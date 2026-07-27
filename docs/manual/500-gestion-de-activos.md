@@ -21,7 +21,8 @@ La tabla muestra **Ticker**, **Nombre**, **País**, **Mercado**, **Tipo**,
 **Moneda**, **Sector**, **Benchmark**, **Fuente precios** y **Fuente fund.**
 Cada columna tiene su propio casillero de filtro y se puede ordenar haciendo
 clic en el encabezado; con eso resolvés casi cualquier búsqueda sin salir de la
-pantalla.
+pantalla. El listado no pagina: se recorre scrolleando, y el ancho de cada
+columna se puede arrastrar desde el borde del encabezado.
 
 Cuando un dato de catálogo llegó de la fuente externa con un nombre distinto al
 que usa el sistema, la celda lo muestra como `Nombre nativo (Canónico: nombre

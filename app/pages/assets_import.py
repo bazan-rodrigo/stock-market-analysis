@@ -1,16 +1,19 @@
 import dash
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dcc, html
 
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, import_status_conditions, text_col,
+)
 from app.components.help import page_header
-from app.components.table_styles import FILTER, HEADER, DATA, CELL
-from app.components.ui_constants import COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_BODY
+from app.components.ui_constants import TEXT_BODY
 
 _LOG_COLUMNS = [
-    {"name": "Ticker", "id": "ticker"},
-    {"name": "Estado", "id": "status"},
-    {"name": "Detalle", "id": "detail"},
-    {"name": "Fecha", "id": "attempted_at"},
+    text_col("ticker",       "Ticker",  width=120),
+    text_col("status",       "Estado",  width=110),
+    text_col("detail",       "Detalle", width=420),
+    text_col("attempted_at", "Fecha",   width=160),
 ]
 
 
@@ -56,23 +59,15 @@ def layout(**kwargs):
                 html.H5("Resultados", className="d-inline-block me-3"),
                 dbc.Button("Limpiar resultados", id="import-btn-clear", color="link", size="sm"),
             ], className="d-flex align-items-center mb-3"),
-            dash_table.DataTable(
+            dag.AgGrid(
                 id="import-log-table",
-                columns=_LOG_COLUMNS,
-                data=[],
-                style_table={"overflowX": "auto"},
-                style_header=HEADER,
-                style_data=DATA,
-                style_cell=CELL,
-                style_filter=FILTER,
-                style_data_conditional=[
-                    {"if": {"filter_query": "{status} = imported"}, "color": COLOR_POSITIVE},
-                    {"if": {"filter_query": "{status} = error"}, "color": COLOR_NEGATIVE},
-                    {"if": {"filter_query": "{status} = skipped"}, "color": "#ff9800"},
-                ],
-                filter_action="native",
-                page_size=30,
-                sort_action="native",
+                columnDefs=_LOG_COLUMNS,
+                rowData=[],
+                className=THEME_CLASS,
+                style={"height": "460px", "width": "100%"},
+                defaultColDef=DEFAULT_COL_DEF,
+                getRowStyle={"styleConditions": import_status_conditions()},
+                dashGridOptions=grid_options(),
             ),
         ])),
     ])

@@ -1,20 +1,23 @@
 import dash
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dcc, html
 
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, multi_selection,
+    status_col, status_conditions, text_col,
+)
 from app.components.help import page_header
-from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
-from app.components.ui_constants import COLOR_NEGATIVE, COLOR_POSITIVE
 
 _LOG_COLUMNS = [
-    {"name": "Ticker", "id": "ticker"},
-    {"name": "Nombre", "id": "asset_name"},
-    {"name": "Último intento", "id": "last_attempt_at"},
-    {"name": "Resultado", "id": "result"},
-    {"name": "Detalle error", "id": "error_detail"},
-    {"name": "Último indicador", "id": "last_indicator_at"},
-    {"name": "Resultado indicador", "id": "indicator_result"},
-    {"name": "Detalle error indicador", "id": "indicator_error_detail"},
+    text_col("ticker",      "Ticker", width=110, pinned="left"),
+    text_col("asset_name",  "Nombre", width=200),
+    text_col("last_attempt_at", "Último intento", width=150),
+    status_col("result",    "Resultado"),
+    text_col("error_detail", "Detalle error", width=260),
+    text_col("last_indicator_at", "Último indicador", width=150),
+    status_col("indicator_result", "Resultado indicador", width=140),
+    text_col("indicator_error_detail", "Detalle error indicador", width=260),
 ]
 
 
@@ -40,28 +43,17 @@ def layout(**kwargs):
         dcc.Interval(id="prices-interval", interval=800, disabled=True, n_intervals=0),
         dbc.Progress(id="prices-progress", value=0, striped=True, animated=True,
                      label="", className="mb-3", style={"display": "none"}),
-        dash_table.DataTable(
+        dag.AgGrid(
             id="prices-log-table",
-            columns=_LOG_COLUMNS,
-            data=[],
-            row_selectable="multi",
-            selected_rows=[],
-            style_table={"overflowX": "auto"},
-            style_header=HEADER,
-            style_data=DATA,
-            style_cell=CELL,
-            style_filter=FILTER,
-            style_data_conditional=SELECTED_ROW + [
-                {"if": {"filter_query": '{result} = "Éxito"'}, "color": COLOR_POSITIVE},
-                {"if": {"filter_query": '{result} = "Error"'}, "color": COLOR_NEGATIVE},
-                {"if": {"filter_query": '{indicator_result} = "Éxito"', "column_id": "indicator_result"},
-                 "color": COLOR_POSITIVE},
-                {"if": {"filter_query": '{indicator_result} = "Error"', "column_id": "indicator_result"},
-                 "color": COLOR_NEGATIVE},
-            ],
-            page_size=30,
-            sort_action="native",
-            filter_action="native",
+            columnDefs=_LOG_COLUMNS,
+            rowData=[],
+            className=THEME_CLASS,
+            style={"height": "calc(100vh - 330px)", "width": "100%"},
+            defaultColDef=DEFAULT_COL_DEF,
+            # El resultado tiñe la fila entera (no solo su celda): de un vistazo
+            # se ve qué activos fallaron sin leer columna por columna.
+            getRowStyle={"styleConditions": status_conditions("result")},
+            dashGridOptions=grid_options(rowSelection=multi_selection()),
         ),
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Confirmar operación")),

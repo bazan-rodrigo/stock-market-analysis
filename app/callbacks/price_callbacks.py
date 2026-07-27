@@ -47,7 +47,7 @@ def _logs_to_rows(logs) -> list[dict]:
 
 
 @callback(
-    Output("prices-log-table", "data"),
+    Output("prices-log-table", "rowData"),
     Input("prices-log-table", "id"),
 )
 def load_price_logs(_):
@@ -58,7 +58,7 @@ def load_price_logs(_):
     Output("prices-btn-one", "disabled"),
     Output("prices-btn-redownload-selected", "disabled"),
     Output("prices-btn-indicators", "disabled"),
-    Input("prices-log-table", "selected_rows"),
+    Input("prices-log-table", "selectedRows"),
 )
 def price_row_selection(sel_rows):
     return not bool(sel_rows), not bool(sel_rows), not bool(sel_rows)
@@ -69,7 +69,7 @@ def price_row_selection(sel_rows):
     Output("prices-progress",     "label"),
     Output("prices-progress",     "style",    allow_duplicate=True),
     Output("prices-interval",     "disabled", allow_duplicate=True),
-    Output("prices-log-table",    "data",     allow_duplicate=True),
+    Output("prices-log-table",    "rowData",     allow_duplicate=True),
     Output("prices-alert",        "children", allow_duplicate=True),
     Output("prices-alert",        "is_open",  allow_duplicate=True),
     Output("prices-alert",        "color",    allow_duplicate=True),
@@ -97,16 +97,15 @@ def poll_prices(_):
 
 
 @callback(
-    Output("prices-log-table", "data", allow_duplicate=True),
+    Output("prices-log-table", "rowData", allow_duplicate=True),
     Output("prices-alert", "children", allow_duplicate=True),
     Output("prices-alert", "is_open", allow_duplicate=True),
     Output("prices-alert", "color", allow_duplicate=True),
     Input("prices-btn-one", "n_clicks"),
-    State("prices-log-table", "selected_rows"),
-    State("prices-log-table", "data"),
+    State("prices-log-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def update_one(_, sel_rows, data):
+def update_one(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     # Síncrono (thread del request), pero escribe prices/ind_* → mismo lock
@@ -116,7 +115,7 @@ def update_one(_, sel_rows, data):
         return no_update, _BUSY_PRICES, True, "warning"
     try:
         from app.services.asset_service import get_asset_by_ticker
-        tickers = [data[i]["ticker"] for i in sel_rows]
+        tickers = [r["ticker"] for r in sel_rows]
         successes, errors = [], []
         for ticker in tickers:
             try:
@@ -205,16 +204,15 @@ def toggle_redownload_selected_modal(n_open, n_confirm, n_cancel):
     Output("prices-interval", "disabled", allow_duplicate=True),
     Output("prices-progress", "style",    allow_duplicate=True),
     Input("prices-btn-redownload-selected-confirm", "n_clicks"),
-    State("prices-log-table", "selected_rows"),
-    State("prices-log-table", "data"),
+    State("prices-log-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def redownload_selected(_, sel_rows, data):
+def redownload_selected(_, sel_rows):
     if not sel_rows:
         return False, True, {"display": "none"}
 
     from app.services.asset_service import get_asset_by_ticker
-    tickers   = [data[i]["ticker"] for i in sel_rows]
+    tickers   = [r["ticker"] for r in sel_rows]
     asset_ids = [a.id for a in (get_asset_by_ticker(t) for t in tickers) if a is not None]
 
     _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})
@@ -241,7 +239,7 @@ def redownload_selected(_, sel_rows, data):
 
 
 @callback(
-    Output("prices-log-table", "data", allow_duplicate=True),
+    Output("prices-log-table", "rowData", allow_duplicate=True),
     Input("prices-btn-clear-log", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -255,11 +253,10 @@ def clear_log(_):
     Output("prices-progress",      "style",     allow_duplicate=True),
     Output("prices-btn-indicators", "disabled", allow_duplicate=True),
     Input("prices-btn-indicators", "n_clicks"),
-    State("prices-log-table", "selected_rows"),
-    State("prices-log-table", "data"),
+    State("prices-log-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def recompute_indicators(_, sel_rows, data):
+def recompute_indicators(_, sel_rows):
     """Recalculo completo (vigentes + historia, sin atajos) de los
     indicadores técnicos de los activos seleccionados — requiere selección,
     ver price_row_selection."""
@@ -270,7 +267,7 @@ def recompute_indicators(_, sel_rows, data):
         backfill_asset_history, compute_current_indicators, _save_indicator_log,
     )
     from app.services.asset_service import get_asset_by_ticker
-    tickers = [data[i]["ticker"] for i in sel_rows]
+    tickers = [r["ticker"] for r in sel_rows]
     sel_ids = [a.id for a in (get_asset_by_ticker(t) for t in tickers) if a is not None]
 
     _prices_state.update({"running": True, "current": 0, "total": 0, "msg": "", "error": None, "has_errors": False})

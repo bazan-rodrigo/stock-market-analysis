@@ -47,7 +47,10 @@ Las columnas se ordenan y filtran como en el resto del sistema. Filtrar
 
 A la izquierda de cada fila hay una casilla de selección: tres de los cuatro
 botones necesitan que marques al menos un activo, y hasta entonces están
-deshabilitados.
+deshabilitados. **Selecciona la casilla, no la fila**: clickear en cualquier
+otro lado no marca nada. Es a propósito — uno de esos botones borra y
+redescarga toda la historia de precios, así que marcar tiene que ser
+deliberado. La casilla del encabezado marca y desmarca todo de una.
 
 ---
 

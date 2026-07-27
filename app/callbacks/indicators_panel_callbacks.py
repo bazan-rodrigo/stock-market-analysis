@@ -6,8 +6,8 @@ from app.database import get_session
 from app.models.indicator_definition import IndicatorDefinition
 from app.models.indicator_store import get_ind_table
 from app.components.ui_constants import (
-    BG_CARD, BORDER_CARD, COLOR_NEGATIVE, COLOR_POSITIVE, COLOR_RANGE, TEXT_BODY, TEXT_DIM,
-    TREND_LABELS, VOL_LABELS
+    BG_CARD, BORDER_CARD, COLOR_LINK, COLOR_NEGATIVE, COLOR_POSITIVE, COLOR_RANGE,
+    TEXT_BODY, TEXT_DIM, TREND_LABELS, VOL_LABELS
 )
 
 _CARD = {"backgroundColor": BG_CARD, "border": f"1px solid {BORDER_CARD}", "borderRadius": "8px"}
@@ -62,7 +62,7 @@ def _fmt(defn: IndicatorDefinition, value) -> tuple[str, str]:
         return f"{num:.2f}x", NEUTRAL
 
     if scale == "period":
-        return str(int(num)), "#93c5fd"
+        return str(int(num)), COLOR_LINK
 
     if scale == "currency":
         return f"{num:.4g}", NEUTRAL

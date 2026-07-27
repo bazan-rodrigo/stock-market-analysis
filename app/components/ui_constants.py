@@ -21,6 +21,7 @@ COLOR_WARNING  = "#facc15"   # amarillo — advertencia               (Tailwind 
 COLOR_INFO     = "#38bdf8"   # azul    — discrete_map, info         (Tailwind sky-400)
 COLOR_RANGE    = "#fb923c"   # naranja — fórmula range              (Tailwind orange-400)
 COLOR_PURPLE   = "#c084fc"   # violeta                              (Tailwind purple-400)
+COLOR_LINK     = "#93c5fd"   # celeste — enlaces dentro de tablas   (Tailwind blue-300)
 
 # ── Escala tipográfica de grises ─────────────────────────────────────────────
 # Jerarquía, no sinónimos: cada nivel baja un escalón de énfasis.

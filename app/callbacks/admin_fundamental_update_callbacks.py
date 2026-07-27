@@ -38,7 +38,7 @@ def _launch_locked_bg(run_fn) -> bool:
 
 
 @callback(
-    Output("fund-upd-table", "data"),
+    Output("fund-upd-table", "rowData"),
     Input("fund-upd-table", "id"),
 )
 def load_log(_):
@@ -48,7 +48,7 @@ def load_log(_):
 @callback(
     Output("fund-upd-btn-one", "disabled"),
     Output("fund-upd-btn-redownload-selected", "disabled"),
-    Input("fund-upd-table", "selected_rows"),
+    Input("fund-upd-table", "selectedRows"),
 )
 def toggle_btn_one(sel):
     return not bool(sel), not bool(sel)
@@ -63,7 +63,7 @@ def toggle_btn_one(sel):
     Output("fund-upd-alert",     "children"),
     Output("fund-upd-alert",     "is_open"),
     Output("fund-upd-alert",     "color"),
-    Output("fund-upd-table",     "data",    allow_duplicate=True),
+    Output("fund-upd-table",     "rowData",    allow_duplicate=True),
     Input("fund-upd-btn-retry",  "n_clicks"),
     Input("fund-upd-btn-clear",  "n_clicks"),
     prevent_initial_call=True,
@@ -142,7 +142,7 @@ def handle_buttons(n_retry, n_clear):
     Output("fund-upd-progress",  "label",             allow_duplicate=True),
     Output("fund-upd-progress",  "style",             allow_duplicate=True),
     Output("fund-upd-interval",  "disabled",          allow_duplicate=True),
-    Output("fund-upd-table",     "data",              allow_duplicate=True),
+    Output("fund-upd-table",     "rowData",              allow_duplicate=True),
     Output("fund-upd-alert",     "children",          allow_duplicate=True),
     Output("fund-upd-alert",     "is_open",           allow_duplicate=True),
     Output("fund-upd-alert",     "color",             allow_duplicate=True),
@@ -175,13 +175,12 @@ def poll_progress(_):
     Output("fund-upd-alert",  "children", allow_duplicate=True),
     Output("fund-upd-alert",  "is_open",  allow_duplicate=True),
     Output("fund-upd-alert",  "color",    allow_duplicate=True),
-    Output("fund-upd-table",  "data",     allow_duplicate=True),
+    Output("fund-upd-table",  "rowData",     allow_duplicate=True),
     Input("fund-upd-btn-one", "n_clicks"),
-    State("fund-upd-table",   "selected_rows"),
-    State("fund-upd-table",   "data"),
+    State("fund-upd-table",   "selectedRows"),
     prevent_initial_call=True,
 )
-def update_one(_, sel_rows, data):
+def update_one(_, sel_rows):
     if not current_user.is_authenticated or not current_user.is_admin:
         return no_update, no_update, no_update, no_update
     if not sel_rows:
@@ -197,7 +196,7 @@ def update_one(_, sel_rows, data):
 
     from app.database import get_session
     from app.models import Asset
-    tickers = [data[i]["ticker"] for i in sel_rows]
+    tickers = [r["ticker"] for r in sel_rows]
     successes, errors = [], []
     try:
         for ticker in tickers:
@@ -243,11 +242,10 @@ def toggle_redownload_selected_modal(n_open, n_confirm, n_cancel):
     Output("fund-upd-interval", "disabled", allow_duplicate=True),
     Output("fund-upd-progress", "style",    allow_duplicate=True),
     Input("fund-upd-btn-redownload-selected-confirm", "n_clicks"),
-    State("fund-upd-table", "selected_rows"),
-    State("fund-upd-table", "data"),
+    State("fund-upd-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def redownload_selected(_, sel_rows, data):
+def redownload_selected(_, sel_rows):
     if not current_user.is_authenticated or not current_user.is_admin:
         return no_update, no_update, no_update
     if not sel_rows:
@@ -257,7 +255,7 @@ def redownload_selected(_, sel_rows, data):
 
     from app.database import get_session
     from app.models import Asset
-    tickers   = [data[i]["ticker"] for i in sel_rows]
+    tickers   = [r["ticker"] for r in sel_rows]
     s         = get_session()
     asset_ids = [a.id for a in (s.query(Asset).filter_by(ticker=t).first() for t in tickers) if a is not None]
 
