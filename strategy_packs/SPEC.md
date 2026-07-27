@@ -153,8 +153,9 @@ texto y con un indicador numérico **nunca puntúa**.
 - **`min` puede ser mayor que `max`**: así se invierte la escala (el ejemplo
   del RSI en §3 puntúa mejor cuanto más bajo es el RSI).
 - `clamp` (default `true`) recorta a ±100 lo que quede fuera del rango. Con
-  `false`, un valor extremo produce puntajes de ±340 que distorsionan el
-  promedio ponderado y hacen que el ranking lo domine un solo activo.
+  `false` el puntaje se desborda: en una escala de −3 a 3, un valor de **6 da
+  200**. Un componente así distorsiona el promedio ponderado y hace que el
+  ranking lo domine un solo activo con un valor extremo.
 - `min` y `max` deben ser numéricos y distintos.
 
 ---

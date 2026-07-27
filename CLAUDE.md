@@ -76,6 +76,19 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   y `roles:` jerárquico (`invitado` < `analista` < `admin`; ausente = visible
   para todos). El servicio y el diseño están en `app/services/manual_service.py`.
   Rutas utilitarias sin sección van a la lista `excluidas` del test.
+- **Todo cambio del sistema se refleja en la INTERFAZ y en el CONTRATO.** El
+  motor (`signal_engine`, `strategy_filter`), la **UI** (dropdowns del ABM,
+  constructor de filtros, textos de ayuda) y el **contrato publicado**
+  (`strategy_packs/SPEC.md` + `docs/manual/`) describen lo mismo desde tres
+  lados: una fórmula, un operador, un tipo de operando, un atributo filtrable
+  o una regla de validación que se agregue o cambie va en **los tres, en el
+  mismo commit**. Lo que el motor soporta pero la UI no ofrece es invisible;
+  lo que el SPEC no documenta no lo puede usar quien arma packs afuera; y un
+  SPEC que miente es peor que no tenerlo. Fuentes únicas a respetar (nunca
+  redeclarar la lista en otro lado): `signal_engine.FORMULA_TYPES`,
+  `strategy_filter.{NUMERIC,CATEGORICAL}_OPERATORS`, `OPERAND_TYPES`,
+  `ATTRIBUTE_KEYS`, `RESOLUTIONS`, y las columnas de
+  `pack_service.{SIGNAL,STRATEGY,COMPONENT}_COLUMNS`.
 - **Estrategias:** cuando el usuario pide una estrategia, entregarla como un
   **pack** en `strategy_packs/`, no como pasos manuales. El formato es un
   estándar publicado —`strategy_packs/SPEC.md`, atado al código por

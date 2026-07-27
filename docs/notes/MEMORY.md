@@ -43,6 +43,7 @@
 - [Motor de base de datos: elección de INSTALACIÓN](feedback_mariadb.md) — 23-jul: PostgreSQL o MySQL, elegido al instalar y válido en cualquier entorno (no es propiedad del entorno); hoy Railway+PG pero **el dual se mantiene**; no instalar los dos motores si se usa uno
 - [Modal no se cierra si hay error al guardar](feedback_modal_on_error.md) — El modal ABM debe permanecer abierto en error; solo el callback de save cierra el modal (en éxito)
 - [Registro de pantallas nuevas](feedback_registro_pantallas.md) — Sin auto-discovery: _PAGES + _CALLBACKS en app/__init__.py + navbar; test_module_registration.py es la red
+- [Reflejar todo cambio en la UI y en el SPEC](feedback_reflejar_en_ui_y_spec.md) — 26-jul: motor + interfaz + contrato publicado (SPEC/manual) son tres caras de lo mismo, se tocan en el mismo commit; lo que la UI no ofrece es invisible y lo que el SPEC no documenta nadie lo puede usar desde afuera
 - [Idioma de comunicación](feedback_language.md) — Responder siempre en español
 - [Pedir confirmación antes de aplicar cambios](feedback_confirmacion_cambios.md) — Presentar la solución y esperar "sí" antes de editar archivos
 - [Estrategias como archivos de import](feedback_strategy_packs.md) — Cuando pide una estrategia, generar los xlsx en strategy_packs/, no pasos manuales
