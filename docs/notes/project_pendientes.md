@@ -12,8 +12,8 @@ metadata:
 passed). El usuario vio la grilla nueva en Railway, le gustó más que la
 anterior y pidió reemplazar todas: 20 grillas en 19 pantallas, cero
 `dash_table.DataTable`, `app/components/table_styles.py` borrado. El ABM
-genérico resolvió 8 pantallas de catálogo de una. **Pendiente de verificar en
-Railway** (es UI): que las 14 grillas nuevas se vean oscuras, que los ABMs
+genérico resolvió 8 pantallas de catálogo de una. **Render VERIFICADO en Railway el 27-jul** ("se ve ok"): las grillas salen
+oscuras y los renderers dibujan. Queda por ejercitar: que los ABMs
 sigan pudiendo editar/borrar (la selección pasó de índices a filas), y en
 particular **/admin/synthetic**, donde se removió un array paralelo de ids
 indexado por posición — ahí la fila lleva su propio id. Sin migraciones.

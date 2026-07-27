@@ -1,6 +1,6 @@
 ---
 name: project_grillas_10k
-description: "DevExtreme DESCARTADO; el problema eran las grillas camino a 10.000 activos — etapas 0/1/2 HECHAS el 26-jul (6 pantallas en ag-grid), falta verificar en Railway y medir la etapa 3"
+description: "DevExtreme DESCARTADO; el problema eran las grillas camino a 10.000 activos — TODA la app migrada a ag-grid (20 grillas, cero DataTable), render verificado en Railway el 27-jul; la etapa 3 espera medición"
 metadata: 
   node_type: memory
   type: project
@@ -48,8 +48,11 @@ falta es virtualización y carga por demanda.
 - Etapa 3 (Infinite Row Model): SIGUE PENDIENTE y sigue condicionada a medir.
   Con la virtualización puesta, el cuello que queda es el tamaño de lo que
   viaja por la red, no el dibujado — medir antes de encararlo.
-- FUERA de alcance: los ABMs de catálogo y `app/components/abm.py` (genérico:
-  tocarlo impacta 15 pantallas sin beneficio).
+- ~~FUERA de alcance: los ABMs de catálogo y `app/components/abm.py`~~ —
+  **esta previsión salió mal y conviene recordar por qué**: se descartaron por
+  "genérico, impacta 15 pantallas sin beneficio", pero al migrarlos (27-jul)
+  resultó que ser genérico los hacía BARATOS —un solo archivo resolvió 8
+  pantallas— y el beneficio era la consistencia visual, que sí importaba.
 
 **Etapa 0, lo que se implementó** (952 tests passed):
 - Screener: selector "Mostrar" (Top 100/500/1000/2000/Todos, default 500). El tope
@@ -180,3 +183,17 @@ columnas, modo de selección, que el tema sea `legacy` y que toda columna tenga
 
 Tests: el ratchet cubre las 22 grillas (props viejas de DataTable, indexado de
 filas por posición) y falla si vuelve a aparecer una `DataTable`. 1155 passed.
+
+**VERIFICADO en Railway (27-jul-2026):** el usuario confirmó que la app se ve
+bien con las 20 grillas. O sea que quedan descartados los dos riesgos de
+render que se habían anotado: el tema **sí** aplica (`theme: "legacy"` +
+`assets/ag_grid.css` funcionan: las grillas salen oscuras, no blancas) y los
+renderers propios dibujan (barra de score y enlaces del ticker).
+
+Lo que la confirmación visual NO cubre y sigue sin ejercitarse: los caminos
+FUNCIONALES de selección — marcar checkbox y apretar los botones destructivos
+(/prices, fundamental), editar/borrar en los ABMs de catálogo, y el
+borrado/recálculo en /admin/synthetic, que es donde hubo cambio estructural
+(se removió el array paralelo de ids indexado por posición). No son riesgo de
+render sino de mapeo fila→id, y el modo de falla del checkbox es seguro: sin
+selección los botones quedan deshabilitados.
