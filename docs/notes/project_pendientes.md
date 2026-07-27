@@ -1,12 +1,35 @@
 ---
 name: pendientes-proxima-sesion
-description: Log de pendientes sesión por sesión (más reciente arriba); al 26-jul-2026, etapa 0 de grillas hecha (verificación pendiente en Railway) y varias migraciones sin aplicar
+description: Log de pendientes sesión por sesión (más reciente arriba); al 26-jul-2026, las grillas ya están en ag-grid y los packs publicados — ambos pendientes de verificar en Railway, más varias migraciones sin aplicar
 metadata: 
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
   modified: 2026-07-27T02:07:24.841Z
 ---
+
+**Sesión 26-jul-2026 (3): las 6 grillas grandes pasaron a ag-grid** (etapas 1 y
+2 del plan de [[project_grillas_10k]]; commits c1cdd12 + 615dc4d, 1071 passed).
+`/senales`, `/assets`, `/prices`, actualización fundamental y los dos imports.
+Entra la dependencia **`dash-ag-grid`** en requirements.txt (Railway la instala
+sola en el próximo deploy). **Pendiente de verificar en Railway = producción**
+(es UI pura: desde esta PC no hay forma de mirarla), por orden de riesgo:
+1. **Que las grillas se vean OSCURAS.** ag-grid 35 arranca con la Theming API
+   nueva, que es clara y se configura desde JS; las grillas piden
+   `theme: "legacy"` para que aplique `assets/ag_grid.css`. Si salen blancas
+   sobre fondo oscuro, falló eso.
+2. **Que aparezcan los checkboxes** en /prices, fundamental y /assets. Si no,
+   la API de selección no es la que se infirió. El modo de falla es SEGURO:
+   sin selección los botones quedan deshabilitados y no se puede disparar nada
+   destructivo.
+3. Que se dibujen la barra de score y los enlaces del ticker en /senales
+   (renderers propios en `assets/dashAgGridComponentFunctions.js`).
+4. **Alta / edición / borrado / edición masiva en /assets** — es la pantalla
+   con más superficie: la selección pasó de índices a filas enteras.
+Cambios de conducta a avisar: **clickear una fila ya no la selecciona** (solo
+el checkbox, a propósito, porque esa selección dispara redescargas que borran
+historia) y **se fue el dropdown "Ordenar por" del screener** (ahora ordena
+cualquier cabecera, incluidas las columnas de señal). Sin migraciones.
 
 **Sesión 26-jul-2026 (2): packs como estándar publicado.** Ver
 [[packs-estandar-para-ia]]. Pendiente de verificar **en Railway** (nada de
