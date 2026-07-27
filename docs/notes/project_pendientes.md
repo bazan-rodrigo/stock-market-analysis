@@ -8,6 +8,32 @@ metadata:
   modified: 2026-07-27T15:39:16.081Z
 ---
 
+**Sesión 27-jul-2026 (2): Drawdown % y ATR % con historia** (commit 14b124c,
+1181 passed, migración **0097**). Salió de la pregunta "¿por qué no hay drawdown
+en Posicionamiento Histórico?" — ver [[project_indicadores_con_historia]] para
+el diagnóstico completo (había **tres** motivos distintos de ausencia, no uno).
+Nuevos `drawdown_pct_daily` y `atr_pct_{daily,weekly,monthly}` con historia, más
+sus límites en Verificación de datos y un trinquete que impide que un indicador
+nuevo quede sin chequeo de cordura en silencio.
+
+**APLICADO Y VERIFICADO en Railway el 27-jul** (el usuario confirmó "probado y
+ok"): `alembic upgrade head` + recálculo de los cuatro. Sin pendientes de
+despliegue.
+
+Lo que quedó abierto de ese hilo, por relación valor/costo:
+1. **Distribución de categóricos** (`trend_*`/`volatility_*`): tienen historia
+   guardada y el tab las descarta por el filtro `type == "num"`. No falta
+   ningún dato, falta la rama de renderizado — una barra por régimen, sin
+   binning. Es el más barato y el más útil.
+2. `resistance_pct`/`support_pct` con historia: son distancias %, o sea
+   exactamente la pregunta de esa pantalla, pero hoy son `keep_history=False`
+   y darles serie cuesta footprint.
+3. MACD/Estocástico/Bollinger: **descartados a propósito**, no olvidados. Al
+   vuelo son posibles, pero cada uno arrastra sus parámetros y la pestaña
+   dejaría de ser "elegí un indicador" para volverse un configurador.
+
+---
+
 **Sesión 27-jul-2026: TODA la app quedó en ag-grid** (commit 0af810d, 1155
 passed). El usuario vio la grilla nueva en Railway, le gustó más que la
 anterior y pidió reemplazar todas: 20 grillas en 19 pantallas, cero

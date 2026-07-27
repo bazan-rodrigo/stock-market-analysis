@@ -1,5 +1,7 @@
 # Memoria del proyecto
 
+- [Indicadores con historia: Drawdown % y ATR % (0097)](project_indicadores_con_historia.md) — 27-jul (14b124c, 1181 passed): faltaban en Posicionamiento Histórico por **tres motivos distintos** (solo-JS del gráfico / `keep_history=False` / categóricos que el filtro `type=="num"` descarta). Nuevos `drawdown_pct_daily` + `atr_pct_*` (ATR **normalizado**, el absoluto no sirve en un histograma), ambos en `_CHECKSUM_DEP_CODES`. Ojo: `_atr_pct_series_v` era el PERCENTIL (renombrado). `check_sanity` no chequea EN SILENCIO un código sin límites → trinquete nuevo. **VERIFICADO en Railway**; queda la distribución de categóricos
+
 - [Packs como estándar publicado (para personas y otras IA)](project_packs_estandar.md) — 26-jul: SPEC.md v1 (fijo) + catálogo exportable por instalación (variable) + validador offline; el import acepta JSON además de xlsx y resuelve **atributos por nombre** (era LA barrera de portabilidad); `test_pack_spec.py` ata el documento al código. Pendiente verificar en Railway
 
 - [Sistema de diseño único de UI + trinquete](project_sistema_diseno_ui.md) — 26-jul (e37da72): el dolor no era Dash sino la heterogeneidad entre pantallas; ui_constants pasa a sistema global (colores sueltos 544→178), page_header sin `level`, test_ui_consistency.py como red. **custom.css y dark_theme.js = ZONA INTOCABLE** (ahí viven los fixes de legibilidad ganados por especificidad). Incluye el acoplamiento a Dash medido por si vuelve el tema de migrar
