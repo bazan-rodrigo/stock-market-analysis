@@ -35,6 +35,7 @@ los ids siguen aceptándose para no romper los archivos exportados por la app.
 import copy
 import json
 import logging
+from pathlib import Path
 
 from app.services import signal_engine, strategy_filter
 from app.services.visibility import parse_publica
@@ -780,3 +781,24 @@ def catalog_bytes() -> bytes:
     contexto de un modelo o se abre a mano)."""
     return json.dumps(build_catalog(), ensure_ascii=False,
                       indent=2).encode("utf-8")
+
+
+# La especificación viaja con la aplicación (está en el repo y el deploy lo
+# copia entero), así que se sirve leyéndola de disco. Empotrarla como string en
+# el código sería duplicar 18 KB de documento y garantizar que un día digan
+# cosas distintas — justo lo que test_pack_spec.py existe para impedir.
+SPEC_PATH = Path(__file__).resolve().parents[2] / "strategy_packs" / "SPEC.md"
+
+
+def spec_bytes() -> bytes:
+    """El contrato publicado, para descargarlo desde la pantalla.
+
+    Quien usa la aplicación no tiene acceso al repositorio: sin esto, la mitad
+    fija del estándar —la que hay que entregarle a quien escriba el pack— sería
+    inalcanzable desde la app.
+    """
+    if not SPEC_PATH.exists():
+        raise FileNotFoundError(
+            f"no se encontró la especificación en {SPEC_PATH}. Debería viajar "
+            f"con la aplicación (strategy_packs/SPEC.md).")
+    return SPEC_PATH.read_bytes()

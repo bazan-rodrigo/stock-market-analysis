@@ -34,6 +34,25 @@ def _diagnostico(errores: list[str], avisos: list[str]):
     return [b for b in bloques if b is not None]
 
 
+# ── Los dos archivos que se entregan ──────────────────────────────────────────
+
+@callback(
+    Output("pk-download", "data", allow_duplicate=True),
+    Input("pk-btn-spec", "n_clicks"),
+    prevent_initial_call=True,
+)
+def descargar_spec(_):
+    """La especificación del formato. Quien usa la app no tiene el repositorio
+    a mano: si no se puede bajar de acá, la mitad fija del estándar es
+    inalcanzable para el usuario."""
+    from app.services import pack_service
+
+    _, is_admin = current_viewer()
+    if not is_admin:
+        return no_update
+    return dcc.send_bytes(pack_service.spec_bytes(), "SPEC.md")
+
+
 # ── Catálogo ──────────────────────────────────────────────────────────────────
 
 @callback(

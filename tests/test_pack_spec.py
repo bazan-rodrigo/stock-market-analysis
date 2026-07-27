@@ -131,6 +131,16 @@ def test_el_ejemplo_completo_se_convierte_a_filas(texto):
         "el ejemplo del SPEC no es autosuficiente: usa señales que no incluye")
 
 
+def test_la_especificacion_se_puede_bajar_desde_la_pantalla(texto):
+    """Quien usa la aplicación no tiene el repositorio: si `spec_bytes` no
+    encuentra el archivo, la mitad fija del estándar queda inalcanzable para el
+    usuario y el botón baja un error. Fija además la ruta relativa, que se
+    rompe en silencio si el módulo cambia de lugar."""
+    assert ps.SPEC_PATH == SPEC, (
+        f"pack_service.SPEC_PATH apunta a {ps.SPEC_PATH}, no al SPEC del repo")
+    assert ps.spec_bytes().decode("utf-8") == texto
+
+
 def test_el_readme_de_packs_apunta_al_spec():
     readme = (ROOT / "strategy_packs" / "README.md").read_text(encoding="utf-8")
     assert "SPEC.md" in readme

@@ -16,8 +16,9 @@ cargar una por una cada señal a mano en
 [Estrategias](/manual/configuracion-estrategias).
 
 El formato es **público y estándar**: cualquiera que lo respete produce un
-archivo que esta aplicación importa. Está documentado en el archivo `SPEC.md`
-que acompaña al programa, junto con los packs de ejemplo.
+archivo que esta aplicación importa. La especificación completa se descarga
+desde esta misma pantalla, así que no hace falta pedirle nada a nadie para
+poder entregarla.
 
 ## Las dos piezas que necesita quien lo escribe
 
@@ -28,14 +29,16 @@ cargados en *esta* base. Sin el catálogo, quien escribe el pack tiene que
 adivinar los nombres — y un nombre inventado hace que el import rechace el
 archivo entero.
 
-Por eso esta pantalla arranca con el botón **Descargar catálogo**: baja ese
-inventario en un archivo. Si le vas a pedir una estrategia a un asistente de
-inteligencia artificial, dale las dos cosas —la especificación del formato y
-este catálogo— y podrá armar un pack que entre sin retoques.
+Por eso la pantalla arranca con los dos botones: **Especificación** y
+**Catálogo**. Si le vas a pedir una estrategia a un asistente de inteligencia
+artificial, adjuntale los dos archivos y describile en castellano común la
+lógica que querés; con eso puede armar un pack que entre sin retoques.
 
 ## Los tres pasos de la pantalla
 
-**1. Catálogo.** Lo de arriba: se lo entregás a quien va a escribir el pack.
+**1. Qué entregar.** Los dos archivos de arriba. La especificación es siempre
+la misma; el catálogo cambia con lo que tengas cargado, así que conviene bajarlo
+de nuevo cada vez.
 
 **2. Subir el pack.** Un solo archivo con las señales y la estrategia juntas.
 Subirlo **no escribe nada**: solo se revisa.

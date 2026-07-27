@@ -43,15 +43,22 @@ def layout(**kwargs):
 
         dbc.Row([
             dbc.Col(dbc.Card(dbc.CardBody([
-                html.H5("1. Catálogo", className="mb-2"),
+                html.H5("1. Qué entregarle a quien lo escriba", className="mb-2"),
                 html.P(
-                    "Quien escriba el pack necesita saber qué indicadores y qué "
-                    "sectores existen en esta instalación. Descargá el catálogo "
-                    "y entregáselo junto con la especificación del formato.",
+                    "Dos archivos: la especificación del formato —igual en "
+                    "cualquier instalación— y el catálogo de ésta, que dice qué "
+                    "indicadores y qué sectores existen acá. Con los dos, "
+                    "cualquiera puede armar un pack que entre sin retoques.",
                     className="small text-muted",
                 ),
-                dbc.Button("Descargar catálogo", id="pk-btn-catalog",
-                           color="secondary", size="sm", outline=True),
+                dbc.Button("Especificación", id="pk-btn-spec",
+                           color="secondary", size="sm", outline=True,
+                           className="me-2",
+                           title="El formato de los packs (SPEC.md)"),
+                dbc.Button("Catálogo", id="pk-btn-catalog",
+                           color="secondary", size="sm", outline=True,
+                           title="Indicadores, categorías, sectores y señales "
+                                 "de esta instalación"),
                 dcc.Download(id="pk-download"),
             ])), md=4),
 
