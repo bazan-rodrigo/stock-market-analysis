@@ -153,7 +153,15 @@ hagan falta está bien explicado en el propio docstring:
 > fórmula.
 
 Los límites son deliberadamente laxos: el objetivo es atrapar lo obviamente roto,
-no discutir si un valor extremo pero real es razonable. Las tolerancias están
+no discutir si un valor extremo pero real es razonable. La excepción es
+`drawdown_pct_daily`, cuyo rango `[-100, 0]` no es una heurística sino una
+identidad —el precio no puede superar su propio máximo acumulado—, así que ahí
+cualquier violación es un bug y no un dato extremo.
+
+Un indicador nuevo que no declare límites **no falla: no se chequea**,
+silenciosamente. Como eso es fácil de pasar por alto, un test ata la tabla de
+límites al catálogo de indicadores con historia y rompe la suite si alguno queda
+afuera. Las tolerancias están
 calibradas contra el **almacenamiento**, no contra el cálculo: `_TOL = 0.01`
 (el mismo `.round(2)` que usa el sistema) más `_REL_TOL = 1e-4`, porque
 `ind_fundamental_*` guarda en una columna `Float` de precisión simple y un ratio

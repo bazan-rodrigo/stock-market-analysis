@@ -430,7 +430,9 @@ def _rsi_series(close: pd.Series, period: int = 14) -> pd.Series:
     return rsi.round(2)
 
 
-def _atr_pct_series_v(df: pd.DataFrame, period: int) -> pd.Series:
+def _atr_percentile_series_v(df: pd.DataFrame, period: int) -> pd.Series:
+    """PERCENTIL del ATR (0-100) contra toda la historia del activo — alimenta
+    atr_percentile_*. No confundir con _atr_pct_price_series (ATR / cierre)."""
     atr          = _atr_series(df, period)
     valid_sorted = np.sort(atr.dropna().values)
     n            = len(valid_sorted)
@@ -443,6 +445,28 @@ def _atr_pct_series_v(df: pd.DataFrame, period: int) -> pd.Series:
         np.searchsorted(valid_sorted, atr_vals) / n * 100,
     )
     return pd.Series(np.round(pcts, 1), index=df.index)
+
+
+def _atr_pct_price_series(df: pd.DataFrame, period: int) -> pd.Series:
+    """ATR como % del cierre — alimenta atr_pct_*. El ATR absoluto (lo que
+    dibuja el panel del gráfico) está en unidades de precio: no es comparable
+    entre activos ni a lo largo de la historia de uno que cambió de escala, así
+    que el indicador persistido se normaliza por el cierre. Cierre 0 → NaN (no
+    división por cero: pasa en sintéticos y en series con precios cargados mal)."""
+    atr   = _atr_series(df, period)
+    close = df["close"].astype(float).replace(0, np.nan)
+    return (atr / close * 100).round(2)
+
+
+def _drawdown_pct_series(close: pd.Series) -> pd.Series:
+    """Caída % desde el máximo acumulado, barra por barra. Misma fórmula que
+    _cur_drawdown_max* y que el espejo JS del gráfico (window._lwc.drawdown):
+    con el máximo EXPANDIDO, así que el valor de una fecha no cambia cuando
+    llegan barras nuevas — pero sí cambia si se corrige un precio viejo (memoria
+    ilimitada hacia atrás), y de eso se ocupa _CHECKSUM_DEP_CODES."""
+    c      = close.astype(float)
+    cummax = c.cummax().replace(0, np.nan)
+    return ((c - cummax) / cummax * 100).round(2)
 
 
 def _return_vs_ref_series(df: pd.DataFrame, kind: str) -> pd.Series:
@@ -711,7 +735,7 @@ def _stale_dates_to_delete(dates_list: list, vals_list: list, existing) -> list:
     sino "cero fechas" (serie vacía de verdad, no una serie del largo del
     df pero con NaN) — pasa en semanal/mensual cuando la historia no
     alcanza el mínimo de barras (_zones_to_series, _bf_rsi_weekly/monthly,
-    _bf_atr_weekly/monthly, _bf_dist_optimal_sma_weekly/monthly). Ahí no
+    _bf_atr_percentile_weekly/monthly, _bf_dist_optimal_sma_weekly/monthly). Ahí no
     hay con qué comparar fecha por fecha, pero como `existing` en el único
     caller (backfill_indicator) es siempre la historia COMPLETA del activo
     para este código —nunca una cola parcial: el modo tail_mode usa
@@ -918,20 +942,38 @@ def _bf_rsi_monthly(df, df_w, df_m, **kw):
                          index=_period_index(df_m))
     return pd.Series(dtype=float)
 
-def _bf_atr_daily(df, df_w, df_m, vol_cfg, **kw):
-    return _atr_pct_series_v(df, vol_cfg.atr_period).tolist()
+def _bf_atr_percentile_daily(df, df_w, df_m, vol_cfg, **kw):
+    return _atr_percentile_series_v(df, vol_cfg.atr_period).tolist()
 
-def _bf_atr_weekly(df, df_w, df_m, vol_cfg, **kw):
+def _bf_atr_percentile_weekly(df, df_w, df_m, vol_cfg, **kw):
     if len(df_w) >= vol_cfg.atr_period * 3:
-        return pd.Series(_atr_pct_series_v(df_w, vol_cfg.atr_period).to_numpy(),
+        return pd.Series(_atr_percentile_series_v(df_w, vol_cfg.atr_period).to_numpy(),
                          index=_period_index(df_w))
     return pd.Series(dtype=float)
 
-def _bf_atr_monthly(df, df_w, df_m, vol_cfg, **kw):
+def _bf_atr_percentile_monthly(df, df_w, df_m, vol_cfg, **kw):
     if len(df_m) >= vol_cfg.atr_period * 3:
-        return pd.Series(_atr_pct_series_v(df_m, vol_cfg.atr_period).to_numpy(),
+        return pd.Series(_atr_percentile_series_v(df_m, vol_cfg.atr_period).to_numpy(),
                          index=_period_index(df_m))
     return pd.Series(dtype=float)
+
+def _bf_atr_pct_daily(df, df_w, df_m, vol_cfg, **kw):
+    return _atr_pct_price_series(df, vol_cfg.atr_period).tolist()
+
+def _bf_atr_pct_weekly(df, df_w, df_m, vol_cfg, **kw):
+    if len(df_w) >= vol_cfg.atr_period * 3:
+        return pd.Series(_atr_pct_price_series(df_w, vol_cfg.atr_period).to_numpy(),
+                         index=_period_index(df_w))
+    return pd.Series(dtype=float)
+
+def _bf_atr_pct_monthly(df, df_w, df_m, vol_cfg, **kw):
+    if len(df_m) >= vol_cfg.atr_period * 3:
+        return pd.Series(_atr_pct_price_series(df_m, vol_cfg.atr_period).to_numpy(),
+                         index=_period_index(df_m))
+    return pd.Series(dtype=float)
+
+def _bf_drawdown_pct_daily(df, df_w, df_m, **kw):
+    return _drawdown_pct_series(df["close"]).tolist()
 
 def _bf_trend(tf_key):
     def fn(df, df_w, df_m, regime_cfg, **kw):
@@ -1034,9 +1076,13 @@ _BACKFILL_FNS: dict[str, callable] = {
     "rsi_daily":                _bf_rsi_daily,
     "rsi_weekly":               _bf_rsi_weekly,
     "rsi_monthly":              _bf_rsi_monthly,
-    "atr_percentile_daily":     _bf_atr_daily,
-    "atr_percentile_weekly":    _bf_atr_weekly,
-    "atr_percentile_monthly":   _bf_atr_monthly,
+    "atr_percentile_daily":     _bf_atr_percentile_daily,
+    "atr_percentile_weekly":    _bf_atr_percentile_weekly,
+    "atr_percentile_monthly":   _bf_atr_percentile_monthly,
+    "atr_pct_daily":            _bf_atr_pct_daily,
+    "atr_pct_weekly":           _bf_atr_pct_weekly,
+    "atr_pct_monthly":          _bf_atr_pct_monthly,
+    "drawdown_pct_daily":       _bf_drawdown_pct_daily,
     "trend_daily":              _bf_trend("d"),
     "trend_weekly":             _bf_trend("w"),
     "trend_monthly":            _bf_trend("m"),
@@ -1047,8 +1093,10 @@ _BACKFILL_FNS: dict[str, callable] = {
     "dist_optimal_sma_weekly":  _bf_dist_optimal_sma("w"),
     "dist_optimal_sma_monthly": _bf_dist_optimal_sma("m"),
     "relative_strength_52w":    _bf_relative_strength_52w,
-    # drawdown_max2/max3, resistance_pct, support_pct son keep_history=False
-    # (ver _CURRENT_ONLY_CODES) — pendiente evaluar si se implementa backfill.
+    # drawdown_current/max1/max2/max3, resistance_pct, support_pct son
+    # keep_history=False (ver _CURRENT_ONLY_CODES). La serie del drawdown SÍ se
+    # persiste, en drawdown_pct_daily: los max* son estadísticos de esa serie
+    # (las 3 caídas más profundas) y siguen siendo solo-vigentes.
 }
 
 
@@ -1102,6 +1150,10 @@ _DELTA_TAIL_MODE: dict[str, str] = {
     "atr_percentile_daily":     "series",
     "atr_percentile_weekly":    "series",
     "atr_percentile_monthly":   "series",
+    "atr_pct_daily":            "series",
+    "atr_pct_weekly":           "series",
+    "atr_pct_monthly":          "series",
+    "drawdown_pct_daily":       "series",
     "volatility_daily":         "zones",
     "volatility_weekly":        "zones",
     "volatility_monthly":       "zones",
@@ -1257,7 +1309,16 @@ def _upsert_ind_stats_meta(s, code: str, stats_by_asset: dict) -> None:
 #     días. Si un día nuevo de precio hace que otro período gane, la
 #     fórmula de toda la historia cambia (rolling(best_val) con un
 #     best_val distinto), no solo la cola).
-# En los cuatro casos _series_checksum permite comprobarlo sin leer lo
+#   - memoria ILIMITADA hacia atrás sobre los precios propios
+#     (drawdown_pct_daily): el máximo acumulado arrastra desde la primera
+#     barra, así que corregir o redescargar un precio viejo corre todos los
+#     valores posteriores sin dejar hueco de calendario que el modo "series"
+#     pueda ver. RSI y dist_sma* no están acá porque su ventana es acotada
+#     (14/200 barras); acá no hay ventana.
+#     atr_pct_* entra por los DOS motivos de arriba: el suavizado de Wilder es
+#     recursivo sobre toda la historia y su período sale de vol_cfg (editable
+#     por el admin), igual que volatility_*/atr_percentile_*.
+# En los cinco casos _series_checksum permite comprobarlo sin leer lo
 # guardado: si el hash del prefijo recién calculado coincide con el de la
 # corrida anterior, el camino rápido de cola es seguro; si no coincide (o
 # no hay checksum guardado todavía), cae al dict-compare de siempre — pero
@@ -1268,6 +1329,8 @@ _CHECKSUM_DEP_CODES = frozenset({
     "trend_daily", "trend_weekly", "trend_monthly",
     "relative_strength_52w",
     "dist_optimal_sma_daily", "dist_optimal_sma_weekly", "dist_optimal_sma_monthly",
+    "atr_pct_daily", "atr_pct_weekly", "atr_pct_monthly",
+    "drawdown_pct_daily",
 })
 
 
@@ -2960,7 +3023,7 @@ def compute_current_indicators(
     def _vol_key(zones):
         return f"{zones[-1]['vol_regime']}_{zones[-1]['dur_regime']}" if zones else None
 
-    def _atr_pct_last(zones):
+    def _atr_percentile_last(zones):
         return zones[-1].get("atr_pct") if zones else None
 
     ind_trend_d   = rz_d[-1]["regime_detail"] if rz_d else None
@@ -2969,12 +3032,28 @@ def compute_current_indicators(
     ind_vol_d     = _vol_key(vz_d)
     ind_vol_w     = _vol_key(vz_w)
     ind_vol_m     = _vol_key(vz_m)
-    ind_atr_pct_d = _atr_pct_last(vz_d)
-    ind_atr_pct_w = _atr_pct_last(vz_w)
-    ind_atr_pct_m = _atr_pct_last(vz_m)
+    ind_atr_percentile_d = _atr_percentile_last(vz_d)
+    ind_atr_percentile_w = _atr_percentile_last(vz_w)
+    ind_atr_percentile_m = _atr_percentile_last(vz_m)
     ind_rsi_d     = round(rsi,   2) if rsi   is not None else None
     ind_rsi_w     = round(rsi_w, 2) if rsi_w is not None else None
     ind_rsi_m     = round(rsi_m, 2) if rsi_m is not None else None
+
+    # ATR % del precio (atr_pct_*): último valor de la misma serie que escribe el
+    # backfill (_atr_pct_price_series), con la MISMA guarda de mínimo de barras
+    # que _bf_atr_pct_weekly/monthly — si no, la fila de hoy tendría valor donde
+    # la historia no tiene ninguno. No confundir con ind_atr_percentile_* (rank).
+    def _atr_pct_price_last(df_tf, min_bars):
+        if len(df_tf) < min_bars:
+            return None
+        v = _atr_pct_price_series(df_tf, vcfg.atr_period).iloc[-1]
+        return None if pd.isna(v) else float(v)
+
+    # Diaria sin guarda, igual que _bf_atr_pct_daily: el warm-up de Wilder ya
+    # sale NaN y df acá tiene >= _MIN_ROWS filas (se filtró más arriba).
+    ind_atr_pct_d = _atr_pct_price_last(df,       0)
+    ind_atr_pct_w = _atr_pct_price_last(df_w_reg, vcfg.atr_period * 3)
+    ind_atr_pct_m = _atr_pct_price_last(df_m_reg, vcfg.atr_period * 3)
 
     ind_resist_pct = ind_support_pct = None
     try:
@@ -3007,9 +3086,9 @@ def compute_current_indicators(
         "volatility_daily":         ind_vol_d,
         "volatility_weekly":        ind_vol_w,
         "volatility_monthly":       ind_vol_m,
-        "atr_percentile_daily":     ind_atr_pct_d,
-        "atr_percentile_weekly":    ind_atr_pct_w,
-        "atr_percentile_monthly":   ind_atr_pct_m,
+        "atr_percentile_daily":     ind_atr_percentile_d,
+        "atr_percentile_weekly":    ind_atr_percentile_w,
+        "atr_percentile_monthly":   ind_atr_percentile_m,
         "rsi_daily":                ind_rsi_d,
         "rsi_weekly":               ind_rsi_w,
         "rsi_monthly":              ind_rsi_m,
@@ -3025,6 +3104,13 @@ def compute_current_indicators(
         "return_yearly":            _pct_change(last_close, ref_year),
         "return_52w":               _pct_change(last_close, ref_52w),
         "relative_strength_52w":    ind_rs_52w,
+        "atr_pct_daily":            ind_atr_pct_d,
+        "atr_pct_weekly":           ind_atr_pct_w,
+        "atr_pct_monthly":          ind_atr_pct_m,
+        # Mismo número que drawdown_current (abajo, sin historia): los dos miden
+        # contra el máximo acumulado a la última barra. Acá se persiste para que
+        # la serie quede completa hasta hoy.
+        "drawdown_pct_daily":       round(dd_current, 2),
     }
     if use_wide_ind_tables():
         # Agrupar por cadencia y escribir la fila COMPLETA (una vez por

@@ -117,6 +117,29 @@ más volátiles.
 Es directamente comparable entre activos, porque cada uno se mide contra sí
 mismo.
 
+### ATR %
+
+Cuánto se mueve un activo en un día típico, expresado como porcentaje de su
+precio. Un 3% quiere decir que el recorrido diario habitual es de más o menos
+tres por ciento del valor del activo.
+
+Se calcula en las tres cadencias (diaria, semanal y mensual) y guarda historia,
+así que podés ver en [Posicionamiento Histórico](/manual/analisis-de-activo) si
+un activo está hoy más movido o más quieto que de costumbre.
+
+No confundirlo con el percentil de arriba: el percentil te dice *en qué lugar de
+su propia historia* está la volatilidad de hoy; el ATR % te dice *cuánto se
+mueve*, en porcentaje de precio. Uno es una posición, el otro una magnitud.
+
+La diferencia con el ATR que se dibuja en el gráfico es que ese está en pesos o
+dólares: sirve para leerlo sobre el precio, pero no para comparar. Un activo de
+$10 y otro de $1.000 no se pueden comparar por su ATR en moneda, y tampoco un
+mismo activo consigo mismo si su precio cambió mucho a lo largo de los años.
+Dividir por el precio arregla las dos cosas.
+
+Usa el mismo período que configurás en
+[Volatilidad ATR](/manual/volatilidad-atr).
+
 ---
 
 ## Drawdown
@@ -125,6 +148,22 @@ mismo.
 
 Cuánto cayó el precio desde su máximo previo, en porcentaje. Siempre negativo o
 cero. Cero significa que el activo está en su máximo.
+
+### Drawdown % (con historia)
+
+La misma medida que el drawdown actual, pero guardada para **todos los días** de
+la historia del activo, no solo para hoy. El valor de hoy de los dos coincide
+siempre; lo que agrega este es el pasado.
+
+Sirve para responder preguntas que el valor suelto no contesta: cuánto tiempo
+pasó el activo lejos de sus máximos, si la caída de hoy es habitual o excepcional
+para él, o qué tan seguido llega a un −20%. En
+[Posicionamiento Histórico](/manual/analisis-de-activo) lo ves como distribución:
+qué porcentaje de su historia pasó en cada franja de caída.
+
+Solo tiene versión diaria. El drawdown se mide siempre contra el máximo
+acumulado desde el principio, así que verlo en cadencia semanal o mensual sería
+mirar la misma curva con menos puntos, no una lectura distinta.
 
 ### Drawdowns máximos
 

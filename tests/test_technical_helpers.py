@@ -6,8 +6,9 @@ import pandas as pd
 import pytest
 
 from app.services.technical_service import (
-    _Q_MONTH, _closest_price_on_or_before,
+    _Q_MONTH, _atr_pct_price_series, _closest_price_on_or_before,
     _compute_dd_events, _compute_regime_zones, _compute_vol_zones,
+    _cur_drawdown_max1, _drawdown_pct_series,
     _one_year_before, _pct_change, _rsi, _series_dates_values, _sma_zscore,
     _zones_to_series,
 )
@@ -108,6 +109,62 @@ def test_dd_en_curso_sin_end():
 
 def test_dd_caida_superficial_no_registra():
     assert _compute_dd_events(_price_df([100, 120, 110, 130]), 20.0) == []
+
+
+# ── Serie de drawdown % (drawdown_pct_daily) ──────────────────────────────────
+
+def test_drawdown_pct_series_cero_en_maximos_nuevos():
+    """Cada máximo nuevo es drawdown 0; la primera barra siempre es 0."""
+    s = _drawdown_pct_series(pd.Series([100.0, 110.0, 120.0]))
+    assert list(s) == [0.0, 0.0, 0.0]
+
+def test_drawdown_pct_series_mide_contra_el_maximo_acumulado():
+    s = _drawdown_pct_series(pd.Series([100.0, 120.0, 60.0, 90.0]))
+    assert list(s) == [0.0, 0.0, -50.0, -25.0]   # contra 120, no contra 100
+
+def test_drawdown_pct_series_es_expandido_no_rolling():
+    """REGLA: el valor de una fecha NO cambia cuando llegan barras nuevas — de
+    eso depende que el delta pueda escribir solo la cola (_DELTA_TAIL_MODE)."""
+    closes = [100.0, 120.0, 60.0, 90.0]
+    prefijo = _drawdown_pct_series(pd.Series(closes))
+    extendida = _drawdown_pct_series(pd.Series(closes + [200.0, 150.0]))
+    assert list(extendida[:len(closes)]) == list(prefijo)
+
+def test_drawdown_pct_series_ultimo_valor_homologa_con_max1():
+    """El último valor mide contra el mismo máximo acumulado que la familia
+    drawdown_* sin historia (_cur_drawdown_max1 usa idéntica fórmula)."""
+    closes = [100.0, 120.0, 60.0, 90.0]
+    df = _price_df(closes)
+    peor_historico = _cur_drawdown_max1(df)
+    assert min(_drawdown_pct_series(pd.Series(closes))) == peor_historico
+
+def test_drawdown_pct_series_cierre_cero_no_divide_por_cero():
+    s = _drawdown_pct_series(pd.Series([0.0, 0.0, 10.0]))
+    assert pd.isna(s.iloc[0]) and s.iloc[2] == 0.0
+
+
+# ── ATR % del precio (atr_pct_daily/weekly/monthly) ───────────────────────────
+
+def test_atr_pct_price_es_invariante_a_la_escala():
+    """LA razón de ser del indicador: normalizado por el cierre, la misma
+    volatilidad relativa da el mismo número aunque el precio cambie de escala
+    (el ATR absoluto del gráfico no cumple esto)."""
+    df   = _trend_df(n=60)
+    df10 = df.assign(**{c: df[c] * 10 for c in ("close", "high", "low")})
+    a    = _atr_pct_price_series(df,   14).dropna()
+    b    = _atr_pct_price_series(df10, 14).dropna()
+    assert len(a) > 0
+    assert np.allclose(a.to_numpy(), b.to_numpy())
+
+def test_atr_pct_price_rango_diario_constante():
+    """high/low a ±1% del cierre y sin gaps → ATR ~2% del precio."""
+    vals = _atr_pct_price_series(_trend_df(n=120, daily_ret=0.0), 14).dropna()
+    assert vals.iloc[-1] == pytest.approx(2.0, abs=0.15)
+
+def test_atr_pct_price_cierre_cero_no_divide_por_cero():
+    df = _trend_df(n=40)
+    df.loc[df.index[-1], "close"] = 0.0
+    assert pd.isna(_atr_pct_price_series(df, 14).iloc[-1])
 
 
 # ── Zonas de régimen y volatilidad (smoke con datos sintéticos) ───────────────

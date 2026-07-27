@@ -21,6 +21,14 @@ _BUILTIN_INDICATORS = [
     {"code": "atr_percentile_daily",     "name": "ATR Percentile Daily",      "category": "Volatility",       "type": "num", "scale": "0 – 100",     "full_sample": True,  "description": "Percentile of current ATR relative to asset history (daily)"},
     {"code": "atr_percentile_weekly",    "name": "ATR Percentile Weekly",     "category": "Volatility",       "type": "num", "scale": "0 – 100",     "full_sample": True,  "description": "Percentile of current ATR relative to asset history (weekly)"},
     {"code": "atr_percentile_monthly",   "name": "ATR Percentile Monthly",    "category": "Volatility",       "type": "num", "scale": "0 – 100",     "full_sample": True,  "description": "Percentile of current ATR relative to asset history (monthly)"},
+    # Volatilidad — ATR como % del precio (con historia: alimenta el
+    # posicionamiento histórico). NO es el percentil de arriba: es el ATR
+    # normalizado por el cierre, comparable en el tiempo y entre activos —
+    # el ATR absoluto que dibuja el gráfico no lo es (cambia de escala con
+    # el precio), por eso el indicador persistido es este.
+    {"code": "atr_pct_daily",            "name": "ATR % Daily",               "category": "Volatility",       "type": "num", "scale": "%",           "description": "ATR as a percentage of closing price (daily)"},
+    {"code": "atr_pct_weekly",           "name": "ATR % Weekly",              "category": "Volatility",       "type": "num", "scale": "%",           "description": "ATR as a percentage of closing price (weekly)"},
+    {"code": "atr_pct_monthly",          "name": "ATR % Monthly",             "category": "Volatility",       "type": "num", "scale": "%",           "description": "ATR as a percentage of closing price (monthly)"},
     # RSI
     {"code": "rsi_daily",                "name": "RSI Daily",                 "category": "Momentum",         "type": "num", "scale": "0 – 100",     "description": "Relative Strength Index 14 periods (daily)"},
     {"code": "rsi_weekly",               "name": "RSI Weekly",                "category": "Momentum",         "type": "num", "scale": "0 – 100",     "description": "RSI 14 periods (weekly)"},
@@ -34,6 +42,11 @@ _BUILTIN_INDICATORS = [
     {"code": "dist_optimal_sma_weekly",  "name": "Distance σ Optimal SMA Weekly",  "category": "Trend - SMA", "type": "num", "scale": "σ",           "description": "Distance in standard deviations from the best-fit MA (weekly)"},
     {"code": "dist_optimal_sma_monthly", "name": "Distance σ Optimal SMA Monthly", "category": "Trend - SMA", "type": "num", "scale": "σ",           "description": "Distance in standard deviations from the best-fit MA (monthly)"},
     # Drawdown
+    # drawdown_pct_daily es la SERIE del drawdown (con historia); su último
+    # valor coincide por construcción con drawdown_current, que mide contra el
+    # mismo máximo acumulado. Solo cadencia diaria: el drawdown es acumulativo
+    # desde el máximo histórico, resamplearlo a W/M submuestrea la misma curva.
+    {"code": "drawdown_pct_daily",       "name": "Drawdown % Daily",          "category": "Drawdown",         "type": "num", "scale": "% (negative)", "description": "Percentage fall from the running all-time high, for every trading day"},
     {"code": "drawdown_current",         "name": "Drawdown Current",          "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Percentage fall from recent peak to current price"},
     {"code": "drawdown_max1",            "name": "Drawdown Max 1",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Largest drawdown in asset history"},
     {"code": "drawdown_max2",            "name": "Drawdown Max 2",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Second largest drawdown in asset history"},

@@ -47,6 +47,33 @@ def test_volatility_categoria_desconocida_dispara():
     assert check_sanity("volatility_weekly", "muy_alta_larga") is not None
 
 
+def test_drawdown_pct_en_rango_no_dispara():
+    for v in (0, -0.0, -15.3, -100):
+        assert check_sanity("drawdown_pct_daily", v) is None
+
+
+def test_drawdown_pct_positivo_dispara():
+    """Un drawdown positivo es imposible por construcción (el precio no supera
+    su propio máximo acumulado): signo invertido, no un valor extremo."""
+    assert check_sanity("drawdown_pct_daily", 5.0) is not None
+
+
+def test_drawdown_pct_menor_a_menos_100_dispara():
+    assert check_sanity("drawdown_pct_daily", -100.5) is not None
+
+
+def test_atr_pct_negativo_dispara():
+    """ATR sobre precio nunca es negativo."""
+    assert check_sanity("atr_pct_daily", -1.0) is not None
+
+
+def test_atr_pct_volatilidad_alta_pero_real_no_dispara():
+    """El techo es laxo a propósito: una cripto con 40% de ATR diario no es
+    un bug y no tiene que ensuciar el panel con un falso positivo."""
+    assert check_sanity("atr_pct_daily", 40.0) is None
+    assert check_sanity("atr_pct_monthly", 85.0) is None
+
+
 def test_return_extremo_dispara():
     assert check_sanity("return_daily", 50000) is not None
 
@@ -67,6 +94,49 @@ def test_codigo_sin_bounds_conocidos_no_dispara():
     # un código sin entrada en _NUMERIC_BOUNDS/_CATEGORICAL_VALUES no se
     # puede validar — no dispara falso positivo
     assert check_sanity("codigo_inventado_sin_bounds", "cualquier cosa") is None
+
+
+# ── Trinquete: cobertura de los chequeos de cordura ──────────────────────────
+
+def test_todo_indicador_con_historia_tiene_chequeo_de_cordura():
+    """check_sanity devuelve None EN SILENCIO para un código sin límites
+    declarados (ver test de arriba: es deliberado, evita falsos positivos).
+    El efecto secundario es que un indicador nuevo queda sin chequear sin que
+    nada avise. Este test es esa alarma: todo indicador con historia tiene que
+    declarar límites numéricos o valores categóricos válidos.
+
+    Si agregaste un indicador y llegaste acá: sumalo a _NUMERIC_BOUNDS (num) o
+    a indicator_catalog.CATEGORICAL_VALUES (str), no saques el código de la
+    lista."""
+    from app.services.indicator_catalog import CATEGORICAL_VALUES
+    from app.services.startup_service import _BUILTIN_INDICATORS
+    from app.services.verification_service import _NUMERIC_BOUNDS
+
+    sin_chequeo = []
+    for ind in _BUILTIN_INDICATORS:
+        if not ind.get("keep_history", True):
+            continue                     # solo-vigentes: no hay serie que auditar
+        code = ind["code"]
+        declarado = (_NUMERIC_BOUNDS if ind["type"] == "num"
+                     else CATEGORICAL_VALUES)
+        if code not in declarado:
+            sin_chequeo.append(code)
+
+    assert not sin_chequeo, (
+        "indicadores con historia sin chequeo de cordura: "
+        f"{sorted(sin_chequeo)}")
+
+
+def test_bounds_declarados_son_rangos_coherentes():
+    """lo <= hi y nada de NaN/infinitos: un rango invertido nunca dispararía
+    y un rango infinito no chequea nada — los dos son fallas silenciosas."""
+    import math
+
+    from app.services.verification_service import _NUMERIC_BOUNDS
+
+    for code, (lo, hi) in _NUMERIC_BOUNDS.items():
+        assert lo <= hi, code
+        assert math.isfinite(lo) and math.isfinite(hi), code
 
 
 def test_valor_none_no_dispara():

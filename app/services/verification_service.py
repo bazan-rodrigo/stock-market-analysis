@@ -91,6 +91,18 @@ _NUMERIC_BOUNDS: dict[str, tuple[float, float]] = {
     # límite ajustado tiene sentido acá.
     "dist_optimal_sma_daily": (-50, 50), "dist_optimal_sma_weekly": (-50, 50),
     "dist_optimal_sma_monthly": (-50, 50),
+    # drawdown_pct_daily: por CONSTRUCCIÓN cae en [-100, 0] — el precio nunca
+    # supera su propio máximo acumulado. A diferencia del resto de esta tabla,
+    # no es una heurística de "valor razonable" sino una identidad: un positivo
+    # es signo invertido y un < -100 es un precio que se fue a negativo. Las
+    # dos son imposibles, así que acá no hay riesgo de falso positivo por un
+    # activo genuinamente extremo.
+    "drawdown_pct_daily": (-100, 0),
+    # atr_pct_*: ATR sobre precio, nunca negativo. Techo laxo a propósito —
+    # cripto y small caps ilíquidas dan lecturas altas legítimas, y la barra
+    # mensual es mucho más ancha que la diaria.
+    "atr_pct_daily": (0, 1000), "atr_pct_weekly": (0, 1000),
+    "atr_pct_monthly": (0, 1000),
     "return_daily": (-100, 2000),
     "return_monthly": (-100, 5000), "return_quarterly": (-100, 5000),
     "return_yearly": (-100, 20000), "return_52w": (-100, 20000),

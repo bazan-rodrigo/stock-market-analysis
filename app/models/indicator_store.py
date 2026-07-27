@@ -34,14 +34,17 @@ _WIDE_DAILY = [
     "dist_sma20", "dist_sma50", "dist_sma200", "dist_optimal_sma_daily",
     "return_daily", "return_monthly", "return_quarterly", "return_yearly",
     "return_52w", "relative_strength_52w",
+    "atr_pct_daily", "drawdown_pct_daily",          # migración 0097
 ]
 _WIDE_WEEKLY = [
     "trend_weekly", "volatility_weekly", "atr_percentile_weekly",
     "rsi_weekly", "dist_optimal_sma_weekly",
+    "atr_pct_weekly",                               # migración 0097
 ]
 _WIDE_MONTHLY = [
     "trend_monthly", "volatility_monthly", "atr_percentile_monthly",
     "rsi_monthly", "dist_optimal_sma_monthly",
+    "atr_pct_monthly",                              # migración 0097
 ]
 # Fundamentales, los escribe fundamental_service. DIARIOS (dependen del precio,
 # densos) → ind_fundamental_daily. TRIMESTRALES (ralos, grilla de fin de trimestre)

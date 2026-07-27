@@ -136,3 +136,13 @@ Elegís un indicador y la pantalla dibuja el histograma de todos sus valores
 históricos, marcando dónde cae el valor actual. El **ancho de bin** controla
 qué tan fina es la agrupación. Un RSI de 65 puede ser altísimo para un activo y
 perfectamente normal para otro; esta solapa es la que lo dice.
+
+En la lista aparecen los indicadores que guardan historia. Dos que suelen
+buscarse acá son **Drawdown %** (qué tan seguido el activo estuvo así de lejos
+de sus máximos) y **ATR %** (si hoy se mueve más o menos que de costumbre) —
+están descriptos en el
+[Glosario de indicadores](/manual/glosario-de-indicadores).
+
+Si un indicador que ves en el gráfico no aparece en la lista, es porque ese se
+calcula al momento de dibujarlo y no queda guardado día por día; sin historia
+no hay distribución que mostrar.

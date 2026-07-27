@@ -11,12 +11,12 @@ from app.models.indicator_store import (
 
 
 def test_wide_mapping_cuenta_y_cadencia():
-    assert len(_WIDE_DAILY) == 14
-    assert len(_WIDE_WEEKLY) == 5
-    assert len(_WIDE_MONTHLY) == 5
+    assert len(_WIDE_DAILY) == 16
+    assert len(_WIDE_WEEKLY) == 6
+    assert len(_WIDE_MONTHLY) == 6
     assert len(_WIDE_FUND_DAILY) == 4
     assert len(_WIDE_FUND_QUARTERLY) == 8
-    assert len(_WIDE) == 36  # 24 técnicos + 12 fundamentales
+    assert len(_WIDE) == 40  # 28 técnicos + 12 fundamentales
 
     for code in _WIDE_DAILY:
         assert _WIDE[code] == ("ind_daily", code, "daily")
@@ -51,6 +51,40 @@ def test_wide_cubre_exactamente_los_tecnicos_keep_history():
     assert set(_WIDE) - fund == tecnicos
     assert fund <= set(_WIDE)  # los 12 fundamentales están en _WIDE
     assert "fundamental_roic" in _WIDE  # trimestral, ahora ancho
+
+
+def test_atr_pct_y_drawdown_pct_llegan_a_posicionamiento_historico():
+    """Los indicadores nuevos de la 0097 tienen que quedar visibles en el tab de
+    Posicionamiento Histórico, que filtra por type='num' + keep_history=True
+    (distribution_callbacks.update_indicator_options). Es el objetivo del
+    cambio: si alguien los pasa a keep_history=False o a type='str',
+    desaparecen de la pantalla sin que nada más se rompa."""
+    from app.services.startup_service import _BUILTIN_INDICATORS
+    from app.services.technical_service import (_BACKFILL_FNS,
+                                                _CURRENT_ONLY_CODES)
+
+    nuevos = {"atr_pct_daily", "atr_pct_weekly", "atr_pct_monthly",
+              "drawdown_pct_daily"}
+    por_code = {i["code"]: i for i in _BUILTIN_INDICATORS}
+
+    for code in nuevos:
+        defn = por_code[code]
+        assert defn.get("keep_history", True) is True, code
+        assert defn["type"] == "num", code
+        assert code in _BACKFILL_FNS, code       # hay con qué llenar la historia
+        assert code not in _CURRENT_ONLY_CODES, code
+        assert code in _WIDE, code
+
+
+def test_drawdown_con_historia_no_pisa_la_familia_sin_historia():
+    """drawdown_current/max1-3 siguen siendo solo-vigentes: la serie nueva no
+    los reemplaza (son estadísticos de ella, no la misma lectura)."""
+    from app.services.technical_service import _CURRENT_ONLY_CODES
+
+    for code in ("drawdown_current", "drawdown_max1",
+                 "drawdown_max2", "drawdown_max3"):
+        assert code in _CURRENT_ONLY_CODES
+        assert code not in _WIDE
 
 
 def test_ensure_wide_ind_tables_crea_esquema_e_idempotente():
