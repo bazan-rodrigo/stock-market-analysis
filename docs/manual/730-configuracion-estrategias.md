@@ -188,7 +188,10 @@ cuánto tarda.
 
 **Exportar** e **Importar** (solo administradores) bajan y suben todas las
 estrategias en un archivo de planilla, con una hoja de estrategias y otra de
-componentes. La importación es **todo o nada**: se valida el archivo completo y,
+componentes. También se acepta el archivo único del formato de intercambio
+—ver [Packs](/manual/packs-de-senales-y-estrategias), la vía para traer
+estrategias armadas afuera del sistema—. La importación es **todo o nada**: se
+valida el archivo completo y,
 si algo falla, no entra ninguna; el resultado se lista fila por fila con el
 detalle del error. Las estrategias se identifican **por nombre sin distinguir
 mayúsculas**, así que importar una que ya existe **la sobrescribe**, reemplazando

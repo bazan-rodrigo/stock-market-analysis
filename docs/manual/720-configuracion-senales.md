@@ -170,5 +170,11 @@ La importación es **todo o nada**: primero se valida el archivo entero sin toca
 nada y, si una fila tiene un error, no se importa ninguna; el resultado se
 muestra fila por fila. Las filas se cruzan por clave, así que una señal que ya
 existe **se actualiza** en vez de duplicarse. Las nuevas quedan a nombre de quien
-importa, y la columna de visibilidad del archivo manda (si falta, entran como
-públicas).
+importa, y la columna de visibilidad del archivo manda: **si falta, entran como
+privadas** (publicar es siempre un paso deliberado).
+
+El botón **Catálogo** baja el inventario de esta instalación —indicadores
+disponibles, categorías de cada uno, sectores y mercados cargados, señales que
+ya existen—. Es lo que necesita quien vaya a escribir señales y estrategias
+afuera del sistema para traerlas armadas: ver
+[Packs](/manual/packs-de-senales-y-estrategias).

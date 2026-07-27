@@ -76,10 +76,16 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   y `roles:` jerárquico (`invitado` < `analista` < `admin`; ausente = visible
   para todos). El servicio y el diseño están en `app/services/manual_service.py`.
   Rutas utilitarias sin sección van a la lista `excluidas` del test.
-- **Estrategias:** cuando el usuario pide una estrategia, entregarla como archivos
-  de import en `strategy_packs/` (`<pack>_senales.xlsx` + `<pack>_estrategia.xlsx`),
-  no como pasos manuales. Validar offline con `signal_engine.validate_params` y
-  `strategy_filter.validate_tree`; documentar en `strategy_packs/README.md`.
+- **Estrategias:** cuando el usuario pide una estrategia, entregarla como un
+  **pack** en `strategy_packs/`, no como pasos manuales. El formato es un
+  estándar publicado —`strategy_packs/SPEC.md`, atado al código por
+  `tests/test_pack_spec.py`— pensado para que lo pueda escribir cualquiera sin
+  ver este repo. El canónico es **un JSON**; las planillas se generan con
+  `scripts/pack_from_json.py` y el import acepta los dos. Validar SIEMPRE con
+  `python scripts/validate_pack.py <pack>.json` (corre sin base) antes de
+  entregarlo; con `--catalog` (el que baja el botón *Catálogo* de la pantalla
+  de Señales) además verifica indicadores y sectores de esa instalación.
+  Documentar el pack en `strategy_packs/README.md`.
 - **HOMOLOGACIÓN del simulador de trades (regla principal del módulo):** la
   semántica de entrada/salida vive DUPLICADA a propósito —
   `app/services/trade_simulator.py` (contrato, testeado) y su espejo JS

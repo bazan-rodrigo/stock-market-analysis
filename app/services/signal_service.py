@@ -454,12 +454,13 @@ def export_signals_excel() -> bytes:
     from io import BytesIO
     from app.services.visibility import publica_str
 
+    from app.services.pack_service import SIGNAL_COLUMNS
+
     signals = get_all_signals()
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Señales"
-    ws.append(["key", "name", "description",
-                "indicator_key", "formula_type", "params", "publica"])
+    ws.append(list(SIGNAL_COLUMNS))
     for sig in signals:
         ws.append([
             sig.key, sig.name, sig.description or "",
@@ -471,18 +472,27 @@ def export_signals_excel() -> bytes:
     return buf.getvalue()
 
 
-def import_signals_excel(file_bytes: bytes,
-                         owner_id: int | None = None) -> list[dict]:
-    """Importación todo-o-nada en dos pasadas: primero se valida el archivo
-    completo sin tocar la base; solo si no hay errores se escribe todo.
+def import_signals_file(file_bytes: bytes, filename: str | None = None,
+                        owner_id: int | None = None) -> list[dict]:
+    """Punto de entrada de la pantalla: despacha por formato.
 
-    La columna `publica` (sí/no; ausente = PRIVADA) define la visibilidad de
-    cada fila. owner_id = quien importa: queda como dueño de las señales
-    NUEVAS (las existentes conservan su dueño)."""
+    Los dos caminos terminan en las mismas filas normalizadas y comparten
+    validación y escritura — un pack no puede pasar en JSON y fallar en Excel.
+    """
+    from app.services import pack_service
+
+    if pack_service.looks_like_json(file_bytes, filename):
+        pack = pack_service.parse_pack(file_bytes)
+        rows = pack_service.signal_rows_from_pack(pack)
+    else:
+        rows = _signal_rows_from_xlsx(file_bytes)
+    return import_signal_rows(rows, owner_id=owner_id)
+
+
+def _signal_rows_from_xlsx(file_bytes: bytes) -> list[dict]:
+    """Planilla de señales → filas {columna: valor}."""
     import openpyxl
-    import json as _json
     from io import BytesIO
-    from app.services.visibility import parse_publica
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes))
     ws = wb.active
@@ -502,7 +512,31 @@ def import_signals_excel(file_bytes: bytes,
             "'key'. Verificá que estés subiendo la plantilla de señales "
             "(podés exportarla desde esta pantalla).")
 
-    _FORMULA_TYPES = ("discrete_map", "threshold", "range")
+    return [dict(zip(headers, row)) for row in rows[1:]]
+
+
+def import_signals_excel(file_bytes: bytes,
+                         owner_id: int | None = None) -> list[dict]:
+    """Camino Excel (nombre histórico). Ver import_signals_file."""
+    return import_signal_rows(_signal_rows_from_xlsx(file_bytes),
+                              owner_id=owner_id)
+
+
+def import_signal_rows(rows: list[dict],
+                       owner_id: int | None = None) -> list[dict]:
+    """Importación todo-o-nada en dos pasadas: primero se valida el archivo
+    completo sin tocar la base; solo si no hay errores se escribe todo.
+
+    `rows`: filas normalizadas con las columnas de la planilla, vengan de un
+    Excel o de un pack JSON (ver pack_service).
+
+    La columna `publica` (sí/no; ausente = PRIVADA) define la visibilidad de
+    cada fila. owner_id = quien importa: queda como dueño de las señales
+    NUEVAS (las existentes conservan su dueño)."""
+    import json as _json
+    from app.services.visibility import parse_publica
+
+    _FORMULA_TYPES = signal_engine.FORMULA_TYPES
 
     # Catálogos para validar referencias (indicadores, señales existentes)
     s = get_session()
@@ -515,8 +549,7 @@ def import_signals_excel(file_bytes: bytes,
     # ── Pasada 1: validación completa sin escribir ────────────────────────────
     parsed: list[dict] = []
     invalid = False
-    for row in rows[1:]:
-        data = dict(zip(headers, row))
+    for data in rows:
         key = str(data.get("key") or "").strip()
         if not key:
             continue
@@ -548,7 +581,14 @@ def import_signals_excel(file_bytes: bytes,
             # puntuaría, silenciosamente. Mejor rechazar acá.
             error = signal_engine.validate_params(
                 formula_type, params if isinstance(params, dict) else {})
-        if error is None and indicator_key and indicator_key not in known_indicators:
+        if error is None and not indicator_key:
+            # Una señal sin indicador no tiene qué leer: nunca puntúa, y una
+            # señal sin valor no cuenta en el promedio de la estrategia (no
+            # cuenta como cero). Mismo criterio que la estrategia sin
+            # componentes: rechazar en vez de crearla muda en silencio.
+            error = ("falta indicator_key: la señal no tendría ningún "
+                     "indicador que leer y nunca puntuaría")
+        if error is None and indicator_key not in known_indicators:
             error = f"indicador desconocido: '{indicator_key}'"
         if error:
             invalid = True

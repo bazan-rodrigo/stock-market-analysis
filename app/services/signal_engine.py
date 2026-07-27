@@ -17,6 +17,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Fuente única de los tipos de fórmula válidos: la usan el ABM, el import de
+# packs, el catálogo que se publica para armarlos y el test que ata el SPEC al
+# código. Agregar una fórmula acá obliga a documentarla (test_pack_spec).
+FORMULA_TYPES = ("discrete_map", "threshold", "range")
+
 
 def _clamp(value: float, low: float = -100.0, high: float = 100.0) -> float:
     return max(low, min(high, value))

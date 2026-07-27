@@ -582,8 +582,8 @@ def import_excel(contents, filename):
         return no_update, "Solo un administrador puede importar estrategias.", True, "danger"
     try:
         _, encoded = contents.split(",", 1)
-        results = svc.import_strategies_excel(base64.b64decode(encoded),
-                                              owner_id=user_id)
+        results = svc.import_strategies_file(base64.b64decode(encoded),
+                                             filename, owner_id=user_id)
     except Exception as exc:
         return no_update, str(exc), True, "danger"
 

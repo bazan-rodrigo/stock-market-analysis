@@ -121,7 +121,7 @@ def layout(**kwargs):
             dbc.Col(
                 dcc.Upload(
                     dbc.Button("Importar", color="secondary", size="sm", outline=True),
-                    id="str-upload", accept=".xlsx", multiple=False,
+                    id="str-upload", accept=".xlsx,.json", multiple=False,
                 ),
                 className="d-flex align-items-center",
             ),

@@ -5,8 +5,24 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-26T21:28:28.901Z
+  modified: 2026-07-27T02:07:24.841Z
 ---
+
+**Sesión 26-jul-2026 (2): packs como estándar publicado.** Ver
+[[packs-estandar-para-ia]]. Pendiente de verificar **en Railway** (nada de
+esto se pudo probar contra la app viva desde esta PC):
+1. **Botón «Catálogo»** en /admin/signals — es la primera corrida real de
+   `pack_service.build_catalog()` contra PostgreSQL. Chequear que baje el
+   JSON y que `attributes` traiga los sectores/mercados reales.
+2. **Importar un pack JSON** en Señales y después en Estrategias (el mismo
+   archivo en las dos pantallas).
+3. **Filtro por nombre de atributo**: importar una estrategia con
+   `{"type":"attribute","key":"sector"}` vs `"Technology"` y verificar en el
+   editor que quedó apuntando al sector correcto.
+4. Que el import por **xlsx siga funcionando** (se refactorizó a filas
+   compartidas; la equivalencia está testeada contra sqlite, no contra PG).
+Cambio de conducta a tener presente: una señal **sin `indicator_key` ahora se
+rechaza** — si algún pack viejo la tenía vacía, ese archivo ya no importa.
 
 **Sesión 26-jul-2026: arreglada la preselección de activo desde la URL** (los
 links del screener de señales: `/activo?asset_id=N` y

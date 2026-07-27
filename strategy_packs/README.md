@@ -1,7 +1,20 @@
 # Strategy packs
 
-Archivos Excel listos para importar desde la app (señales y estrategias
-armadas como casos de prueba).
+Packs listos para importar desde la app (señales y estrategias armadas como
+casos de prueba).
+
+> **El formato está especificado en [SPEC.md](SPEC.md)** — el contrato que
+> permite que cualquiera (una persona, o un modelo de lenguaje sin acceso a
+> este repositorio) escriba un pack importable. El formato canónico es **un
+> archivo JSON**; las planillas Excel de este directorio son el formato
+> histórico y siguen funcionando.
+>
+> Para escribir uno hacen falta dos cosas: el SPEC y el **catálogo de la
+> instalación de destino** (botón *Catálogo* en la pantalla de Señales), que
+> dice qué indicadores y qué sectores/mercados existen ahí. Se valida sin base
+> ni app con `python scripts/validate_pack.py <pack>.json --catalog
+> catalogo.json`, y se convierte a las dos planillas con
+> `python scripts/pack_from_json.py <pack>.json`.
 
 Políticas:
 - **Toda señal debe estar usada por alguna estrategia** — las que no, solo

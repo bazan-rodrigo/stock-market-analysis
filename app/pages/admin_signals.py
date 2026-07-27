@@ -171,10 +171,17 @@ def layout(**kwargs):
             dbc.Col(
                 dcc.Upload(
                     dbc.Button("Importar", color="secondary", size="sm", outline=True),
-                    id="sig-upload", accept=".xlsx", multiple=False,
+                    id="sig-upload", accept=".xlsx,.json", multiple=False,
                 ),
                 className="d-flex align-items-center",
             ),
+            dbc.Col(dbc.Button("Catálogo", id="sig-btn-catalog",
+                               color="secondary", size="sm", outline=True,
+                               title="Descarga el catálogo de esta instalación "
+                                     "(indicadores, categorías, sectores, "
+                                     "señales existentes) para armar packs "
+                                     "importables"),
+                    className="d-flex align-items-center"),
         ] if is_admin else []), className="mb-2 align-items-center g-2"),
 
         html.Div([

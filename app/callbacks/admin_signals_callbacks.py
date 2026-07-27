@@ -323,6 +323,29 @@ def export(_):
     return dcc.send_bytes(svc.export_signals_excel(), "señales.xlsx")
 
 
+# ── Catálogo (insumo para armar packs) ────────────────────────────────────────
+
+@callback(
+    Output("sig-download", "data", allow_duplicate=True),
+    Input("sig-btn-catalog", "n_clicks"),
+    prevent_initial_call=True,
+)
+def export_catalog(_):
+    """Descarga el catálogo de esta instalación: indicadores, categorías,
+    sectores/mercados/países cargados y señales existentes. Es lo que hay que
+    darle —junto con strategy_packs/SPEC.md— a quien vaya a escribir un pack
+    sin acceso a la base."""
+    from datetime import date as _date
+
+    from app.services import pack_service
+
+    _, is_admin = current_viewer()
+    if not is_admin:
+        return no_update
+    return dcc.send_bytes(pack_service.catalog_bytes(),
+                          f"catalogo_{_date.today().isoformat()}.json")
+
+
 # ── Importar ──────────────────────────────────────────────────────────────────
 
 @callback(
@@ -342,8 +365,8 @@ def import_excel(contents, filename):
         return no_update, "Solo un administrador puede importar señales.", True, "danger"
     try:
         _, encoded = contents.split(",", 1)
-        results = svc.import_signals_excel(base64.b64decode(encoded),
-                                           owner_id=user_id)
+        results = svc.import_signals_file(base64.b64decode(encoded), filename,
+                                          owner_id=user_id)
     except Exception as exc:
         return no_update, str(exc), True, "danger"
 

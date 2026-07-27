@@ -676,12 +676,14 @@ def export_strategies_excel() -> bytes:
     strategies = get_all_strategies()
     wb = openpyxl.Workbook()
 
+    from app.services.pack_service import COMPONENT_COLUMNS, STRATEGY_COLUMNS
+
     ws_s = wb.active
     ws_s.title = "Estrategias"
-    ws_s.append(["name", "description", "filter_conditions", "publica"])
+    ws_s.append(list(STRATEGY_COLUMNS))
 
     ws_c = wb.create_sheet("Componentes")
-    ws_c.append(["strategy_name", "signal_key", "weight"])
+    ws_c.append(list(COMPONENT_COLUMNS))
 
     s = get_session()
     all_sig_ids = {comp.signal_id for strat in strategies for comp in strat.components}
@@ -705,22 +707,37 @@ def export_strategies_excel() -> bytes:
     return buf.getvalue()
 
 
-def import_strategies_excel(file_bytes: bytes,
-                            owner_id: int | None = None) -> list[dict]:
-    """La columna `publica` (sí/no; ausente = PRIVADA) define la visibilidad.
-    owner_id = quien importa: dueño de las estrategias NUEVAS (las
-    existentes conservan el suyo)."""
+def import_strategies_file(file_bytes: bytes, filename: str | None = None,
+                           owner_id: int | None = None) -> list[dict]:
+    """Punto de entrada de la pantalla: despacha por formato (pack JSON o
+    planilla). Los dos caminos comparten validación y escritura."""
+    from app.services import pack_service
+
+    if pack_service.looks_like_json(file_bytes, filename):
+        pack = pack_service.parse_pack(file_bytes)
+        rows_s, rows_c = pack_service.strategy_rows_from_pack(pack)
+    else:
+        rows_s, rows_c = _strategy_rows_from_xlsx(file_bytes)
+        if rows_s is None:
+            return rows_c        # planilla equivocada: rows_c trae el error
+    return import_strategy_rows(rows_s, rows_c, owner_id=owner_id)
+
+
+def _strategy_rows_from_xlsx(file_bytes: bytes):
+    """Planilla → (filas de estrategia, filas de componente).
+
+    Si el archivo es la planilla equivocada devuelve (None, [resultado de
+    error]) — el mismo formato de salida que el import, para que la pantalla
+    lo muestre igual que cualquier otro rechazo.
+    """
     import openpyxl
     from io import BytesIO
-    from datetime import datetime as _dt
-    from app.models import SignalDefinition
-    from app.services.visibility import can_reference, parse_publica
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes))
     ws_s = wb.worksheets[0]
     rows_s = list(ws_s.iter_rows(values_only=True))
     if not rows_s:
-        return []
+        return [], []
 
     headers_s = [str(h).strip().lower() for h in rows_s[0]]
     # Guard: la planilla de SEÑALES comparte name/description/publica con la de
@@ -728,15 +745,47 @@ def import_strategies_excel(file_bytes: bytes,
     # nombres de las señales y 0 componentes, en silencio. Las columnas
     # formula_type/indicator_key/params son propias de señales → rechazar claro.
     if {"formula_type", "indicator_key", "params"} & set(headers_s):
-        return [{
+        return None, [{
             "name": "(archivo)", "status": "error",
             "detail": "esta planilla parece de SEÑALES (tiene columnas como "
                       "formula_type / indicator_key), no de estrategias. "
                       "Importala en la pantalla de Señales, o exportá la "
                       "plantilla de estrategias desde esta pantalla."}]
+
+    filas_s = [dict(zip(headers_s, row)) for row in rows_s[1:]]
+
+    filas_c: list[dict] = []
+    if len(wb.worksheets) > 1:
+        rows_c = list(wb.worksheets[1].iter_rows(values_only=True))
+        headers_c = [str(h).strip().lower() for h in rows_c[0]] if rows_c else []
+        filas_c = [dict(zip(headers_c, row)) for row in rows_c[1:]]
+    return filas_s, filas_c
+
+
+def import_strategies_excel(file_bytes: bytes,
+                            owner_id: int | None = None) -> list[dict]:
+    """Camino Excel (nombre histórico). Ver import_strategies_file."""
+    rows_s, rows_c = _strategy_rows_from_xlsx(file_bytes)
+    if rows_s is None:
+        return rows_c
+    return import_strategy_rows(rows_s, rows_c, owner_id=owner_id)
+
+
+def import_strategy_rows(rows_s: list[dict], rows_c: list[dict],
+                         owner_id: int | None = None) -> list[dict]:
+    """Importación todo-o-nada, desde filas normalizadas (Excel o pack JSON).
+
+    La columna `publica` (sí/no; ausente = PRIVADA) define la visibilidad.
+    owner_id = quien importa: dueño de las estrategias NUEVAS (las
+    existentes conservan el suyo)."""
+    import json
+    from datetime import datetime as _dt
+    from app.models import SignalDefinition
+    from app.services import pack_service
+    from app.services.visibility import can_reference, parse_publica
+
     strategies: dict[str, dict] = {}
-    for row in rows_s[1:]:
-        data = dict(zip(headers_s, row))
+    for data in rows_s:
         name = str(data.get("name") or "").strip()
         if name:
             # Compatibilidad: Excel exportados antes de la migración 0061
@@ -759,33 +808,34 @@ def import_strategies_excel(file_bytes: bytes,
                 entry.setdefault("errors", []).append(str(exc))
             strategies[name] = entry
 
-    if len(wb.worksheets) > 1:
-        ws_c = wb.worksheets[1]
-        rows_c = list(ws_c.iter_rows(values_only=True))
-        headers_c = [str(h).strip().lower() for h in rows_c[0]] if rows_c else []
-        for row in rows_c[1:]:
-            data = dict(zip(headers_c, row))
-            sname = str(data.get("strategy_name") or "").strip()
-            if sname not in strategies:
-                continue
-            try:
-                comp = {
-                    "signal_key": str(data.get("signal_key") or "").strip(),
-                    "weight": float(data.get("weight") or 1.0),
-                }
-                # El Alcance de grupo (scope) se removió: rechazar en vez de
-                # descartarlo en silencio, que cambiaría el score de la estrategia.
-                scope = str(data.get("scope") or "").strip()
-                if scope:
-                    strategies[sname].setdefault("errors", []).append(
-                        f"el alcance '{scope}' ya no se soporta: el Alcance de "
-                        f"grupo se removió")
-                strategies[sname]["components"].append(comp)
-            except (TypeError, ValueError) as exc:
+    for data in rows_c:
+        sname = str(data.get("strategy_name") or "").strip()
+        if sname not in strategies:
+            continue
+        try:
+            comp = {
+                "signal_key": str(data.get("signal_key") or "").strip(),
+                "weight": float(data.get("weight") or 1.0),
+            }
+            # El Alcance de grupo (scope) se removió: rechazar en vez de
+            # descartarlo en silencio, que cambiaría el score de la estrategia.
+            scope = str(data.get("scope") or "").strip()
+            if scope:
                 strategies[sname].setdefault("errors", []).append(
-                    f"componente inválido: {exc}")
+                    f"el alcance '{scope}' ya no se soporta: el Alcance de "
+                    f"grupo se removió")
+            strategies[sname]["components"].append(comp)
+        except (TypeError, ValueError) as exc:
+            strategies[sname].setdefault("errors", []).append(
+                f"componente inválido: {exc}")
 
     db = get_session()
+
+    # Atributos por NOMBRE → id de esta instalación. Los ids de catálogo son
+    # distintos en cada base: un pack que los trajera fijos no sería portable,
+    # así que el formato de intercambio usa nombres y se resuelven acá, una
+    # sola vez para todo el archivo (ver pack_service).
+    attr_index = pack_service.attribute_index(db)
 
     # ── Pasada 1: validación completa sin escribir ────────────────────────────
     all_keys = {
@@ -822,6 +872,18 @@ def import_strategies_excel(file_bytes: bytes,
                 errors.append("componente sin signal_key")
             elif comp["signal_key"] not in sig_ids_by_key:
                 errors.append(f"señal '{comp['signal_key']}' no encontrada")
+
+        # Nombres de catálogo → ids ANTES de validar: validate_tree compara
+        # los valores discretos contra el catálogo y un nombre sin resolver
+        # llegaría hasta el evaluador, donde nunca matchearía ningún activo
+        # (el filtro dejaría la estrategia vacía, sin error visible).
+        tree = strategy_filter.parse_tree(sdata["filter_conditions"])
+        if tree:
+            tree, attr_errors = pack_service.resolve_attribute_values(
+                tree, attr_index)
+            errors.extend(attr_errors)
+            if not attr_errors:
+                sdata["filter_conditions"] = json.dumps(tree)
         errors.extend(validate_filter_conditions(sdata["filter_conditions"]))
         # Visibilidad de las señales referenciadas (componentes + filtro)
         ref_keys = ({c["signal_key"] for c in sdata["components"]
