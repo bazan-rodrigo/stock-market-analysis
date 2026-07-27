@@ -36,8 +36,8 @@ def cache_signal_opts(is_open):
 # ── Tabla ─────────────────────────────────────────────────────────────────────
 
 @callback(
-    Output("str-datatable",  "data"),
-    Output("str-datatable",  "selected_rows"),
+    Output("str-datatable",  "rowData"),
+    Output("str-datatable",  "selectedRows"),
     Output("str-all-ids",    "data"),
     Input("str-alert",       "is_open"),
     Input("str-modal",       "is_open"),
@@ -68,14 +68,13 @@ def load_table(_a, _m):
 
 @callback(
     Output("str-selected-ids", "data"),
-    Input("str-datatable",     "selected_rows"),
-    State("str-datatable",     "data"),
+    Input("str-datatable",     "selectedRows"),
     prevent_initial_call=True,
 )
-def update_selected_ids(selected_rows, data):
-    if not selected_rows or not data:
+def update_selected_ids(selected_rows):
+    if not selected_rows:
         return []
-    return [data[i]["id"] for i in selected_rows]
+    return [r["id"] for r in selected_rows]
 
 
 @callback(

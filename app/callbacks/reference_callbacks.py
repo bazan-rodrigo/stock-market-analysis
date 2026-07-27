@@ -16,32 +16,34 @@ def _require_admin():
     return not (current_user.is_authenticated and current_user.is_admin)
 
 
-def _confirm_body(sel_rows, data, name_field="name"):
+def _confirm_body(sel_rows, name_field="name"):
+    """`sel_rows` son las FILAS seleccionadas (la grilla las entrega enteras;
+    la tabla anterior entregaba índices contra los datos)."""
     n = len(sel_rows or [])
     if n == 0:
         return no_update
     if n == 1:
-        name = (data[sel_rows[0]] or {}).get(name_field, "")
+        name = (sel_rows[0] or {}).get(name_field, "")
         return f"¿Eliminás '{name}'? Esta acción no se puede deshacer."
     if n <= 5:
-        names = ", ".join((data[i] or {}).get(name_field, str(i)) for i in sel_rows)
+        names = ", ".join((r or {}).get(name_field, "?") for r in sel_rows)
         return f"¿Eliminás {n} registros? ({names})"
     return f"¿Eliminás {n} registros? Esta acción no se puede deshacer."
 
 
 def _register_select_all(entity_id):
     @callback(
-        Output(f"{entity_id}-table", "selected_rows"),
+        Output(f"{entity_id}-table", "selectedRows"),
         Input(f"{entity_id}-btn-select-all", "n_clicks"),
         Input(f"{entity_id}-btn-deselect-all", "n_clicks"),
-        State(f"{entity_id}-table", "data"),
+        State(f"{entity_id}-table", "rowData"),
         prevent_initial_call=True,
     )
-    def _cb(n_sel, n_desel, data):
+    def _cb(n_sel, n_desel, filas):
         from dash import ctx
         if ctx.triggered_id == f"{entity_id}-btn-deselect-all":
             return []
-        return list(range(len(data or [])))
+        return list(filas or [])          # la grilla selecciona por fila
 
 
 for _eid in ("countries", "currencies", "markets", "instrument_types",
@@ -49,11 +51,11 @@ for _eid in ("countries", "currencies", "markets", "instrument_types",
     _register_select_all(_eid)
 
 
-def _bulk_delete(sel_rows, data, delete_fn, reload_fn, row_mapper):
+def _bulk_delete(sel_rows, delete_fn, reload_fn, row_mapper):
     errors, deleted = [], 0
-    for i in sel_rows:
+    for fila in sel_rows:
         try:
-            delete_fn(data[i]["id"])
+            delete_fn(fila["id"])
             deleted += 1
         except Exception as exc:
             errors.append(str(exc))
@@ -73,7 +75,7 @@ def _bulk_delete(sel_rows, data, delete_fn, reload_fn, row_mapper):
 # ===========================================================================
 
 @callback(
-    Output("countries-table", "data"),
+    Output("countries-table", "rowData"),
     Input("countries-table", "id"),
     prevent_initial_call=False,
 )
@@ -91,12 +93,11 @@ def load_countries(_):
     Input("countries-btn-add", "n_clicks"),
     Input("countries-btn-edit", "n_clicks"),
     Input("countries-btn-cancel", "n_clicks"),
-    State("countries-table", "selected_rows"),
-    State("countries-table", "data"),
+    State("countries-table", "selectedRows"),
     State("countries-editing-id", "data"),
     prevent_initial_call=True,
 )
-def countries_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
+def countries_modal(n_add, n_edit, n_cancel, sel_rows, editing_id):
     from dash import ctx
     trigger = ctx.triggered_id
     if trigger == "countries-btn-cancel":
@@ -104,13 +105,13 @@ def countries_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     if trigger == "countries-btn-add":
         return True, "Nuevo país", "", "", None
     if trigger == "countries-btn-edit" and sel_rows:
-        row = data[sel_rows[0]]
+        row = sel_rows[0]
         return True, "Editar país", row["name"], row["iso_code"], row["id"]
     return no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
-    Output("countries-table", "data", allow_duplicate=True),
+    Output("countries-table", "rowData", allow_duplicate=True),
     Output("countries-alert", "children"),
     Output("countries-alert", "is_open"),
     Output("countries-alert", "color"),
@@ -141,7 +142,7 @@ def countries_save(n_clicks, name, iso_code, editing_id):
 @callback(
     Output("countries-btn-edit", "disabled"),
     Output("countries-btn-delete", "disabled"),
-    Input("countries-table", "selected_rows"),
+    Input("countries-table", "selectedRows"),
 )
 def countries_row_selection(sel_rows):
     return len(sel_rows or []) != 1, not bool(sel_rows)
@@ -153,32 +154,30 @@ def countries_row_selection(sel_rows):
     Input("countries-btn-delete", "n_clicks"),
     Input("countries-btn-confirm-delete", "n_clicks"),
     Input("countries-btn-cancel-delete", "n_clicks"),
-    State("countries-table", "selected_rows"),
-    State("countries-table", "data"),
+    State("countries-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def countries_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
+def countries_confirm_modal(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "countries-btn-delete":
         return False, no_update
-    return True, _confirm_body(sel_rows, data)
+    return True, _confirm_body(sel_rows)
 
 
 @callback(
-    Output("countries-table", "data", allow_duplicate=True),
+    Output("countries-table", "rowData", allow_duplicate=True),
     Output("countries-alert", "children", allow_duplicate=True),
     Output("countries-alert", "is_open", allow_duplicate=True),
     Output("countries-alert", "color", allow_duplicate=True),
     Input("countries-btn-confirm-delete", "n_clicks"),
-    State("countries-table", "selected_rows"),
-    State("countries-table", "data"),
+    State("countries-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def countries_delete(_, sel_rows, data):
+def countries_delete(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     _m = lambda r: {"id": r.id, "name": r.name, "iso_code": r.iso_code}
-    return _bulk_delete(sel_rows, data, svc.delete_country, svc.get_countries, _m)
+    return _bulk_delete(sel_rows, svc.delete_country, svc.get_countries, _m)
 
 
 # ===========================================================================
@@ -186,7 +185,7 @@ def countries_delete(_, sel_rows, data):
 # ===========================================================================
 
 @callback(
-    Output("currencies-table", "data"),
+    Output("currencies-table", "rowData"),
     Input("currencies-table", "id"),
 )
 def load_currencies(_):
@@ -203,12 +202,11 @@ def load_currencies(_):
     Input("currencies-btn-add", "n_clicks"),
     Input("currencies-btn-edit", "n_clicks"),
     Input("currencies-btn-cancel", "n_clicks"),
-    State("currencies-table", "selected_rows"),
-    State("currencies-table", "data"),
+    State("currencies-table", "selectedRows"),
     State("currencies-editing-id", "data"),
     prevent_initial_call=True,
 )
-def currencies_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
+def currencies_modal(n_add, n_edit, n_cancel, sel_rows, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t == "currencies-btn-cancel":
@@ -216,13 +214,13 @@ def currencies_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     if t == "currencies-btn-add":
         return True, "Nueva moneda", "", "", None
     if t == "currencies-btn-edit" and sel_rows:
-        row = data[sel_rows[0]]
+        row = sel_rows[0]
         return True, "Editar moneda", row["name"], row["iso_code"], row["id"]
     return no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
-    Output("currencies-table", "data", allow_duplicate=True),
+    Output("currencies-table", "rowData", allow_duplicate=True),
     Output("currencies-alert", "children"),
     Output("currencies-alert", "is_open"),
     Output("currencies-alert", "color"),
@@ -253,7 +251,7 @@ def currencies_save(n_clicks, name, iso_code, editing_id):
 @callback(
     Output("currencies-btn-edit", "disabled"),
     Output("currencies-btn-delete", "disabled"),
-    Input("currencies-table", "selected_rows"),
+    Input("currencies-table", "selectedRows"),
 )
 def currencies_row_selection(sel_rows):
     return len(sel_rows or []) != 1, not bool(sel_rows)
@@ -265,32 +263,30 @@ def currencies_row_selection(sel_rows):
     Input("currencies-btn-delete", "n_clicks"),
     Input("currencies-btn-confirm-delete", "n_clicks"),
     Input("currencies-btn-cancel-delete", "n_clicks"),
-    State("currencies-table", "selected_rows"),
-    State("currencies-table", "data"),
+    State("currencies-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def currencies_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
+def currencies_confirm_modal(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "currencies-btn-delete":
         return False, no_update
-    return True, _confirm_body(sel_rows, data)
+    return True, _confirm_body(sel_rows)
 
 
 @callback(
-    Output("currencies-table", "data", allow_duplicate=True),
+    Output("currencies-table", "rowData", allow_duplicate=True),
     Output("currencies-alert", "children", allow_duplicate=True),
     Output("currencies-alert", "is_open", allow_duplicate=True),
     Output("currencies-alert", "color", allow_duplicate=True),
     Input("currencies-btn-confirm-delete", "n_clicks"),
-    State("currencies-table", "selected_rows"),
-    State("currencies-table", "data"),
+    State("currencies-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def currencies_delete(_, sel_rows, data):
+def currencies_delete(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     _m = lambda r: {"id": r.id, "name": r.name, "iso_code": r.iso_code}
-    return _bulk_delete(sel_rows, data, svc.delete_currency, svc.get_currencies, _m)
+    return _bulk_delete(sel_rows, svc.delete_currency, svc.get_currencies, _m)
 
 
 # ===========================================================================
@@ -298,7 +294,7 @@ def currencies_delete(_, sel_rows, data):
 # ===========================================================================
 
 @callback(
-    Output("markets-table", "data"),
+    Output("markets-table", "rowData"),
     Output("markets-f-country_id", "options"),
     Output("markets-f-benchmark_id", "options"),
     Input("markets-table", "id"),
@@ -330,12 +326,11 @@ def load_markets(_):
     Input("markets-btn-add", "n_clicks"),
     Input("markets-btn-edit", "n_clicks"),
     Input("markets-btn-cancel", "n_clicks"),
-    State("markets-table", "selected_rows"),
-    State("markets-table", "data"),
+    State("markets-table", "selectedRows"),
     State("markets-editing-id", "data"),
     prevent_initial_call=True,
 )
-def markets_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
+def markets_modal(n_add, n_edit, n_cancel, sel_rows, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t == "markets-btn-cancel":
@@ -345,13 +340,13 @@ def markets_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     if t == "markets-btn-edit" and sel_rows:
         from app.database import get_session
         from app.models import Market
-        m = get_session().get(Market, data[sel_rows[0]]["id"])
+        m = get_session().get(Market, sel_rows[0]["id"])
         return True, "Editar mercado", m.name, m.country_id, m.benchmark_id, m.id
     return no_update, no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
-    Output("markets-table", "data", allow_duplicate=True),
+    Output("markets-table", "rowData", allow_duplicate=True),
     Output("markets-alert", "children"),
     Output("markets-alert", "is_open"),
     Output("markets-alert", "color"),
@@ -385,7 +380,7 @@ def markets_save(_, name, country_id, benchmark_id, editing_id):
 @callback(
     Output("markets-btn-edit", "disabled"),
     Output("markets-btn-delete", "disabled"),
-    Input("markets-table", "selected_rows"),
+    Input("markets-table", "selectedRows"),
 )
 def markets_row_selection(sel_rows):
     return len(sel_rows or []) != 1, not bool(sel_rows)
@@ -397,32 +392,30 @@ def markets_row_selection(sel_rows):
     Input("markets-btn-delete", "n_clicks"),
     Input("markets-btn-confirm-delete", "n_clicks"),
     Input("markets-btn-cancel-delete", "n_clicks"),
-    State("markets-table", "selected_rows"),
-    State("markets-table", "data"),
+    State("markets-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def markets_confirm_modal(n_del, n_confirm, n_cancel, sel_rows, data):
+def markets_confirm_modal(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "markets-btn-delete":
         return False, no_update
-    return True, _confirm_body(sel_rows, data)
+    return True, _confirm_body(sel_rows)
 
 
 @callback(
-    Output("markets-table", "data", allow_duplicate=True),
+    Output("markets-table", "rowData", allow_duplicate=True),
     Output("markets-alert", "children", allow_duplicate=True),
     Output("markets-alert", "is_open", allow_duplicate=True),
     Output("markets-alert", "color", allow_duplicate=True),
     Input("markets-btn-confirm-delete", "n_clicks"),
-    State("markets-table", "selected_rows"),
-    State("markets-table", "data"),
+    State("markets-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def markets_delete(_, sel_rows, data):
+def markets_delete(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     _m = lambda m: {"id": m.id, "name": m.name, "country_name": m.country.name if m.country else ""}
-    return _bulk_delete(sel_rows, data, svc.delete_market, svc.get_markets, _m)
+    return _bulk_delete(sel_rows, svc.delete_market, svc.get_markets, _m)
 
 
 # ===========================================================================
@@ -430,7 +423,7 @@ def markets_delete(_, sel_rows, data):
 # ===========================================================================
 
 @callback(
-    Output("instrument_types-table", "data"),
+    Output("instrument_types-table", "rowData"),
     Output("instrument_types-f-default_currency_id", "options"),
     Input("instrument_types-table", "id"),
 )
@@ -454,12 +447,11 @@ def load_instrument_types(_):
     Input("instrument_types-btn-add", "n_clicks"),
     Input("instrument_types-btn-edit", "n_clicks"),
     Input("instrument_types-btn-cancel", "n_clicks"),
-    State("instrument_types-table", "selected_rows"),
-    State("instrument_types-table", "data"),
+    State("instrument_types-table", "selectedRows"),
     State("instrument_types-editing-id", "data"),
     prevent_initial_call=True,
 )
-def instrument_types_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
+def instrument_types_modal(n_add, n_edit, n_cancel, sel_rows, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t == "instrument_types-btn-cancel":
@@ -469,13 +461,13 @@ def instrument_types_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     if t == "instrument_types-btn-edit" and sel_rows:
         from app.database import get_session
         from app.models import InstrumentType
-        it = get_session().get(InstrumentType, data[sel_rows[0]]["id"])
+        it = get_session().get(InstrumentType, sel_rows[0]["id"])
         return True, "Editar tipo de instrumento", it.name, it.default_currency_id, it.id
     return no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
-    Output("instrument_types-table", "data", allow_duplicate=True),
+    Output("instrument_types-table", "rowData", allow_duplicate=True),
     Output("instrument_types-alert", "children"),
     Output("instrument_types-alert", "is_open"),
     Output("instrument_types-alert", "color"),
@@ -506,7 +498,7 @@ def instrument_types_save(_, name, currency_id, editing_id):
 @callback(
     Output("instrument_types-btn-edit", "disabled"),
     Output("instrument_types-btn-delete", "disabled"),
-    Input("instrument_types-table", "selected_rows"),
+    Input("instrument_types-table", "selectedRows"),
 )
 def instrument_types_row_selection(sel_rows):
     return len(sel_rows or []) != 1, not bool(sel_rows)
@@ -518,39 +510,37 @@ def instrument_types_row_selection(sel_rows):
     Input("instrument_types-btn-delete", "n_clicks"),
     Input("instrument_types-btn-confirm-delete", "n_clicks"),
     Input("instrument_types-btn-cancel-delete", "n_clicks"),
-    State("instrument_types-table", "selected_rows"),
-    State("instrument_types-table", "data"),
+    State("instrument_types-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def instrument_types_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
+def instrument_types_confirm(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "instrument_types-btn-delete":
         return False, no_update
-    return True, _confirm_body(sel_rows, data)
+    return True, _confirm_body(sel_rows)
 
 
 @callback(
-    Output("instrument_types-table", "data", allow_duplicate=True),
+    Output("instrument_types-table", "rowData", allow_duplicate=True),
     Output("instrument_types-alert", "children", allow_duplicate=True),
     Output("instrument_types-alert", "is_open", allow_duplicate=True),
     Output("instrument_types-alert", "color", allow_duplicate=True),
     Input("instrument_types-btn-confirm-delete", "n_clicks"),
-    State("instrument_types-table", "selected_rows"),
-    State("instrument_types-table", "data"),
+    State("instrument_types-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def instrument_types_delete(_, sel_rows, data):
+def instrument_types_delete(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     _m = lambda it: {"id": it.id, "name": it.name, "currency_name": it.default_currency.name if it.default_currency else ""}
-    return _bulk_delete(sel_rows, data, svc.delete_instrument_type, svc.get_instrument_types, _m)
+    return _bulk_delete(sel_rows, svc.delete_instrument_type, svc.get_instrument_types, _m)
 
 
 # ===========================================================================
 # SECTORES
 # ===========================================================================
 
-@callback(Output("sectors-table", "data"), Input("sectors-table", "id"))
+@callback(Output("sectors-table", "rowData"), Input("sectors-table", "id"))
 def load_sectors(_):
     return [{"id": r.id, "name": r.name} for r in svc.get_sectors()]
 
@@ -563,12 +553,11 @@ def load_sectors(_):
     Input("sectors-btn-add", "n_clicks"),
     Input("sectors-btn-edit", "n_clicks"),
     Input("sectors-btn-cancel", "n_clicks"),
-    State("sectors-table", "selected_rows"),
-    State("sectors-table", "data"),
+    State("sectors-table", "selectedRows"),
     State("sectors-editing-id", "data"),
     prevent_initial_call=True,
 )
-def sectors_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
+def sectors_modal(n_add, n_edit, n_cancel, sel_rows, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t == "sectors-btn-cancel":
@@ -576,13 +565,13 @@ def sectors_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     if t == "sectors-btn-add":
         return True, "Nuevo sector", "", None
     if t == "sectors-btn-edit" and sel_rows:
-        row = data[sel_rows[0]]
+        row = sel_rows[0]
         return True, "Editar sector", row["name"], row["id"]
     return no_update, no_update, no_update, no_update
 
 
 @callback(
-    Output("sectors-table", "data", allow_duplicate=True),
+    Output("sectors-table", "rowData", allow_duplicate=True),
     Output("sectors-alert", "children"),
     Output("sectors-alert", "is_open"),
     Output("sectors-alert", "color"),
@@ -611,7 +600,7 @@ def sectors_save(_, name, editing_id):
 @callback(
     Output("sectors-btn-edit", "disabled"),
     Output("sectors-btn-delete", "disabled"),
-    Input("sectors-table", "selected_rows"),
+    Input("sectors-table", "selectedRows"),
 )
 def sectors_row_selection(sel_rows):
     return len(sel_rows or []) != 1, not bool(sel_rows)
@@ -623,32 +612,30 @@ def sectors_row_selection(sel_rows):
     Input("sectors-btn-delete", "n_clicks"),
     Input("sectors-btn-confirm-delete", "n_clicks"),
     Input("sectors-btn-cancel-delete", "n_clicks"),
-    State("sectors-table", "selected_rows"),
-    State("sectors-table", "data"),
+    State("sectors-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def sectors_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
+def sectors_confirm(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "sectors-btn-delete":
         return False, no_update
-    return True, _confirm_body(sel_rows, data)
+    return True, _confirm_body(sel_rows)
 
 
 @callback(
-    Output("sectors-table", "data", allow_duplicate=True),
+    Output("sectors-table", "rowData", allow_duplicate=True),
     Output("sectors-alert", "children", allow_duplicate=True),
     Output("sectors-alert", "is_open", allow_duplicate=True),
     Output("sectors-alert", "color", allow_duplicate=True),
     Input("sectors-btn-confirm-delete", "n_clicks"),
-    State("sectors-table", "selected_rows"),
-    State("sectors-table", "data"),
+    State("sectors-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def sectors_delete(_, sel_rows, data):
+def sectors_delete(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     _m = lambda r: {"id": r.id, "name": r.name}
-    return _bulk_delete(sel_rows, data, svc.delete_sector, svc.get_sectors, _m)
+    return _bulk_delete(sel_rows, svc.delete_sector, svc.get_sectors, _m)
 
 
 # ===========================================================================
@@ -656,7 +643,7 @@ def sectors_delete(_, sel_rows, data):
 # ===========================================================================
 
 @callback(
-    Output("industries-table", "data"),
+    Output("industries-table", "rowData"),
     Output("industries-f-sector_id", "options"),
     Input("industries-table", "id"),
 )
@@ -677,12 +664,11 @@ def load_industries(_):
     Input("industries-btn-add", "n_clicks"),
     Input("industries-btn-edit", "n_clicks"),
     Input("industries-btn-cancel", "n_clicks"),
-    State("industries-table", "selected_rows"),
-    State("industries-table", "data"),
+    State("industries-table", "selectedRows"),
     State("industries-editing-id", "data"),
     prevent_initial_call=True,
 )
-def industries_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
+def industries_modal(n_add, n_edit, n_cancel, sel_rows, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t == "industries-btn-cancel":
@@ -692,13 +678,13 @@ def industries_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     if t == "industries-btn-edit" and sel_rows:
         from app.database import get_session
         from app.models import Industry
-        ind = get_session().get(Industry, data[sel_rows[0]]["id"])
+        ind = get_session().get(Industry, sel_rows[0]["id"])
         return True, "Editar industria", ind.name, ind.sector_id, ind.id
     return no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
-    Output("industries-table", "data", allow_duplicate=True),
+    Output("industries-table", "rowData", allow_duplicate=True),
     Output("industries-alert", "children"),
     Output("industries-alert", "is_open"),
     Output("industries-alert", "color"),
@@ -729,7 +715,7 @@ def industries_save(_, name, sector_id, editing_id):
 @callback(
     Output("industries-btn-edit", "disabled"),
     Output("industries-btn-delete", "disabled"),
-    Input("industries-table", "selected_rows"),
+    Input("industries-table", "selectedRows"),
 )
 def industries_row_selection(sel_rows):
     return len(sel_rows or []) != 1, not bool(sel_rows)
@@ -741,39 +727,37 @@ def industries_row_selection(sel_rows):
     Input("industries-btn-delete", "n_clicks"),
     Input("industries-btn-confirm-delete", "n_clicks"),
     Input("industries-btn-cancel-delete", "n_clicks"),
-    State("industries-table", "selected_rows"),
-    State("industries-table", "data"),
+    State("industries-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def industries_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
+def industries_confirm(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "industries-btn-delete":
         return False, no_update
-    return True, _confirm_body(sel_rows, data)
+    return True, _confirm_body(sel_rows)
 
 
 @callback(
-    Output("industries-table", "data", allow_duplicate=True),
+    Output("industries-table", "rowData", allow_duplicate=True),
     Output("industries-alert", "children", allow_duplicate=True),
     Output("industries-alert", "is_open", allow_duplicate=True),
     Output("industries-alert", "color", allow_duplicate=True),
     Input("industries-btn-confirm-delete", "n_clicks"),
-    State("industries-table", "selected_rows"),
-    State("industries-table", "data"),
+    State("industries-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def industries_delete(_, sel_rows, data):
+def industries_delete(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     _m = lambda i: {"id": i.id, "name": i.name, "sector_name": i.sector.name if i.sector else ""}
-    return _bulk_delete(sel_rows, data, svc.delete_industry, svc.get_industries, _m)
+    return _bulk_delete(sel_rows, svc.delete_industry, svc.get_industries, _m)
 
 
 # ===========================================================================
 # FUENTES DE PRECIOS
 # ===========================================================================
 
-@callback(Output("price_sources-table", "data"), Input("price_sources-table", "id"))
+@callback(Output("price_sources-table", "rowData"), Input("price_sources-table", "id"))
 def load_price_sources(_):
     rows = svc.get_price_sources()
     return [{"id": r.id, "name": r.name, "description": r.description or ""} for r in rows]
@@ -788,12 +772,11 @@ def load_price_sources(_):
     Input("price_sources-btn-add", "n_clicks"),
     Input("price_sources-btn-edit", "n_clicks"),
     Input("price_sources-btn-cancel", "n_clicks"),
-    State("price_sources-table", "selected_rows"),
-    State("price_sources-table", "data"),
+    State("price_sources-table", "selectedRows"),
     State("price_sources-editing-id", "data"),
     prevent_initial_call=True,
 )
-def price_sources_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
+def price_sources_modal(n_add, n_edit, n_cancel, sel_rows, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t == "price_sources-btn-cancel":
@@ -803,13 +786,13 @@ def price_sources_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     if t == "price_sources-btn-edit" and sel_rows:
         from app.database import get_session
         from app.models import PriceSource
-        ps = get_session().get(PriceSource, data[sel_rows[0]]["id"])
+        ps = get_session().get(PriceSource, sel_rows[0]["id"])
         return True, "Editar fuente", ps.name, ps.description or "", ps.id
     return no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
-    Output("price_sources-table", "data", allow_duplicate=True),
+    Output("price_sources-table", "rowData", allow_duplicate=True),
     Output("price_sources-alert", "children"),
     Output("price_sources-alert", "is_open"),
     Output("price_sources-alert", "color"),
@@ -840,7 +823,7 @@ def price_sources_save(_, name, description, editing_id):
 @callback(
     Output("price_sources-btn-edit", "disabled"),
     Output("price_sources-btn-delete", "disabled"),
-    Input("price_sources-table", "selected_rows"),
+    Input("price_sources-table", "selectedRows"),
 )
 def price_sources_row_selection(sel_rows):
     return len(sel_rows or []) != 1, not bool(sel_rows)
@@ -852,43 +835,41 @@ def price_sources_row_selection(sel_rows):
     Input("price_sources-btn-delete", "n_clicks"),
     Input("price_sources-btn-confirm-delete", "n_clicks"),
     Input("price_sources-btn-cancel-delete", "n_clicks"),
-    State("price_sources-table", "selected_rows"),
-    State("price_sources-table", "data"),
+    State("price_sources-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def price_sources_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
+def price_sources_confirm(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "price_sources-btn-delete":
         return False, no_update
-    return True, _confirm_body(sel_rows, data)
+    return True, _confirm_body(sel_rows)
 
 
 @callback(
-    Output("price_sources-table", "data", allow_duplicate=True),
+    Output("price_sources-table", "rowData", allow_duplicate=True),
     Output("price_sources-alert", "children", allow_duplicate=True),
     Output("price_sources-alert", "is_open", allow_duplicate=True),
     Output("price_sources-alert", "color", allow_duplicate=True),
     Input("price_sources-btn-confirm-delete", "n_clicks"),
-    State("price_sources-table", "selected_rows"),
-    State("price_sources-table", "data"),
+    State("price_sources-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def price_sources_delete(_, sel_rows, data):
+def price_sources_delete(_, sel_rows):
     from app.services.reference_service import _PROTECTED_SOURCES
     if not sel_rows:
         return no_update, no_update, no_update, no_update
-    sel_rows = [i for i in sel_rows if data[i].get("name") not in _PROTECTED_SOURCES]
+    sel_rows = [r for r in sel_rows if r.get("name") not in _PROTECTED_SOURCES]
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     _m = lambda r: {"id": r.id, "name": r.name, "description": r.description or ""}
-    return _bulk_delete(sel_rows, data, svc.delete_price_source, svc.get_price_sources, _m)
+    return _bulk_delete(sel_rows, svc.delete_price_source, svc.get_price_sources, _m)
 
 
 # ===========================================================================
 # USUARIOS (admin)
 # ===========================================================================
 
-@callback(Output("users-table", "data"), Input("users-table", "id"))
+@callback(Output("users-table", "rowData"), Input("users-table", "id"))
 def load_users(_):
     rows = svc.get_users()
     return [{"id": r.id, "username": r.username, "role": r.role, "active": "Sí" if r.active else "No", "created_at": str(r.created_at.date())} for r in rows]
@@ -905,12 +886,11 @@ def load_users(_):
     Input("users-btn-add", "n_clicks"),
     Input("users-btn-edit", "n_clicks"),
     Input("users-btn-cancel", "n_clicks"),
-    State("users-table", "selected_rows"),
-    State("users-table", "data"),
+    State("users-table", "selectedRows"),
     State("users-editing-id", "data"),
     prevent_initial_call=True,
 )
-def users_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
+def users_modal(n_add, n_edit, n_cancel, sel_rows, editing_id):
     from dash import ctx
     t = ctx.triggered_id
     if t == "users-btn-cancel":
@@ -920,13 +900,13 @@ def users_modal(n_add, n_edit, n_cancel, sel_rows, data, editing_id):
     if t == "users-btn-edit" and sel_rows:
         from app.database import get_session
         from app.models import User
-        u = get_session().get(User, data[sel_rows[0]]["id"])
+        u = get_session().get(User, sel_rows[0]["id"])
         return True, "Editar usuario", u.username, u.role, "", u.active, u.id
     return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 
 @callback(
-    Output("users-table", "data", allow_duplicate=True),
+    Output("users-table", "rowData", allow_duplicate=True),
     Output("users-alert", "children"),
     Output("users-alert", "is_open"),
     Output("users-alert", "color"),
@@ -961,7 +941,7 @@ def users_save(_, username, role, password, active, editing_id):
 @callback(
     Output("users-btn-edit", "disabled"),
     Output("users-btn-delete", "disabled"),
-    Input("users-table", "selected_rows"),
+    Input("users-table", "selectedRows"),
 )
 def users_row_selection(sel_rows):
     return len(sel_rows or []) != 1, not bool(sel_rows)
@@ -973,29 +953,27 @@ def users_row_selection(sel_rows):
     Input("users-btn-delete", "n_clicks"),
     Input("users-btn-confirm-delete", "n_clicks"),
     Input("users-btn-cancel-delete", "n_clicks"),
-    State("users-table", "selected_rows"),
-    State("users-table", "data"),
+    State("users-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def users_confirm(n_del, n_confirm, n_cancel, sel_rows, data):
+def users_confirm(n_del, n_confirm, n_cancel, sel_rows):
     from dash import ctx
     if ctx.triggered_id != "users-btn-delete":
         return False, no_update
-    return True, _confirm_body(sel_rows, data, name_field="username")
+    return True, _confirm_body(sel_rows, name_field="username")
 
 
 @callback(
-    Output("users-table", "data", allow_duplicate=True),
+    Output("users-table", "rowData", allow_duplicate=True),
     Output("users-alert", "children", allow_duplicate=True),
     Output("users-alert", "is_open", allow_duplicate=True),
     Output("users-alert", "color", allow_duplicate=True),
     Input("users-btn-confirm-delete", "n_clicks"),
-    State("users-table", "selected_rows"),
-    State("users-table", "data"),
+    State("users-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def users_delete(_, sel_rows, data):
+def users_delete(_, sel_rows):
     if not sel_rows:
         return no_update, no_update, no_update, no_update
     _m = lambda r: {"id": r.id, "username": r.username, "role": r.role, "active": "Sí" if r.active else "No", "created_at": str(r.created_at.date())}
-    return _bulk_delete(sel_rows, data, svc.delete_user, svc.get_users, _m)
+    return _bulk_delete(sel_rows, svc.delete_user, svc.get_users, _m)

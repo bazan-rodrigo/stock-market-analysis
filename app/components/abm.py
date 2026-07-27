@@ -3,10 +3,13 @@ Componente ABM genérico reutilizable.
 Genera el layout de tabla + modal para cualquier entidad de referencia.
 Los callbacks se registran individualmente en cada módulo de callback.
 """
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dcc, html
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, multi_selection, to_column_defs,
+)
 from app.components.help import help_link
-from app.components.table_styles import FILTER, HEADER, DATA, CELL, SELECTED_ROW
 
 
 def make_abm_layout(
@@ -22,7 +25,8 @@ def make_abm_layout(
 
     entity_id   : identificador único (usado como prefijo en los IDs de Dash)
     title       : título de la página
-    table_columns: lista de dicts {name, id} para el DataTable
+    table_columns: columnas de la grilla; acepta el formato viejo {name, id}
+                  además del de ag-grid (ver `grids.to_column_defs`)
     form_fields : lista de componentes dbc.FormGroup/Row para el modal
     help_slug   : sección del manual de esta pantalla; agrega el ícono «?»
                   al lado del título. Sin él, la pantalla no ofrece ayuda.
@@ -78,21 +82,17 @@ def make_abm_layout(
                 ],
                 className="mb-2",
             ),
-            dash_table.DataTable(
+            dag.AgGrid(
                 id=f"{entity_id}-table",
-                columns=table_columns,
-                data=[],
-                row_selectable="multi",
-                selected_rows=[],
-                style_table={"overflowX": "auto"},
-                style_header=HEADER,
-                style_data=DATA,
-                style_cell=CELL,
-                style_filter=FILTER,
-                style_data_conditional=SELECTED_ROW,
-                page_size=25,
-                sort_action="native",
-                filter_action="native",
+                columnDefs=to_column_defs(table_columns),
+                rowData=[],
+                className=THEME_CLASS,
+                style={"height": "calc(100vh - 330px)", "width": "100%"},
+                defaultColDef=DEFAULT_COL_DEF,
+                # Identidad por id: los callbacks del ABM reescriben las filas
+                # después de cada alta/baja y sin esto se pierde la selección.
+                getRowId="params.data.id",
+                dashGridOptions=grid_options(rowSelection=multi_selection()),
             ),
             # Modal formulario
             dbc.Modal(

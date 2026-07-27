@@ -1,10 +1,13 @@
 import dash
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dcc, html
 
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, single_selection, to_column_defs,
+)
 from app.components.help import page_header
 
-from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 
 _TYPE_OPTS = [
     {"label": "Seguimiento (teórica)", "value": "seg"},
@@ -181,27 +184,21 @@ def layout(**kwargs):
         dbc.Alert(id="cart-alert", is_open=False, dismissable=True,
                   className="mb-3"),
 
-        dash_table.DataTable(
+        dag.AgGrid(
             id="cart-table",
-            columns=[
-                {"name": "Nombre",  "id": "name"},
-                {"name": "Tipo",    "id": "tipo"},
-                {"name": "Dueño",   "id": "owner"},
-                {"name": "Pública", "id": "publica"},
-                {"name": "Moneda",  "id": "currency"},
-            ],
-            data=[],
-            row_selectable="single",
-            selected_rows=[],
-            style_table={"overflowX": "auto"},
-            style_header=HEADER,
-            style_data=DATA,
-            style_cell=CELL,
-            style_filter=FILTER,
-            style_data_conditional=SELECTED_ROW,
-            page_size=30,
-            sort_action="native",
-            filter_action="native",
+            columnDefs=to_column_defs([
+                {"name": "Nombre",  "id": "name",     "width": 260},
+                {"name": "Tipo",    "id": "tipo",     "width": 150},
+                {"name": "Dueño",   "id": "owner",    "width": 140},
+                {"name": "Pública", "id": "publica",  "width": 100},
+                {"name": "Moneda",  "id": "currency", "width": 110},
+            ]),
+            rowData=[],
+            className=THEME_CLASS,
+            style={"height": "340px", "width": "100%"},
+            defaultColDef=DEFAULT_COL_DEF,
+            getRowId="params.data.id",
+            dashGridOptions=grid_options(rowSelection=single_selection()),
         ),
 
         # Estado del "Recalcular curva" (persistente, sobrevive al re-render del

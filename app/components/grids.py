@@ -52,6 +52,16 @@ def multi_selection() -> dict:
     }
 
 
+def single_selection(*, click_selects: bool = True) -> dict:
+    """Selección de una sola fila. Acá sí conviene que el click seleccione: es
+    "elegí de qué cartera querés ver el detalle", no una acción destructiva."""
+    return {
+        "mode": "singleRow",
+        "checkboxes": False,
+        "enableClickSelection": click_selects,
+    }
+
+
 def grid_options(*, page_size: int | None = None, **overrides) -> dict:
     """dashGridOptions base. `page_size` prende la paginación (las pantallas
     que venían de DataTable la conservan); sin él, scroll virtualizado."""
@@ -183,3 +193,25 @@ def text_col(field: str, header: str, *, width: int = 180,
         col["cellStyle"] = {"color": TEXT_MUTED}
     col.update(extra)
     return col
+
+
+def to_column_defs(columns: list[dict]) -> list[dict]:
+    """Traduce el formato de columnas de `dash_table.DataTable` (`{"name",
+    "id"}`) al de ag-grid (`{"headerName", "field"}`).
+
+    Existe para las pantallas que arman las columnas en un solo lugar y las
+    reparten —el ABM genérico, el explorador de datos, la consola SQL—, donde
+    reescribir cada llamador sería mucho ruido para el mismo resultado. Lo que
+    ya viene en formato ag-grid pasa intacto, así una pantalla puede migrar sus
+    columnas de a poco.
+    """
+    out = []
+    for c in columns:
+        if "field" in c:
+            out.append(c)
+            continue
+        col = {k: v for k, v in c.items() if k not in ("name", "id")}
+        col["field"] = c["id"]
+        col["headerName"] = c.get("name", c["id"])
+        out.append(col)
+    return out

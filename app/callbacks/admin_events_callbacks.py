@@ -17,7 +17,7 @@ def _require_admin():
 
 # ── Cargar tabla ──────────────────────────────────────────────────────────────
 @callback(
-    Output("events-table", "data"),
+    Output("events-table", "rowData"),
     Input("events-table", "id"),
     prevent_initial_call=False,
 )
@@ -85,7 +85,7 @@ clientside_callback(
 @callback(
     Output("events-btn-edit",   "disabled"),
     Output("events-btn-delete", "disabled"),
-    Input("events-table", "selected_rows"),
+    Input("events-table", "selectedRows"),
 )
 def toggle_buttons(sel_rows):
     disabled = not bool(sel_rows)
@@ -108,12 +108,11 @@ def toggle_buttons(sel_rows):
     Input("events-btn-edit",   "n_clicks"),
     Input("events-btn-cancel", "n_clicks"),
     Input("events-btn-save",   "n_clicks"),
-    State("events-table",      "selected_rows"),
-    State("events-table",      "data"),
+    State("events-table",      "selectedRows"),
     State("events-editing-id", "data"),
     prevent_initial_call=True,
 )
-def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
+def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, editing_id):
     from dash import ctx
     trigger = ctx.triggered_id
 
@@ -126,7 +125,7 @@ def events_modal(n_add, n_edit, n_cancel, n_save, sel_rows, data, editing_id):
         return True, "Nuevo evento", "", "", "", "global", "#ff9800", None, None, None
 
     if trigger == "events-btn-edit" and sel_rows:
-        row = data[sel_rows[0]]
+        row = sel_rows[0]
         ev  = svc.get_event(row["id"])
         if not ev:
             return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
@@ -152,7 +151,7 @@ def _modal_error(msg):
 
 
 @callback(
-    Output("events-table",        "data",     allow_duplicate=True),
+    Output("events-table",        "rowData",     allow_duplicate=True),
     Output("events-alert",        "children"),
     Output("events-alert",        "color"),
     Output("events-alert",        "is_open"),
@@ -201,39 +200,37 @@ def save_event(n_save, editing_id, name, start_date, end_date, scope, color, cou
     Input("events-btn-delete",         "n_clicks"),
     Input("events-btn-cancel-delete",  "n_clicks"),
     Input("events-btn-confirm-delete", "n_clicks"),
-    State("events-table", "selected_rows"),
-    State("events-table", "data"),
+    State("events-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def events_confirm_delete(n_del, n_cancel, n_confirm, sel_rows, data):
+def events_confirm_delete(n_del, n_cancel, n_confirm, sel_rows):
     from dash import ctx
     trigger = ctx.triggered_id
     if trigger in ("events-btn-cancel-delete", "events-btn-confirm-delete"):
         return False, no_update
     if trigger == "events-btn-delete" and sel_rows:
-        name = data[sel_rows[0]]["name"]
+        name = sel_rows[0]["name"]
         return True, f'¿Eliminás el evento "{name}"?'
     return no_update, no_update
 
 
 # ── Confirmar eliminar ────────────────────────────────────────────────────────
 @callback(
-    Output("events-table",  "data",    allow_duplicate=True),
+    Output("events-table",  "rowData",    allow_duplicate=True),
     Output("events-alert",  "children", allow_duplicate=True),
     Output("events-alert",  "color",    allow_duplicate=True),
     Output("events-alert",  "is_open",  allow_duplicate=True),
     Input("events-btn-confirm-delete", "n_clicks"),
-    State("events-table", "selected_rows"),
-    State("events-table", "data"),
+    State("events-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def confirm_delete_event(n_confirm, sel_rows, data):
+def confirm_delete_event(n_confirm, sel_rows):
     if not n_confirm or not sel_rows:
         return no_update, no_update, no_update, no_update
     if _require_admin():
         return no_update, "Sin permisos.", "danger", True
     try:
-        event_id = data[sel_rows[0]]["id"]
+        event_id = sel_rows[0]["id"]
         svc.delete_event(event_id)
         return load_events(None), "Evento eliminado.", "success", True
     except Exception as e:

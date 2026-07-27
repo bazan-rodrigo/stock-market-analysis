@@ -1,10 +1,13 @@
 import dash
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dcc, html
 
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, multi_selection, to_column_defs,
+)
 from app.components.help import page_header
 
-from app.components.table_styles import CELL, DATA, HEADER, SELECTED_ROW
 from app.components.ui_constants import (
     BG_CARD, BG_DEEP, BG_HELP_CARD, BORDER_CARD, CARD_STYLE, COLOR_INFO, COLOR_NEUTRAL,
     COLOR_POSITIVE, COLOR_PURPLE, COLOR_RANGE, TD as _td, TEXT_BODY, TH as _th
@@ -181,7 +184,6 @@ def layout(**kwargs):
         dcc.Store(id="syn-editing-id",   data=None),
         dcc.Store(id="syn-uid-store",    data={"uids": [], "counter": 0, "initial_values": {}}),
         dcc.Store(id="syn-all-opts",     data=[]),
-        dcc.Store(id="syn-formula-ids",  data=[]),
         dcc.Download(id="syn-download"),
 
         # ── Descripción ───────────────────────────────────────────────────
@@ -255,33 +257,20 @@ def layout(**kwargs):
         dbc.Alert(id="syn-alert", is_open=False, dismissable=True, className="mb-3"),
         html.Div(id="syn-import-results", className="mb-3"),
 
-        dash_table.DataTable(
+        dag.AgGrid(
             id="syn-datatable",
-            columns=[
-                {"name": "Ticker",  "id": "ticker"},
-                {"name": "Nombre",  "id": "name"},
-                {"name": "Tipo",    "id": "type"},
-                {"name": "Fórmula", "id": "formula"},
-            ],
-            data=[],
-            row_selectable="multi",
-            selected_rows=[],
-            style_table={"overflowX": "auto"},
-            style_header=HEADER,
-            style_data=DATA,
-            style_cell=CELL,
-            style_data_conditional=SELECTED_ROW,
-            style_cell_conditional=[
-                {"if": {"column_id": "ticker"}, "width": "90px",  "minWidth": "80px"},
-                {"if": {"column_id": "name"},   "width": "200px", "minWidth": "140px"},
-                {"if": {"column_id": "type"},   "width": "130px", "minWidth": "110px"},
-                {"if": {"column_id": "formula"},
-                 "fontFamily": "monospace", "fontSize": "0.74rem", "color": COLOR_NEUTRAL,
-                 "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
-            ],
-            page_size=50,
-            sort_action="native",
-            filter_action="native",
+            columnDefs=to_column_defs([
+                    {"name": "Ticker",  "id": "ticker"},
+                    {"name": "Nombre",  "id": "name"},
+                    {"name": "Tipo",    "id": "type"},
+                    {"name": "Fórmula", "id": "formula"},
+                
+            ]),
+            rowData=[],
+            className=THEME_CLASS,
+            style={"height": "calc(100vh - 350px)", "width": "100%"},
+            defaultColDef=DEFAULT_COL_DEF,
+            dashGridOptions=grid_options(rowSelection=multi_selection()),
         ),
 
         modal,

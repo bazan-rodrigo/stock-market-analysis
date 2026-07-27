@@ -107,9 +107,8 @@ def update_help(ft):
 # ── Tabla principal ───────────────────────────────────────────────────────────
 
 @callback(
-    Output("syn-datatable",  "data"),
-    Output("syn-datatable",  "selected_rows"),
-    Output("syn-formula-ids", "data"),
+    Output("syn-datatable",  "rowData"),
+    Output("syn-datatable",  "selectedRows"),
     Input("syn-alert",        "is_open"),
     Input("syn-modal",        "is_open"),
 )
@@ -117,6 +116,7 @@ def load_datatable(_a, _m):
     formulas = svc.get_all_formulas()
     data = [
         {
+            "id":      f.id,
             "ticker":  f.asset.ticker if f.asset else "—",
             "name":    f.asset.name   if f.asset else "—",
             "type":    _TYPE_LABELS.get(f.formula_type, f.formula_type),
@@ -124,8 +124,7 @@ def load_datatable(_a, _m):
         }
         for f in formulas
     ]
-    formula_ids = [f.id for f in formulas]
-    return data, [], formula_ids
+    return data, []
 
 
 # ── Botones de acción según selección ────────────────────────────────────────
@@ -135,7 +134,7 @@ def load_datatable(_a, _m):
     Output("syn-btn-calc-sel",   "disabled"),
     Output("syn-btn-full-sel",   "disabled"),
     Output("syn-btn-delete-sel", "disabled"),
-    Input("syn-datatable",       "selected_rows"),
+    Input("syn-datatable",       "selectedRows"),
 )
 def update_action_buttons(selected_rows):
     n = len(selected_rows or [])
@@ -145,17 +144,17 @@ def update_action_buttons(selected_rows):
 # ── Selección masiva ──────────────────────────────────────────────────────────
 
 @callback(
-    Output("syn-datatable",  "selected_rows", allow_duplicate=True),
+    Output("syn-datatable",  "selectedRows", allow_duplicate=True),
     Input("syn-btn-select-all", "n_clicks"),
-    State("syn-formula-ids",    "data"),
+    State("syn-datatable",      "rowData"),
     prevent_initial_call=True,
 )
-def select_all(_, formula_ids):
-    return list(range(len(formula_ids or [])))
+def select_all(_, filas):
+    return list(filas or [])
 
 
 @callback(
-    Output("syn-datatable",      "selected_rows", allow_duplicate=True),
+    Output("syn-datatable",      "selectedRows", allow_duplicate=True),
     Input("syn-btn-deselect-all", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -178,12 +177,11 @@ def deselect_all(_):
     Input("syn-btn-add",       "n_clicks"),
     Input("syn-btn-cancel",    "n_clicks"),
     Input("syn-btn-edit-sel",  "n_clicks"),
-    State("syn-datatable",     "selected_rows"),
-    State("syn-formula-ids",   "data"),
+    State("syn-datatable",     "selectedRows"),
     State("syn-editing-id",    "data"),
     prevent_initial_call=True,
 )
-def toggle_modal(n_add, n_cancel, n_edit_sel, selected_rows, formula_ids, editing_id):
+def toggle_modal(n_add, n_cancel, n_edit_sel, selected_rows, editing_id):
     trigger = ctx.triggered_id
     _empty = {"uids": [], "counter": 0, "initial_values": {}}
     _noup9 = (no_update,) * 9
@@ -197,7 +195,7 @@ def toggle_modal(n_add, n_cancel, n_edit_sel, selected_rows, formula_ids, editin
     if trigger == "syn-btn-edit-sel":
         if not selected_rows or len(selected_rows) != 1:
             return *_noup9,
-        fid = (formula_ids or [])[selected_rows[0]]
+        fid = selected_rows[0]["id"]
         f = next((x for x in svc.get_all_formulas() if x.id == fid), None)
         if f is None:
             return *_noup9,
@@ -396,7 +394,7 @@ def update_preview(uid_store, ft, dest_id, base_val, base_date,
     Output("syn-modal",        "is_open",  allow_duplicate=True),
     Output("syn-modal-error",  "children"),
     Output("syn-modal-error",  "is_open"),
-    Output("syn-datatable",    "selected_rows", allow_duplicate=True),
+    Output("syn-datatable",    "selectedRows", allow_duplicate=True),
     Input("syn-btn-save",  "n_clicks"),
     State("syn-uid-store",                             "data"),
     State({"type": "syn-comp-asset",  "index": ALL},  "value"),
@@ -464,14 +462,13 @@ def save(_, uid_store, assets, roles, weights, ft, dest_id,
     Output("syn-alert",        "children",  allow_duplicate=True),
     Output("syn-alert",        "is_open",   allow_duplicate=True),
     Output("syn-alert",        "color",     allow_duplicate=True),
-    Output("syn-datatable",    "selected_rows", allow_duplicate=True),
+    Output("syn-datatable",    "selectedRows", allow_duplicate=True),
     Input("syn-btn-delete-sel", "n_clicks"),
-    State("syn-datatable",      "selected_rows"),
-    State("syn-formula-ids",    "data"),
+    State("syn-datatable",      "selectedRows"),
     prevent_initial_call=True,
 )
-def delete_selected(_, selected_rows, formula_ids):
-    selected_ids = [(formula_ids or [])[i] for i in (selected_rows or [])]
+def delete_selected(_, selected_rows):
+    selected_ids = [r["id"] for r in (selected_rows or [])]
     if not selected_ids:
         return no_update, no_update, no_update, no_update
     errors = []
@@ -494,12 +491,11 @@ def delete_selected(_, selected_rows, formula_ids):
     Output("syn-btn-calc-sel", "disabled", allow_duplicate=True),
     Output("syn-btn-full-sel", "disabled", allow_duplicate=True),
     Input("syn-btn-calc-sel", "n_clicks"),
-    State("syn-datatable",    "selected_rows"),
-    State("syn-formula-ids",  "data"),
+    State("syn-datatable",    "selectedRows"),
     prevent_initial_call=True,
 )
-def calc_delta_selected(_, selected_rows, formula_ids):
-    selected_ids = [(formula_ids or [])[i] for i in (selected_rows or [])]
+def calc_delta_selected(_, selected_rows):
+    selected_ids = [r["id"] for r in (selected_rows or [])]
     if not selected_ids:
         return no_update, no_update, no_update, no_update
     _start_calc(selected_ids, full=False)
@@ -514,12 +510,11 @@ def calc_delta_selected(_, selected_rows, formula_ids):
     Output("syn-btn-calc-sel", "disabled", allow_duplicate=True),
     Output("syn-btn-full-sel", "disabled", allow_duplicate=True),
     Input("syn-btn-full-sel", "n_clicks"),
-    State("syn-datatable",    "selected_rows"),
-    State("syn-formula-ids",  "data"),
+    State("syn-datatable",    "selectedRows"),
     prevent_initial_call=True,
 )
-def calc_full_selected(_, selected_rows, formula_ids):
-    selected_ids = [(formula_ids or [])[i] for i in (selected_rows or [])]
+def calc_full_selected(_, selected_rows):
+    selected_ids = [r["id"] for r in (selected_rows or [])]
     if not selected_ids:
         return no_update, no_update, no_update, no_update
     _start_calc(selected_ids, full=True)

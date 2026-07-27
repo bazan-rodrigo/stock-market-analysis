@@ -26,8 +26,8 @@ _recalc_lock = threading.Lock()
 
 
 @callback(
-    Output("cart-table", "data"),
-    Output("cart-table", "selected_rows"),
+    Output("cart-table", "rowData"),
+    Output("cart-table", "selectedRows"),
     Input("cart-reload", "data"),
     Input("cart-filter", "value"),
 )
@@ -61,21 +61,20 @@ def load_table(_reload, ptype):
 
 @callback(
     Output("cart-selected-id", "data"),
-    Input("cart-table", "selected_rows"),
-    State("cart-table", "data"),
+    Input("cart-table", "selectedRows"),
     prevent_initial_call=True,
 )
-def update_selected(selected_rows, data):
-    if not selected_rows or not data:
+def update_selected(selected_rows):
+    if not selected_rows:
         return None
-    return data[selected_rows[0]]["id"]
+    return selected_rows[0]["id"]
 
 
 @callback(
     Output("cart-btn-edit", "disabled"),
     Output("cart-btn-delete", "disabled"),
     Input("cart-selected-id", "data"),
-    State("cart-table", "data"),
+    State("cart-table", "rowData"),
 )
 def update_buttons(sel_id, data):
     if not sel_id or not data:
@@ -101,7 +100,7 @@ def update_buttons(sel_id, data):
     Input("cart-btn-cancel", "n_clicks"),
     Input("cart-btn-edit", "n_clicks"),
     State("cart-selected-id", "data"),
-    State("cart-table", "data"),
+    State("cart-table", "rowData"),
     prevent_initial_call=True,
 )
 def toggle_modal(_add, _cancel, _edit, sel_id, data):

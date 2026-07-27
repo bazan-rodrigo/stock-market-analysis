@@ -1,10 +1,13 @@
 import dash
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dcc, html
 
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, multi_selection, to_column_defs,
+)
 from app.components.help import page_header
 
-from app.components.table_styles import CELL, DATA, FILTER, HEADER, SELECTED_ROW
 from app.components.ui_constants import BG_CODE, BG_INPUT, STATUS_STYLE, TEXT_BODY
 
 
@@ -161,28 +164,22 @@ def layout(**kwargs):
         dbc.Alert(id="str-alert", is_open=False, dismissable=True, className="mb-3"),
         html.Div(id="str-import-results", className="mb-3"),
         html.Div(id="str-calc-preview",   className="mb-3"),
-        dash_table.DataTable(
+        dag.AgGrid(
             id="str-datatable",
-            columns=[
-                {"name": "Nombre",      "id": "name"},
-                {"name": "Comp.",       "id": "components"},
-                {"name": "Filtro",      "id": "filter"},
-                {"name": "Dueño",       "id": "owner"},
-                {"name": "Pública",     "id": "publica"},
-                {"name": "Descripción", "id": "description"},
-            ],
-            data=[],
-            row_selectable="multi",
-            selected_rows=[],
-            style_table={"overflowX": "auto"},
-            style_header=HEADER,
-            style_data=DATA,
-            style_cell=CELL,
-            style_filter=FILTER,
-            style_data_conditional=SELECTED_ROW,
-            page_size=30,
-            sort_action="native",
-            filter_action="native",
+            columnDefs=to_column_defs([
+                    {"name": "Nombre",      "id": "name"},
+                    {"name": "Comp.",       "id": "components"},
+                    {"name": "Filtro",      "id": "filter"},
+                    {"name": "Dueño",       "id": "owner"},
+                    {"name": "Pública",     "id": "publica"},
+                    {"name": "Descripción", "id": "description"},
+                
+            ]),
+            rowData=[],
+            className=THEME_CLASS,
+            style={"height": "calc(100vh - 340px)", "width": "100%"},
+            defaultColDef=DEFAULT_COL_DEF,
+            dashGridOptions=grid_options(rowSelection=multi_selection()),
         ),
 
         modal,

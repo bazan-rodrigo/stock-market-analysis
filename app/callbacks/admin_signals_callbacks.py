@@ -34,8 +34,8 @@ _FT_LABEL = {
 }
 
 @callback(
-    Output("sig-datatable", "data"),
-    Output("sig-datatable", "selected_rows"),
+    Output("sig-datatable", "rowData"),
+    Output("sig-datatable", "selectedRows"),
     Output("sig-all-ids",   "data"),
     Input("sig-alert",      "is_open"),
     Input("sig-modal",      "is_open"),
@@ -63,14 +63,13 @@ def load_table(_a, _m):
 
 @callback(
     Output("sig-selected-ids", "data"),
-    Input("sig-datatable",     "selected_rows"),
-    State("sig-datatable",     "data"),
+    Input("sig-datatable",     "selectedRows"),
     prevent_initial_call=True,
 )
-def update_selected_ids(selected_rows, data):
-    if not selected_rows or not data:
+def update_selected_ids(selected_rows):
+    if not selected_rows:
         return []
-    return [data[i]["id"] for i in selected_rows]
+    return [r["id"] for r in selected_rows]
 
 
 @callback(

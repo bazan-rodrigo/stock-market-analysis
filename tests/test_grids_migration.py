@@ -13,7 +13,8 @@ import pytest
 
 from app.components.grids import (
     DEFAULT_COL_DEF, grid_options, import_status_conditions, multi_selection,
-    score_col, status_col, status_conditions, text_col,
+    score_col, single_selection, status_col, status_conditions, text_col,
+    to_column_defs,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,6 +27,22 @@ MIGRADAS = [
     ("app/callbacks/admin_fundamental_update_callbacks.py", "fund-upd-table"),
     ("app/callbacks/import_callbacks.py",                 "import-log-table"),
     ("app/callbacks/events_import_callbacks.py",          "ev-import-log-table"),
+    ("app/callbacks/admin_signals_callbacks.py",          "sig-datatable"),
+    ("app/callbacks/admin_strategies_callbacks.py",       "str-datatable"),
+    ("app/callbacks/admin_synthetic_callbacks.py",        "syn-datatable"),
+    ("app/callbacks/admin_events_callbacks.py",           "events-table"),
+    ("app/callbacks/carteras_callbacks.py",               "cart-table"),
+    ("app/callbacks/price_viewer_callbacks.py",           "pv-history-table"),
+    ("app/callbacks/price_viewer_callbacks.py",           "pv-latest-table"),
+    # ABM genérico: las 8 pantallas de catálogo comparten estos callbacks
+    ("app/callbacks/reference_callbacks.py",              "countries-table"),
+    ("app/callbacks/reference_callbacks.py",              "currencies-table"),
+    ("app/callbacks/reference_callbacks.py",              "markets-table"),
+    ("app/callbacks/reference_callbacks.py",              "sectors-table"),
+    ("app/callbacks/reference_callbacks.py",              "industries-table"),
+    ("app/callbacks/reference_callbacks.py",              "instrument_types-table"),
+    ("app/callbacks/reference_callbacks.py",              "price_sources-table"),
+    ("app/callbacks/reference_callbacks.py",              "users-table"),
 ]
 
 
@@ -77,6 +94,16 @@ def test_clickear_la_fila_nunca_selecciona():
     assert sel["enableClickSelection"] is False
 
 
+def test_la_seleccion_simple_no_lleva_checkbox():
+    """En /carteras se elige una cartera para ver su detalle: ahí el click SÍ
+    selecciona, porque no dispara nada destructivo."""
+    sel = single_selection()
+
+    assert sel["mode"] == "singleRow"
+    assert sel["checkboxes"] is False
+    assert sel["enableClickSelection"] is True
+
+
 def test_el_filtro_por_columna_queda_a_la_vista():
     """La DataTable mostraba el casillero de filtro siempre; ag-grid lo
     esconde en el menú salvo que se pida explícitamente."""
@@ -118,3 +145,36 @@ def test_toda_columna_declara_su_field():
 
 def test_el_score_sin_maximo_no_dibuja_barra():
     assert score_col("d", "Δ", max_abs=None)["cellRendererParams"]["barMax"] == 0
+
+
+def test_el_conversor_traduce_el_formato_viejo_de_columnas():
+    """Las pantallas que declaran columnas en un solo lugar (el ABM genérico,
+    el explorador, la consola SQL) siguen usando {name, id}."""
+    cols = to_column_defs([{"name": "País", "id": "country", "width": 120}])
+
+    assert cols == [{"field": "country", "headerName": "País", "width": 120}]
+
+
+def test_el_conversor_deja_pasar_lo_que_ya_esta_en_formato_ag_grid():
+    """Así una pantalla puede migrar sus columnas de a una sin romperse."""
+    col = {"field": "x", "headerName": "X", "cellRenderer": "ScoreCell"}
+
+    assert to_column_defs([col]) == [col]
+
+
+# ── Que no vuelva la DataTable ───────────────────────────────────────────────
+
+def test_ya_no_queda_ninguna_datatable_en_la_app():
+    """La app quedó con un solo tipo de grilla. Una DataTable nueva volvería a
+    partir la UI en dos estilos y a mandar todas las filas al navegador."""
+    culpables = []
+    for d in ("app/pages", "app/callbacks", "app/components"):
+        for p in sorted((ROOT / d).glob("*.py")):
+            src = p.read_text(encoding="utf-8")
+            # el módulo de grillas nombra a la DataTable solo en su docstring
+            if re.search(r"dash_table\.DataTable\(", src):
+                culpables.append(p.relative_to(ROOT).as_posix())
+
+    assert not culpables, (
+        "Volvieron DataTables: " + ", ".join(culpables) +
+        ". Usá dag.AgGrid con los helpers de app/components/grids.py.")

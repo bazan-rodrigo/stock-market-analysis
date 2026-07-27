@@ -11,11 +11,14 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 
-from dash import Input, Output, State, callback, dash_table, dcc, no_update
+from dash import Input, Output, State, callback, dcc, no_update
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 from sqlalchemy import text
 
-from app.components.table_styles import HEADER, DATA, CELL
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, to_column_defs,
+)
 from app.components.ui_constants import COLOR_POSITIVE, COLOR_WARNING, COLOR_NEGATIVE
 
 # ── Estado server-side ────────────────────────────────────────────────────────
@@ -282,27 +285,19 @@ def _style(kind: str) -> dict:
 
 
 def _build_table(cols: list, data: list):
-    columns = [{"name": c, "id": c} for c in cols]
-    return dash_table.DataTable(
-        columns=columns,
-        data=data,
-        page_size=50,
-        sort_action="native",
-        filter_action="native",
-        style_table={"overflowX": "auto", "marginTop": "8px"},
-        style_header=HEADER,
-        style_data=DATA,
-        style_cell={
-            **CELL,
-            "textAlign":  "left",
-            "fontSize":   "0.78rem",
-            "padding":    "3px 6px",
-            "fontFamily": "monospace",
-            "maxWidth":   "300px",
-            "overflow":   "hidden",
-            "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
-        },
+    """Resultado de una consulta: columnas dinámicas, en monoespaciada porque
+    lo que se mira acá son datos crudos de la base."""
+    return dag.AgGrid(
+        columnDefs=to_column_defs([
+            {"name": c, "id": c, "width": 180,
+             "cellStyle": {"fontFamily": "monospace", "fontSize": "0.78rem"}}
+            for c in cols
+        ]),
+        rowData=data,
+        className=THEME_CLASS,
+        style={"height": "440px", "width": "100%", "marginTop": "8px"},
+        defaultColDef=DEFAULT_COL_DEF,
+        dashGridOptions=grid_options(),
     )
 
 

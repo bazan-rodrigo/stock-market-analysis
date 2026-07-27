@@ -1,10 +1,10 @@
 import dash
-from dash import dash_table, html
+import dash_ag_grid as dag
+from dash import html
 
+from app.components.grids import DEFAULT_COL_DEF, THEME_CLASS, grid_options
 from app.components.help import page_header
-
-from app.components.table_styles import CELL, DATA, FILTER, HEADER
-from app.components.ui_constants import COLOR_NEUTRAL
+from app.components.ui_constants import COLOR_NEUTRAL, COLOR_WARNING
 
 
 def layout(**kwargs):
@@ -42,38 +42,28 @@ def layout(**kwargs):
             className="text-muted mb-3",
             style={"fontSize": "0.83rem"},
         ),
-        dash_table.DataTable(
-            columns=[
-                {"name": "Código",        "id": "code"},
-                {"name": "Nombre",        "id": "name"},
-                {"name": "Categoría",     "id": "category"},
-                {"name": "Tipo",          "id": "type"},
-                {"name": "Escala",        "id": "scale"},
-                {"name": "Guarda histórico", "id": "keep_history"},
-                {"name": "Descripción",   "id": "description"},
+        dag.AgGrid(
+            columnDefs=[
+                {"field": "code", "headerName": "Código", "width": 190,
+                 "cellStyle": {"fontFamily": "monospace", "color": COLOR_NEUTRAL}},
+                {"field": "name", "headerName": "Nombre", "width": 230},
+                {"field": "category", "headerName": "Categoría", "width": 170},
+                {"field": "type", "headerName": "Tipo", "width": 90},
+                {"field": "scale", "headerName": "Escala", "width": 120},
+                # El ámbar avisa que ese indicador NO guarda histórico: se ve
+                # solo el valor vigente, no la serie.
+                {"field": "keep_history", "headerName": "Guarda histórico", "width": 150,
+                 "cellStyle": {"styleConditions": [
+                     {"condition": "params.value == 'No'",
+                      "style": {"color": COLOR_WARNING}}]}},
+                {"field": "description", "headerName": "Descripción", "flex": 1,
+                 "minWidth": 300, "wrapText": True, "autoHeight": True},
             ],
-            data=data,
-            style_table={"overflowX": "auto"},
-            style_header=HEADER,
-            style_data=DATA,
-            style_cell={**CELL, "whiteSpace": "normal", "height": "auto"},
-            style_filter=FILTER,
-            style_cell_conditional=[
-                {"if": {"column_id": "code"},        "fontFamily": "monospace",
-                 "color": COLOR_NEUTRAL, "width": "180px", "minWidth": "180px"},
-                {"if": {"column_id": "category"},    "width": "160px", "minWidth": "160px"},
-                {"if": {"column_id": "type"},        "width": "60px",  "minWidth": "60px"},
-                {"if": {"column_id": "scale"},       "width": "110px", "minWidth": "110px"},
-                {"if": {"column_id": "keep_history"}, "width": "110px", "minWidth": "110px"},
-                {"if": {"column_id": "description"}, "minWidth": "300px"},
-            ],
-            style_data_conditional=[
-                {"if": {"filter_query": '{keep_history} = "No"', "column_id": "keep_history"},
-                 "color": "#f59e0b"},
-            ],
-            page_size=35,
-            filter_action="native",
-            sort_action="native",
+            rowData=data,
+            className=THEME_CLASS,
+            style={"height": "calc(100vh - 300px)", "width": "100%"},
+            defaultColDef=DEFAULT_COL_DEF,
+            dashGridOptions=grid_options(),
         ),
     ])
 

@@ -1,10 +1,13 @@
 """Callbacks del Explorador de datos (/admin/data-explorer)."""
+import dash_ag_grid as dag
 import pandas as pd
-from dash import (Input, Output, State, callback, dash_table, dcc,
+from dash import (Input, Output, State, callback, dcc,
                   no_update)
 
 import app.services.reference_service as rs
-from app.components.table_styles import CELL, DATA, FILTER, HEADER
+from app.components.grids import (
+    DEFAULT_COL_DEF, THEME_CLASS, grid_options, to_column_defs,
+)
 from app.services import data_explorer_service as des
 
 # combo lógico → id del wrap (Div) en la página
@@ -97,12 +100,13 @@ def run_query(dataset, indicator, signal, strategy, group_type, group, asset):
 
     tope = " (tope alcanzado)" if len(records) >= des.MAX_ROWS else ""
     info = f"{table} — {len(records)} filas{tope}"
-    dt = dash_table.DataTable(
-        columns=[{"name": c, "id": c} for c in columns],
-        data=records,
-        style_table={"overflowX": "auto"},
-        style_header=HEADER, style_data=DATA, style_cell=CELL, style_filter=FILTER,
-        sort_action="native", filter_action="native", page_size=100,
+    dt = dag.AgGrid(
+        columnDefs=to_column_defs([{"name": c, "id": c} for c in columns]),
+        rowData=records,
+        className=THEME_CLASS,
+        style={"height": "calc(100vh - 340px)", "width": "100%"},
+        defaultColDef=DEFAULT_COL_DEF,
+        dashGridOptions=grid_options(),
     )
     store = {"columns": columns, "records": records, "table": table}
     return dt, info, False, store

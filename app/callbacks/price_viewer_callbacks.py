@@ -15,6 +15,25 @@ def _miles(n: int) -> str:
     return f"{n:,}".replace(",", ".")
 
 
+_OHLC = ("open", "high", "low", "close")
+
+
+def _redondear(filas: list[dict], campos=_OHLC) -> list[dict]:
+    """Redondea los precios a 2 decimales dejándolos NUMÉRICOS.
+
+    La tabla anterior formateaba en el cliente; la grilla muestra el valor tal
+    cual, y un float de la base puede venir con una cola larga de decimales.
+    Se redondea acá y no se convierte a texto: como string, ordenar la columna
+    ordenaría alfabéticamente ("9" después de "10").
+    """
+    for f in filas:
+        for c in campos:
+            v = f.get(c)
+            if isinstance(v, (int, float)):
+                f[c] = round(v, 2)
+    return filas
+
+
 def _tail(rows: list, max_rows: int) -> tuple[list, bool]:
     """Últimas `max_rows` filas + si hubo corte. En una serie ordenada por
     fecha lo que interesa es la cola, no el arranque."""
@@ -43,14 +62,14 @@ def load_pv_assets(_):
     Output("pv-history-controls", "style"),
     Output("pv-history-table-container", "style"),
     Output("pv-latest-table-container", "style"),
-    Output("pv-latest-table", "data"),
+    Output("pv-latest-table", "rowData"),
     Output("pv-result-info", "children"),
     Input("pv-mode", "value"),
 )
 def switch_mode(mode):
     if mode == "latest":
         # +1 para saber si hay más sin pagar un COUNT sobre todo el catálogo
-        rows = get_latest_prices_all(limit=_MAX_LATEST_ROWS + 1)
+        rows = _redondear(get_latest_prices_all(limit=_MAX_LATEST_ROWS + 1))
         if len(rows) > _MAX_LATEST_ROWS:
             rows = rows[:_MAX_LATEST_ROWS]
             info = (f"Mostrando los primeros {_miles(_MAX_LATEST_ROWS)} "
@@ -74,7 +93,7 @@ def switch_mode(mode):
 
 
 @callback(
-    Output("pv-history-table", "data"),
+    Output("pv-history-table", "rowData"),
     Output("pv-alert", "children"),
     Output("pv-alert", "is_open"),
     Output("pv-result-info", "children", allow_duplicate=True),
@@ -89,7 +108,7 @@ def query_history(asset_id):
     if df.empty:
         return [], "No hay precios descargados para este instrumento.", True, ""
 
-    rows = df.assign(date=df["date"].astype(str)).to_dict("records")
+    rows = _redondear(df.assign(date=df["date"].astype(str)).to_dict("records"))
     info = _history_info(len(rows), rows[0]["date"], rows[-1]["date"],
                          min(len(rows), _MAX_HISTORY_ROWS))
     shown, _capped = _tail(rows, _MAX_HISTORY_ROWS)
