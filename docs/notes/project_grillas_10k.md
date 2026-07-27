@@ -141,3 +141,42 @@ fundamental y `/assets` (si no, la API de selección cambió — el modo de fall
 es seguro: sin selección los botones quedan deshabilitados y no se puede
 disparar nada destructivo); (3) que la barra de score y los enlaces del ticker
 se dibujen; (4) editar/borrar/masiva en `/assets`.
+
+---
+
+## Migración COMPLETA: ya no queda ninguna DataTable (27-jul-2026, commit 0af810d)
+
+El usuario vio la grilla nueva en Railway, **le gustó más que la anterior** y
+pidió reemplazar TODAS. Quedaron **20 grillas en 19 pantallas** y se borró
+`app/components/table_styles.py` (era el dark mode de la DataTable, sin
+consumidores). Esto revierte el "FUERA de alcance: los ABMs de catálogo" que
+decía el plan original: `components/abm.py` es genérico, así que migrarlo
+resolvió 8 pantallas de una sola vez y salió barato.
+
+`grids.to_column_defs()` traduce el formato viejo ({name, id}) al de ag-grid,
+para las pantallas que declaran las columnas en un solo lugar (el ABM, el
+explorador de datos, la consola SQL); lo que ya viene en formato nuevo pasa
+intacto, así una pantalla puede migrar de a poco.
+
+**Dos acoplamientos que la migración destrabó (no eran traducción):**
+- **Sintéticos ataba la selección a un array paralelo de ids indexado por
+  posición** (`syn-formula-ids`: la fila N de la tabla ↔ el id N del store).
+  Ahora la fila lleva su `id` y el store se removió. Con el array paralelo,
+  cualquier cambio de orden en la tabla borraba o recalculaba el sintético
+  equivocado.
+- El visor de precios formateaba decimales en el cliente; ahora redondea en el
+  servidor dejando los valores NUMÉRICOS. Como texto, ordenar por precio
+  ponía "9" después de "10".
+
+`single_selection()` para /carteras (elegir cartera = ver detalle, el click SÍ
+selecciona) vs `multi_selection()` (checkbox obligatorio) donde la selección
+dispara borrados o redescargas.
+
+**Verificación local que vale la pena repetir:** un script descartable que
+instancia la app contra el stub sqlite, hace `create_all` y **construye el
+layout de las 47 pantallas registradas**, reportando por grilla: cantidad de
+columnas, modo de selección, que el tema sea `legacy` y que toda columna tenga
+`field`. Es la única red local para props de UI — la suite no arma layouts.
+
+Tests: el ratchet cubre las 22 grillas (props viejas de DataTable, indexado de
+filas por posición) y falla si vuelve a aparecer una `DataTable`. 1155 passed.
