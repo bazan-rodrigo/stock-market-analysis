@@ -63,6 +63,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Señales",              href="/admin/signals"),
                     dbc.DropdownMenuItem("Estrategias",          href="/admin/strategies"),
+                    dbc.DropdownMenuItem("Packs (importar)",     href="/admin/packs"),
                     dbc.DropdownMenuItem("Carteras",             href="/carteras"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Indicadores",          href="/admin/indicators"),

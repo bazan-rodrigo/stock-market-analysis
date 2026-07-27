@@ -657,6 +657,124 @@ def build_catalog() -> dict:
     }
 
 
+# ── Ensayo e importación (pantalla /admin/packs) ──────────────────────────────
+
+def _clave(texto) -> str:
+    """Normalización de key/nombre para el cruce: el import matchea sin
+    distinguir caso (db_compat.ci_equals), así que el ensayo tiene que
+    predecirlo igual o diría "crea" donde el import va a actualizar."""
+    return str(texto or "").strip().lower()
+
+
+def preview_pack(pack: dict, acting_user_id: int | None = None) -> dict:
+    """Ensayo del import contra ESTA base, **sin escribir nada**.
+
+    Es lo que el validador offline no puede dar: además de la forma del
+    archivo, mira contra qué se va a estrellar o qué va a pisar. Devuelve
+    {"errors", "warnings", "rows", "summary"} — con errores, el import se
+    rechazaría entero (es todo-o-nada), así que la pantalla no deja seguir.
+
+    `rows` describe fila por fila lo que va a pasar, en el mismo formato que
+    después muestra el resultado real, para que la tabla no cambie de forma
+    entre el antes y el después.
+    """
+    from app.database import get_session
+    from app.models import SignalDefinition, Strategy, User
+
+    resultado = validate_pack(pack, build_catalog())
+    errors = list(resultado["errors"])
+    warnings = list(resultado["warnings"])
+
+    s = get_session()
+    usuarios = {u.id: u.username for u in s.query(User.id, User.username).all()}
+    señales_db = {_clave(sg.key): sg
+                  for sg in s.query(SignalDefinition).all()}
+    estrategias_db = {_clave(st.name): st for st in s.query(Strategy).all()}
+
+    rows: list[dict] = []
+    creados = actualizados = 0
+
+    def _fila(tipo, nombre, existente, detalle):
+        nonlocal creados, actualizados
+        dueño = "—"
+        if existente is None:
+            accion = "crea"
+            creados += 1
+        else:
+            accion = "actualiza"
+            actualizados += 1
+            dueño = usuarios.get(existente.owner_id, "—")
+            if (existente.owner_id is not None
+                    and existente.owner_id != acting_user_id):
+                warnings.append(
+                    f"{tipo.lower()} '{nombre}': ya existe y es de {dueño} — "
+                    f"importar la pisa (queda su definición, con su dueño)")
+        # `status` lo llena el import (texto visible) y `estado` es el código
+        # que colorea la fila (imported/error/skipped, ver grids.py).
+        rows.append({"tipo": tipo, "nombre": nombre, "accion": accion,
+                     "dueno": dueño, "detail": detalle,
+                     "status": "", "estado": ""})
+
+    for sig in (pack.get("signals") or []):
+        if not isinstance(sig, dict) or not str(sig.get("key") or "").strip():
+            continue
+        key = str(sig["key"]).strip()
+        detalle = " · ".join(x for x in (
+            sig.get("formula_type"),
+            f"sobre {sig['indicator_key']}" if sig.get("indicator_key") else None,
+            "pública" if _es_publica(sig.get("publica")) else "privada",
+        ) if x)
+        _fila("Señal", key, señales_db.get(_clave(key)), detalle)
+
+    for strat in (pack.get("strategies") or []):
+        if not isinstance(strat, dict) or not str(strat.get("name") or "").strip():
+            continue
+        nombre = str(strat["name"]).strip()
+        componentes = strat.get("components") or []
+        tiene_filtro = bool(strat.get("filter") or strat.get("filter_conditions"))
+        detalle = " · ".join([
+            f"{len(componentes)} componente(s)",
+            "con filtro" if tiene_filtro else "sin filtro",
+            "pública" if _es_publica(strat.get("publica")) else "privada",
+        ])
+        _fila("Estrategia", nombre, estrategias_db.get(_clave(nombre)), detalle)
+
+    return {"errors": errors, "warnings": warnings, "rows": rows,
+            "summary": {"crea": creados, "actualiza": actualizados}}
+
+
+def import_pack(file_bytes: bytes, owner_id: int | None = None) -> dict:
+    """Los dos pasos del import de un pack, en el orden que exigen las
+    referencias: señales primero, estrategias después.
+
+    Devuelve {"signals": [...], "strategies": [...], "aborted": bool}.
+
+    **No es una sola transacción**: cada paso es todo-o-nada por su cuenta. Si
+    las señales entran y las estrategias fallan, las señales quedan — por eso
+    la pantalla obliga a pasar por `preview_pack` antes, que valida las dos
+    partes contra la base. Ante un error en las señales se corta acá mismo
+    (`aborted`): seguir daría una segunda lista de errores en cascada, todos
+    "señal no encontrada", que tapan el problema real.
+    """
+    from app.services import signal_service, strategy_service
+
+    pack = parse_pack(file_bytes)
+    salida: dict = {"signals": [], "strategies": [], "aborted": False}
+
+    if pack.get("signals"):
+        salida["signals"] = signal_service.import_signal_rows(
+            signal_rows_from_pack(pack), owner_id=owner_id)
+        if any(r["status"] != "ok" for r in salida["signals"]):
+            salida["aborted"] = True
+            return salida
+
+    if pack.get("strategies"):
+        rows_s, rows_c = strategy_rows_from_pack(pack)
+        salida["strategies"] = strategy_service.import_strategy_rows(
+            rows_s, rows_c, owner_id=owner_id)
+    return salida
+
+
 def catalog_bytes() -> bytes:
     """El catálogo como archivo descargable (JSON legible: se pega en el
     contexto de un modelo o se abre a mano)."""

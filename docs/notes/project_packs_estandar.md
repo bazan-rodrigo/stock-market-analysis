@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 7d646682-e734-4c79-b645-f2655c6e3237
-  modified: 2026-07-27T02:07:05.218Z
+  modified: 2026-07-27T15:39:25.585Z
 ---
 
 El usuario quiso que **modelar señales y estrategias sea un estándar** que
@@ -34,6 +34,13 @@ alcanza. Antes esa mitad variable no era publicable de ninguna forma.
 - `scripts/validate_pack.py` (sin base, mismos errores que el import + avisos
   de trampas silenciosas) y `scripts/pack_from_json.py` (JSON → las 2
   planillas).
+- **Pantalla `/admin/packs`** (27-jul, pedida por el usuario: "la verificación
+  tiene que ser por pantalla"): subir un pack lo REVISA sin escribir
+  (`preview_pack` = validate_pack contra el catálogo real + impacto: qué crea,
+  qué actualiza, de quién es lo que pisa), y recién el botón Importar aplica
+  los dos pasos en orden (`import_pack`). Con errores el botón queda
+  deshabilitado. Resuelve de paso la pregunta de "¿el mismo JSON lo subo dos
+  veces?": por acá, una sola vez.
 - `tests/test_pack_spec.py` **ata el SPEC al código**: si aparece una fórmula,
   operador, atributo o columna sin documentar, la suite falla. Además valida
   que los ejemplos del documento sean JSON válido y pasen el validador.

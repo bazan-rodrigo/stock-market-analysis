@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-27T02:07:24.841Z
+  modified: 2026-07-27T15:39:16.081Z
 ---
 
 **Sesión 27-jul-2026: TODA la app quedó en ag-grid** (commit 0af810d, 1155
@@ -46,11 +46,18 @@ cualquier cabecera, incluidas las columnas de señal). Sin migraciones.
 **Sesión 26-jul-2026 (2): packs como estándar publicado.** Ver
 [[packs-estandar-para-ia]]. Pendiente de verificar **en Railway** (nada de
 esto se pudo probar contra la app viva desde esta PC):
-1. **Botón «Catálogo»** en /admin/signals — es la primera corrida real de
-   `pack_service.build_catalog()` contra PostgreSQL. Chequear que baje el
-   JSON y que `attributes` traiga los sectores/mercados reales.
+0. **Pantalla nueva `/admin/packs`** (Configuración → Packs): subir un JSON
+   muestra el informe SIN escribir (errores, avisos, qué crea/pisa y de quién)
+   y el botón Importar hace los dos pasos en orden. Verificar el flujo entero
+   y que la grilla coloree bien (usa un campo `estado` aparte del texto
+   visible). Es la primera pantalla que se agrega después de la migración a
+   ag-grid.
+1. **Botón «Catálogo»** (está en /admin/signals y en la pantalla nueva) — es
+   la primera corrida real de `pack_service.build_catalog()` contra
+   PostgreSQL. Chequear que baje el JSON y que `attributes` traiga los
+   sectores/mercados reales.
 2. **Importar un pack JSON** en Señales y después en Estrategias (el mismo
-   archivo en las dos pantallas).
+   archivo en las dos pantallas) — el camino viejo, que sigue existiendo.
 3. **Filtro por nombre de atributo**: importar una estrategia con
    `{"type":"attribute","key":"sector"}` vs `"Technology"` y verificar en el
    editor que quedó apuntando al sector correcto.

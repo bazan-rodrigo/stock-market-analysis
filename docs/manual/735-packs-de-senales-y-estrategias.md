@@ -4,6 +4,7 @@ title: Packs — traer estrategias armadas de afuera
 chapter: 7. Configuración
 order: 735
 roles: admin
+page: /admin/packs
 ---
 
 Un **pack** es un archivo que trae una estrategia completa y lista para
@@ -27,32 +28,37 @@ cargados en *esta* base. Sin el catálogo, quien escribe el pack tiene que
 adivinar los nombres — y un nombre inventado hace que el import rechace el
 archivo entero.
 
-Por eso la pantalla de [Señales](/manual/configuracion-senales) tiene el botón
-**Catálogo**: descarga ese inventario en un archivo. Si le vas a pedir una
-estrategia a un asistente de inteligencia artificial, dale las dos cosas —la
-especificación del formato y este catálogo— y podrá armar un pack que entre sin
-retoques.
+Por eso esta pantalla arranca con el botón **Descargar catálogo**: baja ese
+inventario en un archivo. Si le vas a pedir una estrategia a un asistente de
+inteligencia artificial, dale las dos cosas —la especificación del formato y
+este catálogo— y podrá armar un pack que entre sin retoques.
 
-## Cómo se importa
+## Los tres pasos de la pantalla
 
-El mismo archivo se sube **dos veces**, y el orden importa:
+**1. Catálogo.** Lo de arriba: se lo entregás a quien va a escribir el pack.
 
-1. En [Señales](/manual/configuracion-senales) → **Importar**. Entran las
-   señales.
-2. En [Estrategias](/manual/configuracion-estrategias) → **Importar**. Entra la
-   estrategia, que ya puede encontrar las señales del paso anterior.
+**2. Subir el pack.** Un solo archivo con las señales y la estrategia juntas.
+Subirlo **no escribe nada**: solo se revisa.
 
-Si lo hacés al revés, el segundo paso falla: la estrategia referencia señales
-que todavía no existen.
+**3. Informe.** Acá se ve, antes de decidir, qué va a pasar:
 
-La importación es **todo o nada** en cada paso: si una sola línea del archivo
-tiene un problema, no entra nada y la pantalla lista el motivo de cada una.
-Reimportar un pack que ya está cargado **actualiza** sus definiciones en vez de
-duplicarlas.
+- **Errores** — impiden importar. Si hay uno solo, el botón **Importar** queda
+  deshabilitado: la importación es todo o nada y se rechazaría entera.
+- **Avisos** — no impiden nada, pero conviene leerlos. Marcan las trampas que
+  no dan error: una señal que no puntúa en algunas categorías, un ranking que
+  puede quedar dominado por un solo activo, señales que ninguna estrategia usa.
+- **La tabla** — fila por fila, qué **crea** y qué **actualiza**, y de quién es
+  lo que va a pisar. Reimportar un pack ya cargado actualiza sus definiciones
+  en vez de duplicarlas, y una definición existente **conserva su dueño**.
 
-Se aceptan dos formatos indistintamente: el archivo único del estándar y las
-planillas de siempre (una de señales y otra de estrategias), que son las que
-bajan los botones **Exportar**.
+Recién con el informe a la vista, **Importar** aplica los dos pasos en el orden
+correcto: primero las señales, después la estrategia (que las referencia). La
+misma tabla se completa con el resultado de cada fila.
+
+> Las planillas de Excel se importan como siempre, desde
+> [Señales](/manual/configuracion-senales) y
+> [Estrategias](/manual/configuracion-estrategias). Esta pantalla trabaja con
+> el archivo único del estándar.
 
 ## Después de importar
 
