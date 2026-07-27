@@ -256,6 +256,42 @@ def test_rechaza_resolution_desconocida():
                            resolution="magic"))
 
 
+# ── Atributos: se comparan contra su id de catálogo ───────────────────────────
+# Un atributo guarda el ID de la fila (sector, mercado, …): un entero que NO es
+# una cantidad. Tipándolo como texto, comparar el atributo contra su propio id
+# daba "tipos incompatibles (str vs num)" y no se podía guardar una condición
+# tan común como «tipo de instrumento = Equity». No se notaba porque in/not_in
+# toma otra rama de la validación — el constructor de filtros suele usar in, y
+# el bug aparecía al elegir "=" o al importar un pack que lo usara.
+
+def test_acepta_atributo_igual_a_su_id():
+    assert _validate(_cond(_attr("sector"), "=", _const(4))) == []
+
+def test_acepta_atributo_distinto_de_su_id():
+    assert _validate(_cond(_attr("instrument_type"), "!=", _const(7))) == []
+
+def test_acepta_atributo_igual_a_un_nombre():
+    """Antes de resolver el nombre a id (validación offline de un pack)."""
+    assert _validate(_cond(_attr("sector"), "=", _const("Technology"))) == []
+
+def test_acepta_atributo_en_lista_de_ids():
+    assert _validate(_cond(_attr("market"), "in", _const([1, 2]))) == []
+
+def test_rechaza_ordenar_por_atributo():
+    """Un id de catálogo no tiene orden: 'sector > 3' no significa nada."""
+    errors = _validate(_cond(_attr("sector"), ">", _const(3)))
+    assert any("no se ordenan" in e for e in errors)
+
+def test_el_arbol_que_arma_el_constructor_con_igual_es_valido():
+    """Forma exacta que persiste la UI al elegir «Tipo de instrumento = Equity»
+    (el dropdown de valores usa el id de la fila, un entero)."""
+    tree = {"op": "AND", "children": [
+        {"cond": {"left": {"type": "attribute", "key": "instrument_type"},
+                  "operator": "=",
+                  "right": {"type": "const", "value": 4}}}]}
+    assert _validate(tree) == []
+
+
 # ── legacy_asset_filter_to_tree ───────────────────────────────────────────────
 
 def test_legacy_asset_filter_se_convierte():

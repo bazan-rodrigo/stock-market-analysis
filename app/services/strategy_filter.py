@@ -431,7 +431,13 @@ def validate_tree(tree, *, indicator_codes: dict[str, str],
             if key not in ATTRIBUTE_KEYS:
                 errors.append(f"{path}: atributo desconocido: {key!r}")
                 return None
-            return "str"  # ids: comparables solo por igualdad/pertenencia
+            # Clase propia: un atributo guarda el ID de la fila de catálogo,
+            # que es un entero pero NO es una cantidad. Tipándolo como 'str'
+            # —como estaba— la comparación contra su propio id daba "tipos
+            # incompatibles (str vs num)" y no se podía guardar una condición
+            # tan común como «tipo de instrumento = Equity». No se notaba
+            # porque con in/not_in la validación toma otra rama.
+            return "id"
 
     def _walk(node, path: str) -> None:
         if not isinstance(node, dict):
@@ -467,11 +473,16 @@ def validate_tree(tree, *, indicator_codes: dict[str, str],
                 errors.append(f"{path}: una lista solo se admite con in/not_in")
             elif operator not in ("=", "!="):
                 # Operadores ordenados: ambos lados numéricos
-                if lkind != "num" or rkind != "num":
+                if "id" in (lkind, rkind):
+                    errors.append(
+                        f"{path}: los atributos (sector, mercado, …) no se "
+                        f"ordenan; usá =, !=, in o not_in")
+                elif lkind != "num" or rkind != "num":
                     errors.append(
                         f"{path}: {operator!r} requiere operandos numéricos "
                         f"({lkind} vs {rkind})")
-            elif lkind != rkind and "num" in (lkind, rkind):
+            elif "id" not in (lkind, rkind) and lkind != rkind \
+                    and "num" in (lkind, rkind):
                 errors.append(f"{path}: tipos incompatibles ({lkind} vs {rkind})")
 
             # Valores discretos dentro del catálogo
