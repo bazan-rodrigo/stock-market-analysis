@@ -53,10 +53,10 @@ _BUILTIN_INDICATORS = [
     {"code": "drawdown_max3",            "name": "Drawdown Max 3",            "category": "Drawdown",         "type": "num", "scale": "% (negative)", "keep_history": False, "description": "Third largest drawdown in asset history"},
     # Retornos
     {"code": "return_daily",             "name": "Return Daily",              "category": "Returns",          "type": "num", "scale": "%",           "description": "Return of the last trading day"},
-    {"code": "return_monthly",           "name": "Return Monthly",            "category": "Returns",          "type": "num", "scale": "%",           "description": "Return over the last calendar month"},
-    {"code": "return_quarterly",         "name": "Return Quarterly",          "category": "Returns",          "type": "num", "scale": "%",           "description": "Return over the last quarter"},
-    {"code": "return_yearly",            "name": "Return Yearly",             "category": "Returns",          "type": "num", "scale": "%",           "description": "Return over the last 12 months"},
-    {"code": "return_52w",               "name": "Return 52 Weeks",           "category": "Returns",          "type": "num", "scale": "%",           "description": "Return over the last 52 calendar weeks"},
+    {"code": "return_monthly",           "name": "Return Month-to-Date",      "category": "Returns",          "type": "num", "scale": "%",           "description": "Return from the start of the current calendar month (recalculated daily)"},
+    {"code": "return_quarterly",         "name": "Return Quarter-to-Date",    "category": "Returns",          "type": "num", "scale": "%",           "description": "Return from the start of the current calendar quarter (recalculated daily)"},
+    {"code": "return_yearly",            "name": "Return Year-to-Date",       "category": "Returns",          "type": "num", "scale": "%",           "description": "Return from the start of the current calendar year — not the trailing 12 months (see Return 52 Weeks)"},
+    {"code": "return_52w",               "name": "Return 52 Weeks",           "category": "Returns",          "type": "num", "scale": "%",           "description": "Return over the trailing year (price one calendar year back)"},
     # Soporte / Resistencia
     {"code": "resistance_pct",           "name": "Distance % to Resistance",  "category": "Support/Resistance", "type": "num", "scale": "%",         "keep_history": False, "description": "Percentage distance to the nearest pivot resistance above price"},
     {"code": "support_pct",              "name": "Distance % to Support",     "category": "Support/Resistance", "type": "num", "scale": "%",         "keep_history": False, "description": "Percentage distance to the nearest pivot support below price"},
