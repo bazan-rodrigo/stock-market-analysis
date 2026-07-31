@@ -49,6 +49,17 @@ se ocultan.
 **ATR** (volatilidad absoluta promedio, en precio) y **Drawdown %** (caída %
 desde el máximo histórico previo).
 
+**Fuerza Relativa 52W** merece su propio párrafo porque se lee distinto: es
+cuánto le saca el activo a su **benchmark** en los últimos 12 meses (el retorno
+del activo menos el del benchmark). Por encima de la línea del 0 le está
+ganando; por debajo, perdiendo. Sirve para la pregunta que el precio solo no
+contesta: un activo puede estar subiendo y aun así ser una mala elección si su
+mercado sube más. Al lado del control ves contra qué se mide —por ejemplo
+`(vs SPY)`—, y si el activo no tiene benchmark cargado dice `(sin benchmark)`
+y el panel no se abre: ese indicador no se puede calcular sin contra qué
+comparar. El panel arranca vacío hasta que el activo acumula 52 semanas de
+historia.
+
 ---
 
 ## Simulación de estrategias

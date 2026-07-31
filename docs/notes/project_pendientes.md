@@ -8,6 +8,39 @@ metadata:
   modified: 2026-07-27T15:39:16.081Z
 ---
 
+**Sesión 31-jul-2026: Fuerza Relativa 52W en el gráfico de Análisis de Activo**
+(1199 passed, **sin migraciones**). El usuario preguntó dónde veía el indicador
+en el gráfico: no estaba: sólo en el Panel de Indicadores (valor vigente) y en
+Distribución (histograma).
+
+- **Es el primer indicador del gráfico que NO se calcula en el browser.** El
+  resto sale de `window._lwc.*` sobre el OHLCV del activo; éste necesita una
+  segunda serie (los precios del benchmark), así que la serie se lee del
+  pipeline —columna `relative_strength_52w` de `ind_daily`— en un callback lazy
+  (`load_rs52w_overlay`) y el JS sólo la dibuja. Se copió el patrón del panel
+  de score de estrategia: whitespace sobre todas las barras para alinear por
+  índice lógico, el 0 como SERIE horizontal (`createPriceLine` no se pinta en
+  estos paneles) y segmentos para que los huecos corten la línea.
+- **Etiqueta del benchmark junto al toggle** (`vs SPY` / `sin benchmark`),
+  alimentada desde `chart-data`: se ve SIN prender el toggle. Sin ella, un
+  activo sin benchmark daba un toggle que parecía roto (se prende y no pasa
+  nada, porque el panel no abre a propósito en vez de abrir uno vacío).
+- Ojo `tests/test_ui_consistency.py`: `RANGOS_EXENTOS` es un rango de NÚMEROS DE
+  LÍNEA sobre el f-string JS de `chart_callbacks` — hubo que correrlo
+  (452,1582) → (506,1694) porque el bloque creció.
+- Corrección de dos cosas que dije mal en el camino y quedan como aviso: no
+  existe `ind_relative_strength_52w` (es columna de `ind_daily` desde el
+  refactor ancho), y el gráfico **sí** lee tablas `ind_*` (`trend_*` y
+  `volatility_*` para las etiquetas de régimen).
+
+**PENDIENTE en Railway** (nada que migrar, es todo UI + una lectura): prender el
+toggle en un activo CON benchmark y ver la serie y la línea del 0; verificar la
+etiqueta en un activo SIN benchmark (que diga `sin benchmark` y el panel no
+abra); y mirar el gráfico en semanal/mensual, donde la serie diaria se colapsa
+al último valor de cada período.
+
+---
+
 **Sesión 27-jul-2026 (2): Drawdown % y ATR % con historia** (commit 14b124c,
 1181 passed, migración **0097**). Salió de la pregunta "¿por qué no hay drawdown
 en Posicionamiento Histórico?" — ver [[project_indicadores_con_historia]] para

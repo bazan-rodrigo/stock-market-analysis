@@ -32,8 +32,10 @@ HEX_RE = re.compile(r"#[0-9a-fA-F]{6}\b")
 # ── Excepciones, todas con motivo ────────────────────────────────────────────
 # El f-string JS de chart_callbacks: son colores de VELAS (convención de
 # mercado: verde sube / rojo baja) dentro de JavaScript, no chrome de interfaz.
+# El rango son NÚMEROS DE LÍNEA: cubre los dos f-strings JS (_JS_RENDER y
+# _JS_IND_UPDATE) y hay que correrlo cada vez que el bloque crece.
 RANGOS_EXENTOS: dict[str, tuple[int, int]] = {
-    "app/callbacks/chart_callbacks.py": (452, 1582),
+    "app/callbacks/chart_callbacks.py": (506, 1694),
 }
 
 # Colores de DATOS: el tono codifica un valor, no un estado de interfaz.

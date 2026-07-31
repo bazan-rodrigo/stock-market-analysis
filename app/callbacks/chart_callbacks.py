@@ -20,7 +20,8 @@ from app.services.price_service import get_prices_df
 import app.services.event_service as event_svc
 import app.services.sr_service as sr_svc
 from app.components.ui_constants import (
-    BG_CODE, COLOR_NEGATIVE, COLOR_POSITIVE, TREND_LABELS, VOL_LABELS
+    BG_CODE, COLOR_INFO, COLOR_NEGATIVE, COLOR_POSITIVE, TEXT_DIM,
+    TREND_LABELS, VOL_LABELS
 )
 
 
@@ -35,6 +36,11 @@ _SLOTS = {
     "stochastic": (1, [("k_period", [14]), ("d_period", [3])]),
     "atr":        (1, [("period",   [14])]),
     "drawdown":   (1, []),
+    # Fuerza Relativa 52W: a diferencia de TODOS los demás, no se calcula en el
+    # browser — la serie viene de la columna relative_strength_52w de ind_daily
+    # (store chart-rs52w-data). Entra en _SLOTS solo para heredar el cableado
+    # del checkbox; el panel además exige que hayan llegado los datos.
+    "rs52w":      (1, []),
 }
 _COLLAPSIBLE = {"sma", "ema", "bollinger", "rsi", "macd", "stochastic", "atr"}  # tienen params div
 
@@ -159,6 +165,12 @@ def load_chart_data(asset_id, current_data):
     country_id = asset.country_id if asset else None
     events = event_svc.get_events_for_asset(int(asset_id), country_id)
 
+    # Benchmark contra el que se mide relative_strength_52w. Va acá (y no en el
+    # callback lazy) porque la etiqueta del toggle se muestra SIN prenderlo: al
+    # elegir el activo ya se ve contra qué se mide, o que no tiene benchmark.
+    bm = asset.benchmark if asset else None
+    benchmark = {"id": bm.id, "ticker": bm.ticker} if bm else None
+
     regime_cfg = db.query(RegimeConfig).filter(RegimeConfig.id == 1).first()
     regime_ema_periods = {
         "D": regime_cfg.ema_period_d if regime_cfg else 200,
@@ -228,6 +240,7 @@ def load_chart_data(asset_id, current_data):
 
     return {"raw_daily": raw_daily, "asset_id": int(asset_id), "events": events,
             "best_ma": best_ma,
+            "benchmark": benchmark,
             "regime_current": regime_current,
             "regime_ema_periods": regime_ema_periods,
             "vol_current": vol_current,
@@ -286,6 +299,47 @@ def load_dd_overlay(enabled, asset_id):
     if df.empty:
         return no_update
     return get_dd_events_for_chart(df)
+
+
+# ─── Fuerza Relativa 52W: serie pre-calculada del pipeline ───────────────────
+
+@callback(
+    Output("chart-rs52w-data", "data"),
+    Input("chart-ind-rs52w-1-enabled", "value"),
+    Input("analysis-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def load_rs52w_overlay(enabled, asset_id):
+    """Historia de relative_strength_52w (retorno 52w del activo menos el de su
+    benchmark) para el panel propio. A diferencia del resto de los indicadores
+    del gráfico no se recalcula en el browser: ya está en ind_daily, y para
+    rehacerlo en JS haría falta mandar también los precios del benchmark.
+
+    Lazy como los demás overlays: solo consulta con el toggle prendido. Sin
+    benchmark configurado el indicador es NULL en toda la historia → devuelve
+    points vacío y el JS no abre el panel."""
+    if not enabled or not asset_id:
+        return no_update
+    import sqlalchemy as sa
+
+    from app.database import get_session
+    from app.models.indicator_store import get_ind_table
+
+    db = get_session()
+    try:
+        t = get_ind_table("relative_strength_52w")
+        rows = db.execute(
+            sa.select(t.c.date, t.c.value)
+            .where(t.c.asset_id == int(asset_id))
+            .where(t.c.value.isnot(None))  # tabla ancha: saltear las filas de
+                                           # los códigos hermanos de ind_daily
+            .order_by(t.c.date)
+        ).all()
+    except Exception:  # tabla ausente (base sin poblar) → panel sin datos
+        return no_update
+
+    return {"asset_id": int(asset_id),
+            "points": [[_t(d), float(v)] for d, v in rows]}
 
 
 # ─── Overlay de estrategia: entradas/salidas por umbral de score ──────────────
@@ -453,7 +507,7 @@ def toggle_sim_inputs(*ons):
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, entScOn, entSc, entPctOn, entPct, xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp, xsDentOn, xsDent, xsDmaxOn, xsDmax, xsMakOn, xsMak, xsPctOn, xsPct, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, entScOn, entSc, entPctOn, entPct, xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp, xsDentOn, xsDent, xsDmaxOn, xsDmax, xsMakOn, xsMak, xsPctOn, xsPct, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, rs52wData, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -923,6 +977,15 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     ['rsi', 'macd', 'stochastic', 'atr', 'drawdown'].forEach(function(n) {{
       if (ip[n] && ip[n][0].enabled) activeSeps.push(n);
     }});
+    /* Fuerza Relativa 52W: además del toggle exige datos DE ESTE activo — la
+       serie viene del server, no se calcula acá. Sin benchmark no hay puntos y
+       el panel no se abre (mejor que abrir uno vacío; la etiqueta del toggle
+       ya avisa "sin benchmark"). */
+    var showRs52w = !!(ip.rs52w && ip.rs52w[0].enabled && st.rs52wData
+        && st.rs52wData.asset_id === st.assetId
+        && st.rs52wData.points && st.rs52wData.points.length);
+    if (showRs52w) activeSeps.push('rs52w');
+
     var showStrategy = !!(st.strategyEnabled && st.strategyData
         && st.strategyData.asset_id === st.assetId
         && st.strategyData.scores && st.strategyData.scores.length);
@@ -1187,6 +1250,50 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         else flushSeg();
       }}
       flushSeg();
+    }}
+
+    /* Fuerza Relativa 52W (panel separado). Misma mecánica que el score de
+       estrategia: whitespace sobre todas las barras para alinear por índice
+       lógico, el 0 como SERIE horizontal (createPriceLine no se pinta en estos
+       paneles, ver el comentario del bloque de estrategia) y la serie en
+       segmentos para que los huecos corten la línea en vez de cruzarla —
+       arranca vacía hasta que el activo acumula 52 semanas de historia. */
+    if (showRs52w && window._lwcPanelCharts.rs52w) {{
+      var rsPc = window._lwcPanelCharts.rs52w;
+      var rsByIdx = {{}};
+      st.rs52wData.points.forEach(function(p) {{
+        rsByIdx[nearestBarIdx(p[0])] = p[1];  /* la serie es DIARIA: en S/M
+                                                 queda el último del período */
+      }});
+
+      var rsName = 'Fuerza Relativa 52W'
+                 + (st.benchmark ? ' vs ' + st.benchmark.ticker : '');
+      window._lwc.addSeries(rsPc, {{
+        type: 'line', name: rsName, color: '#c084fc', lineWidth: 1.5,
+        data: times.map(function(t) {{ return {{time: t}}; }}),
+      }});
+
+      /* El 0 es el nivel que importa: arriba le gana al benchmark, abajo pierde */
+      window._lwc.addSeries(rsPc, {{
+        type: 'line', color: '#6b7280', lineWidth: 1, dashed: true,
+        data: times.map(function(t) {{ return {{time: t, value: 0}}; }}),
+      }});
+
+      var rsSeg = [];
+      var flushRsSeg = function() {{
+        if (rsSeg.length) {{
+          window._lwc.addSeries(rsPc, {{
+            type: 'line', color: '#c084fc', lineWidth: 1.5, data: rsSeg,
+            pointMarkers: rsSeg.length === 1,
+          }});
+        }}
+        rsSeg = [];
+      }};
+      for (var ri = 0; ri < times.length; ri++) {{
+        if (rsByIdx.hasOwnProperty(ri)) rsSeg.push({{time: times[ri], value: rsByIdx[ri]}});
+        else flushRsSeg();
+      }}
+      flushRsSeg();
     }}
 
     /* Sync timescales */
@@ -1563,6 +1670,8 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
                          capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs,
                          capTpOn, capTp, rearmOn, coolOn, cool),
     strategyData:      strategyData || null,
+    rs52wData:         rs52wData    || null,
+    benchmark:         chartData.benchmark           || null,
     indParams:         indParams,
     volumeEnabled:     !!(volumeEnabled  && volumeEnabled.length),
     chartType:         chartType  || 'candlestick',
@@ -1601,6 +1710,7 @@ clientside_callback(
     State("chart-strategy-enabled", "value"),
     *_sim_control_deps(State),
     State("chart-strategy-data", "data"),
+    State("chart-rs52w-data", "data"),
     *_state_list(State),
     prevent_initial_call=True,
 )
@@ -1745,6 +1855,13 @@ clientside_callback(
     prevent_initial_call=True,
 )
 
+clientside_callback(
+    "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.rs52wData=d;window._lwc.fullRender();return null;}",
+    Output("chart-rs52w-data-dummy", "data"),
+    Input("chart-rs52w-data", "data"),
+    prevent_initial_call=True,
+)
+
 
 _REGIME_LABELS = TREND_LABELS
 
@@ -1791,6 +1908,26 @@ def update_vol_label(chart_data, freq):
         return "", {"fontSize": "0.68rem"}
     label, color = _VOL_LABELS_ES.get(vol, (vol.replace("_", " ").capitalize(), "#aaa"))
     return f"({label})", {"fontSize": "0.68rem", "color": color, "fontWeight": "bold"}
+
+
+# ─── Etiqueta del benchmark junto al toggle de Fuerza Relativa 52W ───────────
+# Se muestra SIN prender el toggle: al elegir el activo ya sabés contra qué se
+# mide, y si no tiene benchmark te enterás ahí (el panel no abriría y sin esto
+# el toggle parecería roto).
+@callback(
+    Output("chart-rs52w-label", "children"),
+    Output("chart-rs52w-label", "style"),
+    Input("chart-data", "data"),
+    prevent_initial_call=True,
+)
+def update_rs52w_label(chart_data):
+    if not chart_data:
+        return "", {"fontSize": "0.68rem"}
+    bm = chart_data.get("benchmark")
+    if not bm:
+        return "(sin benchmark)", {"fontSize": "0.68rem", "color": TEXT_DIM}
+    return f"(vs {bm.get('ticker')})", {"fontSize": "0.68rem",
+                                        "color": COLOR_INFO, "fontWeight": "bold"}
 
 
 clientside_callback(

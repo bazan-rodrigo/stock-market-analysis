@@ -64,6 +64,11 @@ def _screen_tips():
          "últimas Per ruedas, en precio."),
         ("chart-ind-drawdown-1-enabled",
          "Caída % desde el máximo histórico previo, en panel propio."),
+        ("chart-ind-rs52w-1-enabled",
+         "Fuerza Relativa 52W: cuánto le saca el activo a su benchmark en los "
+         "últimos 12 meses (su retorno menos el del benchmark), en panel "
+         "propio. Sobre 0 le gana, bajo 0 pierde. Necesita que el activo "
+         "tenga un benchmark configurado."),
         ("chart-dd-enabled",
          "Marca sobre el precio los pisos de los drawdowns detectados, con "
          "la profundidad % de cada caída."),
@@ -300,6 +305,10 @@ def layout(**kwargs):
             ]),
             _ind_toggle("ATR", "atr", [("period", "Per", 14, 2, 100, 1)]),
             html.Div([_chk("chart-ind-drawdown-1-enabled", "Drawdown %")], className="ind-group"),
+            html.Div([
+                _chk("chart-ind-rs52w-1-enabled", "Fuerza Relativa 52W"),
+                html.Span(id="chart-rs52w-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
+            ], className="d-flex align-items-center gap-1 ind-group"),
             html.Div([_chk("chart-dd-enabled", "Drawdown Pisos")], className="ind-group"),
             html.Div([_chk("chart-events-enabled", "Eventos")], className="ind-group"),
             html.Div([
@@ -338,6 +347,8 @@ def layout(**kwargs):
         dcc.Store(id="chart-strategy-data"),
         dcc.Store(id="chart-strategy-dummy"),
         dcc.Store(id="chart-strategy-data-dummy"),
+        dcc.Store(id="chart-rs52w-data"),
+        dcc.Store(id="chart-rs52w-data-dummy"),
 
         # ── Gráfico ──────────────────────────────────────────────────────
         dcc.Loading(
