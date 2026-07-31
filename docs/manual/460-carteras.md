@@ -40,20 +40,21 @@ mismas reglas ([Visibilidad y permisos](/manual/visibilidad-y-permisos)), y nace
 El orden importa, porque algunas decisiones no se pueden cambiar después:
 
 1. **+ Nueva cartera** y poné el **Nombre**.
-2. Elegí el **Tipo** —**Real** o **Seguimiento (teórica)**—: decide qué campos del
-   resto del formulario se usan.
-3. **Moneda base** (en la que querés verla valuada) y visibilidad con **Pública
-   (visible para todos los usuarios)**.
+2. Elegí el **Tipo** —**Real** o **Seguimiento (teórica)**—: el resto del
+   formulario **se acomoda solo** y muestra únicamente los campos de ese tipo.
+3. **Moneda base** (en la que querés verla valuada), que se elige de la lista de
+   **Monedas** cargadas, y visibilidad con **Pública (visible para todos los
+   usuarios)**.
 4. Si es de **Seguimiento**, elegí el **Método**: **Curada (lista manual)** —y
    cargá los papeles en **Activos**— o **Derivada de estrategia** —con su
    **Estrategia** y su **Top-N**—.
 5. Si es **Real**, podés elegir una **Teórica objetivo (opcional)**.
 
 > **La composición y el vínculo se definen al crear.** Al **Editar** podés cambiar
-> nombre, tipo, moneda y visibilidad, pero no el método de composición, la lista de
-> activos, la estrategia ni la teórica vinculada: para eso hay que borrar la cartera
-> y crearla de nuevo. Y **Eliminar** no pide confirmación — se lleva también el
-> registro de operaciones.
+> nombre, tipo, moneda y visibilidad, y por eso son los únicos campos que aparecen:
+> el método de composición, la lista de activos, la estrategia y la teórica
+> vinculada no se cambian, para eso hay que borrar la cartera y crearla de nuevo. Y
+> **Eliminar** no pide confirmación — se lleva también el registro de operaciones.
 
 ## Carteras reales: el registro de operaciones
 
@@ -71,7 +72,7 @@ cartera y usá **+ Agregar operación**.
 | **Precio** | Precio por unidad. **Si lo dejás vacío se toma el cierre de mercado de esa fecha.** |
 | **Comisión** | Comisión del intermediario. |
 | **Impuestos** | Impuestos ligados a la operación (IVA sobre la comisión, derechos de mercado). |
-| **Moneda** | Moneda de la operación. |
+| **Moneda** | Moneda de la operación, de la lista de **Monedas** cargadas. Viene propuesta la moneda base de la cartera. |
 | **Nota** | Texto libre para acordarte por qué la hiciste. |
 
 > Dejar el **Precio** vacío es cómodo pero no es gratis: si esa fecha no tiene

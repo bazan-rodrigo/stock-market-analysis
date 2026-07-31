@@ -16,6 +16,44 @@ from app.services.visibility import can_edit, current_viewer, publica_str
 _TIPO_LBL = {"seg": "Seguimiento", "real": "Real"}
 _KIND_LBL = {"buy": "Compra", "sell": "Venta", "dividend": "Dividendo",
              "split": "Split"}
+_HIDDEN = {"display": "none"}
+# Portfolio.base_currency / PortfolioTransaction.currency son String(10): la
+# moneda se guarda como TEXTO (su código ISO), no como FK al catálogo.
+_CURRENCY_MAXLEN = 10
+
+
+def _currency_options(s, extra=None):
+    """Opciones del combo de monedas, tomadas del catálogo (/admin/currencies).
+
+    El `value` es el código ISO —o el nombre, si la moneda no tiene ISO— porque
+    es texto lo que se guarda. `extra` es lo que ya tenía cargado la cartera:
+    antes del combo la moneda era texto libre, así que si no está en el catálogo
+    se agrega como opción para que editar no la borre en silencio.
+    """
+    from app.models import Currency
+    opts, values = [], set()
+    for c in s.query(Currency).order_by(Currency.name).all():
+        val = c.iso_code or c.name
+        opts.append({"label": (f"{c.iso_code} — {c.name}"
+                               if c.iso_code and c.iso_code != c.name
+                               else c.name),
+                     "value": val})
+        values.add(val)
+    extra = (extra or "").strip()
+    if extra and extra not in values:
+        opts.insert(0, {"label": f"{extra} (fuera del catálogo)",
+                        "value": extra})
+    return opts
+
+
+def _currency_error(currency):
+    """Una moneda sin ISO y de nombre largo no entra en la columna: en vez del
+    'no se pudo guardar' genérico, decir dónde se arregla."""
+    if currency and len(currency) > _CURRENCY_MAXLEN:
+        return (f"La moneda «{currency}» no tiene código ISO. Cargáselo en "
+                "Configuración → Monedas y volvé a elegirla.")
+    return None
+
 
 # Estado del "Recalcular curva" de una cartera 'strategy' promovida: corre
 # run_portfolio_backtest en un thread (pesado, todo el universo) y repunta el
@@ -96,6 +134,11 @@ def update_buttons(sel_id, data):
     Output("cart-f-public", "value"),
     Output("cart-editing-id", "data"),
     Output("cart-modal-error", "is_open", allow_duplicate=True),
+    Output("cart-f-method", "value"),
+    Output("cart-f-topn", "value"),
+    Output("cart-f-strategy", "value"),
+    Output("cart-f-members", "value"),
+    Output("cart-f-link", "value"),
     Input("cart-btn-add", "n_clicks"),
     Input("cart-btn-cancel", "n_clicks"),
     Input("cart-btn-edit", "n_clicks"),
@@ -104,31 +147,58 @@ def update_buttons(sel_id, data):
     prevent_initial_call=True,
 )
 def toggle_modal(_add, _cancel, _edit, sel_id, data):
+    # Composición y vínculo arrancan SIEMPRE en blanco: no resetearlos dejaba
+    # pegado lo de la apertura anterior, y una cartera real podía guardarse con
+    # la teórica objetivo que se había elegido (y cancelado) en el modal previo.
+    blank = (None, 20, None, None, None)
     trig = ctx.triggered_id
     if trig == "cart-btn-cancel":
-        return (False, no_update, no_update, no_update, no_update, no_update,
-                no_update, False)
+        return (False,) + (no_update,) * 6 + (False,) + (no_update,) * 5
     if trig == "cart-btn-add":
-        return True, "Nueva cartera", "", "real", "", False, None, False
+        return (True, "Nueva cartera", "", "real", None, False, None,
+                False) + blank
     if trig == "cart-btn-edit":
         row = next((r for r in (data or []) if r["id"] == sel_id), None)
         if row is None:
-            return (no_update,) * 8
+            return (no_update,) * 13
         return (True, "Editar cartera", row["name"], row["ptype"],
-                row.get("currency_raw", ""), bool(row["is_public"]), sel_id,
-                False)
-    return (no_update,) * 8
+                row.get("currency_raw") or None, bool(row["is_public"]), sel_id,
+                False) + blank
+    return (no_update,) * 13
+
+
+@callback(
+    Output("cart-seg-block", "style"),
+    Output("cart-real-block", "style"),
+    Output("cart-edit-note", "style"),
+    Input("cart-f-type", "value"),
+    Input("cart-editing-id", "data"),
+)
+def toggle_type_blocks(ptype, editing_id):
+    """Muestra sólo los campos que el guardado va a usar.
+
+    La composición es de las teóricas y el vínculo a una teórica es de las
+    reales; en EDICIÓN no va ninguno de los dos, porque la rama de edición de
+    `save` sólo aplica nombre, tipo, moneda y visibilidad.
+    """
+    if editing_id:
+        return _HIDDEN, _HIDDEN, {}
+    return ({} if ptype == "seg" else _HIDDEN,
+            {} if ptype == "real" else _HIDDEN,
+            _HIDDEN)
 
 
 @callback(
     Output("cart-f-strategy", "options"),
     Output("cart-f-members", "options"),
     Output("cart-f-link", "options"),
+    Output("cart-f-currency", "options"),
     Input("cart-modal", "is_open"),
+    State("cart-editing-id", "data"),
 )
-def load_composition_options(is_open):
+def load_composition_options(is_open, editing_id):
     if not is_open:
-        return no_update, no_update, no_update
+        return (no_update,) * 4
     from app.database import get_session
     from app.models import Asset
     from app.services.strategy_service import get_visible_strategies
@@ -141,7 +211,11 @@ def load_composition_options(is_open):
               .order_by(Asset.ticker).all()]
     segs = [{"label": pf.name, "value": pf.id}
             for pf in svc.list_portfolios(s, user_id, is_admin, ptype="seg")]
-    return strat, assets, segs
+    # Editando: `cart-editing-id` ya viaja actualizado (toggle_modal lo emite
+    # junto con is_open), así que la moneda vieja fuera del catálogo se conserva.
+    p = svc.get_portfolio(s, editing_id) if editing_id else None
+    return strat, assets, segs, _currency_options(
+        s, extra=(p.base_currency if p else None))
 
 
 @callback(
@@ -181,6 +255,9 @@ def save(_n, name, ptype, currency, is_public, method, strategy_id, topn,
     s = get_session()
     user_id, is_admin = current_viewer()
     currency = (currency or "").strip() or None
+    cur_err = _currency_error(currency)
+    if cur_err:
+        return err(cur_err)
     try:
         if editing_id:
             p = svc.get_portfolio(s, editing_id)
@@ -560,31 +637,40 @@ def render_detail(sel_id, _refresh):
     Output("cart-txn-note", "value"),
     Input("cart-btn-add-txn", "n_clicks"),
     Input("cart-btn-cancel-txn", "n_clicks"),
+    State("cart-selected-id", "data"),
     prevent_initial_call=True,
 )
-def toggle_txn_modal(_add, _cancel):
+def toggle_txn_modal(_add, _cancel, pid):
     trig = ctx.triggered_id
     if trig == "cart-btn-cancel-txn":
         return (False, False) + (no_update,) * 9
     if trig == "cart-btn-add-txn":
-        # Abre limpio (defaults) para no reenviar la operación anterior.
-        return (True, False, None, "buy", None, None, None, 0, 0, "", "")
+        # Abre limpio (defaults) para no reenviar la operación anterior; la
+        # moneda arranca en la base de la cartera, que es el caso normal.
+        from app.database import get_session
+        p = svc.get_portfolio(get_session(), pid) if pid else None
+        cur = (p.base_currency or None) if p else None
+        return (True, False, None, "buy", None, None, None, 0, 0, cur, "")
     return (no_update,) * 11
 
 
 @callback(
     Output("cart-txn-asset", "options"),
+    Output("cart-txn-currency", "options"),
     Input("cart-txn-modal", "is_open"),
+    State("cart-selected-id", "data"),
 )
-def load_asset_options(is_open):
+def load_asset_options(is_open, pid):
     if not is_open:
-        return no_update
+        return no_update, no_update
     from app.database import get_session
     from app.models import Asset
     s = get_session()
-    return [{"label": tk or f"#{i}", "value": i}
-            for i, tk in s.query(Asset.id, Asset.ticker)
-            .order_by(Asset.ticker).all()]
+    assets = [{"label": tk or f"#{i}", "value": i}
+              for i, tk in s.query(Asset.id, Asset.ticker)
+              .order_by(Asset.ticker).all()]
+    p = svc.get_portfolio(s, pid) if pid else None
+    return assets, _currency_options(s, extra=(p.base_currency if p else None))
 
 
 @callback(
@@ -624,6 +710,10 @@ def save_txn(_n, pid, asset_id, kind, trade_date, qty, price, commission, taxes,
         d = _date.fromisoformat(str(trade_date)[:10])
     except ValueError:
         return err("Fecha inválida.")
+    currency = (currency or "").strip() or None
+    cur_err = _currency_error(currency)
+    if cur_err:
+        return err(cur_err)
 
     from app.database import get_session
     s = get_session()
@@ -639,8 +729,7 @@ def save_txn(_n, pid, asset_id, kind, trade_date, qty, price, commission, taxes,
             s, pid, asset_id, kind, d,
             quantity=_num(qty), price=_num(price),
             commission=_num(commission) or 0.0, taxes=_num(taxes) or 0.0,
-            currency=(currency or "").strip() or None,
-            note=(note or "").strip() or None)
+            currency=currency, note=(note or "").strip() or None)
     except Exception:
         s.rollback()
         return err("No se pudo registrar la operación.")

@@ -18,6 +18,7 @@ _FILTER_OPTS = [
     {"label": "Seguimiento", "value": "seg"},
     {"label": "Reales", "value": "real"},
 ]
+_HIDDEN = {"display": "none"}
 
 
 def layout(**kwargs):
@@ -44,8 +45,9 @@ def layout(**kwargs):
                 ], md=6),
                 dbc.Col([
                     dbc.Label("Moneda base", style={"fontSize": "0.82rem"}),
-                    dbc.Input(id="cart-f-currency", placeholder="ARS",
-                              style={"fontSize": "0.85rem"}),
+                    dcc.Dropdown(id="cart-f-currency",
+                                 placeholder="Moneda base…",
+                                 style={"fontSize": "0.85rem"}),
                 ], md=6),
             ], className="mb-2 g-2"),
             dbc.Switch(id="cart-f-public",
@@ -54,37 +56,54 @@ def layout(**kwargs):
             html.Small("Privada: solo vos (y el admin) la ven.",
                        className="text-muted d-block mb-2"),
 
-            html.Hr(className="my-2"),
-            html.Small("Composición (sólo carteras de Seguimiento):",
-                       className="text-muted d-block mb-1"),
-            dbc.Row([
-                dbc.Col([dbc.Label("Método", style={"fontSize": "0.82rem"}),
-                         dcc.Dropdown(id="cart-f-method", options=[
-                             {"label": "Curada (lista manual)", "value": "curated"},
-                             {"label": "Derivada de estrategia",
-                              "value": "strategy"},
-                         ], placeholder="—", style={"fontSize": "0.85rem"})], md=6),
-                dbc.Col([dbc.Label("Top-N (si derivada)",
-                                   style={"fontSize": "0.82rem"}),
-                         dbc.Input(id="cart-f-topn", type="number", value=20,
-                                   min=1, style={"fontSize": "0.85rem"})], md=6),
-            ], className="mb-2 g-2"),
-            dbc.Row([dbc.Col([
-                dbc.Label("Estrategia (si derivada)",
-                          style={"fontSize": "0.82rem"}),
-                dcc.Dropdown(id="cart-f-strategy", placeholder="Estrategia…",
-                             style={"fontSize": "0.85rem"})])], className="mb-2"),
-            dbc.Row([dbc.Col([
-                dbc.Label("Activos (si curada)", style={"fontSize": "0.82rem"}),
-                dcc.Dropdown(id="cart-f-members", multi=True,
-                             placeholder="Elegí activos…",
-                             style={"fontSize": "0.85rem"})])], className="mb-2"),
-            dbc.Row([dbc.Col([
-                dbc.Label("Teórica objetivo (opcional, para las reales)",
-                          style={"fontSize": "0.82rem"}),
-                dcc.Dropdown(id="cart-f-link", clearable=True,
-                             placeholder="Vincular a una teórica…",
-                             style={"fontSize": "0.85rem"})])], className="mb-2"),
+            # Composición y vínculo se muestran según el TIPO, y se ocultan en
+            # edición (el guardado de edición no los aplica). Lo maneja
+            # toggle_type_blocks.
+            html.Small("La composición y el vínculo se definen al crear: no se "
+                       "editan.", id="cart-edit-note",
+                       className="text-muted d-block mb-2",
+                       style=_HIDDEN),
+            html.Div([
+                html.Hr(className="my-2"),
+                html.Small("Composición:", className="text-muted d-block mb-1"),
+                dbc.Row([
+                    dbc.Col([dbc.Label("Método", style={"fontSize": "0.82rem"}),
+                             dcc.Dropdown(id="cart-f-method", options=[
+                                 {"label": "Curada (lista manual)",
+                                  "value": "curated"},
+                                 {"label": "Derivada de estrategia",
+                                  "value": "strategy"},
+                             ], placeholder="—",
+                                 style={"fontSize": "0.85rem"})], md=6),
+                    dbc.Col([dbc.Label("Top-N (si derivada)",
+                                       style={"fontSize": "0.82rem"}),
+                             dbc.Input(id="cart-f-topn", type="number", value=20,
+                                       min=1,
+                                       style={"fontSize": "0.85rem"})], md=6),
+                ], className="mb-2 g-2"),
+                dbc.Row([dbc.Col([
+                    dbc.Label("Estrategia (si derivada)",
+                              style={"fontSize": "0.82rem"}),
+                    dcc.Dropdown(id="cart-f-strategy", placeholder="Estrategia…",
+                                 style={"fontSize": "0.85rem"})])],
+                    className="mb-2"),
+                dbc.Row([dbc.Col([
+                    dbc.Label("Activos (si curada)",
+                              style={"fontSize": "0.82rem"}),
+                    dcc.Dropdown(id="cart-f-members", multi=True,
+                                 placeholder="Elegí activos…",
+                                 style={"fontSize": "0.85rem"})])],
+                    className="mb-2"),
+            ], id="cart-seg-block", style=_HIDDEN),
+            html.Div([
+                dbc.Row([dbc.Col([
+                    dbc.Label("Teórica objetivo (opcional)",
+                              style={"fontSize": "0.82rem"}),
+                    dcc.Dropdown(id="cart-f-link", clearable=True,
+                                 placeholder="Vincular a una teórica…",
+                                 style={"fontSize": "0.85rem"})])],
+                    className="mb-2"),
+            ], id="cart-real-block"),
 
             dbc.Alert(id="cart-modal-error", is_open=False, color="danger",
                       className="mt-2 mb-0 small py-1"),
@@ -138,8 +157,9 @@ def layout(**kwargs):
             ], className="mb-2 g-2"),
             dbc.Row([
                 dbc.Col([dbc.Label("Moneda", style={"fontSize": "0.82rem"}),
-                         dbc.Input(id="cart-txn-currency", placeholder="ARS",
-                                   style=_num_style)], md=4),
+                         dcc.Dropdown(id="cart-txn-currency",
+                                      placeholder="Moneda…",
+                                      style=_num_style)], md=4),
                 dbc.Col([dbc.Label("Nota", style={"fontSize": "0.82rem"}),
                          dbc.Input(id="cart-txn-note", style=_num_style)], md=8),
             ], className="mb-2 g-2"),

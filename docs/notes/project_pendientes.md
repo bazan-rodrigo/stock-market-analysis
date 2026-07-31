@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-27T15:39:16.081Z
+  modified: 2026-07-31T18:38:23.004Z
 ---
 
 **Sesión 31-jul-2026: Fuerza Relativa 52W en el gráfico de Análisis de Activo**
@@ -38,6 +38,38 @@ toggle en un activo CON benchmark y ver la serie y la línea del 0; verificar la
 etiqueta en un activo SIN benchmark (que diga `sin benchmark` y el panel no
 abra); y mirar el gráfico en semanal/mensual, donde la serie diaria se colapsa
 al último valor de cada período.
+
+---
+
+**Sesión 31-jul-2026: el ABM de Carteras muestra sólo lo que el guardado usa, y
+la moneda sale del catálogo** (1188 passed, **sin migraciones**). Salió de dos
+observaciones del usuario sobre `/carteras`: "deja completar muchos campos que
+son de seguimiento cuando selecciono Real" y "la moneda es texto libre y debería
+ser un combo del catálogo".
+
+- **Campos por tipo.** El modal mostraba SIEMPRE los cuatro campos de composición
+  (Método/Top-N/Estrategia/Activos, propios de las teóricas) y el vínculo a una
+  teórica (propio de las reales). Ahora `toggle_type_blocks` muestra sólo el
+  bloque del tipo elegido, y en EDICIÓN oculta los dos: la rama de edición de
+  `save` nunca los aplicó —sólo nombre, tipo, moneda y visibilidad—, así que se
+  ofrecían campos que no se guardaban. En su lugar va una nota que lo dice.
+- **Bug destapado y arreglado:** `toggle_modal` no limpiaba esos cinco campos al
+  abrir. Elegir una "Teórica objetivo", cancelar, y crear después otra cartera
+  real guardaba ese vínculo viejo sin que se viera en ningún lado.
+- **Moneda del catálogo.** Moneda base y moneda de la operación pasaron de texto
+  libre a combo alimentado por `currencies`. Se sigue guardando TEXTO (el código
+  ISO) en `String(10)` → sin migración, y nada de lo que ya muestra la moneda
+  cambió. Dos guardas: lo cargado a mano que no esté en el catálogo se conserva
+  como opción "(fuera del catálogo)" —editar una cartera vieja no puede borrarle
+  la moneda en silencio— y una moneda sin ISO cuyo nombre no entra en la columna
+  da un error que dice dónde cargarle el ISO, en vez del "no se pudo guardar"
+  genérico. El alta de operación arranca con la moneda base de la cartera.
+- Manual (`docs/manual/460-carteras.md`) actualizado en el mismo cambio.
+
+**PENDIENTE en Railway** (nada que migrar, es todo UI): que el combo liste el
+catálogo real, que cambiar el Tipo muestre/esconda los bloques, que editar una
+cartera vieja conserve su moneda, y que el alta de operación traiga propuesta la
+moneda base.
 
 ---
 
