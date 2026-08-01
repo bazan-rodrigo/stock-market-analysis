@@ -5,7 +5,39 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
-  modified: 2026-07-31T18:38:23.004Z
+  modified: 2026-08-01T02:23:41.851Z
+---
+
+**Sesión 31-jul-2026: el contrato de packs volvió a decir lo que el código hace**
+(19e3bc5, 1209 passed, **sin migraciones**). El usuario preguntó si el manual y
+la especificación estaban al día. El manual sí —se actualizó en cada commit de
+feature—; el **SPEC no**, desfasado en 4 días por commits posteriores a él.
+
+- **El trinquete existía y no lo vio.** `test_pack_spec.py` ata las
+  ENUMERACIONES (fórmulas, operadores, atributos, columnas) y por eso seguía
+  verde mientras la PROSA afirmaba cosas falsas. Vale como lección general: un
+  trinquete de listas no protege lo que el documento *dice*.
+- Corregido: §1 (publicaba el flujo viejo, sin `/admin/packs`), §8 (el "todo o
+  nada" es *por paso*: si las señales entran y la estrategia falla, las señales
+  quedan), §6 (faltaban el tope de 45 días del as-of, que **las señales se leen
+  con fecha EXACTA**, y el caso aparte de los atributos tras 616c0b4) y §7
+  (`code`, e indicadores `virtual: true`).
+- `strategy_packs/README.md` tenía un **error**: `publica` ausente = "pública
+  por compatibilidad". Es **privada**. Caducó también su nota sobre ids de
+  catálogo (el import resuelve atributos por nombre desde 5560b67).
+- **Los 4 packs ya están en JSON canónico**, generados con conversor y no a
+  mano: `pack_service.pack_from_rows` + `scripts/pack_to_json.py` (lee con las
+  mismas funciones del import real). Round-trip verificado celda por celda: las
+  8 planillas regeneradas salen idénticas.
+- Trinquete nuevo para el riesgo que se estrena —dos formatos del mismo pack
+  que se separan—: cada planilla tiene su JSON y ambos dicen lo mismo. Probado
+  mordiendo (un `weight` cambiado a mano rompe la suite).
+
+**Nada que verificar en Railway**: son documentos, un script de repo y tests; la
+app viva no cambia. Sigue pendiente lo del 26/27-jul (botón *Catálogo* contra
+PostgreSQL, import de un JSON por pantalla, pack con filtro por nombre de
+sector) — ver [[packs-estandar-para-ia]].
+
 ---
 
 **Sesión 31-jul-2026: Fuerza Relativa 52W en el gráfico de Análisis de Activo**

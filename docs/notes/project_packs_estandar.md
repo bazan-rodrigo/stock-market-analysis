@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 7d646682-e734-4c79-b645-f2655c6e3237
-  modified: 2026-07-27T15:39:25.585Z
+  modified: 2026-08-01T02:08:16.958Z
 ---
 
 El usuario quiso que **modelar señales y estrategias sea un estándar** que
@@ -55,3 +55,39 @@ entran **privadas** desde que se unificó con el default de la UI.
 Catálogo (es la primera corrida real de `build_catalog` contra PostgreSQL), el
 import de un JSON por pantalla, y un pack con filtro por nombre de sector.
 Ver [[entorno-verificacion-solo-railway]] y [[pendientes-proxima-sesion]].
+
+---
+
+**31-jul-2026 (19e3bc5, 1209 passed) — el SPEC se había desfasado en 4 días.**
+`test_pack_spec.py` seguía verde: ataba las LISTAS (fórmulas, operadores,
+atributos, columnas) pero **no las afirmaciones en prosa**, que es donde se
+pudrió. Lección para la próxima: un trinquete de enumeraciones no protege lo
+que el documento *dice*.
+
+Lo que decía mal, todo introducido por commits POSTERIORES al SPEC:
+- **§1 publicaba el flujo viejo** (bajar el catálogo de Señales, importar en
+  dos pantallas): `/admin/packs` nació después y el SPEC nunca la mencionó.
+- **§8 mentía con el "todo o nada"**: es todo-o-nada *por paso*, y son dos
+  transacciones — si las señales entran y la estrategia falla, **las señales
+  quedan** (lo dice `import_pack` en su docstring).
+- **§6 no tenía tres semánticas** que solo vivían en el manual 730: el tope de
+  **45 días** del as-of (`ASOF_MAX_LOOKBACK_DAYS`), que **las señales se leen
+  con fecha EXACTA** (no as-of), y el caso aparte de los atributos tras
+  616c0b4.
+
+El **README tenía un error, no un hueco**: `publica` ausente = "pública por
+compatibilidad". Es **privada** (ver arriba, ya se había arreglado en el
+manual y no acá). Caducó también su nota sobre ids de catálogo.
+
+**Los 4 packs ahora están en los dos formatos.** Existían solo como xlsx
+aunque el estándar declara el JSON canónico — cero ejemplos del formato que el
+SPEC publica. Se hizo con conversor, no a mano: `pack_service.pack_from_rows`
++ `scripts/pack_to_json.py` (lee con las MISMAS funciones del import real).
+Round-trip verificado celda por celda: las 8 planillas regeneradas salen
+idénticas. Detalle que importa: la conversión **conserva las columnas de más**
+(`source`) — tragárselas haría que el pack convertido importe distinto del
+original en vez de ser rechazado igual.
+
+Trinquete nuevo para el riesgo que se estrena (dos formatos del mismo pack que
+se separan): `test_pack_spec.py` verifica que cada planilla tenga su JSON y
+que ambos digan lo mismo. Probado mordiendo, no asumido.
