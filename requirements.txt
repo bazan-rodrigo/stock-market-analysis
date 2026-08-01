@@ -14,6 +14,15 @@ openpyxl>=3.1.2
 plotly>=5.18.0
 gunicorn>=21.2.0
 
+# Servidor MCP (proceso `mcp` del Procfile): expone la capa de app/ai a los
+# clientes de IA de los usuarios. Va acá y no en un requirements aparte porque
+# Railway construye UNA imagen para todos los process types — separarlo no
+# ahorraría nada y habría que sumarlo igual a railpack.json. Los procesos web y
+# worker lo instalan sin usarlo. `uvicorn` viene con el SDK, pero se declara
+# explícito porque el Procfile lo invoca directo.
+mcp>=2.0.0
+uvicorn>=0.30.0
+
 # El DRIVER de base de datos NO va acá: depende del motor elegido al instalar
 # y vive en requirements-postgres.txt / requirements-mysql.txt. Instalar los
 # dos significa compilar una extensión en C (mysqlclient) para no usarla.

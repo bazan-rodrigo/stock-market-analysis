@@ -142,6 +142,36 @@ python -m pytest                         # (en el Codespace)
 Un proyecto con tres servicios: **`web`** (gunicorn), **`worker`** (scheduler) y
 **`Postgres`** (base). `web` y `worker` salen del mismo repo/`Procfile`.
 
+**Opcional — `mcp`** (cuarto servicio): el servidor MCP que expone los datos a
+los clientes de IA de los usuarios. Sale del mismo repo y del mismo `Procfile`
+(`mcp: uvicorn mcp_server:app …`). Va aparte y no dentro de `web` porque
+gunicorn corre con **un solo worker** y `--timeout 1800` para las corridas del
+Centro de Datos: el tráfico de un modelo no tiene por qué competir con la UI ni
+tumbarla si algo sale mal.
+
+Para levantarlo:
+
+1. Nuevo servicio en el proyecto, mismo repo, **Start Command**
+   `uvicorn mcp_server:app --host 0.0.0.0 --port $PORT`.
+2. Variables: **`DATABASE_URL`** (la misma que el resto) y **`MCP_PUBLIC_URL`**
+   con el dominio público del servicio, por ejemplo
+   `https://mcp-xxxx.up.railway.app`.
+3. Generar un dominio público para ese servicio.
+
+> **`MCP_PUBLIC_URL` no es cosmético.** El SDK trae protección contra DNS
+> rebinding y **por defecto solo acepta pedidos a `localhost`**: sin esa
+> variable, Railway devuelve error a todo. `mcp_server._hosts_permitidos()`
+> deriva de ahí los hosts aceptados (con y sin puerto, porque detrás de un
+> proxy el header `Host` puede traerlo).
+
+> **Es un endpoint público que lee la base de producción.** Hasta acá la
+> aplicación estaba detrás de un formulario de login; esto suma una puerta
+> pensada para máquinas, donde el token del usuario es lo único que separa
+> internet de los datos. Todo lo que expone es de **solo lectura** y filtrado
+> por la visibilidad del dueño del token (`app/ai/`), pero conviene tenerlo
+> presente antes de generar el dominio. Si no vas a usar la IA, simplemente no
+> crees este servicio: el resto de la aplicación no lo necesita.
+
 ### 3.1b Cómo se instala el driver en el build (`railpack.json`)
 
 Railway construye con **Railpack**, que detecta `requirements.txt` y corre
