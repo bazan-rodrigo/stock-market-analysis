@@ -60,6 +60,26 @@ y el panel no se abre: ese indicador no se puede calcular sin contra qué
 comparar. El panel arranca vacío hasta que el activo acumula 52 semanas de
 historia.
 
+**ADX**, **Posición 52W** y **Volumen Relativo** también van en panel propio, y
+se leen contra la línea punteada de referencia que trae cada uno:
+
+- **ADX** (referencia en 25): la fuerza de la tendencia, sin decir hacia dónde.
+  Por encima de 25 hay una tendencia establecida; por debajo de 20 el movimiento
+  es ruido. Es el complemento del Régimen de Tendencia: ese te dice la
+  dirección, este cuánta convicción hay detrás.
+- **Posición 52W** (referencia en 50): dónde está el precio dentro del rango del
+  último año, de 0 (piso anual) a 100 (techo). Necesita un año completo de
+  cotizaciones, así que arranca vacío en activos nuevos.
+- **Volumen Relativo** (referencia en 1): el volumen de la rueda comparado con
+  el promedio de las 20 anteriores. En 3 se operó el triple de lo normal para
+  ese activo. Sirve para saber si un movimiento tuvo respaldo o fue en falso.
+
+Estos tres, igual que Fuerza Relativa 52W, **no se calculan al dibujar**: se
+leen de lo que ya calculó el sistema. Si un activo no los tiene todavía, el
+panel no se abre. En los activos calculados (los sintéticos y las conversiones
+de moneda) el Volumen Relativo nunca aparece: un cociente entre dos precios no
+tiene volumen propio.
+
 ---
 
 ## Simulación de estrategias

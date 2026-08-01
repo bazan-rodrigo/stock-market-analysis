@@ -36,11 +36,14 @@ _SLOTS = {
     "stochastic": (1, [("k_period", [14]), ("d_period", [3])]),
     "atr":        (1, [("period",   [14])]),
     "drawdown":   (1, []),
-    # Fuerza Relativa 52W: a diferencia de TODOS los demás, no se calcula en el
-    # browser — la serie viene de la columna relative_strength_52w de ind_daily
-    # (store chart-rs52w-data). Entra en _SLOTS solo para heredar el cableado
-    # del checkbox; el panel además exige que hayan llegado los datos.
-    "rs52w":      (1, []),
+    # Los que siguen NO se calculan en el browser: la serie viene ya calculada
+    # de una columna de ind_daily (stores chart-*-data, ver _pipeline_points).
+    # Entran en _SLOTS solo para heredar el cableado del checkbox; cada panel
+    # además exige que hayan llegado los datos DE ESE activo.
+    "rs52w":      (1, []),   # relative_strength_52w
+    "adx":        (1, []),   # adx_daily
+    "pricepos":   (1, []),   # price_position_52w
+    "rvol":       (1, []),   # rvol_daily
 }
 _COLLAPSIBLE = {"sma", "ema", "bollinger", "rsi", "macd", "stochastic", "atr"}  # tienen params div
 
@@ -301,7 +304,42 @@ def load_dd_overlay(enabled, asset_id):
     return get_dd_events_for_chart(df)
 
 
-# ─── Fuerza Relativa 52W: serie pre-calculada del pipeline ───────────────────
+# ─── Paneles alimentados por el pipeline (no se calculan en el browser) ──────
+
+def _pipeline_points(code: str, asset_id):
+    """Serie histórica de un indicador YA CALCULADO, para su panel del gráfico.
+
+    Estos indicadores no se recalculan en JS como el MACD o el ATR: la columna
+    ya está en ind_daily, y duplicar la fórmula en el navegador costaría
+    mantener dos implementaciones sincronizadas a mano (el precio que ya se
+    paga en el simulador de trades). Para relative_strength_52w además haría
+    falta mandar los precios del benchmark.
+
+    Devuelve el dict del store, o None si no hay nada que dibujar: activo sin
+    valores (historia insuficiente para la ventana del indicador, sin benchmark
+    configurado, sintéticos sin volumen en rvol_daily) o tabla/columna ausente
+    en una base todavía sin migrar."""
+    import sqlalchemy as sa
+
+    from app.database import get_session
+    from app.models.indicator_store import get_ind_table
+
+    db = get_session()
+    try:
+        t = get_ind_table(code)
+        rows = db.execute(
+            sa.select(t.c.date, t.c.value)
+            .where(t.c.asset_id == int(asset_id))
+            .where(t.c.value.isnot(None))  # tabla ancha: saltear las filas de
+                                           # los códigos hermanos de ind_daily
+            .order_by(t.c.date)
+        ).all()
+    except Exception:  # tabla/columna ausente (base sin poblar o sin migrar)
+        return None
+
+    return {"asset_id": int(asset_id),
+            "points": [[_t(d), float(v)] for d, v in rows]}
+
 
 @callback(
     Output("chart-rs52w-data", "data"),
@@ -310,36 +348,53 @@ def load_dd_overlay(enabled, asset_id):
     prevent_initial_call=True,
 )
 def load_rs52w_overlay(enabled, asset_id):
-    """Historia de relative_strength_52w (retorno 52w del activo menos el de su
-    benchmark) para el panel propio. A diferencia del resto de los indicadores
-    del gráfico no se recalcula en el browser: ya está en ind_daily, y para
-    rehacerlo en JS haría falta mandar también los precios del benchmark.
-
-    Lazy como los demás overlays: solo consulta con el toggle prendido. Sin
-    benchmark configurado el indicador es NULL en toda la historia → devuelve
-    points vacío y el JS no abre el panel."""
+    """Fuerza Relativa 52W: retorno 52w del activo menos el de su benchmark.
+    Sin benchmark configurado el indicador es NULL en toda la historia → points
+    vacío y el JS no abre el panel."""
     if not enabled or not asset_id:
         return no_update
-    import sqlalchemy as sa
+    return _pipeline_points("relative_strength_52w", asset_id) or no_update
 
-    from app.database import get_session
-    from app.models.indicator_store import get_ind_table
 
-    db = get_session()
-    try:
-        t = get_ind_table("relative_strength_52w")
-        rows = db.execute(
-            sa.select(t.c.date, t.c.value)
-            .where(t.c.asset_id == int(asset_id))
-            .where(t.c.value.isnot(None))  # tabla ancha: saltear las filas de
-                                           # los códigos hermanos de ind_daily
-            .order_by(t.c.date)
-        ).all()
-    except Exception:  # tabla ausente (base sin poblar) → panel sin datos
+@callback(
+    Output("chart-adx-data", "data"),
+    Input("chart-ind-adx-1-enabled", "value"),
+    Input("analysis-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def load_adx_overlay(enabled, asset_id):
+    """ADX diario: fuerza de la tendencia (0-100), sin dirección."""
+    if not enabled or not asset_id:
         return no_update
+    return _pipeline_points("adx_daily", asset_id) or no_update
 
-    return {"asset_id": int(asset_id),
-            "points": [[_t(d), float(v)] for d, v in rows]}
+
+@callback(
+    Output("chart-pricepos-data", "data"),
+    Input("chart-ind-pricepos-1-enabled", "value"),
+    Input("analysis-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def load_pricepos_overlay(enabled, asset_id):
+    """Posición del cierre dentro del rango de 52 semanas (0-100). Vacío hasta
+    que el activo acumula el año completo que pide la ventana."""
+    if not enabled or not asset_id:
+        return no_update
+    return _pipeline_points("price_position_52w", asset_id) or no_update
+
+
+@callback(
+    Output("chart-rvol-data", "data"),
+    Input("chart-ind-rvol-1-enabled", "value"),
+    Input("analysis-asset-select", "value"),
+    prevent_initial_call=True,
+)
+def load_rvol_overlay(enabled, asset_id):
+    """Volumen relativo diario. Los sintéticos y las conversiones de moneda no
+    tienen volumen propio → points vacío y el panel no se abre."""
+    if not enabled or not asset_id:
+        return no_update
+    return _pipeline_points("rvol_daily", asset_id) or no_update
 
 
 # ─── Overlay de estrategia: entradas/salidas por umbral de score ──────────────
@@ -507,7 +562,7 @@ def toggle_sim_inputs(*ons):
 
 # ─── JS compartido ───────────────────────────────────────────────────────────
 _JS_RENDER = f"""
-function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, entScOn, entSc, entPctOn, entPct, xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp, xsDentOn, xsDent, xsDmaxOn, xsDmax, xsMakOn, xsMak, xsPctOn, xsPct, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, rs52wData, {_JS_ARGS_STR}) {{
+function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, regimeEnabled, ddEnabled, volEnabled, srPivotEnabled, strategyEnabled, entScOn, entSc, entPctOn, entPct, xsAbsOn, xsAbs, xsAbsUpOn, xsAbsUp, xsDentOn, xsDent, xsDmaxOn, xsDmax, xsMakOn, xsMak, xsPctOn, xsPct, capBarsOn, capBars, capSlOn, capSl, capTsOn, capTs, capTpOn, capTp, rearmOn, coolOn, cool, strategyData, rs52wData, adxData, priceposData, rvolData, {_JS_ARGS_STR}) {{
 
   if (!window._lwc) {{ window._lwc = {{}}; }}
 
@@ -986,6 +1041,21 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
         && st.rs52wData.points && st.rs52wData.points.length);
     if (showRs52w) activeSeps.push('rs52w');
 
+    /* ADX / Posición 52W / Volumen Relativo: mismo trato que rs52w — la serie
+       la manda el server desde ind_daily, así que además del toggle hace falta
+       que hayan llegado los datos DE ESTE activo. Sin valores el panel no se
+       abre: historia insuficiente para la ventana del indicador, o activo
+       calculado sin volumen propio en el caso de rvol. */
+    var pipeReady = function(d) {{
+      return !!(d && d.asset_id === st.assetId && d.points && d.points.length);
+    }};
+    var showAdx      = !!(ip.adx      && ip.adx[0].enabled      && pipeReady(st.adxData));
+    var showPricepos = !!(ip.pricepos && ip.pricepos[0].enabled && pipeReady(st.priceposData));
+    var showRvol     = !!(ip.rvol     && ip.rvol[0].enabled     && pipeReady(st.rvolData));
+    if (showAdx)      activeSeps.push('adx');
+    if (showPricepos) activeSeps.push('pricepos');
+    if (showRvol)     activeSeps.push('rvol');
+
     var showStrategy = !!(st.strategyEnabled && st.strategyData
         && st.strategyData.asset_id === st.assetId
         && st.strategyData.scores && st.strategyData.scores.length);
@@ -1295,6 +1365,55 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
       }}
       flushRsSeg();
     }}
+
+    /* ADX, Posición 52W y Volumen Relativo: los tres son la MISMA figura que
+       el panel de rs52w de arriba (serie diaria del pipeline + un nivel de
+       referencia), así que va una sola vez como función. Whitespace sobre
+       todas las barras para alinear por índice lógico, el nivel como SERIE
+       horizontal (createPriceLine no se pinta en estos paneles) y la serie en
+       segmentos para que los huecos corten la línea en vez de cruzarla. */
+    var drawPipelinePanel = function(key, data, name, color, refValue) {{
+      var pc = window._lwcPanelCharts[key];
+      if (!pc) return;
+      var byIdx = {{}};
+      data.points.forEach(function(p) {{
+        byIdx[nearestBarIdx(p[0])] = p[1];  /* serie DIARIA: en S/M queda el
+                                               último valor del período */
+      }});
+
+      window._lwc.addSeries(pc, {{
+        type: 'line', name: name, color: color, lineWidth: 1.5,
+        data: times.map(function(t) {{ return {{time: t}}; }}),
+      }});
+
+      window._lwc.addSeries(pc, {{
+        type: 'line', color: '#6b7280', lineWidth: 1, dashed: true,
+        data: times.map(function(t) {{ return {{time: t, value: refValue}}; }}),
+      }});
+
+      var seg = [];
+      var flush = function() {{
+        if (seg.length) {{
+          window._lwc.addSeries(pc, {{
+            type: 'line', color: color, lineWidth: 1.5, data: seg,
+            pointMarkers: seg.length === 1,
+          }});
+        }}
+        seg = [];
+      }};
+      for (var i = 0; i < times.length; i++) {{
+        if (byIdx.hasOwnProperty(i)) seg.push({{time: times[i], value: byIdx[i]}});
+        else flush();
+      }}
+      flush();
+    }};
+
+    /* Los niveles de referencia no son decorativos: 25 es el umbral clásico de
+       "tendencia establecida" del ADX, 50 es la mitad del rango anual, y 1 es
+       el volumen normal del propio activo. */
+    if (showAdx)      drawPipelinePanel('adx',      st.adxData,      'ADX (14)',         '#fb923c', 25);
+    if (showPricepos) drawPipelinePanel('pricepos', st.priceposData, 'Posición 52W',     '#34d399', 50);
+    if (showRvol)     drawPipelinePanel('rvol',     st.rvolData,     'Volumen Relativo', '#60a5fa', 1);
 
     /* Sync timescales */
     if (window._lwcCharts.length > 1) {{
@@ -1671,6 +1790,9 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
                          capTpOn, capTp, rearmOn, coolOn, cool),
     strategyData:      strategyData || null,
     rs52wData:         rs52wData    || null,
+    adxData:           adxData      || null,
+    priceposData:      priceposData || null,
+    rvolData:          rvolData     || null,
     benchmark:         chartData.benchmark           || null,
     indParams:         indParams,
     volumeEnabled:     !!(volumeEnabled  && volumeEnabled.length),
@@ -1711,6 +1833,9 @@ clientside_callback(
     *_sim_control_deps(State),
     State("chart-strategy-data", "data"),
     State("chart-rs52w-data", "data"),
+    State("chart-adx-data", "data"),
+    State("chart-pricepos-data", "data"),
+    State("chart-rvol-data", "data"),
     *_state_list(State),
     prevent_initial_call=True,
 )
@@ -1859,6 +1984,27 @@ clientside_callback(
     "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.rs52wData=d;window._lwc.fullRender();return null;}",
     Output("chart-rs52w-data-dummy", "data"),
     Input("chart-rs52w-data", "data"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.adxData=d;window._lwc.fullRender();return null;}",
+    Output("chart-adx-data-dummy", "data"),
+    Input("chart-adx-data", "data"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.priceposData=d;window._lwc.fullRender();return null;}",
+    Output("chart-pricepos-data-dummy", "data"),
+    Input("chart-pricepos-data", "data"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    "function(d){if(!window._lwcState||!window._lwc||!d)return null;window._lwcState.rvolData=d;window._lwc.fullRender();return null;}",
+    Output("chart-rvol-data-dummy", "data"),
+    Input("chart-rvol-data", "data"),
     prevent_initial_call=True,
 )
 

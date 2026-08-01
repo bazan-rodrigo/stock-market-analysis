@@ -69,6 +69,18 @@ def _screen_tips():
          "últimos 12 meses (su retorno menos el del benchmark), en panel "
          "propio. Sobre 0 le gana, bajo 0 pierde. Necesita que el activo "
          "tenga un benchmark configurado."),
+        ("chart-ind-adx-1-enabled",
+         "ADX: fuerza de la tendencia (0-100), sin decir hacia dónde. Sobre 25 "
+         "hay tendencia establecida; abajo de 20 el movimiento es ruido. En "
+         "panel propio."),
+        ("chart-ind-pricepos-1-enabled",
+         "Posición 52W: dónde está el precio dentro del rango del último año "
+         "(0 = piso anual, 100 = techo). En panel propio; necesita un año "
+         "completo de cotizaciones."),
+        ("chart-ind-rvol-1-enabled",
+         "Volumen Relativo: volumen de la rueda sobre el promedio de las 20 "
+         "anteriores (1 = normal, 3 = el triple). En panel propio. Los activos "
+         "calculados no tienen volumen propio."),
         ("chart-dd-enabled",
          "Marca sobre el precio los pisos de los drawdowns detectados, con "
          "la profundidad % de cada caída."),
@@ -309,6 +321,9 @@ def layout(**kwargs):
                 _chk("chart-ind-rs52w-1-enabled", "Fuerza Relativa 52W"),
                 html.Span(id="chart-rs52w-label", style={"fontSize": "0.68rem", "color": "#aaa"}),
             ], className="d-flex align-items-center gap-1 ind-group"),
+            html.Div([_chk("chart-ind-adx-1-enabled", "ADX")], className="ind-group"),
+            html.Div([_chk("chart-ind-pricepos-1-enabled", "Posición 52W")], className="ind-group"),
+            html.Div([_chk("chart-ind-rvol-1-enabled", "Volumen Relativo")], className="ind-group"),
             html.Div([_chk("chart-dd-enabled", "Drawdown Pisos")], className="ind-group"),
             html.Div([_chk("chart-events-enabled", "Eventos")], className="ind-group"),
             html.Div([
@@ -349,6 +364,12 @@ def layout(**kwargs):
         dcc.Store(id="chart-strategy-data-dummy"),
         dcc.Store(id="chart-rs52w-data"),
         dcc.Store(id="chart-rs52w-data-dummy"),
+        dcc.Store(id="chart-adx-data"),
+        dcc.Store(id="chart-adx-data-dummy"),
+        dcc.Store(id="chart-pricepos-data"),
+        dcc.Store(id="chart-pricepos-data-dummy"),
+        dcc.Store(id="chart-rvol-data"),
+        dcc.Store(id="chart-rvol-data-dummy"),
 
         # ── Gráfico ──────────────────────────────────────────────────────
         dcc.Loading(
