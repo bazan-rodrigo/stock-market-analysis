@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-01T17:39:35.779Z
+  modified: 2026-08-01T18:10:04.244Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -104,9 +104,36 @@ estrategia. Advertencia dada al usuario: una IA optimizando pesos contra la
 curva histórica sobreajusta — toda optimización de cartera por IA debe pasar por
 `walk_forward` y reportar out-of-sample.
 
-**PENDIENTE:** el diseño detallado de la capa MCP (esquemas de herramientas,
-modelo de datos de tokens/jobs, tests) sigue sin escribir. Siguiente candidato
-acordado: que la IA arme y simule carteras.
+**FASE 1a HECHA (commit 9f82d12, 1376 passed): la capa de capacidades, sin
+transporte.** Se partió la fase 1 en dos y se hizo primero la mitad donde vive
+el riesgo — sin dependencias nuevas, sin servicio en Railway, sin red.
+- `app/ai/caller.py`: `AiCaller(user_id, is_admin, scopes)` reemplaza a
+  `current_viewer()` fuera de Flask. Sin default: que una llamada sin identidad
+  no compile es más barato que descubrirla en producción.
+- `app/ai/registry.py`: allowlist + scopes + topes. **Tope global 200 filas**
+  (los 5000 de `data_explorer` son para una grilla).
+- 7 herramientas de lectura: `get_catalog`, `list_signals`, `list_strategies`,
+  `strategy_ranking`, `strategy_score_history`, `search_manual`,
+  `read_manual_section`. **`get_catalog` filtra por visibilidad** — `build_catalog()`
+  enumera TODO porque lo escribió un botón admin-only.
+- Trinquetes en `test_ai_registry.py` + los de visibilidad en
+  `test_ai_visibilidad.py` (un analista no llega a lo ajeno ni listando ni por
+  id, y **el mensaje de error es el mismo exista o no** para que no sea un
+  oráculo de enumeración).
+
+**Lección de esa fase:** el bug que apareció NO lo agarró ningún trinquete sino
+un smoke test a mano. El nivel del manual se resolvía con
+`manual_service.role_of()`, que deduce el rol de un `username` que esta capa no
+tiene; con `None` devolvía "invitado" y un analista veía **24 de 73 secciones**.
+Falla silenciosa: la llamada funcionaba y devolvía de menos. Moraleja para lo
+que viene: los trinquetes cubren forma y permisos, no que el resultado sea el
+correcto — hay que ejercitar cada herramienta a mano al menos una vez.
+
+**PENDIENTE — fase 1b:** transporte MCP (`mcp_server.py`), tabla de tokens con
+su migración, pantalla para generarlos/revocarlos, servicio aparte en Railway.
+Ahí entran una dependencia nueva y la decisión de infra. Después: que la IA arme
+y simule **carteras** (filas planas, sin DDL ni backfill; ver la sección de
+arriba, y que toda optimización pase por `walk_forward`).
 
 Relacionado: [[project-backtest]], [[feedback-entorno-verificacion]] (Railway es
 producción, no hay entorno descartable), [[feedback-reflejar-en-ui-y-spec]].
