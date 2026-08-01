@@ -393,11 +393,17 @@ def save_strategy(
     strategy_id: int | None = None,
     is_public: bool | None = None,
     acting_user_id: int | None = None,
-    acting_is_admin: bool = True,
+    acting_is_admin: bool = False,
 ) -> Strategy:
     """is_public None = conservar el valor actual (o privada si es nueva).
-    acting_* identifican a quién guarda: en alta queda como dueño; en
-    edición se valida el permiso (default admin para scripts/tests)."""
+    acting_* identifican a quién guarda: en alta queda como dueño; en edición
+    se valida el permiso con can_edit (dueño o admin — a diferencia de las
+    señales, las estrategias las crea cualquiera).
+
+    El default de acting_is_admin es False: FALLA CERRADO. Un caller que se
+    olvide del flag queda como "no admin" y solo puede tocar lo propio, en vez
+    de saltear el permiso por omisión. Los scripts y tests pasan True
+    explícito. Lo fija tests/test_permisos_fallan_cerrado.py."""
     from datetime import datetime as _dt
     from app.models import SignalDefinition
     from app.services.visibility import can_edit
@@ -465,7 +471,8 @@ def save_strategy(
 
 
 def delete_strategy(strategy_id: int, *, acting_user_id: int | None = None,
-                    acting_is_admin: bool = True) -> None:
+                    acting_is_admin: bool = False) -> None:
+    """Borra una estrategia (dueño o admin). Default cerrado — ver save_strategy."""
     from app.services.visibility import can_edit
     s = get_session()
     strat = s.query(Strategy).filter(Strategy.id == strategy_id).first()

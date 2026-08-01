@@ -45,9 +45,14 @@ def get_signals_for_strategy(strategy_id: int) -> list[SignalDefinition]:
 
 
 def get_all_signals_flat(user_id: int | None = None,
-                         is_admin: bool = True) -> list[SignalDefinition]:
-    """Default admin (todas) para compatibilidad; las pantallas pasan el
-    viewer real para ver solo públicas + propias."""
+                         is_admin: bool = False) -> list[SignalDefinition]:
+    """Señales visibles para el viewer: públicas + propias (admin: todas).
+
+    El default es is_admin=False: FALLA CERRADO. Antes era True "por
+    compatibilidad", así que un caller que se olvidara del flag devolvía TODAS
+    las señales, incluidas las privadas de otros usuarios — una filtración
+    silenciosa, no un error visible. Las pantallas pasan `*current_viewer()`.
+    Lo fija tests/test_permisos_fallan_cerrado.py."""
     from app.services.visibility import visible_filter
     s = get_session()
     return (s.query(SignalDefinition)

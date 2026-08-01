@@ -86,7 +86,7 @@ def test_alta_y_baja_de_estrategia_crean_y_dropean_su_tabla(db):
     name = signal_store.strat_table_name(strat.id)
     assert _table_exists(name), "save_strategy debe crear strat_res_{id}"
 
-    strategy_service.delete_strategy(strat.id)
+    strategy_service.delete_strategy(strat.id, acting_is_admin=True)
     assert not _table_exists(name), "delete_strategy debe dropear la tabla"
 
 
