@@ -137,18 +137,18 @@ def main() -> None:
     base    = [c for c in codigos if c not in NUEVOS]
     nuevos  = [c for c in codigos if c in NUEVOS]
 
-    # CALENTAMIENTO: la primerísima medición paga el costo de calentar pandas
-    # (imports diferidos, cachés internos) y sale inflada sin que eso tenga
-    # nada que ver con el código medido — con el control de deriva al final
-    # comparándose contra ella, la tanda entera se declaraba no confiable.
-    for code in (base[0], nuevos[0]):
-        _time_code(code, _BACKFILL_FNS[code], assets[:2], regime_cfg, vol_cfg)
+    # CALENTAMIENTO: la primerísima medición paga el costo de arrancar en frío
+    # (cachés de pandas, y en un container compartido también el arranque de
+    # CPU) y sale inflada sin que eso tenga nada que ver con el código medido.
+    # Se corre con el lote COMPLETO, no con una muestra: en Railway calentar
+    # con 2 activos no alcanzó — la primera medición salió 35% arriba de las
+    # dos siguientes y el control declaró no confiable una tanda que sí lo era.
+    # El resultado se DESCARTA a propósito.
+    medidas, deriva_code = {}, base[0]
+    _time_code(deriva_code, _BACKFILL_FNS[deriva_code], assets, regime_cfg, vol_cfg)
 
     print(f"\n{'código':<28} {'ms/activo':>10} {'no-nulos':>10}")
     print("-" * 50)
-    medidas, deriva_code = {}, base[0]
-    deriva_1, _ = _time_code(deriva_code, _BACKFILL_FNS[deriva_code], assets,
-                             regime_cfg, vol_cfg)
 
     for grupo, titulo in ((base, "YA ESTABAN"), (nuevos, "NUEVOS (0098)")):
         print(f"\n-- {titulo} --")
@@ -175,6 +175,8 @@ def main() -> None:
     print("  relative_strength_52w está excluido. Con esos tres pesando lo")
     print("  que pesan de verdad, el porcentaje real es algo MENOR.")
 
+    # Las DOS mediciones comparadas están calientes: la de la tabla y esta.
+    deriva_1 = medidas[deriva_code]
     desvio = abs(deriva_2 - deriva_1) / max(deriva_1, 1e-9) * 100
     print(f"\nControl de deriva ({deriva_code}): {deriva_1:.3f} -> "
           f"{deriva_2:.3f} ms ({desvio:.1f}%)")
