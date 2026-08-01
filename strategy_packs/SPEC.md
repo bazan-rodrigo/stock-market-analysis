@@ -16,23 +16,36 @@ escribir código.
 
 ## 1. Cómo se usa (flujo completo)
 
-1. **Conseguir el catálogo** de la instalación de destino: pantalla
-   **Señales → Catálogo** (botón, solo admin). Descarga un `.json` con los
-   indicadores disponibles, sus tipos y categorías, los sectores/mercados/
-   países cargados y las señales que ya existen. Sin esto no se puede saber
-   qué `indicator_key` son válidos: **cambian de una instalación a otra**.
+Todo pasa por la pantalla **Packs** (`/admin/packs`, requiere rol admin), que
+junta las dos descargas, el ensayo y la importación.
+
+1. **Conseguir las dos piezas del estándar**, con los botones del primer paso
+   de esa pantalla:
+   - **Especificación**: este documento. Es igual en todas las instalaciones.
+   - **Catálogo**: un `.json` con los indicadores disponibles, sus tipos y
+     categorías, los sectores/mercados/países cargados y las señales que ya
+     existen. Sin esto no se puede saber qué `indicator_key` son válidos:
+     **cambian de una instalación a otra**. El mismo botón está también en la
+     pantalla de Señales.
 2. **Escribir el pack** siguiendo este documento.
 3. **Validarlo offline**, sin base y sin la app:
    `python scripts/validate_pack.py mi_pack.json --catalog catalogo.json`
    Devuelve los mismos errores que devolvería el import, más avisos de las
    trampas silenciosas (§8). Iterar hasta que salga limpio.
-4. **Importarlo**: el mismo archivo se sube **primero** en
-   *Señales → Importar* y **después** en *Estrategias → Importar*. Cada
-   pantalla lee la parte que le toca (las estrategias referencian las señales
-   por `key`, así que el orden importa). Requiere rol admin.
-5. **Calcular la historia**: Centro de Datos → *Señales y Estrategias →
+4. **Subirlo y revisar el ensayo**: subir el archivo **no escribe nada**. La
+   pantalla muestra los errores, los avisos y —fila por fila— qué va a **crear**
+   y qué va a **actualizar**, y de quién es lo que pisaría. Con un solo error el
+   botón *Importar* queda deshabilitado.
+5. **Importar**: aplica los dos pasos en el orden que exigen las referencias
+   —primero las señales, después las estrategias, que las referencian por
+   `key`—, y completa la misma tabla con el resultado de cada fila.
+6. **Calcular la historia**: Centro de Datos → *Señales y Estrategias →
    Ejecutar*, con alcance en la estrategia nueva. Hasta que eso corra, la
    estrategia existe pero no tiene resultados.
+
+La pantalla Packs acepta **solo el archivo JSON**. Las planillas Excel (§10)
+siguen entrando por el camino histórico, en dos pantallas y sin ensayo previo:
+primero *Señales → Importar* y después *Estrategias → Importar*.
 
 ---
 
@@ -250,6 +263,11 @@ cumple **no aparece** en el ranking.
 | `=` `!=` | Numéricos o de texto (mismo tipo de los dos lados) |
 | `in` `not_in` | El lado derecho **debe** ser un `const` con **lista** |
 
+Un operando `attribute` es un caso aparte: admite `=` `!=` `in` `not_in` contra
+el nombre o contra el id, indistintamente, y **rechaza los operadores de orden**
+—un sector o un mercado no se ordenan—. No entra en la regla de "mismo tipo de
+los dos lados": comparar un atributo con su propio id es válido.
+
 **Reglas de forma**
 
 - El operando izquierdo **no puede ser** `const`.
@@ -265,6 +283,15 @@ cumple **no aparece** en el ranking.
   **vigente** en vez del histórico: para fechas pasadas eso es **sesgo de
   anticipación deliberado** y solo sirve como diagnóstico, no lo uses en un
   pack que vaya a backtestearse.
+- Ese arrastre *as-of* tiene un **tope de 45 días**: un valor más viejo que eso
+  respecto de la fecha evaluada cuenta como dato faltante y —por la regla de
+  arriba— deja al activo afuera. Alcanza para cubrir un indicador mensual, pero
+  no para uno que se dejó de calcular ni para un activo que dejó de cotizar.
+- **Las señales no se leen *as-of*, sino con fecha exacta** (la misma semántica
+  con la que se calcula el score). Una señal sin valor en esa fecha exacta es un
+  dato faltante: la condición da falso. En particular, de las fechas anteriores
+  a la creación de la señal no hay score que reconstruir hasta que se recalcule
+  su historia.
 
 **Atributos: por nombre, no por id.** Escribí `"Technology"`, `"NASDAQ"`,
 `"Equity"` — el import los resuelve al id de la instalación de destino. Los
@@ -283,19 +310,30 @@ eso viaja aparte, en el JSON del botón *Catálogo*— es:
 
 | Sección | Para qué la necesitás |
 |---|---|
-| `indicators[]` | Los `indicator_key` válidos. Cada uno trae `type` (`num`/`str`), `values` si es categórico, `keep_history` y una descripción. |
+| `indicators[]` | Los `indicator_key` válidos: cada entrada los trae en su campo **`code`**. Además `type` (`num`/`str`), `values` si es categórico, `keep_history` y una descripción. |
 | `attributes` | Los nombres de sector, mercado, industria, país y tipo de instrumento **cargados en esa base**. |
 | `signals[]` / `strategies[]` | Lo que ya existe: sirve para no pisar una `key` ajena y para saber qué señales podés reusar. |
 
 Un indicador con `keep_history: false` solo tiene valor vigente: una señal
 sobre él no tendrá historia y **no sirve para backtest**.
 
+Algunas entradas vienen marcadas con `"virtual": true`: no son indicadores
+calculados sino valores que el motor resuelve por su cuenta (hoy `last_close`,
+el precio de cierre del día). Se usan como cualquier otro `indicator_key`.
+
 ---
 
 ## 8. Qué acepta y qué rechaza el import
 
-**Todo o nada.** Si una sola fila es inválida, **no se escribe nada** y la
-pantalla muestra el motivo de cada una. No hay import parcial.
+**Todo o nada dentro de cada paso.** Si una sola señal es inválida no se
+escribe **ninguna** señal, y lo mismo con las estrategias: no hay import
+parcial de una lista, y la pantalla muestra el motivo de cada fila.
+
+Pero **los dos pasos son transacciones separadas**: si las señales entran y las
+estrategias fallan, las señales quedan cargadas. Por eso el ensayo de la
+pantalla Packs valida las dos partes *antes* de escribir nada, y por eso un
+error en las señales corta ahí mismo en vez de seguir (continuar solo daría una
+cascada de "señal no encontrada" que tapa el problema real).
 
 **Upsert.** Las señales se identifican por `key` y las estrategias por
 `name`, sin distinguir mayúsculas: reimportar actualiza la definición
@@ -398,8 +436,10 @@ de la instalación de destino.
 ## 10. Formato Excel (equivalente)
 
 La app también importa —y exporta— el mismo contenido como planillas. Es el
-formato histórico; el JSON es el canónico para intercambio. Un pack JSON se
-convierte con `python scripts/pack_from_json.py mi_pack.json`.
+formato histórico; el JSON es el canónico para intercambio. La conversión va en
+las dos direcciones: `python scripts/pack_from_json.py mi_pack.json` genera las
+planillas, y `python scripts/pack_to_json.py mi_pack` reconstruye el JSON desde
+ellas (útil para pasar al canónico lo que exportó la app).
 
 | Planilla | Hoja | Columnas (en este orden) |
 |---|---|---|

@@ -1,0 +1,190 @@
+{
+  "spec_version": 1,
+  "pack": "momentum",
+  "signals": [
+    {
+      "key": "retorno_52w",
+      "name": "Retorno 52 semanas",
+      "description": "Momentum clasico: el retorno % del ultimo anio mapeado linealmente a score. -20% o peor -> -100; +30% -> 0; +80% o mas -> +100.",
+      "indicator_key": "return_52w",
+      "formula_type": "range",
+      "params": {
+        "min": -20.0,
+        "max": 80.0,
+        "clamp": true
+      },
+      "publica": true
+    },
+    {
+      "key": "fuerza_relativa_52w",
+      "name": "Fuerza relativa 52 semanas",
+      "description": "Premia a los activos que le vienen ganando a su benchmark en la ventana de 52 semanas: >20 puntos de ventaja -> 100; positivo -> 50; resto -> -50.",
+      "indicator_key": "relative_strength_52w",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [20, 100],
+          [0, 50],
+          [null, -50]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "tendencia_d",
+      "name": "Tendencia diaria",
+      "description": "Mapa del regimen de tendencia diario a score (alcista fuerte 100 ... bajista fuerte -100).",
+      "indicator_key": "trend_daily",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "bullish_strong": 100,
+          "bullish_nascent_strong": 75,
+          "bullish": 60,
+          "bullish_nascent": 40,
+          "lateral_nascent": 5,
+          "lateral": 0,
+          "bearish_nascent": -40,
+          "bearish_nascent_strong": -75,
+          "bearish": -60,
+          "bearish_strong": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "tendencia_w",
+      "name": "Tendencia semanal",
+      "description": "Mapa del regimen de tendencia semanal a score.",
+      "indicator_key": "trend_weekly",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "bullish_strong": 100,
+          "bullish_nascent_strong": 75,
+          "bullish": 60,
+          "bullish_nascent": 40,
+          "lateral_nascent": 5,
+          "lateral": 0,
+          "bearish_nascent": -40,
+          "bearish_nascent_strong": -75,
+          "bearish": -60,
+          "bearish_strong": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "tendencia_m",
+      "name": "Tendencia mensual",
+      "description": "Mapa del regimen de tendencia mensual a score.",
+      "indicator_key": "trend_monthly",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "bullish_strong": 100,
+          "bullish_nascent_strong": 75,
+          "bullish": 60,
+          "bullish_nascent": 40,
+          "lateral_nascent": 5,
+          "lateral": 0,
+          "bearish_nascent": -40,
+          "bearish_nascent_strong": -75,
+          "bearish": -60,
+          "bearish_strong": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "dist_sma_d",
+      "name": "Distancia SMA diaria (z-score)",
+      "description": "Distancia a la SMA optima diaria en desvios: -3 -> -100, +3 -> +100 (premia estar extendido por arriba).",
+      "indicator_key": "dist_optimal_sma_daily",
+      "formula_type": "range",
+      "params": {
+        "min": -3.0,
+        "max": 3.0,
+        "clamp": true
+      },
+      "publica": true
+    }
+  ],
+  "strategies": [
+    {
+      "name": "Momentum de líderes",
+      "description": "Compra los activos más fuertes del universo elegible (mismo filtro que Pullback en tendencia): mayor retorno 52w, fuerza relativa positiva, timeframes alineados y extensión sobre su SMA óptima. Contracara del Pullback para comparar filosofías sobre el mismo universo.",
+      "publica": true,
+      "filter": {
+        "op": "AND",
+        "children": [
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "trend_weekly"
+              },
+              "operator": "in",
+              "right": {
+                "type": "const",
+                "value": ["bullish", "bullish_strong", "bullish_nascent_strong"]
+              }
+            }
+          },
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "dist_sma200"
+              },
+              "operator": ">",
+              "right": {
+                "type": "const",
+                "value": 0
+              }
+            }
+          },
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "volatility_daily"
+              },
+              "operator": "not_in",
+              "right": {
+                "type": "const",
+                "value": ["extrema_corta", "extrema_media", "extrema_larga"]
+              }
+            }
+          }
+        ]
+      },
+      "components": [
+        {
+          "signal_key": "retorno_52w",
+          "weight": 3
+        },
+        {
+          "signal_key": "fuerza_relativa_52w",
+          "weight": 2
+        },
+        {
+          "signal_key": "dist_sma_d",
+          "weight": 1
+        },
+        {
+          "signal_key": "tendencia_d",
+          "weight": 0.6666666666666666
+        },
+        {
+          "signal_key": "tendencia_w",
+          "weight": 0.6666666666666666
+        },
+        {
+          "signal_key": "tendencia_m",
+          "weight": 0.6666666666666666
+        }
+      ]
+    }
+  ]
+}

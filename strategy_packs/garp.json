@@ -1,0 +1,158 @@
+{
+  "spec_version": 1,
+  "pack": "garp",
+  "signals": [
+    {
+      "key": "roic_calidad",
+      "name": "Calidad ROIC",
+      "description": "Retorno sobre capital invertido (TTM, fraccion): >20% -> 100; >10% -> 60; >5% -> 20; positivo -> -20; negativo/sin dato -> -80.",
+      "indicator_key": "fundamental_roic",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [0.2, 100],
+          [0.1, 60],
+          [0.05, 20],
+          [0.0, -20],
+          [null, -80]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "pe_razonable",
+      "name": "P/E razonable",
+      "description": "Premia P/E TTM bajo pero positivo: <8 -> 100; 8-15 -> 80; 15-25 -> 30; 25-40 -> -30; >40 -> -80; negativo (perdidas) -> -100.",
+      "indicator_key": "fundamental_pe_ttm",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [40, -80],
+          [25, -30],
+          [15, 30],
+          [8, 80],
+          [0, 100],
+          [null, -100]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "crecimiento_ventas",
+      "name": "Crecimiento de ventas YoY",
+      "description": "Crecimiento de revenue interanual (fraccion) mapeado lineal: -10% -> -100; +10% -> 0; +30% o mas -> +100.",
+      "indicator_key": "fundamental_revenue_growth_yoy",
+      "formula_type": "range",
+      "params": {
+        "min": -0.1,
+        "max": 0.3,
+        "clamp": true
+      },
+      "publica": true
+    },
+    {
+      "key": "tendencia_m",
+      "name": "Tendencia mensual",
+      "description": "Mapa del regimen de tendencia mensual a score.",
+      "indicator_key": "trend_monthly",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "bullish_strong": 100,
+          "bullish_nascent_strong": 75,
+          "bullish": 60,
+          "bullish_nascent": 40,
+          "lateral_nascent": 5,
+          "lateral": 0,
+          "bearish_nascent": -40,
+          "bearish_nascent_strong": -75,
+          "bearish": -60,
+          "bearish_strong": -100
+        }
+      },
+      "publica": true
+    }
+  ],
+  "strategies": [
+    {
+      "name": "GARP calidad-precio",
+      "description": "Calidad a precio razonable: ROIC alto + P/E bajo + crecimiento de ventas, con sesgo técnico suave (no colapsado, sin volatilidad extrema, tendencia mensual como desempate). El filtro por P/E restringe el universo a activos con fundamentales.",
+      "publica": true,
+      "filter": {
+        "op": "AND",
+        "children": [
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "fundamental_pe_ttm"
+              },
+              "operator": ">",
+              "right": {
+                "type": "const",
+                "value": 0
+              }
+            }
+          },
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "fundamental_pe_ttm"
+              },
+              "operator": "<",
+              "right": {
+                "type": "const",
+                "value": 60
+              }
+            }
+          },
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "dist_sma200"
+              },
+              "operator": ">",
+              "right": {
+                "type": "const",
+                "value": -10
+              }
+            }
+          },
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "volatility_daily"
+              },
+              "operator": "not_in",
+              "right": {
+                "type": "const",
+                "value": ["extrema_corta", "extrema_media", "extrema_larga"]
+              }
+            }
+          }
+        ]
+      },
+      "components": [
+        {
+          "signal_key": "roic_calidad",
+          "weight": 3
+        },
+        {
+          "signal_key": "pe_razonable",
+          "weight": 3
+        },
+        {
+          "signal_key": "crecimiento_ventas",
+          "weight": 2
+        },
+        {
+          "signal_key": "tendencia_m",
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}

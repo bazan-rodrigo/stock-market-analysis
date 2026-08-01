@@ -441,3 +441,89 @@ def test_sin_catalogo_igual_detecta_errores_de_gramatica():
 def test_sin_catalogo_igual_valida_params():
     malo = _con(PACK_OK, **{"signals.0.params": {"min": 1, "max": 1}})
     assert "min y max" in " | ".join(ps.validate_pack(malo, None)["errors"])
+
+
+# ── Planillas → pack (la inversa, scripts/pack_to_json.py) ────────────────────
+
+def test_pack_from_rows_ida_y_vuelta_conserva_el_contenido():
+    """La conversión a planillas y de vuelta tiene que dar el mismo pack: es lo
+    que permite publicar en JSON lo que hoy solo existe como xlsx sin que el
+    canónico diga otra cosa que el histórico."""
+    original = {
+        "spec_version": 1,
+        "pack": "ida_y_vuelta",
+        "signals": [
+            {"key": "s1", "name": "Señal 1", "description": "con ñ y tilde",
+             "indicator_key": "rsi_daily", "formula_type": "threshold",
+             "params": {"thresholds": [[70, -100], [30, 50], [None, 100]]},
+             "publica": True},
+            {"key": "s2", "name": "Señal 2", "indicator_key": "trend_daily",
+             "formula_type": "discrete_map",
+             "params": {"map": {"bullish": 100, "bearish": -100}},
+             "publica": False},
+        ],
+        "strategies": [
+            {"name": "E1", "description": "una", "publica": True,
+             "filter": {"op": "AND", "children": [
+                 {"cond": {"left": {"type": "indicator", "key": "rsi_daily"},
+                           "operator": ">",
+                           "right": {"type": "const", "value": 50}}}]},
+             "components": [{"signal_key": "s1", "weight": 3},
+                            {"signal_key": "s2", "weight": 1}]},
+        ],
+    }
+    filas_s = ps.signal_rows_from_pack(original)
+    filas_e, filas_c = ps.strategy_rows_from_pack(original)
+    vuelta = ps.pack_from_rows(filas_s, filas_e, filas_c, name="ida_y_vuelta")
+    assert vuelta == original
+
+
+def test_pack_from_rows_omite_las_celdas_vacias():
+    """Un pack se lee y se edita a mano: `"description": null` en cada señal es
+    ruido que el original no tenía."""
+    pack = ps.pack_from_rows(
+        [{"key": "s1", "name": "S", "description": None,
+          "indicator_key": "rsi_daily", "formula_type": "range",
+          "params": '{"min": 1, "max": 2}', "publica": "si"}], [], [])
+    assert pack["signals"][0] == {
+        "key": "s1", "name": "S", "indicator_key": "rsi_daily",
+        "formula_type": "range", "params": {"min": 1, "max": 2},
+        "publica": True}
+
+
+def test_pack_from_rows_publica_ausente_se_omite():
+    """Ausente = privada en los dos formatos; omitirlo conserva la semántica
+    sin inventar una decisión que la planilla no tomó."""
+    pack = ps.pack_from_rows(
+        [{"key": "s1", "formula_type": "range", "params": "{}"}], [], [])
+    assert "publica" not in pack["signals"][0]
+
+
+def test_pack_from_rows_agrupa_componentes_sin_distinguir_caso():
+    """El import cruza por nombre sin distinguir caso (ci_equals); agrupar de
+    otra forma dejaría la estrategia sin componentes en silencio."""
+    pack = ps.pack_from_rows(
+        [], [{"name": "Mi Estrategia", "publica": "si"}],
+        [{"strategy_name": "mi estrategia", "signal_key": "s1", "weight": 2.0}])
+    assert pack["strategies"][0]["components"] == [
+        {"signal_key": "s1", "weight": 2}]
+
+
+def test_pack_from_rows_conserva_las_columnas_de_mas():
+    """`source` fue removido y el import lo RECHAZA: si la conversión lo
+    tragara, el pack convertido importaría distinto del original."""
+    pack = ps.pack_from_rows(
+        [{"key": "s1", "formula_type": "range", "params": "{}",
+          "source": "group"}], [], [])
+    assert pack["signals"][0]["source"] == "group"
+
+
+def test_pack_from_rows_params_invalido_dice_cual_es_la_fila():
+    with pytest.raises(ps.PackError, match="señales\[s1\]"):
+        ps.pack_from_rows([{"key": "s1", "params": "{no es json}"}], [], [])
+
+
+def test_pack_from_rows_filtro_invalido_dice_cual_es_la_fila():
+    with pytest.raises(ps.PackError, match="estrategias\[E1\]"):
+        ps.pack_from_rows([], [{"name": "E1",
+                                "filter_conditions": "{roto"}], [])

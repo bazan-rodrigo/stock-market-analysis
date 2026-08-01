@@ -221,6 +221,119 @@ def strategy_rows_from_pack(pack: dict) -> tuple[list[dict], list[dict]]:
     return rows_s, rows_c
 
 
+def _texto_a_params(value, donde: str):
+    """Columna `params` (texto JSON) → objeto. Inversa de `_params_to_text`."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError) as exc:
+        raise PackError(f"{donde}: la columna 'params' no es JSON válido: "
+                        f"{exc}") from exc
+
+
+def _texto_a_publica(value):
+    """Columna `publica` (si/no) → bool, o None si la celda está vacía.
+
+    None significa "el archivo no lo dice", y se omite del pack: ausente es
+    privada en los dos formatos, así que omitirlo conserva la semántica sin
+    inventar una decisión que el original no tomó.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return parse_publica(str(value))
+
+
+def _numero_prolijo(value):
+    """3.0 → 3. Los pesos salen de una celda de Excel como float; escribirlos
+    así en el JSON hace ruido al leerlo y al diffearlo."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def pack_from_rows(signal_rows: list[dict] | None,
+                   strategy_rows: list[dict] | None,
+                   component_rows: list[dict] | None,
+                   *, name: str | None = None,
+                   description: str | None = None) -> dict:
+    """Filas de las planillas → pack JSON. Inversa de `signal_rows_from_pack` +
+    `strategy_rows_from_pack`.
+
+    Existe para convertir al formato canónico lo que hoy solo está en planillas
+    (las de `strategy_packs/`, o las que exporta la app). Las celdas vacías se
+    omiten en vez de viajar como `null`: un pack se lee y se edita a mano.
+    """
+    pack: dict = {"spec_version": SPEC_VERSION}
+    if name:
+        pack["pack"] = name
+    if description:
+        pack["description"] = description
+
+    signals = []
+    for i, row in enumerate(signal_rows or []):
+        key = str(row.get("key") or "").strip()
+        if not key and not any(v not in (None, "") for v in row.values()):
+            continue                      # fila vacía al final de la hoja
+        donde = f"señales[{key or i}]"
+        sig: dict = {}
+        for col in SIGNAL_COLUMNS:
+            valor = row.get(col)
+            if col == "params":
+                sig[col] = _texto_a_params(valor, donde)
+            elif col == "publica":
+                publica = _texto_a_publica(valor)
+                if publica is not None:
+                    sig[col] = publica
+            elif valor not in (None, ""):
+                sig[col] = valor
+        # Columnas de más (`source` y cualquier otra): se conservan para que el
+        # import las rechace con su mensaje propio en vez de desaparecer acá.
+        sig.update({k: v for k, v in row.items()
+                    if k not in SIGNAL_COLUMNS and v not in (None, "")})
+        signals.append(sig)
+    if signals:
+        pack["signals"] = signals
+
+    por_estrategia: dict[str, list[dict]] = {}
+    for row in component_rows or []:
+        ckey = str(row.get("signal_key") or "").strip()
+        if not ckey:
+            continue
+        comp: dict = {"signal_key": ckey}
+        if row.get("weight") is not None:
+            comp["weight"] = _numero_prolijo(row["weight"])
+        por_estrategia.setdefault(_clave(row.get("strategy_name")), []).append(comp)
+
+    strategies = []
+    for i, row in enumerate(strategy_rows or []):
+        nombre = str(row.get("name") or "").strip()
+        if not nombre:
+            continue
+        donde = f"estrategias[{nombre or i}]"
+        strat: dict = {"name": nombre}
+        if row.get("description") not in (None, ""):
+            strat["description"] = row["description"]
+        publica = _texto_a_publica(row.get("publica"))
+        if publica is not None:
+            strat["publica"] = publica
+        tree = row.get("filter_conditions")
+        if tree not in (None, "") and str(tree).strip():
+            try:
+                strat["filter"] = json.loads(tree) if isinstance(tree, str) else tree
+            except (TypeError, ValueError) as exc:
+                raise PackError(f"{donde}: la columna 'filter_conditions' no es "
+                                f"JSON válido: {exc}") from exc
+        strat["components"] = por_estrategia.get(_clave(nombre), [])
+        strategies.append(strat)
+    if strategies:
+        pack["strategies"] = strategies
+
+    return pack
+
+
 # ── Atributos: nombre → id ────────────────────────────────────────────────────
 
 def _is_id(value) -> bool:

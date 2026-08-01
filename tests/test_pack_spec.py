@@ -144,3 +144,73 @@ def test_la_especificacion_se_puede_bajar_desde_la_pantalla(texto):
 def test_el_readme_de_packs_apunta_al_spec():
     readme = (ROOT / "strategy_packs" / "README.md").read_text(encoding="utf-8")
     assert "SPEC.md" in readme
+
+
+# ── Los packs publicados en strategy_packs/ ──────────────────────────────────
+
+PACKS = ROOT / "strategy_packs"
+
+
+def _packs_json() -> list[Path]:
+    return sorted(PACKS.glob("*.json"))
+
+
+def _filas_xlsx(path: Path) -> list[list]:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path)
+    return [[list(r) for r in ws.iter_rows(values_only=True)]
+            for ws in wb.worksheets]
+
+
+def test_cada_pack_publicado_valida_sin_errores():
+    """Un pack roto en el repositorio se copia como ejemplo. Sin catálogo no se
+    verifican los indicadores (dependen de la instalación), pero sí toda la
+    forma."""
+    assert _packs_json(), "no hay ningún pack JSON en strategy_packs/"
+    for path in _packs_json():
+        pack = ps.parse_pack(path.read_bytes())
+        errores = ps.validate_pack(pack, None)["errors"]
+        assert errores == [], f"{path.name}: {errores}"
+
+
+def test_cada_planilla_publicada_tiene_su_json():
+    """El formato canónico es el JSON (SPEC §10): un pack que solo exista como
+    planilla no se puede leer ni entregar en el formato que el estándar
+    publica."""
+    faltantes = [p.name for p in sorted(PACKS.glob("*_senales.xlsx"))
+                 if not (PACKS / f"{p.stem.replace('_senales', '')}.json").exists()]
+    assert not faltantes, (
+        f"planillas sin su pack JSON: {faltantes}. Generalo con "
+        f"scripts/pack_to_json.py")
+
+
+def test_el_json_y_las_planillas_de_cada_pack_dicen_lo_mismo():
+    """Los dos formatos del MISMO pack tienen que coincidir: si se editan por
+    separado, el canónico y el histórico empiezan a describir estrategias
+    distintas con el mismo nombre y nadie se entera."""
+    for path in _packs_json():
+        pack = ps.parse_pack(path.read_bytes())
+        nombre = path.stem
+
+        senales = PACKS / f"{nombre}_senales.xlsx"
+        if senales.exists():
+            esperado = [list(ps.SIGNAL_COLUMNS)] + [
+                [f.get(c) for c in ps.SIGNAL_COLUMNS]
+                for f in ps.signal_rows_from_pack(pack)]
+            assert _filas_xlsx(senales)[0] == esperado, (
+                f"{senales.name} no coincide con {path.name}: regenerá la "
+                f"planilla con scripts/pack_from_json.py")
+
+        estrategia = PACKS / f"{nombre}_estrategia.xlsx"
+        if estrategia.exists():
+            rows_s, rows_c = ps.strategy_rows_from_pack(pack)
+            hojas = _filas_xlsx(estrategia)
+            assert hojas[0] == [list(ps.STRATEGY_COLUMNS)] + [
+                [f.get(c) for c in ps.STRATEGY_COLUMNS] for f in rows_s], (
+                f"{estrategia.name}: la hoja de estrategias no coincide con "
+                f"{path.name}")
+            assert hojas[1] == [list(ps.COMPONENT_COLUMNS)] + [
+                [f.get(c) for c in ps.COMPONENT_COLUMNS] for f in rows_c], (
+                f"{estrategia.name}: la hoja de componentes no coincide con "
+                f"{path.name}")

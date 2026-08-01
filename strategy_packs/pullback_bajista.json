@@ -1,0 +1,143 @@
+{
+  "spec_version": 1,
+  "pack": "pullback_bajista",
+  "signals": [
+    {
+      "key": "rsi_rebote",
+      "name": "RSI rebote (para cortos)",
+      "description": "Espejo de rsi_señal: premia la SOBRECOMPRA de corto plazo dentro de una tendencia bajista (rebote hacia resistencia = entrada corta). RSI >70 -> 100; >55 -> 50; >45 -> 0; >30 -> -50; resto -> -100.",
+      "indicator_key": "rsi_daily",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [70, 100],
+          [55, 50],
+          [45, 0],
+          [30, -50],
+          [null, -100]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "debilidad_relativa_52w",
+      "name": "Debilidad relativa 52 semanas",
+      "description": "Espejo de fuerza_relativa_52w: premia perder contra el benchmark. Ventaja >20 -> -100; positiva -> -50; hasta -20 -> 0; peor que -20 -> 100.",
+      "indicator_key": "relative_strength_52w",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [20, -100],
+          [0, -50],
+          [-20, 0],
+          [null, 100]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "dist_sma_d",
+      "name": "Distancia SMA diaria (z-score)",
+      "description": "Distancia a la SMA optima diaria en desvios: -3 -> -100, +3 -> +100 (premia estar extendido por arriba).",
+      "indicator_key": "dist_optimal_sma_daily",
+      "formula_type": "range",
+      "params": {
+        "min": -3.0,
+        "max": 3.0,
+        "clamp": true
+      },
+      "publica": true
+    },
+    {
+      "key": "tendencia_d_bajista",
+      "name": "Tendencia diaria bajista",
+      "description": "Espejo de tendencia_d: la tendencia bajista puntua positivo (para rankear candidatos a corto).",
+      "indicator_key": "trend_daily",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "bearish_strong": 100,
+          "bearish_nascent_strong": 75,
+          "bearish": 60,
+          "bearish_nascent": 40,
+          "lateral_nascent": -5,
+          "lateral": 0,
+          "bullish_nascent": -40,
+          "bullish_nascent_strong": -75,
+          "bullish": -60,
+          "bullish_strong": -100
+        }
+      },
+      "publica": true
+    }
+  ],
+  "strategies": [
+    {
+      "name": "Pullback bajista",
+      "description": "Espejo del Pullback en tendencia, para cortos o para evitar: tendencia semanal bajista + precio bajo la SMA200 + sin volatilidad extrema, rankeando por rebote de corto plazo (RSI alto), debilidad relativa y rally hacia la SMA óptima.",
+      "publica": true,
+      "filter": {
+        "op": "AND",
+        "children": [
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "trend_weekly"
+              },
+              "operator": "in",
+              "right": {
+                "type": "const",
+                "value": ["bearish", "bearish_strong", "bearish_nascent_strong"]
+              }
+            }
+          },
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "dist_sma200"
+              },
+              "operator": "<",
+              "right": {
+                "type": "const",
+                "value": 0
+              }
+            }
+          },
+          {
+            "cond": {
+              "left": {
+                "type": "indicator",
+                "key": "volatility_daily"
+              },
+              "operator": "not_in",
+              "right": {
+                "type": "const",
+                "value": ["extrema_corta", "extrema_media", "extrema_larga"]
+              }
+            }
+          }
+        ]
+      },
+      "components": [
+        {
+          "signal_key": "rsi_rebote",
+          "weight": 3
+        },
+        {
+          "signal_key": "debilidad_relativa_52w",
+          "weight": 2
+        },
+        {
+          "signal_key": "dist_sma_d",
+          "weight": 2
+        },
+        {
+          "signal_key": "tendencia_d_bajista",
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}

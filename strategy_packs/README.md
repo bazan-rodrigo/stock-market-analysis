@@ -10,11 +10,24 @@ casos de prueba).
 > histórico y siguen funcionando.
 >
 > Para escribir uno hacen falta dos cosas: el SPEC y el **catálogo de la
-> instalación de destino** (botón *Catálogo* en la pantalla de Señales), que
-> dice qué indicadores y qué sectores/mercados existen ahí. Se valida sin base
-> ni app con `python scripts/validate_pack.py <pack>.json --catalog
-> catalogo.json`, y se convierte a las dos planillas con
-> `python scripts/pack_from_json.py <pack>.json`.
+> instalación de destino**, que dice qué indicadores y qué sectores/mercados
+> existen ahí. Los dos se bajan de la pantalla **Packs** (`/admin/packs`), que
+> es también donde se importa; el botón *Catálogo* está además en la pantalla
+> de Señales. Se valida sin base ni app con
+> `python scripts/validate_pack.py <pack>.json --catalog catalogo.json`.
+
+Cada pack de este directorio está en **los dos formatos**: `<pack>.json` (el
+canónico) y sus dos planillas. Se convierten en cualquier dirección, y ninguno
+de los dos se edita a mano por separado — se edita uno y se regenera el otro:
+
+```
+python scripts/pack_from_json.py strategy_packs/pullback.json   # JSON  → xlsx
+python scripts/pack_to_json.py   strategy_packs/pullback        # xlsx → JSON
+```
+
+`tests/test_pack_spec.py` verifica que los dos formatos de cada pack digan lo
+mismo y que cada uno valide sin errores: si quedan desalineados, falla la
+suite.
 
 Políticas:
 - **Toda señal debe estar usada por alguna estrategia** — las que no, solo
@@ -26,7 +39,16 @@ Políticas:
   por varios packs aparece duplicada en cada uno — el import upsertea por
   key, así que no genera conflicto y el orden entre packs no importa.
 
-Cada pack trae dos archivos:
+## Cómo se importan
+
+El `<pack>.json` se sube entero a la pantalla **Packs** (`/admin/packs`, solo
+admin): ahí están los botones para bajar la especificación y el catálogo, y
+subirlo **no escribe nada** — primero se ve el ensayo (errores, avisos, y fila
+por fila qué crea y qué actualiza) y recién después se confirma la importación,
+que aplica las señales y las estrategias en el orden correcto.
+
+Las planillas **Excel** van por el camino histórico, en dos pantallas y sin
+ensayo previo:
 
 - `<pack>_senales.xlsx` — se importa primero, en **/admin/signals → Importar**.
 - `<pack>_estrategia.xlsx` — se importa después, en **/admin/strategies →
@@ -36,16 +58,20 @@ Cada pack trae dos archivos:
 Después de importar: en Centro de Datos, card **Señales y Estrategias →
 Ejecutar** (con alcance en la estrategia nueva llena solo su historia).
 
-La importación es todo-o-nada: si alguna fila es inválida no se escribe nada
-y la pantalla muestra el motivo por fila. Reimportar un archivo actualiza por
-key/nombre (no duplica).
+La importación es todo-o-nada **dentro de cada paso**: si alguna fila es
+inválida no se escribe ninguna de esa lista y la pantalla muestra el motivo por
+fila. Los dos pasos son transacciones separadas, así que unas señales
+importadas quedan aunque falle la estrategia. Reimportar un archivo actualiza
+por key/nombre (no duplica).
 
 Visibilidad (migración 0065): la columna **`publica`** (si/no) de cada hoja
 define si la señal/estrategia queda visible para todos los usuarios o solo
-para su dueño. Ausente o vacía = pública (compatibilidad con archivos
-viejos). El que importa (solo admin) queda como dueño de las filas nuevas;
-las existentes conservan su dueño. Todos los packs de este directorio están
-marcados `publica=si`. Regla de referencias: una señal/estrategia pública
+para su dueño. **Ausente o vacía = PRIVADA**: publicar es siempre un paso
+deliberado (antes el default era público, para no romper los packs anteriores a
+la columna; se unificó con el default de la UI). El que importa (solo admin)
+queda como dueño de las filas nuevas; las existentes conservan su dueño. Todos
+los packs de este directorio traen `publica=si` explícito, así que ese cambio
+de default no los afecta. Regla de referencias: una señal/estrategia pública
 solo puede referenciar señales públicas.
 
 ## pullback_en_tendencia
@@ -67,8 +93,13 @@ Compra retrocesos de corto plazo dentro de tendencias alcistas confirmadas.
 | `tendencia_d` (mapa de régimen diario) | 1 |
 
 Nota: el filtro por tipo de instrumento (`instrument_type in [Equity, FUND]`)
-quedó afuera del archivo a propósito — los ids de catálogo dependen de cada
-base. Agregarlo a mano desde el editor de la estrategia si se quiere.
+quedó afuera del archivo. La razón original —que los ids de catálogo cambian de
+base en base— **ya no aplica**: el import resuelve los atributos **por nombre**,
+así que hoy se puede escribir en el pack. Lo que sigue dependiendo de la
+instalación son los nombres en sí (si ahí no existe un tipo llamado `FUND`, el
+import rechaza el archivo entero), así que agregarlo es una decisión de cada
+instalación: desde el editor de la estrategia, o en el pack si se sabe qué
+tipos hay cargados.
 
 ## momentum_de_lideres
 
