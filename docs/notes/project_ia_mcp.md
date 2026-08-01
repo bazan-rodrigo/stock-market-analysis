@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-01T18:10:04.244Z
+  modified: 2026-08-01T18:33:03.153Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -129,11 +129,37 @@ Falla silenciosa: la llamada funcionaba y devolvía de menos. Moraleja para lo
 que viene: los trinquetes cubren forma y permisos, no que el resultado sea el
 correcto — hay que ejercitar cada herramienta a mano al menos una vez.
 
-**PENDIENTE — fase 1b:** transporte MCP (`mcp_server.py`), tabla de tokens con
-su migración, pantalla para generarlos/revocarlos, servicio aparte en Railway.
-Ahí entran una dependencia nueva y la decisión de infra. Después: que la IA arme
-y simule **carteras** (filas planas, sin DDL ni backfill; ver la sección de
-arriba, y que toda optimización pase por `walk_forward`).
+**AUTENTICACIÓN HECHA (commit 43795e9, 1396 passed).** El usuario preguntó
+"¿qué tabla de token? no quiero guardar credenciales de IA" — la confusión vale
+anotarla porque va a volver: **son dos credenciales distintas.** La del
+proveedor de IA se queda en el cliente y la app nunca la ve (eso es lo que se
+decidió no guardar). El token es la identidad del USUARIO ante el servidor MCP,
+equivalente a su contraseña, y sin él el gate de visibilidad no se puede aplicar
+— las únicas alternativas eran un servidor público donde cualquiera lee lo
+privado de todos, o no tener MCP.
+- **Se reusó `users`** (decisión del usuario) en vez de tabla nueva: migración
+  **0099** agrega `mcp_token_hash` (sha-256 hex, índice único) y
+  `mcp_token_created_at`. Revocar = NULL.
+- **SHA-256 y NO bcrypt**, a diferencia de `password_hash`: una contraseña es
+  adivinable y conviene que verificarla sea lenta; un token de 256 bits no. Y
+  bcrypt saltea, así que no permitiría BUSCAR por hash — habría que traer todos
+  los usuarios y comparar uno por uno en cada llamada.
+- `app/ai/tokens.py` + pantalla **«Conexión IA» (`/ia`)**, todos los roles, en el
+  menú del usuario. El token en claro se muestra UNA vez.
+- Un usuario desactivado no resuelve: dar de baja corta también su IA.
+
+**PENDIENTE en Railway: `alembic upgrade head` (0099) + verificar la pantalla
+viva.** Esta PC no levanta la app (falta `yfinance`), así que el layout no se
+ejercitó; los callbacks sí se validaron importando el módulo (Dash rechaza al
+importar los outputs duplicados). Ojo: `test_module_registration` solo mira el
+TEXTO del código, no importa los módulos — no habría detectado un conflicto.
+
+**PENDIENTE — lo que falta del MCP:** el transporte (`mcp_server.py`), la
+dependencia del SDK y el servicio aparte en Railway. La capa de capacidades y
+la identidad ya están; el transporte es adaptar `registry.all_tools()` al
+formato MCP y `tokens.resolver()` al header de autorización.
+Después: que la IA arme y simule **carteras** (filas planas, sin DDL ni
+backfill, y que toda optimización pase por `walk_forward`).
 
 Relacionado: [[project-backtest]], [[feedback-entorno-verificacion]] (Railway es
 producción, no hay entorno descartable), [[feedback-reflejar-en-ui-y-spec]].
