@@ -50,6 +50,8 @@
 - [Modal no se cierra si hay error al guardar](feedback_modal_on_error.md) — El modal ABM debe permanecer abierto en error; solo el callback de save cierra el modal (en éxito)
 - [Registro de pantallas nuevas](feedback_registro_pantallas.md) — Sin auto-discovery: _PAGES + _CALLBACKS en app/__init__.py + navbar; test_module_registration.py es la red
 - [Reflejar todo cambio en la UI y en el SPEC](feedback_reflejar_en_ui_y_spec.md) — 26-jul: motor + interfaz + contrato publicado (SPEC/manual) son tres caras de lo mismo, se tocan en el mismo commit; lo que la UI no ofrece es invisible y lo que el SPEC no documenta nadie lo puede usar desde afuera
+- [Un indicador nuevo se ve en el GRÁFICO](feedback_indicador_se_ve_en_el_grafico.md) — 1-ago: agregar un indicador incluye su panel en Gráfico Técnico, no es trabajo aparte. **`_SLOTS` NO es la lista de lo que el gráfico dibuja** (es solo lo que se calcula en JS): ya hay 5 overlays servidos desde Python, incl. régimen de tendencia y `rs52w`, que lee `ind_daily`. Molde a copiar: `load_rs52w_overlay`. Ya se perdió dos veces
+
 - [Idioma de comunicación](feedback_language.md) — Responder siempre en español
 - [Pedir confirmación antes de aplicar cambios](feedback_confirmacion_cambios.md) — Presentar la solución y esperar "sí" antes de editar archivos
 - [Estrategias como archivos de import](feedback_strategy_packs.md) — Cuando pide una estrategia, generar los xlsx en strategy_packs/, no pasos manuales
