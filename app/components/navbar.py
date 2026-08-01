@@ -118,7 +118,14 @@ def build_navbar() -> dbc.Navbar:
     username = current_user.username if current_user.is_authenticated else ""
     user_menu = dbc.DropdownMenu(
         label=username,
-        children=[dbc.DropdownMenuItem("Cerrar sesión", href="/logout", external_link=True)],
+        # «Conexión IA» va en el menú del usuario y no en un menú temático:
+        # el token es personal (cada uno genera el suyo y ve lo suyo), como
+        # cerrar sesión. Lo ven todos los perfiles.
+        children=[
+            dbc.DropdownMenuItem("Conexión IA", href="/ia"),
+            dbc.DropdownMenuItem(divider=True),
+            dbc.DropdownMenuItem("Cerrar sesión", href="/logout", external_link=True),
+        ],
         nav=True, in_navbar=True, align_end=True,
     )
 

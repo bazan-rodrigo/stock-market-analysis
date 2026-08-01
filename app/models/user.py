@@ -20,6 +20,17 @@ class User(UserMixin, Base):
     active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    # ── Conexión de un cliente de IA por MCP (migración 0099) ────────────────
+    # Identidad del usuario ante el servidor MCP, que corre fuera de Flask y no
+    # tiene `current_user` del que deducir quién pregunta. NO es la credencial
+    # del proveedor de IA: esa vive en el cliente del usuario y la plataforma
+    # nunca la ve.
+    # SHA-256 hex (64 chars) y no bcrypt como `password_hash`: un token de 256
+    # bits aleatorios no es adivinable, y bcrypt saltea cada hash, así que no
+    # permitiría BUSCAR por hash en cada llamada. Ver app/ai/tokens.py.
+    mcp_token_hash = Column(String(64), unique=True, index=True)
+    mcp_token_created_at = Column(DateTime)
+
     def set_password(self, password: str) -> None:
         self.password_hash = bcrypt.hashpw(
             password.encode("utf-8"), bcrypt.gensalt()
