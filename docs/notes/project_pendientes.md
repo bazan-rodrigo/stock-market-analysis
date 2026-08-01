@@ -85,17 +85,13 @@ nuevo quede sin chequeo de cordura en silencio.
 ok"): `alembic upgrade head` + recálculo de los cuatro. Sin pendientes de
 despliegue.
 
-Lo que quedó abierto de ese hilo, por relación valor/costo:
-1. **Distribución de categóricos** (`trend_*`/`volatility_*`): tienen historia
-   guardada y el tab las descarta por el filtro `type == "num"`. No falta
-   ningún dato, falta la rama de renderizado — una barra por régimen, sin
-   binning. Es el más barato y el más útil.
-2. `resistance_pct`/`support_pct` con historia: son distancias %, o sea
-   exactamente la pregunta de esa pantalla, pero hoy son `keep_history=False`
-   y darles serie cuesta footprint.
-3. MACD/Estocástico/Bollinger: **descartados a propósito**, no olvidados. Al
-   vuelo son posibles, pero cada uno arrastra sus parámetros y la pestaña
-   dejaría de ser "elegí un indicador" para volverse un configurador.
+**El hilo quedó CERRADO: no hay pendientes.** Se evaluaron tres continuaciones
+—distribución de categóricos, `resistance_pct`/`support_pct` con historia, y
+MACD/Estocástico/Bollinger— y **las tres están descartadas** (las dos primeras
+por el usuario el 27-jul, después de ver el diseño detallado; la tercera de
+entrada). El detalle de qué implicaba cada una y por qué era cara, en
+[[project_indicadores_con_historia]]. **No re-proponerlas como si fueran
+olvidos.**
 
 ---
 
