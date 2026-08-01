@@ -29,6 +29,11 @@ _BUILTIN_INDICATORS = [
     {"code": "atr_pct_daily",            "name": "ATR % Daily",               "category": "Volatility",       "type": "num", "scale": "%",           "description": "ATR as a percentage of closing price (daily)"},
     {"code": "atr_pct_weekly",           "name": "ATR % Weekly",              "category": "Volatility",       "type": "num", "scale": "%",           "description": "ATR as a percentage of closing price (weekly)"},
     {"code": "atr_pct_monthly",          "name": "ATR % Monthly",             "category": "Volatility",       "type": "num", "scale": "%",           "description": "ATR as a percentage of closing price (monthly)"},
+    # Fuerza de tendencia (ADX) — complementa a trend_*, que da la dirección
+    # pero no cuánto empuja. Período fijo 14 (no vol_cfg): ver _ADX_PERIOD.
+    {"code": "adx_daily",                "name": "ADX Daily",                 "category": "Trend",            "type": "num", "scale": "0 – 100",     "description": "Trend strength (Wilder ADX, 14 periods) regardless of direction — daily"},
+    {"code": "adx_weekly",               "name": "ADX Weekly",                "category": "Trend",            "type": "num", "scale": "0 – 100",     "description": "Trend strength (Wilder ADX, 14 periods) regardless of direction — weekly"},
+    {"code": "adx_monthly",              "name": "ADX Monthly",               "category": "Trend",            "type": "num", "scale": "0 – 100",     "description": "Trend strength (Wilder ADX, 14 periods) regardless of direction — monthly"},
     # RSI
     {"code": "rsi_daily",                "name": "RSI Daily",                 "category": "Momentum",         "type": "num", "scale": "0 – 100",     "description": "Relative Strength Index 14 periods (daily)"},
     {"code": "rsi_weekly",               "name": "RSI Weekly",                "category": "Momentum",         "type": "num", "scale": "0 – 100",     "description": "RSI 14 periods (weekly)"},
@@ -60,6 +65,13 @@ _BUILTIN_INDICATORS = [
     # Soporte / Resistencia
     {"code": "resistance_pct",           "name": "Distance % to Resistance",  "category": "Support/Resistance", "type": "num", "scale": "%",         "keep_history": False, "description": "Percentage distance to the nearest pivot resistance above price"},
     {"code": "support_pct",              "name": "Distance % to Support",     "category": "Support/Resistance", "type": "num", "scale": "%",         "keep_history": False, "description": "Percentage distance to the nearest pivot support below price"},
+    # Posición dentro del rango de 52 semanas. Distinto de los drawdown_*, que
+    # miden contra el máximo ACUMULADO de toda la historia: un activo puede
+    # estar lejos de su máximo histórico y a la vez en el techo del último año.
+    {"code": "price_position_52w",       "name": "Price Position 52W",        "category": "Returns",          "type": "num", "scale": "0 – 100",     "description": "Position of the close within its 52-week range: 0 = at the yearly low, 100 = at the yearly high"},
+    # Volumen relativo. Sin valor para sintéticos y conversiones de moneda: un
+    # ratio no tiene volumen propio (decisión explícita, no una limitación).
+    {"code": "rvol_daily",               "name": "Relative Volume Daily",     "category": "Volume",           "type": "num", "scale": "ratio",       "description": "Volume of the bar over the average of the previous 20 bars (1 = normal volume for that asset)"},
     # Fuerza relativa
     {"code": "relative_strength_52w",    "name": "Relative Strength 52W",     "category": "Returns",          "type": "num", "scale": "%",           "description": "Return 52W minus benchmark return 52W"},
     # MA óptima por timeframe (valor vigente, sin historia)

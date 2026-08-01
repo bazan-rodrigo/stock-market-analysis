@@ -204,6 +204,53 @@ def _atr_series(df: pd.DataFrame, period: int) -> pd.Series:
     return _wilder_smooth(pd.Series(tr, index=df.index), period)
 
 
+# ADX: período FIJO 14 (el estándar), a propósito no vol_cfg.atr_period. Son
+# conceptos distintos —el régimen de volatilidad y la fuerza direccional— y
+# atarlo a la config editable del admin metería adx_* en _CHECKSUM_DEP_CODES,
+# invalidando toda la historia cada vez que alguien toca esa pantalla.
+_ADX_PERIOD = 14
+
+
+def _adx_series(df: pd.DataFrame, period: int = _ADX_PERIOD) -> pd.Series:
+    """ADX de Wilder (0-100): FUERZA de la tendencia, sin dirección.
+
+    Complementa a trend_*, que dice hacia dónde va pero no cuánto empuja: un
+    activo puede estar en bullish_nascent con ADX 12 (ruido) o con ADX 28
+    (movimiento real ya iniciado), y hoy nada en el catálogo distingue esos
+    dos casos.
+
+    Adimensional por construcción (cociente entre medias de movimiento
+    direccional), así que es comparable entre activos y a lo largo de la
+    historia de uno que cambió de escala — a diferencia del ATR absoluto, ver
+    _atr_pct_price_series.
+    """
+    high = df["high"].astype(float)
+    low  = df["low"].astype(float)
+    up   = high.diff()
+    down = -low.diff()
+    # +DM/-DM: solo cuenta el movimiento que DOMINA al del otro lado. Una barra
+    # interna (inside bar) y los empates no suman a ninguno de los dos.
+    plus_dm  = pd.Series(np.where((up > down) & (up > 0), up, 0.0), index=df.index)
+    minus_dm = pd.Series(np.where((down > up) & (down > 0), down, 0.0), index=df.index)
+
+    atr = _atr_series(df, period).replace(0, np.nan)
+    plus_di  = 100 * _wilder_smooth(plus_dm,  period) / atr
+    minus_di = 100 * _wilder_smooth(minus_dm, period) / atr
+    di_sum   = (plus_di + minus_di).replace(0, np.nan)
+    dx       = (plus_di - minus_di).abs() / di_sum * 100
+
+    # El ADX es el suavizado de Wilder del DX, pero sembrado con los primeros
+    # `period` DX VÁLIDOS — no con las primeras `period` posiciones del array,
+    # que arrancan en NaN por el warm-up del propio DX. Suavizar sobre las
+    # posiciones válidas y devolverlas a su lugar mantiene la semilla estándar.
+    valid = dx.notna().to_numpy()
+    adx   = pd.Series(np.nan, index=df.index, dtype=float)
+    if int(valid.sum()) >= period:
+        smoothed = _wilder_smooth(pd.Series(dx.to_numpy()[valid]), period)
+        adx.iloc[np.flatnonzero(valid)] = smoothed.to_numpy()
+    return adx.round(2)
+
+
 def _confirm_codes(raw_codes: np.ndarray, confirm_bars: int) -> np.ndarray:
     """Máquina de confirmación de regímenes, iterando por RACHAS (RLE) en vez
     de barra por barra: decenas de iteraciones en lugar de miles por activo.
@@ -467,6 +514,69 @@ def _drawdown_pct_series(close: pd.Series) -> pd.Series:
     c      = close.astype(float)
     cummax = c.cummax().replace(0, np.nan)
     return ((c - cummax) / cummax * 100).round(2)
+
+
+# Ventana de price_position_52w: 252 BARRAS, no un año calendario (a
+# diferencia de return_52w). El rolling es vectorizado y reindexar por fecha
+# no lo sería; la diferencia entre ambos criterios es de días.
+_PRICE_POS_WINDOW = 252
+
+
+def _price_position_series(close: pd.Series,
+                           window: int = _PRICE_POS_WINDOW) -> pd.Series:
+    """Posición del cierre dentro de su propio rango de las últimas `window`
+    barras: 0 = pegado al mínimo del período, 100 = pegado al máximo.
+
+    Responde algo que ningún otro indicador del catálogo responde. Los
+    drawdown_* miden contra el máximo ACUMULADO de toda la historia, no contra
+    el rango del último año: un activo puede estar 40% abajo de su máximo
+    histórico y a la vez en el techo de sus últimas 52 semanas, y esas dos
+    situaciones piden decisiones opuestas.
+
+    Sobre el CIERRE, no sobre high/low intradiarios: return_52w y los
+    drawdown_* usan cierre, y mezclar criterios haría que dos indicadores del
+    mismo catálogo respondan preguntas sutilmente distintas.
+
+    min_periods=window → NaN hasta tener el año completo. Una posición
+    calculada sobre 30 barras diría "en máximos" con demasiada facilidad, que
+    es justo el falso positivo que este indicador tiene que evitar. Rango
+    degenerado (máximo == mínimo, activo sin movimiento) → NaN, no división
+    por cero.
+    """
+    c    = close.astype(float)
+    lo   = c.rolling(window, min_periods=window).min()
+    hi   = c.rolling(window, min_periods=window).max()
+    span = (hi - lo).replace(0, np.nan)
+    return ((c - lo) / span * 100).round(2)
+
+
+# Ventana del promedio de volumen de rvol_daily.
+_RVOL_WINDOW = 20
+
+
+def _rvol_series(volume: pd.Series, window: int = _RVOL_WINDOW) -> pd.Series:
+    """Volumen relativo: volumen de la barra sobre el promedio de las `window`
+    barras ANTERIORES (1.0 = volumen normal para ese activo, 3.0 = el triple).
+
+    El shift(1) es deliberado y no cosmético: sin él, una barra de volumen
+    excepcional infla su propio denominador y se amortigua sola — justo el día
+    que interesa detectar. De paso deja el indicador libre de cualquier duda de
+    lookahead.
+
+    Adimensional: cada activo se compara contra sí mismo, así que un papel que
+    opera mil acciones y otro que opera diez millones dan ambos ~1 en un día
+    normal. Esa es la propiedad que el ranking transversal exige y que el
+    volumen crudo no tiene.
+
+    Promedio 0 → NaN, NUNCA infinito: los índices y los activos sin operar
+    traen volumen 0, que no es lo mismo que "sin dato". Los sintéticos y las
+    conversiones de moneda llegan acá con la columna entera vacía (un ratio no
+    tiene volumen propio) → serie entera NaN y ningún valor guardado, que es
+    el comportamiento buscado.
+    """
+    v   = pd.to_numeric(volume, errors="coerce").astype(float)
+    avg = v.shift(1).rolling(window, min_periods=window).mean().replace(0, np.nan)
+    return (v / avg).round(2)
 
 
 def _return_vs_ref_series(df: pd.DataFrame, kind: str) -> pd.Series:
@@ -975,6 +1085,29 @@ def _bf_atr_pct_monthly(df, df_w, df_m, vol_cfg, **kw):
 def _bf_drawdown_pct_daily(df, df_w, df_m, **kw):
     return _drawdown_pct_series(df["close"]).tolist()
 
+def _bf_price_position_52w(df, df_w, df_m, **kw):
+    return _price_position_series(df["close"]).tolist()
+
+def _bf_adx_daily(df, df_w, df_m, **kw):
+    return _adx_series(df).tolist()
+
+def _bf_adx_weekly(df, df_w, df_m, **kw):
+    if len(df_w) >= _ADX_PERIOD * 3:
+        return pd.Series(_adx_series(df_w).to_numpy(), index=_period_index(df_w))
+    return pd.Series(dtype=float)
+
+def _bf_adx_monthly(df, df_w, df_m, **kw):
+    if len(df_m) >= _ADX_PERIOD * 3:
+        return pd.Series(_adx_series(df_m).to_numpy(), index=_period_index(df_m))
+    return pd.Series(dtype=float)
+
+def _bf_rvol_daily(df, df_w, df_m, **kw):
+    # La columna puede no venir: los caminos que arman el df a mano sin volumen
+    # (y cualquier llamador viejo) tienen que dar serie vacía, no romper.
+    if "volume" not in df.columns:
+        return [None] * len(df)
+    return _rvol_series(df["volume"]).tolist()
+
 def _bf_trend(tf_key):
     def fn(df, df_w, df_m, regime_cfg, **kw):
         df_tf     = {"d": df, "w": df_w, "m": df_m}[tf_key]
@@ -1083,6 +1216,11 @@ _BACKFILL_FNS: dict[str, callable] = {
     "atr_pct_weekly":           _bf_atr_pct_weekly,
     "atr_pct_monthly":          _bf_atr_pct_monthly,
     "drawdown_pct_daily":       _bf_drawdown_pct_daily,
+    "price_position_52w":       _bf_price_position_52w,
+    "adx_daily":                _bf_adx_daily,
+    "adx_weekly":               _bf_adx_weekly,
+    "adx_monthly":              _bf_adx_monthly,
+    "rvol_daily":               _bf_rvol_daily,
     "trend_daily":              _bf_trend("d"),
     "trend_weekly":             _bf_trend("w"),
     "trend_monthly":            _bf_trend("m"),
@@ -1154,6 +1292,11 @@ _DELTA_TAIL_MODE: dict[str, str] = {
     "atr_pct_weekly":           "series",
     "atr_pct_monthly":          "series",
     "drawdown_pct_daily":       "series",
+    "price_position_52w":       "series",
+    "adx_daily":                "series",
+    "adx_weekly":               "series",
+    "adx_monthly":              "series",
+    "rvol_daily":               "series",
     "volatility_daily":         "zones",
     "volatility_weekly":        "zones",
     "volatility_monthly":       "zones",
@@ -1323,6 +1466,15 @@ def _upsert_ind_stats_meta(s, code: str, stats_by_asset: dict) -> None:
 # corrida anterior, el camino rápido de cola es seguro; si no coincide (o
 # no hay checksum guardado todavía), cae al dict-compare de siempre — pero
 # solo para ese activo.
+#
+# Los que NO están acá y podrían parecer candidatos, para no re-discutirlo:
+#   - price_position_52w y rvol_daily: ventanas acotadas (252 y 20 barras),
+#     mismo trato que dist_sma200 y rsi_*.
+#   - adx_*: es recursivo (Wilder), pero con período FIJO 14 — el efecto de un
+#     precio viejo decae exponencialmente y no hay config editable detrás, así
+#     que queda como rsi_*, no como atr_pct_*. Lo que mete a atr_pct_* acá es
+#     principalmente su período editable (vol_cfg); si algún día el ADX se
+#     atara a esa config, tendría que mudarse a este frozenset.
 _CHECKSUM_DEP_CODES = frozenset({
     "volatility_daily", "volatility_weekly", "volatility_monthly",
     "atr_percentile_daily", "atr_percentile_weekly", "atr_percentile_monthly",
@@ -1378,10 +1530,15 @@ def _load_all_prices(_s) -> dict:
     from sqlalchemy import text as _text
     with engine.connect() as conn:
         df = pd.read_sql(
-            _text("SELECT asset_id, date, close, high, low FROM prices"
+            _text("SELECT asset_id, date, close, high, low, volume FROM prices"
                   " ORDER BY asset_id, date"),
             conn,
         )
+    # volume es BigInteger en la base y acá solo alimenta un cociente contra su
+    # propio promedio (rvol_daily): a float32 pesa la mitad, y este DataFrame es
+    # la base ENTERA en memoria — a 10.000 activos la diferencia son cientos de
+    # MB que además viajan al ProcessPool.
+    df["volume"] = df["volume"].astype("float32")
     return {aid: sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
 
 
@@ -1419,12 +1576,13 @@ def _load_prices_for_assets(s, asset_ids: list) -> dict:
     ).distinct()}
     want = sorted(set(asset_ids) | bench_ids)
     sel = (sa.select(Price.asset_id, Price.date, Price.close,
-                     Price.high, Price.low)
+                     Price.high, Price.low, Price.volume)
            .where(Price.asset_id.in_(want))
            .order_by(Price.asset_id, Price.date))
     with engine.connect() as conn:
         df = pd.read_sql(sel, conn)
-    df.columns = ["asset_id", "date", "close", "high", "low"]
+    df.columns = ["asset_id", "date", "close", "high", "low", "volume"]
+    df["volume"] = df["volume"].astype("float32")  # ver _load_all_prices
     return {aid: sub.reset_index(drop=True) for aid, sub in df.groupby("asset_id")}
 
 
@@ -1925,14 +2083,16 @@ def backfill_indicator(code: str, *, force: bool = False, asset_tick=None,
                         asset_tick()
                     continue
             else:
-                rows = s.query(Price.date, Price.close, Price.high, Price.low).filter(
+                rows = s.query(Price.date, Price.close, Price.high, Price.low,
+                               Price.volume).filter(
                     Price.asset_id == asset_id
                 ).order_by(Price.date.asc()).all()
                 if len(rows) < _MIN_ROWS:
                     if asset_tick:
                         asset_tick()
                     continue
-                df = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
+                df = pd.DataFrame(rows,
+                                  columns=["date", "close", "high", "low", "volume"])
 
             df_w = df_w_cache.get(asset_id) if df_w_cache is not None else None
             if df_w is None:
@@ -2727,13 +2887,14 @@ def backfill_asset_history(asset_id: int) -> dict:
     llamar después de compute_current_indicators().
     """
     s = get_session()
-    rows = s.query(Price.date, Price.close, Price.high, Price.low).filter(
+    rows = s.query(Price.date, Price.close, Price.high, Price.low,
+                   Price.volume).filter(
         Price.asset_id == asset_id
     ).order_by(Price.date.asc()).all()
     if len(rows) < _MIN_ROWS:
         return {"inserted": 0}
 
-    df   = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
+    df   = pd.DataFrame(rows, columns=["date", "close", "high", "low", "volume"])
     df_w = _resample_ohlc(df, "W")
     df_m = _resample_ohlc(df, "M")
 
@@ -2892,7 +3053,7 @@ def compute_current_indicators(
     # Carga de precios
     if quick:
         rows = (
-            s.query(Price.date, Price.close, Price.high, Price.low)
+            s.query(Price.date, Price.close, Price.high, Price.low, Price.volume)
             .filter(Price.asset_id == asset_id)
             .order_by(Price.date.desc())
             .limit(_QUICK_DAYS)
@@ -2901,7 +3062,7 @@ def compute_current_indicators(
         rows = list(reversed(rows))
     else:
         rows = (
-            s.query(Price.date, Price.close, Price.high, Price.low)
+            s.query(Price.date, Price.close, Price.high, Price.low, Price.volume)
             .filter(Price.asset_id == asset_id)
             .order_by(Price.date.asc())
             .all()
@@ -2910,7 +3071,7 @@ def compute_current_indicators(
     if len(rows) < _MIN_ROWS:
         return
 
-    df = pd.DataFrame(rows, columns=["date", "close", "high", "low"])
+    df = pd.DataFrame(rows, columns=["date", "close", "high", "low", "volume"])
 
     # Drawdown
     if quick:
@@ -3055,6 +3216,28 @@ def compute_current_indicators(
     ind_atr_pct_w = _atr_pct_price_last(df_w_reg, vcfg.atr_period * 3)
     ind_atr_pct_m = _atr_pct_price_last(df_m_reg, vcfg.atr_period * 3)
 
+    # price_position_52w / adx_* / rvol_daily: último valor de las MISMAS series
+    # que escribe el backfill, con las mismas guardas de mínimo de barras. No es
+    # opcional tenerlos acá: en la tabla ancha se escribe la fila COMPLETA de la
+    # cadencia (ver el upsert al final), así que un código de _WIDE ausente de
+    # _current_inds pisaría con NULL el valor que dejó el backfill.
+    def _last_valid(series):
+        if series is None or len(series) == 0:
+            return None
+        v = series.iloc[-1]
+        return None if pd.isna(v) else float(v)
+
+    ind_price_pos_52w = _last_valid(_price_position_series(df["close"]))
+    ind_adx_d = _last_valid(_adx_series(df))
+    ind_adx_w = (_last_valid(_adx_series(df_w_reg))
+                 if len(df_w_reg) >= _ADX_PERIOD * 3 else None)
+    ind_adx_m = (_last_valid(_adx_series(df_m_reg))
+                 if len(df_m_reg) >= _ADX_PERIOD * 3 else None)
+    # Sin columna de volumen (sintéticos, conversiones de moneda, o un llamador
+    # que armó el df a mano) → None, igual que _bf_rvol_daily.
+    ind_rvol_d = (_last_valid(_rvol_series(df["volume"]))
+                  if "volume" in df.columns else None)
+
     ind_resist_pct = ind_support_pct = None
     try:
         sr = sr_service.compute_sr_from_df(df, cfg=_sr_cfg)
@@ -3107,6 +3290,11 @@ def compute_current_indicators(
         "atr_pct_daily":            ind_atr_pct_d,
         "atr_pct_weekly":           ind_atr_pct_w,
         "atr_pct_monthly":          ind_atr_pct_m,
+        "price_position_52w":       ind_price_pos_52w,
+        "adx_daily":                ind_adx_d,
+        "adx_weekly":               ind_adx_w,
+        "adx_monthly":              ind_adx_m,
+        "rvol_daily":               ind_rvol_d,
         # Mismo número que drawdown_current (abajo, sin historia): los dos miden
         # contra el máximo acumulado a la última barra. Acá se persiste para que
         # la serie quede completa hasta hoy.

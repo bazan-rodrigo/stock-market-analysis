@@ -209,6 +209,21 @@ Una estrategia = **filtro de elegibilidad** (quién entra) + **ranking**
 - El ranking es **transversal**: la posición de un activo depende de todos los
   demás en esa fecha.
 
+> **Ojo con los indicadores que no cubren a todos los activos.** Saltear no es
+> excluir: el activo sigue en el ranking, puntuado con los componentes que le
+> quedan y los pesos renormalizados entre ellos. Como el componente que le falta
+> tampoco puede castigarlo, **le va sistemáticamente mejor que a uno que sí tiene
+> el dato**. Con dos componentes de peso 1, un activo que puntúa +80 en el
+> primero y −60 en el segundo termina en 10; otro que puntúa +80 y no tiene dato
+> en el segundo termina en 80, y gana el ranking por carecer del dato.
+>
+> El caso típico es el volumen: los activos sintéticos y las conversiones de
+> moneda no tienen volumen propio (un cociente entre dos precios no lo tiene), y
+> en esa instalación son muchos. Si tu estrategia puntúa por volumen, **agregá la
+> condición también al filtro de elegibilidad** (§6): ahí el dato faltante sí
+> deja al activo afuera, que es lo que querés. La misma precaución vale para
+> cualquier indicador que el catálogo describa como de cobertura parcial.
+
 **Regla de visibilidad**: una estrategia **pública solo puede usar señales
 públicas** (si no, filtraría a otros usuarios una definición privada). Una
 estrategia privada puede usar públicas y las propias. Lo más simple es marcar

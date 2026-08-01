@@ -6,11 +6,11 @@ import pandas as pd
 import pytest
 
 from app.services.technical_service import (
-    _Q_MONTH, _atr_pct_price_series, _closest_price_on_or_before,
+    _Q_MONTH, _adx_series, _atr_pct_price_series, _closest_price_on_or_before,
     _compute_dd_events, _compute_regime_zones, _compute_vol_zones,
     _cur_drawdown_max1, _drawdown_pct_series,
-    _one_year_before, _pct_change, _rsi, _series_dates_values, _sma_zscore,
-    _zones_to_series,
+    _one_year_before, _pct_change, _price_position_series, _rsi, _rvol_series,
+    _series_dates_values, _sma_zscore, _zones_to_series,
 )
 
 
@@ -289,3 +289,136 @@ def test_lpt_order_sin_mediciones_cae_a_la_heuristica():
     orden = _lpt_order(["rsi_monthly", "volatility_daily", "rsi_daily"], {})
     assert orden[0] == "volatility_daily"
     assert orden[-1] == "rsi_monthly"
+
+
+# ── Posición en el rango de 52 semanas (price_position_52w) ──────────────────
+
+def test_price_position_extremos_exactos():
+    """0 y 100 son los bordes por definición: el cierre nunca puede salirse del
+    rango que él mismo forma."""
+    subiendo = _price_position_series(pd.Series([float(i) for i in range(1, 260)]))
+    assert subiendo.iloc[-1] == 100.0
+    bajando = _price_position_series(pd.Series([float(i) for i in range(260, 1, -1)]))
+    assert bajando.iloc[-1] == 0.0
+
+def test_price_position_es_invariante_a_la_escala():
+    """Como es una posición relativa dentro del propio rango, un activo que
+    cotiza a 5 y otro a 5000 son directamente comparables — la propiedad que el
+    ranking transversal exige."""
+    closes = [100.0 + (i % 37) for i in range(300)]
+    a = _price_position_series(pd.Series(closes)).dropna()
+    b = _price_position_series(pd.Series([c * 1000 for c in closes])).dropna()
+    assert list(a) == list(b)
+
+def test_price_position_nan_hasta_tener_la_ventana_completa():
+    """REGLA: con menos de 252 barras no hay valor. Una posición calculada
+    sobre media ventana diría 'en máximos' con demasiada facilidad."""
+    s = _price_position_series(pd.Series([float(i) for i in range(1, 253)]))
+    assert s.iloc[:251].isna().all()
+    assert s.iloc[251] == 100.0
+
+def test_price_position_serie_constante_es_nan_no_division_por_cero():
+    s = _price_position_series(pd.Series([50.0] * 260))
+    assert s.iloc[-1] != s.iloc[-1]  # NaN
+
+def test_price_position_no_es_el_drawdown():
+    """LA razón de ser del indicador. Un activo puede estar 90% abajo de su
+    máximo histórico y a la vez pegado al techo de sus últimas 52 semanas: los
+    drawdown_* miden contra el máximo ACUMULADO, este contra el rango reciente.
+    Si algún día alguien 'simplifica' uno con el otro, esto lo frena."""
+    closes = [1000.0] + [50.0] * 260 + [100.0]
+    assert _price_position_series(pd.Series(closes)).iloc[-1] == 100.0
+    assert _drawdown_pct_series(pd.Series(closes)).iloc[-1] == -90.0
+
+
+# ── Fuerza de tendencia (adx_daily/weekly/monthly) ───────────────────────────
+
+def test_adx_acotado_entre_0_y_100():
+    s = _adx_series(_trend_df(n=120, daily_ret=0.01)).dropna()
+    assert len(s) > 0
+    assert s.min() >= 0.0 and s.max() <= 100.0
+
+def test_adx_alto_en_tendencia_sostenida():
+    """Una subida limpia y sostenida es justo lo que el ADX tiene que marcar
+    como tendencia fuerte."""
+    assert _adx_series(_trend_df(n=120, daily_ret=0.01)).iloc[-1] > 40.0
+
+def test_adx_bajo_en_serie_de_ida_y_vuelta():
+    """Sin dirección neta el ADX se derrumba, aunque el precio se mueva mucho:
+    mide fuerza direccional, no amplitud (para eso está atr_pct_*)."""
+    closes = [100.0 + (10.0 if i % 2 else 0.0) for i in range(120)]
+    df = pd.DataFrame({
+        "date":  [date(2025, 1, 1) + timedelta(days=i) for i in range(120)],
+        "close": closes,
+        "high":  [c * 1.01 for c in closes],
+        "low":   [c * 0.99 for c in closes],
+    })
+    assert _adx_series(df).iloc[-1] < 25.0
+
+def test_adx_es_invariante_a_la_escala():
+    df   = _trend_df(n=120)
+    df10 = df.assign(**{c: df[c] * 10 for c in ("close", "high", "low")})
+    a = _adx_series(df).dropna()
+    b = _adx_series(df10).dropna()
+    assert list(a) == list(b)
+
+def test_adx_warm_up_es_2p_menos_2():
+    """El ADX se siembra con los primeros `period` DX VÁLIDOS, no con las
+    primeras `period` posiciones del array (que arrancan en NaN por el warm-up
+    del propio DX). Con period=14 el primer valor cae en el índice 26."""
+    s = _adx_series(_trend_df(n=120))
+    assert s.iloc[:26].isna().all()
+    assert not pd.isna(s.iloc[26])
+
+def test_adx_serie_sin_movimiento_es_nan_no_explota():
+    n = 60
+    df = pd.DataFrame({
+        "date":  [date(2025, 1, 1) + timedelta(days=i) for i in range(n)],
+        "close": [100.0] * n, "high": [100.0] * n, "low": [100.0] * n,
+    })
+    assert _adx_series(df).isna().all()
+
+
+# ── Volumen relativo (rvol_daily) ────────────────────────────────────────────
+
+def test_rvol_volumen_constante_es_uno():
+    assert _rvol_series(pd.Series([1000.0] * 30)).iloc[-1] == 1.0
+
+def test_rvol_no_incluye_la_barra_actual_en_su_promedio():
+    """REGLA: el promedio es de las 20 barras ANTERIORES. Sin el shift(1), una
+    barra excepcional infla su propio denominador y se amortigua sola — justo
+    el día que interesa detectar. Acá: 1000 sobre un promedio de 100 es 10,0;
+    si el día actual entrara al promedio daría ~6,9."""
+    v = pd.Series([100.0] * 20 + [1000.0])
+    assert _rvol_series(v).iloc[-1] == 10.0
+
+def test_rvol_es_invariante_a_la_escala_del_activo():
+    """Lo que hace a RVOL comparable entre activos y al volumen crudo no: un
+    papel que opera mil acciones y otro que opera diez millones dan el mismo
+    número en un día equivalente."""
+    v = pd.Series([100.0] * 20 + [300.0])
+    assert _rvol_series(v).iloc[-1] == _rvol_series(v * 10_000).iloc[-1]
+
+def test_rvol_promedio_cero_es_nan_no_infinito():
+    """Índices y activos sin operar traen volumen 0, que no es 'sin dato'. Un
+    inf acá viajaría hasta el INSERT."""
+    s = _rvol_series(pd.Series([0.0] * 20 + [500.0]))
+    assert pd.isna(s.iloc[-1])
+
+def test_rvol_sin_volumen_es_serie_vacia():
+    """Sintéticos y conversiones de moneda: un ratio no tiene volumen propio.
+    Decisión explícita — quedan en NULL, no en 0."""
+    s = _rvol_series(pd.Series([None] * 30, dtype="object"))
+    assert s.isna().all()
+
+def test_rvol_nan_hasta_tener_las_20_barras_previas():
+    s = _rvol_series(pd.Series([100.0] * 21))
+    assert s.iloc[:20].isna().all()
+    assert s.iloc[20] == 1.0
+
+def test_bf_rvol_sin_columna_volume_no_rompe():
+    """Los caminos que arman el df a mano (y cualquier llamador viejo) tienen
+    que recibir una serie de None del largo correcto, no un KeyError."""
+    from app.services.technical_service import _bf_rvol_daily
+    df = _price_df([100.0, 101.0, 102.0])
+    assert _bf_rvol_daily(df, None, None) == [None, None, None]

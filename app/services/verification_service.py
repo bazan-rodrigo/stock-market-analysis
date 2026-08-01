@@ -103,6 +103,18 @@ _NUMERIC_BOUNDS: dict[str, tuple[float, float]] = {
     # mensual es mucho más ancha que la diaria.
     "atr_pct_daily": (0, 1000), "atr_pct_weekly": (0, 1000),
     "atr_pct_monthly": (0, 1000),
+    # adx_*: el DX es |+DI − −DI| / (+DI + −DI), un cociente entre 0 y 1 — el
+    # ×100 y su suavizado no pueden salirse de [0,100]. Identidad, no
+    # heurística, igual que drawdown_pct_daily.
+    "adx_daily": (0, 100), "adx_weekly": (0, 100), "adx_monthly": (0, 100),
+    # price_position_52w: el cierre siempre está entre el mínimo y el máximo de
+    # su propia ventana, así que [0,100] también es identidad.
+    "price_position_52w": (0, 100),
+    # rvol_daily: cociente contra el promedio propio, nunca negativo. Techo muy
+    # laxo a propósito — un papel dormido que despierta con una noticia hace
+    # 50-100× su volumen habitual sin que eso sea un bug, y el promedio de 20
+    # ruedas casi vacías amplifica todavía más el cociente.
+    "rvol_daily": (0, 5000),
     "return_daily": (-100, 2000),
     "return_monthly": (-100, 5000), "return_quarterly": (-100, 5000),
     "return_yearly": (-100, 20000), "return_52w": (-100, 20000),

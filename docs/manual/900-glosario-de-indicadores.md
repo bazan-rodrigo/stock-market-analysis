@@ -42,6 +42,25 @@ formando: la tendencia dio vuelta hace poco y todavía no se consolidó.
 
 Se configura en [Régimen de Tendencia](/manual/regimen-de-tendencia).
 
+### Fuerza de tendencia (ADX)
+
+De 0 a 100. Mide **cuánto empuja** la tendencia, sin decir hacia dónde: un
+activo que cae con fuerza y uno que sube con fuerza pueden tener el mismo valor.
+
+Es el complemento del régimen de tendencia, que dice la dirección pero no la
+convicción. Dos activos pueden estar los dos en `bullish_nascent` y ser casos
+muy distintos: con fuerza 12 el movimiento todavía es ruido, con 28 ya arrancó
+en serio. Como referencia de lectura habitual: por debajo de 20 no hay tendencia
+que valga la pena, entre 20 y 25 está empezando a definirse, y por encima de 25
+hay una tendencia establecida.
+
+Sube cuando el precio avanza sostenidamente en una dirección y baja cuando va y
+viene, aunque se mueva mucho. Por eso no reemplaza al ATR %: uno mide cuánta
+convicción hay, el otro cuánto recorrido.
+
+Se calcula en las tres cadencias y guarda historia. No tiene configuración: usa
+el período estándar de 14 barras.
+
 ### Distancia a la media móvil
 
 Qué tan lejos está el precio de su media, en porcentaje. Hay versiones para las
@@ -142,6 +161,39 @@ Usa el mismo período que configurás en
 
 ---
 
+## Volumen
+
+### Volumen relativo
+
+El volumen de la rueda comparado con el promedio de las **20 ruedas
+anteriores**. Un valor de 1 es un día normal para ese activo, 3 es el triple de
+lo habitual y 0,4 es una rueda floja.
+
+Está armado para ser comparable entre activos: cada uno se mide contra su propio
+promedio, así que un papel que opera mil acciones por día y otro que opera diez
+millones dan los dos alrededor de 1 en una rueda cualquiera. El volumen a secas
+no sirve para eso.
+
+Se usa sobre todo para separar movimientos con respaldo de los que no lo tienen:
+una ruptura de resistencia con volumen relativo alto pesa mucho más que la misma
+ruptura en una rueda floja.
+
+El promedio deja afuera la rueda que se está midiendo, a propósito: si la
+incluyera, un día de volumen excepcional levantaría su propio promedio y se
+disimularía solo, justo el día que interesa detectar.
+
+> **No todos los activos lo tienen.** Los activos calculados (los sintéticos y
+> las conversiones de moneda) son un cociente entre dos precios, y un cociente no
+> tiene volumen propio: para ellos este indicador queda vacío. Si armás una
+> estrategia que puntúe por volumen, agregá también una condición sobre él en el
+> filtro de elegibilidad — si no, los activos sin el dato quedan igual en el
+> ranking, puntuados solo con el resto de los componentes, y eso los favorece.
+> Ver [Estrategias](/manual/configuracion-estrategias).
+
+Solo tiene versión diaria y guarda historia.
+
+---
+
 ## Drawdown
 
 ### Drawdown actual
@@ -195,6 +247,27 @@ distinta a si subió o bajó.
 
 Un activo puede tener retorno negativo y buena fuerza relativa: cayó, pero menos
 que todo lo demás.
+
+### Posición en el rango de 52 semanas
+
+De 0 a 100: dónde está el precio de hoy dentro del rango en el que se movió
+durante el último año. 0 es el piso de las 52 semanas, 100 el techo, 50 la mitad
+exacta.
+
+Responde algo que ningún otro indicador contesta: si el activo está apoyado sobre
+su piso anual o pegado a su techo. No confundirlo con el drawdown, que mide
+contra el **máximo de toda la historia**. Las dos lecturas pueden ser opuestas al
+mismo tiempo y las dos son ciertas: una empresa que valía $1.000 hace diez años,
+cayó a $50 y este año se recuperó hasta $100 tiene un drawdown de −90% (muy lejos
+de su máximo histórico) y a la vez posición 100 (en el techo de su último año).
+El drawdown te cuenta de dónde viene; este te cuenta cómo viene.
+
+Necesita un año completo de cotizaciones: los activos con menos historia no
+tienen valor hasta cumplirlo.
+
+Solo tiene versión diaria y guarda historia, así que en
+[Posicionamiento Histórico](/manual/analisis-de-activo) podés ver cuánto tiempo
+pasó el activo en cada zona de su rango.
 
 ---
 

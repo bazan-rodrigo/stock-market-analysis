@@ -11,12 +11,12 @@ from app.models.indicator_store import (
 
 
 def test_wide_mapping_cuenta_y_cadencia():
-    assert len(_WIDE_DAILY) == 16
-    assert len(_WIDE_WEEKLY) == 6
-    assert len(_WIDE_MONTHLY) == 6
+    assert len(_WIDE_DAILY) == 19
+    assert len(_WIDE_WEEKLY) == 7
+    assert len(_WIDE_MONTHLY) == 7
     assert len(_WIDE_FUND_DAILY) == 4
     assert len(_WIDE_FUND_QUARTERLY) == 8
-    assert len(_WIDE) == 40  # 28 técnicos + 12 fundamentales
+    assert len(_WIDE) == 45  # 33 técnicos + 12 fundamentales
 
     for code in _WIDE_DAILY:
         assert _WIDE[code] == ("ind_daily", code, "daily")
