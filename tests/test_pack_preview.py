@@ -101,7 +101,7 @@ def test_el_informe_no_escribe_nada(db):
 
 def test_lo_que_ya_existe_dice_actualiza(db):
     _sembrar()
-    ps.import_pack(_bytes(PACK))
+    ps.import_pack(_bytes(PACK), acting_is_admin=True)
 
     informe = ps.preview_pack(PACK)
     assert informe["summary"] == {"crea": 0, "actualiza": 3}
@@ -111,7 +111,7 @@ def test_el_cruce_no_distingue_mayusculas(db):
     """El import matchea por key sin distinguir caso; si el ensayo lo hiciera
     distinto diría "crea" y el import terminaría pisando algo."""
     _sembrar()
-    ps.import_pack(_bytes(PACK))
+    ps.import_pack(_bytes(PACK), acting_is_admin=True)
 
     otro = json.loads(json.dumps(PACK))
     otro["signals"][0]["key"] = "PV_TENDENCIA"
@@ -132,7 +132,7 @@ def test_avisa_cuando_va_a_pisar_algo_de_otro_dueño(db):
     s.commit()
     otro_id = otro.id
     _sembrar()
-    ps.import_pack(_bytes(PACK), owner_id=otro_id)
+    ps.import_pack(_bytes(PACK), owner_id=otro_id, acting_is_admin=True)
 
     informe = ps.preview_pack(PACK, acting_user_id=999)
     assert any("es de otro" in a for a in informe["warnings"])
@@ -166,7 +166,7 @@ def test_import_pack_hace_los_dos_pasos_en_orden(db):
     from app.models import SignalDefinition, Strategy
     _sembrar()
 
-    salida = ps.import_pack(_bytes(PACK))
+    salida = ps.import_pack(_bytes(PACK), acting_is_admin=True)
 
     assert not salida["aborted"]
     assert all(r["status"] == "ok" for r in salida["signals"])
@@ -184,7 +184,7 @@ def test_si_fallan_las_señales_no_se_intentan_las_estrategias(db):
     malo = json.loads(json.dumps(PACK))
     malo["signals"][0]["indicator_key"] = "no_existe"
 
-    salida = ps.import_pack(_bytes(malo))
+    salida = ps.import_pack(_bytes(malo), acting_is_admin=True)
 
     assert salida["aborted"] is True
     assert salida["strategies"] == []
@@ -195,7 +195,7 @@ def test_si_fallan_las_señales_no_se_intentan_las_estrategias(db):
 def test_import_pack_resuelve_los_atributos_por_nombre(db):
     from app.models import Sector, Strategy
     _sembrar()
-    ps.import_pack(_bytes(PACK))
+    ps.import_pack(_bytes(PACK), acting_is_admin=True)
 
     sector_id = get_session().query(Sector).one().id
     arbol = json.loads(get_session().query(Strategy).one().filter_conditions)
@@ -206,7 +206,7 @@ def test_un_xlsx_en_esta_pantalla_se_rechaza_con_mensaje(db):
     """La pantalla es del formato único; las planillas van por los ABMs."""
     assert not ps.looks_like_json(b"PK\x03\x04", "senales.xlsx")
     with pytest.raises(ps.PackError):
-        ps.import_pack(b"PK\x03\x04 no soy json")
+        ps.import_pack(b"PK\x03\x04 no soy json", acting_is_admin=True)
 
 
 def test_el_informe_predice_las_filas_del_resultado(db):
@@ -215,7 +215,7 @@ def test_el_informe_predice_las_filas_del_resultado(db):
     ejecutar' que sí se ejecutaron."""
     _sembrar()
     previstas = {(f["tipo"], f["nombre"]) for f in ps.preview_pack(PACK)["rows"]}
-    salida = ps.import_pack(_bytes(PACK))
+    salida = ps.import_pack(_bytes(PACK), acting_is_admin=True)
     reales = ({("Señal", r["key"]) for r in salida["signals"]}
               | {("Estrategia", r["name"]) for r in salida["strategies"]})
     assert previstas == reales

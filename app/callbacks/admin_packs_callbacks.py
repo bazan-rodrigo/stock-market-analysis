@@ -155,7 +155,8 @@ def importar(_, encoded, filas):
 
     try:
         salida = pack_service.import_pack(base64.b64decode(encoded),
-                                          owner_id=user_id)
+                                          owner_id=user_id,
+                                          acting_is_admin=is_admin)
     except Exception as exc:                       # noqa: BLE001
         return no_update, f"No se pudo importar: {exc}", True, "danger", False
 

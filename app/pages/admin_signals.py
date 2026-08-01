@@ -163,7 +163,15 @@ def layout(**kwargs):
 
         dbc.Row([
             dbc.Col(page_header("Señales", "configuracion-senales", className="mb-0"), width="auto"),
-            dbc.Col(dbc.Button("+ Nueva", id="sig-btn-add", color="primary", size="sm"),
+            # Crear una señal es exclusivo de un administrador (el catálogo es
+            # curado — signal_service.ADMIN_ONLY_MOTIVO). El botón se muestra
+            # deshabilitado en vez de ocultarse: así el analista ve que la
+            # función existe y por qué no la tiene, en vez de no encontrarla.
+            dbc.Col(dbc.Button("+ Nueva", id="sig-btn-add", color="primary",
+                               size="sm", disabled=not is_admin,
+                               title=None if is_admin else
+                               "Solo un administrador puede crear señales. "
+                               "Podés proponerle la señal a un administrador."),
                     className="d-flex align-items-center"),
         ] + ([
             # Import/export de packs: solo admin (lo importado respeta la
@@ -188,10 +196,17 @@ def layout(**kwargs):
         ] if is_admin else []), className="mb-2 align-items-center g-2"),
 
         html.Div([
+            # Editar/Eliminar: también solo admin. Arrancan deshabilitados y
+            # los habilita update_buttons, que exige rol admin además de la
+            # selección (el gate de verdad está en el servicio).
             dbc.Button("Editar",   id="sig-btn-edit",   color="secondary",
-                       size="sm", disabled=True, className="me-1"),
+                       size="sm", disabled=True, className="me-1",
+                       title=None if is_admin else
+                       "Solo un administrador puede editar señales."),
             dbc.Button("Eliminar", id="sig-btn-delete", color="danger",
-                       size="sm", disabled=True, className="me-3"),
+                       size="sm", disabled=True, className="me-3",
+                       title=None if is_admin else
+                       "Solo un administrador puede eliminar señales."),
             dbc.Button("Calcular historia", id="sig-btn-history",
                        color="outline-warning", size="sm", disabled=True,
                        title="Llena las fechas pasadas sin valor de la señal "

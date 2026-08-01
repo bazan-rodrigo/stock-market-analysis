@@ -1,7 +1,10 @@
 """
 Servicio de señales.
 Evalúa cada SignalDefinition contra indicadores (ind_*) y persiste los
-resultados en sig_{id} (una tabla por señal, ver app.models.signal_store).
+resultados en `signal_values_wide`, una columna `sig_{id}` por señal (ver
+app.models.signal_store). Las tablas per-señal `sig_{id}` que nombraba este
+docstring se dropearon en el cutover a tablas anchas (migración 0094); se leen
+y escriben siempre por los helpers de signal_store, nunca por nombre.
 """
 import logging
 import sqlalchemy as sa
@@ -16,6 +19,41 @@ from app.models.price import Price
 from app.services import db_compat, signal_engine
 
 logger = logging.getLogger(__name__)
+
+
+# ── Escritura de señales: EXCLUSIVA de un administrador ───────────────────────
+# Decisión del usuario (1-ago-2026). El catálogo de señales es CURADO: una sola
+# implementación por concepto, para que dos estrategias sean comparables entre
+# sí (si cada uno arma su propio "rsi bajo" con umbrales distintos, comparar
+# estrategias deja de significar algo). Consecuencias buscadas:
+#   - Ni un analista ni una IA pueden inflar el catálogo. Cada señal cuesta una
+#     columna en signal_values_wide (~16 MB hoy, ~320 MB a 10.000 activos) y un
+#     slot del tope de 1600 columnas de PostgreSQL, que las columnas borradas
+#     siguen ocupando hasta reescribir la tabla.
+#   - NINGUNA IA escribe señales, ni la de un administrador: se crean solo por
+#     la pantalla (alta manual o import). Una IA VE la definición completa y
+#     puede recomendar cambios; aplicarlos es un acto humano.
+# Las estrategias NO están alcanzadas: un analista sigue creándolas.
+# PENDIENTE (acordado, sin implementar): que el peso de un componente admita
+# SIGNO, normalizando por sum(|w|) en strategy_service._compute_asset_score. Hoy
+# el peso negativo se cancela contra su propio denominador y devuelve el score
+# SIN invertir. Hasta que eso esté, la única forma de usar una señal "al revés"
+# es que un admin cargue la señal espejo — que es justo lo que este gate busca
+# evitar. No documentar el peso negativo en el SPEC antes de implementarlo.
+ADMIN_ONLY_MOTIVO = (
+    "Solo un administrador puede crear, editar, importar o eliminar señales: "
+    "el catálogo de señales es curado. Podés proponerle el cambio a un "
+    "administrador."
+)
+
+
+def require_signal_admin(acting_is_admin: bool) -> None:
+    """Puerta única de escritura de señales. La usan TODOS los caminos
+    (alta/edición, borrado e import), así que agregar un camino nuevo sin
+    llamarla es lo único que puede abrir un agujero — lo fija
+    tests/test_signal_admin_only.py."""
+    if not acting_is_admin:
+        raise ValueError(ADMIN_ONLY_MOTIVO)
 
 
 # Indicadores virtuales: no tienen tabla ind_*, se leen de otra fuente
@@ -338,13 +376,19 @@ def save_signal(
     signal_id: int | None = None,
     is_public: bool | None = None,
     acting_user_id: int | None = None,
-    acting_is_admin: bool = True,
+    acting_is_admin: bool = False,
 ) -> SignalDefinition:
     """is_public None = conservar el valor actual (o privada si es nueva).
-    acting_* identifican a quién guarda: en alta queda como dueño; en
-    edición se valida el permiso (default admin para scripts/tests)."""
+    acting_user_id queda como dueño en el alta.
+
+    **Escribir señales es exclusivo de un administrador** — ver
+    ADMIN_ONLY_MOTIVO. El default de acting_is_admin es False A PROPÓSITO: un
+    caller que se olvide del flag NO escribe (falla cerrado). Los scripts y
+    tests pasan acting_is_admin=True explícito.
+    """
     import json as _json
-    from app.services.visibility import can_edit
+
+    require_signal_admin(acting_is_admin)
 
     if formula_type == "composite":
         raise ValueError(
@@ -371,9 +415,10 @@ def save_signal(
         sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
         if sig is None:
             raise ValueError(f"Señal id={signal_id} no encontrada.")
-        if not can_edit(sig.owner_id, acting_user_id, acting_is_admin):
-            raise ValueError("Solo el dueño o un administrador pueden "
-                             "editar esta señal.")
+        # El permiso ya se resolvió arriba (require_signal_admin): editar una
+        # señal es admin, sea de quien sea. Las señales que quedaron con dueño
+        # analista de antes del cambio siguen existiendo intactas; lo único que
+        # cambia es quién puede tocarlas.
         new_public = sig.is_public if is_public is None else bool(is_public)
         if sig.is_public and not new_public:
             deps = signal_dependents_of_others(s, sig, sig.owner_id)
@@ -411,15 +456,13 @@ def save_signal(
 
 
 def delete_signal(signal_id: int, *, acting_user_id: int | None = None,
-                  acting_is_admin: bool = True) -> None:
-    from app.services.visibility import can_edit
+                  acting_is_admin: bool = False) -> None:
+    """Borra una señal. Solo admin (ver ADMIN_ONLY_MOTIVO); default cerrado."""
+    require_signal_admin(acting_is_admin)
     s = get_session()
     sig = s.query(SignalDefinition).filter(SignalDefinition.id == signal_id).first()
     if sig is None:
         raise ValueError(f"Señal id={signal_id} no encontrada.")
-    if not can_edit(sig.owner_id, acting_user_id, acting_is_admin):
-        raise ValueError(f"Solo el dueño o un administrador pueden "
-                         f"eliminar la señal '{sig.key}'.")
     # Chequeo ANTES de borrar: el FK de strategy_component igual lo
     # impediría, pero con un IntegrityError críptico que además deja la
     # sesión en estado rolled-back (envenena los requests siguientes)
@@ -473,11 +516,13 @@ def export_signals_excel() -> bytes:
 
 
 def import_signals_file(file_bytes: bytes, filename: str | None = None,
-                        owner_id: int | None = None) -> list[dict]:
+                        owner_id: int | None = None,
+                        acting_is_admin: bool = False) -> list[dict]:
     """Punto de entrada de la pantalla: despacha por formato.
 
     Los dos caminos terminan en las mismas filas normalizadas y comparten
     validación y escritura — un pack no puede pasar en JSON y fallar en Excel.
+    Solo admin (ver ADMIN_ONLY_MOTIVO).
     """
     from app.services import pack_service
 
@@ -486,7 +531,8 @@ def import_signals_file(file_bytes: bytes, filename: str | None = None,
         rows = pack_service.signal_rows_from_pack(pack)
     else:
         rows = _signal_rows_from_xlsx(file_bytes)
-    return import_signal_rows(rows, owner_id=owner_id)
+    return import_signal_rows(rows, owner_id=owner_id,
+                              acting_is_admin=acting_is_admin)
 
 
 def _signal_rows_from_xlsx(file_bytes: bytes) -> list[dict]:
@@ -516,14 +562,17 @@ def _signal_rows_from_xlsx(file_bytes: bytes) -> list[dict]:
 
 
 def import_signals_excel(file_bytes: bytes,
-                         owner_id: int | None = None) -> list[dict]:
+                         owner_id: int | None = None,
+                         acting_is_admin: bool = False) -> list[dict]:
     """Camino Excel (nombre histórico). Ver import_signals_file."""
     return import_signal_rows(_signal_rows_from_xlsx(file_bytes),
-                              owner_id=owner_id)
+                              owner_id=owner_id,
+                              acting_is_admin=acting_is_admin)
 
 
 def import_signal_rows(rows: list[dict],
-                       owner_id: int | None = None) -> list[dict]:
+                       owner_id: int | None = None,
+                       acting_is_admin: bool = False) -> list[dict]:
     """Importación todo-o-nada en dos pasadas: primero se valida el archivo
     completo sin tocar la base; solo si no hay errores se escribe todo.
 
@@ -532,9 +581,15 @@ def import_signal_rows(rows: list[dict],
 
     La columna `publica` (sí/no; ausente = PRIVADA) define la visibilidad de
     cada fila. owner_id = quien importa: queda como dueño de las señales
-    NUEVAS (las existentes conservan su dueño)."""
+    NUEVAS (las existentes conservan su dueño).
+
+    Solo admin (ver ADMIN_ONLY_MOTIVO). El gate va acá y no solo en la
+    pantalla porque este camino NO pasa por save_signal: escribe la definición
+    directamente, así que sin esta línea el import sería la puerta lateral."""
     import json as _json
     from app.services.visibility import parse_publica
+
+    require_signal_admin(acting_is_admin)
 
     _FORMULA_TYPES = signal_engine.FORMULA_TYPES
 

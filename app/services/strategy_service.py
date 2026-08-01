@@ -30,6 +30,24 @@ def _compute_asset_score(
     Calcula el score ponderado de una estrategia para un activo.
 
     signal_scores: {(signal_id, asset_id): score}
+
+    El peso admite SIGNO: negativo = la señal aporta al revés (puntúa alto
+    donde la señal puntúa bajo). Sirve para "momentum alto PERO volatilidad
+    baja" sin duplicar la señal invertida en el catálogo.
+
+    El divisor es Σ|peso|, NO Σpeso. La diferencia no es cosmética: con Σpeso
+    un único componente de peso −1 daba −s/−1 = +s, o sea el peso negativo se
+    cancelaba contra su propio denominador y NO invertía nada; y con pesos
+    mixtos el divisor tendía a 0 y el score se disparaba fuera de −100..100
+    (con +1 y −1 daba divisor 0 → None). Con Σ|peso| el resultado sigue siendo
+    una combinación convexa: como cada score de señal está clampeado a
+    −100..100 (signal_engine), el score de estrategia queda en ese rango, que
+    es lo que da sentido a los umbrales ABSOLUTOS del simulador de trades
+    (entries `score >= th`, salidas `absolute`/`delta_entry`/`trailing_score`).
+
+    Retrocompatible: con todos los pesos positivos abs() es la identidad y el
+    resultado no cambia. Solo cambia para pesos ≤ 0, que hasta ahora daban un
+    resultado equivocado en silencio.
     """
     total_weight = 0.0
     weighted_sum = 0.0
@@ -39,13 +57,41 @@ def _compute_asset_score(
         if score is None:
             continue
 
-        weight = comp.weight or 1.0
+        # `is None` y no `or`: con `or`, un peso 0 se convertía en 1.0 — un
+        # componente que el usuario quiso anular pesaba como cualquier otro.
+        weight = 1.0 if comp.weight is None else comp.weight
         weighted_sum += score * weight
-        total_weight += weight
+        total_weight += abs(weight)
 
     if total_weight == 0:
         return None
     return round(weighted_sum / total_weight, 4)
+
+
+def parse_component_weight(value) -> float:
+    """Peso de un componente → float con SIGNO. Fuente única: la usan el ABM y
+    el import, para que la planilla y la pantalla acepten exactamente lo mismo.
+
+    Vacío/None = 1.0 (el default histórico). Negativo = la señal aporta al
+    revés. El 0 se RECHAZA: no aporta al score y tampoco al divisor, así que es
+    un componente que no hace nada — casi siempre es un error de tipeo. Antes
+    se colaba y encima `or 1.0` lo convertía en 1.0, que es lo contrario de lo
+    que quiso quien lo escribió.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return 1.0
+    try:
+        w = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"peso inválido: {value!r} (tiene que ser un número)")
+    if w != w or w in (float("inf"), float("-inf")):      # NaN / ±inf
+        raise ValueError(f"peso inválido: {value!r}")
+    if w == 0:
+        raise ValueError(
+            "el peso no puede ser 0 (un componente con peso 0 no aporta nada): "
+            "sacá el componente, o usá un peso NEGATIVO si querés que la señal "
+            "aporte al revés")
+    return w
 
 
 def percent_ranks(values: list[float]) -> list[float]:
@@ -403,7 +449,7 @@ def save_strategy(
         comp = StrategyComponent(
             strategy_id=strat.id,
             signal_id=sig.id,
-            weight=float(comp_data.get("weight") or 1.0),
+            weight=parse_component_weight(comp_data.get("weight")),
         )
         s.add(comp)
 
@@ -815,7 +861,7 @@ def import_strategy_rows(rows_s: list[dict], rows_c: list[dict],
         try:
             comp = {
                 "signal_key": str(data.get("signal_key") or "").strip(),
-                "weight": float(data.get("weight") or 1.0),
+                "weight": parse_component_weight(data.get("weight")),
             }
             # El Alcance de grupo (scope) se removió: rechazar en vez de
             # descartarlo en silencio, que cambiaría el score de la estrategia.

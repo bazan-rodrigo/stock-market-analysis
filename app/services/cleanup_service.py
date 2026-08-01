@@ -58,6 +58,14 @@ _LEAF_TABLES = [
     # conservarse.
     "current_indicator_values",
     # ── Señales y estrategias (derivados) ──
+    # Las tablas ANCHAS son el almacenamiento vivo desde el cutover (migración
+    # 0094 dropeó las per-entidad sig_{id}/strat_res_{id}). Van explícitas
+    # porque _DYNAMIC_PREFIXES ya no las alcanza: "sig_" y "strat_res_" no
+    # matchean "signal_values_wide" ni "strategy_results_wide". Sin esto la
+    # limpieza borraba los markers pero DEJABA los valores — prometía vaciar
+    # "señales y estrategias" y no lo hacía.
+    "signal_values_wide",
+    "strategy_results_wide",
     # Crítico limpiarla junto con las tablas de señales: si quedaran markers
     # de fechas "ya evaluadas", el delta SALTEARÍA las fechas recién limpiadas.
     "signal_eval_log",
@@ -95,7 +103,8 @@ TABLES_INFO = [
     ("ind_* / ind_fundamental_* / ind_asset_meta",
      "Series históricas de indicadores por activo"),
     ("current_indicator_values",  "Valores vigentes de indicadores"),
-    ("sig_* / strat_res_*",       "Valores de señales y rankings de estrategias"),
+    ("signal_values_wide / strategy_results_wide",
+     "Valores de señales y rankings de estrategias"),
     ("backtest_run / portfolio_run",
      "Corridas guardadas de backtest y de cartera"),
     ("market_event",              "Eventos de mercado"),

@@ -71,7 +71,7 @@ def test_import_senal_source_group_se_rechaza(db):
         ["g_sig", "Grupo", "group", "sector", "regime_score_d",
          "range", json.dumps({"min": -100, "max": 100}), "no"],
     ])])
-    res = signal_service.import_signals_excel(data)
+    res = signal_service.import_signals_excel(data, acting_is_admin=True)
     assert res[0]["status"] == "error"
     assert "grupo" in res[0]["detail"].lower()
 
@@ -89,7 +89,7 @@ def test_import_senal_de_activo_sigue_funcionando(db):
         _SIG_HEADERS,
         ["a_sig", "Activo", "asset", "", "trend_daily", "discrete_map", _MAP, "no"],
     ])])
-    res = signal_service.import_signals_excel(data)
+    res = signal_service.import_signals_excel(data, acting_is_admin=True)
     assert res[0]["status"] == "ok"
     sig = get_session().query(SignalDefinition).one()
     assert sig.key == "a_sig"
@@ -100,7 +100,7 @@ def test_import_estrategia_con_alcance_de_grupo_se_rechaza(db):
     _add_indicator()
     signal_service.save_signal(
         key="s_ok", name="S", formula_type="discrete_map",
-        params_json=_MAP, indicator_key="trend_daily", is_public=True)
+        params_json=_MAP, indicator_key="trend_daily", is_public=True, acting_is_admin=True)
 
     data = _xlsx([
         ("Estrategias", [["name", "description", "filter_conditions", "publica"],
@@ -124,7 +124,7 @@ def test_import_estrategia_de_activo_sigue_funcionando(db):
     _add_indicator()
     signal_service.save_signal(
         key="s_ok", name="S", formula_type="discrete_map",
-        params_json=_MAP, indicator_key="trend_daily", is_public=True)
+        params_json=_MAP, indicator_key="trend_daily", is_public=True, acting_is_admin=True)
 
     data = _xlsx([
         ("Estrategias", [["name", "description", "filter_conditions", "publica"],
@@ -172,7 +172,7 @@ def test_import_planilla_equivocada_en_senales_se_rechaza(db):
                          ["E1", "", "", "no"]]),
     ])
     with pytest.raises(ValueError, match="no parece de señales"):
-        signal_service.import_signals_excel(data)
+        signal_service.import_signals_excel(data, acting_is_admin=True)
 
 
 def test_import_estrategia_sin_componentes_se_rechaza(db):

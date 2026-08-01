@@ -857,11 +857,16 @@ def preview_pack(pack: dict, acting_user_id: int | None = None) -> dict:
             "summary": {"crea": creados, "actualiza": actualizados}}
 
 
-def import_pack(file_bytes: bytes, owner_id: int | None = None) -> dict:
+def import_pack(file_bytes: bytes, owner_id: int | None = None,
+                acting_is_admin: bool = False) -> dict:
     """Los dos pasos del import de un pack, en el orden que exigen las
     referencias: señales primero, estrategias después.
 
     Devuelve {"signals": [...], "strategies": [...], "aborted": bool}.
+
+    La parte de SEÑALES exige `acting_is_admin=True` (el catálogo de señales es
+    curado — signal_service.ADMIN_ONLY_MOTIVO); la de estrategias no. Un pack
+    solo-estrategias lo importa cualquiera con permiso sobre la pantalla.
 
     **No es una sola transacción**: cada paso es todo-o-nada por su cuenta. Si
     las señales entran y las estrategias fallan, las señales quedan — por eso
@@ -876,8 +881,12 @@ def import_pack(file_bytes: bytes, owner_id: int | None = None) -> dict:
     salida: dict = {"signals": [], "strategies": [], "aborted": False}
 
     if pack.get("signals"):
+        # La parte de SEÑALES exige admin (signal_service.ADMIN_ONLY_MOTIVO);
+        # la de estrategias no. Un pack con señales importado por un no-admin
+        # se corta acá, antes de escribir nada.
         salida["signals"] = signal_service.import_signal_rows(
-            signal_rows_from_pack(pack), owner_id=owner_id)
+            signal_rows_from_pack(pack), owner_id=owner_id,
+            acting_is_admin=acting_is_admin)
         if any(r["status"] != "ok" for r in salida["signals"]):
             salida["aborted"] = True
             return salida

@@ -82,14 +82,19 @@ def update_buttons(selected_ids):
     n = len(selected_ids or [])
     if n == 0:
         return True, True, True
-    # Editar/Eliminar/Calcular historia: solo sobre señales propias (o admin)
     user_id, is_admin = current_viewer()
     by_id = {s.id: s for s in _visible_signals()}
-    editable = all(
-        sid in by_id and can_edit(by_id[sid].owner_id, user_id, is_admin)
-        for sid in selected_ids
-    )
-    return (n != 1 or not editable), not editable, (n != 1 or not editable)
+    conocidas = all(sid in by_id for sid in selected_ids)
+    # Editar/Eliminar: EXCLUSIVO de admin, no del dueño — el catálogo de
+    # señales es curado (signal_service.ADMIN_ONLY_MOTIVO). Las señales que
+    # quedaron con dueño analista de antes del cambio tampoco las edita su
+    # dueño. Esto es solo la UI; el gate real está en el servicio.
+    escribible = conocidas and is_admin
+    # Calcular historia NO es escribir la definición (llena fechas faltantes de
+    # una señal existente), así que conserva la regla de siempre: dueño o admin.
+    historiable = conocidas and all(
+        can_edit(by_id[sid].owner_id, user_id, is_admin) for sid in selected_ids)
+    return (n != 1 or not escribible), not escribible, (n != 1 or not historiable)
 
 
 # ── Modal: abrir / cerrar ─────────────────────────────────────────────────────
@@ -365,7 +370,8 @@ def import_excel(contents, filename):
     try:
         _, encoded = contents.split(",", 1)
         results = svc.import_signals_file(base64.b64decode(encoded), filename,
-                                          owner_id=user_id)
+                                          owner_id=user_id,
+                                          acting_is_admin=is_admin)
     except Exception as exc:
         return no_update, str(exc), True, "danger"
 

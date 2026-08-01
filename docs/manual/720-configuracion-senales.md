@@ -15,6 +15,18 @@ las señales.) Por eso acá se define el criterio de análisis del sistema — t
 demás es plomería. Si no tenés claro dónde encaja este paso, leé antes
 [cómo se calcula todo](/manual/conceptos-pipeline).
 
+> **Las señales las crea un administrador.** El catálogo de señales es
+> **curado**: hay una sola implementación de cada concepto. Si cada persona
+> armara su propia versión de "el RSI está bajo" con umbrales distintos,
+> comparar dos estrategias dejaría de significar algo — no sabrías si difieren
+> en la idea o en cómo mide cada una. Por eso crear, editar, importar y
+> eliminar señales es exclusivo de los administradores.
+>
+> Si no sos administrador podés **ver todo**: la fórmula, sus parámetros y la
+> vista previa. Lo que no podés es cambiarlas. Si necesitás una señal que no
+> existe, proponésela a un administrador. Para armar estrategias, en cambio,
+> no necesitás permiso de nadie.
+
 ## La lista
 
 La tabla muestra las señales que podés ver: las públicas más las tuyas (un
@@ -23,9 +35,9 @@ administrador ve todas), con **Key**, **Nombre**, **Indicador**, **Fórmula**,
 
 | Botón | Qué hace |
 |---|---|
-| **+ Nueva** | Abre el editor en blanco. |
-| **Editar** | Requiere **una sola** fila seleccionada y que sea tuya (o ser administrador). |
-| **Eliminar** | Borra las seleccionadas. Solo se habilita si podés editarlas todas. |
+| **+ Nueva** | Solo administradores. Abre el editor en blanco. |
+| **Editar** | Solo administradores. Requiere **una sola** fila seleccionada. |
+| **Eliminar** | Solo administradores. Borra las seleccionadas. |
 | **Calcular historia** | Requiere **una sola** fila seleccionada y que sea tuya (o ser administrador). Llena las fechas pasadas sin valor de **esa** señal. El campo **días** acota el horizonte; vacío = toda la historia. |
 | **Exportar** / **Importar** | Solo administradores. Bajan y suben las definiciones en un Excel. |
 | **Ejecutar pipeline** | Solo administradores. Calcula señales → estrategias para la fecha elegida (vacía = hoy). |

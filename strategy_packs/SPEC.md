@@ -199,10 +199,36 @@ Una estrategia = **filtro de elegibilidad** (quién entra) + **ranking**
 | `filter` | no | Árbol de condiciones (§6). Sin filtro, la estrategia rankea **todos** los activos de la base. |
 | `components` | **sí** | Al menos uno. Una estrategia sin componentes no puntúa nada y se rechaza. |
 
-**Ranking**: promedio ponderado de los puntajes de los componentes.
+**Ranking**: promedio ponderado de los puntajes de los componentes, con el
+divisor en valor absoluto:
 
-- `weight` es un número (default 1). Solo importa la proporción entre pesos:
-  `3/2/1` y `6/4/2` dan el mismo ranking.
+```
+SCORE = Σ(peso · señal) / Σ|peso|
+```
+
+- `weight` es un número **distinto de 0** (default 1). Solo importa la
+  proporción entre pesos: `3/2/1` y `6/4/2` dan el mismo ranking.
+- **El peso puede ser NEGATIVO**: la señal aporta al revés, es decir el activo
+  puntúa alto donde esa señal puntúa bajo. Sirve para pedir dos cosas opuestas
+  en una misma estrategia — *"momentum alto **pero** volatilidad baja"* — y
+  para usar una señal existente invertida **sin duplicarla** en el catálogo
+  (que además no podrías: las señales las crea un administrador, §8).
+
+  ```json
+  {
+    "components": [
+      { "signal_key": "momentum_12m",  "weight":  2 },
+      { "signal_key": "volatilidad_d", "weight": -1 }
+    ]
+  }
+  ```
+
+  Ese ejemplo da `SCORE = (2·momentum − 1·volatilidad) / 3`. Como el divisor
+  es Σ|peso| = 3 (no Σpeso = 1), el score sigue viviendo en **−100..100**, que
+  es lo que hace que los umbrales absolutos de las reglas de trade signifiquen
+  siempre lo mismo.
+- `weight: 0` se **rechaza**: un componente con peso 0 no aporta al score ni al
+  divisor, así que no hace nada. Sacá el componente.
 - **Las señales sin valor se saltean**: el promedio se calcula solo sobre los
   componentes que puntuaron ese día, no cuentan como cero. Si ninguno puntúa,
   el activo no aparece en el ranking.
@@ -356,8 +382,21 @@ existente (y reemplaza sus componentes) en vez de duplicarla. El dueño de una
 definición existente **no cambia**; quien importa queda como dueño de las
 nuevas.
 
+**Las señales las escribe solo un administrador.** Es una regla de la
+instalación, no del archivo: un pack con la sección `signals` importado por un
+usuario que no es administrador se rechaza entero, antes de escribir nada. Un
+pack **solo de estrategias** lo importa cualquiera que tenga la pantalla. El
+motivo es que el catálogo de señales es **curado**: una sola implementación por
+concepto, para que dos estrategias sean comparables entre sí. Si tu pack
+necesita una señal que no existe en la instalación, entregásela a un
+administrador para que la cargue; el resto del pack no depende de eso.
+
+Consecuencia práctica al escribir packs: **reusá las señales del catálogo**
+(la sección `signals[]` del catálogo, §7) antes de proponer una nueva.
+
 Se **rechaza** (errores):
 
+- Sección `signals` en un pack importado por alguien que no es administrador.
 - `formula_type` desconocido, o `params` con la forma equivocada para esa
   fórmula.
 - `indicator_key` ausente o inexistente en la instalación.

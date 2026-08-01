@@ -54,7 +54,7 @@ def _mk_signal(key="lc_sig"):
     return signal_service.save_signal(
         key=key, name=key, formula_type="discrete_map",
         params_json=json.dumps({"map": {"bullish": 100}}),
-        indicator_key="trend_daily", is_public=True)
+        indicator_key="trend_daily", is_public=True, acting_is_admin=True)
 
 
 def test_alta_y_baja_de_senal_crean_y_dropean_su_tabla(db):
@@ -69,10 +69,10 @@ def test_alta_y_baja_de_senal_crean_y_dropean_su_tabla(db):
         key="lc_sig_renombrada", name="x",
         formula_type="discrete_map",
         params_json=json.dumps({"map": {"bullish": 100}}),
-        indicator_key="trend_daily", signal_id=sig.id)
+        indicator_key="trend_daily", signal_id=sig.id, acting_is_admin=True)
     assert _table_exists(name)
 
-    signal_service.delete_signal(sig.id)
+    signal_service.delete_signal(sig.id, acting_is_admin=True)
     assert not _table_exists(name), "delete_signal debe dropear sig_{id}"
 
 

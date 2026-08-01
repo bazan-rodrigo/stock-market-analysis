@@ -130,7 +130,7 @@ def test_import_json_escribe_lo_esperado(db):
 
     sector_id = _sembrar_catalogo()
 
-    res = signal_service.import_signals_file(_json_bytes(PACK), "prueba.json")
+    res = signal_service.import_signals_file(_json_bytes(PACK), "prueba.json", acting_is_admin=True)
     assert all(r["status"] == "ok" for r in res), res
     res = strategy_service.import_strategies_file(_json_bytes(PACK), "prueba.json")
     assert all(r["status"] == "ok" for r in res), res
@@ -150,7 +150,7 @@ def test_json_y_excel_dejan_la_base_identica(db):
     from app.services import signal_service, strategy_service
 
     _sembrar_catalogo()
-    signal_service.import_signals_file(_json_bytes(PACK), "p.json")
+    signal_service.import_signals_file(_json_bytes(PACK), "p.json", acting_is_admin=True)
     strategy_service.import_strategies_file(_json_bytes(PACK), "p.json")
     desde_json = _estado()
 
@@ -166,7 +166,7 @@ def test_json_y_excel_dejan_la_base_identica(db):
     s.commit()
 
     senales_xlsx, estrategias_xlsx = _xlsx_del_pack(PACK)
-    signal_service.import_signals_file(senales_xlsx, "senales.xlsx")
+    signal_service.import_signals_file(senales_xlsx, "senales.xlsx", acting_is_admin=True)
     strategy_service.import_strategies_file(estrategias_xlsx, "estrategia.xlsx")
     desde_excel = _estado()
 
@@ -186,7 +186,7 @@ def test_sector_inexistente_rechaza_el_pack_entero(db):
     from app.services import signal_service, strategy_service
 
     _sembrar_catalogo()
-    signal_service.import_signals_file(_json_bytes(PACK), "p.json")
+    signal_service.import_signals_file(_json_bytes(PACK), "p.json", acting_is_admin=True)
 
     malo = json.loads(json.dumps(PACK))
     malo["strategies"][0]["filter"]["children"][0]["cond"]["right"]["value"] = ["Minería"]
@@ -203,7 +203,7 @@ def test_ids_de_sector_siguen_aceptandose(db):
     from app.services import signal_service, strategy_service
 
     sector_id = _sembrar_catalogo()
-    signal_service.import_signals_file(_json_bytes(PACK), "p.json")
+    signal_service.import_signals_file(_json_bytes(PACK), "p.json", acting_is_admin=True)
 
     con_id = json.loads(json.dumps(PACK))
     con_id["strategies"][0]["filter"]["children"][0]["cond"]["right"]["value"] = [sector_id]
@@ -218,7 +218,7 @@ def test_pack_de_solo_estrategias_en_la_pantalla_de_señales_avisa(db):
     from app.services import signal_service
     solo_estrategias = {"strategies": PACK["strategies"]}
     with pytest.raises(ps.PackError, match="Estrategias"):
-        signal_service.import_signals_file(_json_bytes(solo_estrategias), "p.json")
+        signal_service.import_signals_file(_json_bytes(solo_estrategias), "p.json", acting_is_admin=True)
 
 
 def test_señal_sin_indicador_se_rechaza(db):
@@ -231,7 +231,7 @@ def test_señal_sin_indicador_se_rechaza(db):
     _sembrar_catalogo()
     malo = json.loads(json.dumps(PACK))
     malo["signals"][0]["indicator_key"] = ""
-    res = signal_service.import_signals_file(_json_bytes(malo), "p.json")
+    res = signal_service.import_signals_file(_json_bytes(malo), "p.json", acting_is_admin=True)
 
     assert any(r["status"] == "error" and "indicator_key" in r["detail"]
                for r in res), res
@@ -245,7 +245,7 @@ def test_catalogo_exportado_sirve_para_validar_offline(db):
     from app.services import signal_service
 
     _sembrar_catalogo()
-    signal_service.import_signals_file(_json_bytes(PACK), "p.json")
+    signal_service.import_signals_file(_json_bytes(PACK), "p.json", acting_is_admin=True)
 
     catalogo = json.loads(ps.catalog_bytes().decode("utf-8"))
 
@@ -275,11 +275,11 @@ def test_reimportar_actualiza_y_no_duplica(db):
     from app.services import signal_service
 
     _sembrar_catalogo()
-    signal_service.import_signals_file(_json_bytes(PACK), "p.json")
+    signal_service.import_signals_file(_json_bytes(PACK), "p.json", acting_is_admin=True)
 
     otro = json.loads(json.dumps(PACK))
     otro["signals"][0]["name"] = "Tendencia v2"
-    res = signal_service.import_signals_file(_json_bytes(otro), "p.json")
+    res = signal_service.import_signals_file(_json_bytes(otro), "p.json", acting_is_admin=True)
 
     assert all(r["status"] == "ok" for r in res)
     s = get_session()

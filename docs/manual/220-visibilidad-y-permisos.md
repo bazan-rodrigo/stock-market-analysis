@@ -39,6 +39,15 @@ Hay un caso particular: las definiciones **sin dueño**. Son las que se importar
 o se crearon antes de que existiera este modelo. Las ve cualquiera si son
 públicas, pero **solo un administrador puede editarlas**.
 
+> **Las señales son la excepción a la tabla de arriba.** Crearlas, editarlas,
+> importarlas y borrarlas es exclusivo de los administradores, sin importar de
+> quién sean: el catálogo de señales es **curado**, con una sola implementación
+> por concepto, para que las estrategias sean comparables entre sí. La
+> visibilidad de las señales sigue funcionando igual (una señal privada la ven
+> solo su dueño y los administradores) — lo que cambia es quién las modifica.
+> Ver [Señales](/manual/configuracion-senales). Para **estrategias y carteras**
+> la tabla vale tal cual.
+
 Lo que creás nace **privado** salvo que marques lo contrario, y la importación
 sigue la misma regla: los paquetes traen la visibilidad indicada en el propio
 archivo y, si no la indican, las definiciones entran como **privadas**. Publicar

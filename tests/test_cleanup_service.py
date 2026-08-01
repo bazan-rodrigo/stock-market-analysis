@@ -62,6 +62,21 @@ def test_cubre_todos_los_logs():
     assert logs <= _all_targets()
 
 
+def test_cubre_el_almacenamiento_vivo_de_senales_y_estrategias():
+    """Regresión del cutover a tablas anchas: la limpieza se apoyaba en los
+    prefijos "sig_"/"strat_res_", que dejaron de matchear cuando la 0094
+    dropeó las per-entidad. Resultado: borraba signal_eval_log (los markers)
+    pero DEJABA los valores, mientras la pantalla prometía vaciarlos.
+
+    Los prefijos siguen en la lista (barren remanentes en una base sin migrar),
+    pero el almacenamiento vivo tiene que estar nombrado explícitamente."""
+    vivas = {"signal_values_wide", "strategy_results_wide"}
+    assert vivas <= _all_targets()
+    # Y que no dependa del prefijo, que es justo lo que falló:
+    for name in vivas:
+        assert not any(name.startswith(p) for p in cs._DYNAMIC_PREFIXES)
+
+
 def test_cubre_snapshots_de_backtest_y_cartera():
     snapshots = {
         "backtest_run", "backtest_ic_point", "backtest_quantile_stat",

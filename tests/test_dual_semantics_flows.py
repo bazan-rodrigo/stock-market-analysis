@@ -117,7 +117,7 @@ def test_alta_de_senal_con_key_en_otro_caso_es_duplicado():
         key="dual_ci_senal", name="ci",
         formula_type="discrete_map",
         params_json=json.dumps({"map": {"bullish": 100}}),
-        indicator_key="trend_daily", is_public=True)
+        indicator_key="trend_daily", is_public=True, acting_is_admin=True)
     try:
         # En MySQL la collation ya hacía este match; sqlite (como PG)
         # compara '=' case-sensitive: sin ci_equals esto crearía una
@@ -127,7 +127,7 @@ def test_alta_de_senal_con_key_en_otro_caso_es_duplicado():
                 key="DUAL_CI_SENAL", name="ci2",
                 formula_type="discrete_map",
                 params_json=json.dumps({"map": {"bullish": 100}}),
-                indicator_key="trend_daily", is_public=True)
+                indicator_key="trend_daily", is_public=True, acting_is_admin=True)
     finally:
-        signal_service.delete_signal(sig.id)
+        signal_service.delete_signal(sig.id, acting_is_admin=True)
         Session.remove()

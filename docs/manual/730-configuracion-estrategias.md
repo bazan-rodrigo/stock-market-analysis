@@ -33,15 +33,38 @@ sobre una estrategia pública ajena los botones quedan apagados.
 
 Cada componente es una señal con un peso. El score final del activo es el
 **promedio ponderado** de los componentes: cada score por su peso, dividido por
-la suma de los pesos.
+la suma de los pesos **en valor absoluto**.
 
 | Campo | Para qué sirve |
 |---|---|
 | **Señal (key)** | La señal a usar. El desplegable lista solo las señales que podés ver. |
-| **Peso** | Cuánto pesa dentro del promedio. No hace falta que sumen 1: son relativos entre sí, porque siempre se divide por el total. |
+| **Peso** | Cuánto pesa dentro del promedio. No hace falta que sumen 1: son relativos entre sí, porque siempre se divide por el total. Puede ser **negativo** (ver abajo); **0 no se acepta**. |
 
 El score de cada componente es el puntaje de esa señal **para el activo**, y el
 score de la estrategia es el promedio de los componentes ponderado por sus pesos.
+
+### Peso negativo: pedir una señal al revés
+
+Un peso negativo hace que la señal aporte **invertida**: el activo puntúa alto
+donde esa señal puntúa bajo. Es la forma de pedir dos cosas opuestas en una
+misma estrategia —*"momentum alto **pero** volatilidad baja"*— sin necesitar una
+segunda señal que sea el espejo de la primera.
+
+Por ejemplo, con `momentum_12m` en peso 2 y `volatilidad_d` en peso −1:
+
+```
+SCORE = (2·momentum − 1·volatilidad) / 3
+```
+
+Fijate que el divisor es **3**, no 1: se suman los pesos sin su signo. Por eso
+el score sigue quedando entre −100 y +100, igual que con pesos positivos, y los
+umbrales de las [reglas de trade](/manual/backtest-reglas) siguen significando
+lo mismo. La vista previa del editor te muestra la fórmula exacta mientras la
+armás.
+
+> Esto es también lo que te permite trabajar con el catálogo de señales tal como
+> está: si necesitás una señal "al revés", no hace falta que un administrador
+> cargue la versión espejo — le ponés peso negativo y listo.
 
 ### La sutileza que más sorprende: los componentes sin dato se saltean
 

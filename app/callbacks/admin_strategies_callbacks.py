@@ -193,7 +193,15 @@ def render_comp_rows(uid_store, signal_opts):
                 dbc.Input(
                     id={"type": "str-comp-weight", "index": uid},
                     type="number", value=iv.get("weight", 1.0),
-                    min=0, step=0.01,
+                    step=0.01,
+                    # Sin min=0: el peso admite SIGNO. Negativo = la señal
+                    # aporta al revés (puntúa alto donde la señal puntúa bajo),
+                    # que es cómo se usa una señal invertida sin duplicarla en
+                    # el catálogo. El divisor es Σ|peso| (ver
+                    # strategy_service._compute_asset_score).
+                    title="Peso del componente. Negativo = la señal aporta al "
+                          "revés (alto donde la señal puntúa bajo). 0 no se "
+                          "acepta.",
                     style={"fontSize": "0.80rem"},
                 ),
                 md=3,
@@ -221,7 +229,11 @@ def _fmt_w(w) -> str:
 
 
 def _score_text(uids, signals, weights) -> str:
-    """SCORE = Σ(peso·señal)/Σpeso, tal como lo calcula _compute_asset_score."""
+    """SCORE = Σ(peso·señal) / Σ|peso|, tal como lo calcula
+    _compute_asset_score. El divisor va en VALOR ABSOLUTO y los términos con
+    peso negativo se muestran restando: si la vista previa mostrara Σpeso, un
+    peso −1 se leería como si se cancelara (que es justo el bug que tenía el
+    motor) y con pesos mixtos daría un divisor que no es el real."""
     terms, total_w = [], 0.0
     for i, _uid in enumerate(uids):
         sig = signals[i] if i < len(signals) else None
@@ -232,11 +244,16 @@ def _score_text(uids, signals, weights) -> str:
             w = float(w_raw) if w_raw is not None else 1.0
         except (TypeError, ValueError):
             w = 1.0
-        terms.append(f"{_fmt_w(w)}·{sig}")
-        total_w += w
+        signo = "−" if w < 0 else "+"
+        terms.append((signo, f"{_fmt_w(abs(w))}·{sig}"))
+        total_w += abs(w)
     if not terms:
         return "SCORE = (sin componentes)"
-    return f"SCORE = ({' + '.join(terms)}) / {_fmt_w(total_w)}"
+    # El primer término no lleva "+" adelante; un "−" sí se muestra.
+    cuerpo = ("−" if terms[0][0] == "−" else "") + terms[0][1]
+    for signo, t in terms[1:]:
+        cuerpo += f" {signo} {t}"
+    return f"SCORE = ({cuerpo}) / {_fmt_w(total_w)}"
 
 
 @callback(
