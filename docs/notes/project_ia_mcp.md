@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-01T19:22:35.982Z
+  modified: 2026-08-02T02:31:08.122Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -121,13 +121,21 @@ el riesgo — sin dependencias nuevas, sin servicio en Railway, sin red.
   id, y **el mensaje de error es el mismo exista o no** para que no sea un
   oráculo de enumeración).
 
-**Lección de esa fase:** el bug que apareció NO lo agarró ningún trinquete sino
-un smoke test a mano. El nivel del manual se resolvía con
-`manual_service.role_of()`, que deduce el rol de un `username` que esta capa no
-tiene; con `None` devolvía "invitado" y un analista veía **24 de 73 secciones**.
-Falla silenciosa: la llamada funcionaba y devolvía de menos. Moraleja para lo
-que viene: los trinquetes cubren forma y permisos, no que el resultado sea el
-correcto — hay que ejercitar cada herramienta a mano al menos una vez.
+**LA LECCIÓN QUE SE REPITIÓ TRES VECES EN LA MISMA SESIÓN** — los tres bugs
+reales los encontró **ejercitar el sistema a mano**, no los trinquetes, y los
+tres fallaban en silencio (la llamada funcionaba y devolvía de menos):
+1. El nivel del manual se resolvía con `manual_service.role_of()`, que deduce
+   el rol de un `username` que esta capa no tiene; con `None` devolvía
+   "invitado" y un analista veía **24 de 73 secciones**.
+2. `MCP_PUBLIC_URL` sin esquema (ver abajo).
+3. El verificador de tokens solo conocía el token directo, así que el recurso
+   **rechazaba los tokens que emitía nuestro propio OAuth**. El flujo entero
+   andaba y emitía tokens válidos: cada mitad funcionaba por separado.
+
+Los trinquetes cubren forma y permisos, **no que el resultado sea el correcto**.
+Los tres arreglos se movieron a `app/ai/` (no al caparazón) para que quedaran
+cubiertos. Regla para lo que venga: ejercitar cada herramienta a mano al menos
+una vez, y todo lo que pueda equivocarse va donde la suite lo vea.
 
 **AUTENTICACIÓN HECHA (commit 43795e9, 1396 passed).** El usuario preguntó
 "¿qué tabla de token? no quiero guardar credenciales de IA" — la confusión vale
@@ -176,11 +184,29 @@ TEXTO del código, no importa los módulos — no habría detectado un conflicto
   rebinding y por defecto **solo acepta localhost** → sin esa variable Railway
   devuelve error a todo.
 
-**PENDIENTE en Railway (nada de esto se probó allá):** crear el servicio `mcp`
-(start command `uvicorn mcp_server:app --host 0.0.0.0 --port $PORT`), setear
-`DATABASE_URL` + `MCP_PUBLIC_URL`, generar dominio, y conectar un cliente real.
-Ojo: **es un endpoint público que lee producción** — si no se va a usar la IA,
-simplemente no se crea el servicio.
+**FUNCIONANDO EN PRODUCCIÓN (1-ago-2026).** El usuario conectó el conector
+desde la app de Claude y le respondió una consulta real sobre el catálogo. Es
+el cierre del pendiente más grande: hasta ese momento todo lo de IA era código
+sin verificar contra la app viva. Servicio `mcp` en Railway (start command
+`uvicorn mcp_server:app --host 0.0.0.0 --port $PORT`), `DATABASE_URL` +
+`MCP_PUBLIC_URL`, dominio propio, migraciones 0099 y 0100 aplicadas.
+
+**DOS TROPIEZOS DEL DEPLOY, los dos por mi lado:**
+1. `MCP_PUBLIC_URL` sin esquema tiraba abajo el contenedor. Railway entrega el
+   dominio PELADO y es lo que uno pega; `AnyHttpUrl` lo rechaza con un
+   traceback que no menciona que falta el `https://`. Arreglado normalizando
+   (3b9b584) — y el arreglo se movió a `mcp_adapter`, que la suite sí ve.
+2. **El conector remoto NO acepta un token pegado a mano**: hace registro
+   dinámico de cliente y exige OAuth. Falló con "no se pudo registrar con el
+   servicio de inicio de sesión". Hubo que implementar el servidor OAuth
+   completo (396dbc6, migración 0100) — ver abajo.
+
+**OAUTH (396dbc6):** la identidad de fondo NO cambió — la página de
+autorización pide el **token de «Conexión IA»**, no una contraseña, así que el
+servicio MCP nunca ve una y hay UN solo lugar para cortar el acceso (revocar el
+token mata las sesiones OAuth porque `load_access_token` lo revalida en cada
+llamada). Códigos de un solo uso de 60s, refresh rotativo, sin ampliación de
+scopes al renovar, todo hasheado, purga al arrancar. PKCE lo valida el SDK.
 
 **Siguiente candidato acordado:** que la IA arme y simule **carteras** (filas
 planas, sin DDL ni backfill; las CURADAS solo dependen de precios). Para
