@@ -47,6 +47,15 @@ def normalizar_url_publica(valor: str | None) -> str:
     return v
 
 
+def url_publica() -> str:
+    """La URL pública del servicio, normalizada. Único lugar donde se lee
+    `MCP_PUBLIC_URL`: si cada módulo la leyera por su cuenta, uno normalizaría
+    y otro no, y el flujo de OAuth armaría redirecciones inconsistentes."""
+    import os
+
+    return normalizar_url_publica(os.environ.get("MCP_PUBLIC_URL"))
+
+
 def hosts_permitidos(url: str) -> list[str]:
     """Los hosts que el servidor acepta, derivados de la URL pública.
 

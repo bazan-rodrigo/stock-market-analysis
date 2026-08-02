@@ -23,16 +23,21 @@ es "no funciona nada", nunca "se expone todo".
 import json
 import logging
 import os
+from html import escape
 
 from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
-from mcp.server.auth.settings import AuthSettings
+from mcp.server.auth.settings import (AuthSettings, ClientRegistrationOptions,
+                                      RevocationOptions)
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.routing import Route
 
-from app.ai import mcp_adapter, tokens
+from app.ai import mcp_adapter, oauth, tokens
 from app.ai.caller import AiCaller
 from app.logging_setup import configure_logging
 
@@ -48,23 +53,41 @@ logger = logging.getLogger(__name__)
 # tipo de error que tiene que estar cubierto por un test.
 _URL_PUBLICA = mcp_adapter.normalizar_url_publica(os.environ.get("MCP_PUBLIC_URL"))
 
+# Uno solo, compartido: lo usan el verificador de tokens y el servidor de
+# autorización. Si fueran dos instancias no habría bug (no tiene estado), pero
+# tenerlo explícito deja claro que es el mismo proveedor de las dos puntas.
+_PROVEEDOR = oauth.ProveedorOAuth()
+
 
 class _VerificadorDeToken(TokenVerifier):
-    """Valida el token opaco de la aplicación. El SDK no opina sobre su forma.
+    """Valida el token que llega en `Authorization`, venga por donde venga.
 
-    Devuelve None ante cualquier problema —inexistente, revocado, usuario dado
-    de baja— sin distinguir cuál: quien prueba no tiene por qué saber en qué
-    caso cayó. El rol viaja en `claims` para no volver a consultar la base en
-    cada herramienta.
+    Hay DOS formas de presentar la misma identidad y las dos tienen que entrar
+    por acá, porque el SDK valida todo pedido al recurso con este verificador:
+
+    1. **El token de «Conexión IA» directo** — para clientes que permiten
+       mandar un header (Claude Code, cualquier cliente programático).
+    2. **Un token de acceso emitido por nuestro propio OAuth** — para los
+       conectores remotos, que NO permiten mandar un header y exigen el flujo
+       completo.
+
+    Que faltara la segunda es un hueco fácil de dejar: el flujo OAuth entero
+    funciona, emite tokens perfectamente válidos… y después el recurso los
+    rechaza. Lo detectó el ensayo de punta a punta, no los tests unitarios,
+    porque cada mitad andaba bien por separado.
+
+    Devuelve None ante cualquier problema sin distinguir cuál: quien prueba no
+    tiene por qué saber en qué caso cayó. El rol viaja en `claims` para no
+    volver a consultar la base en cada herramienta.
     """
 
     async def verify_token(self, token: str) -> AccessToken | None:
         from app.database import Session
 
         try:
-            caller = tokens.resolver(token)
+            return await oauth.resolver_cualquier_token(token)
         except Exception:                                  # noqa: BLE001
-            logger.exception("Error resolviendo un token de MCP")
+            logger.exception("Error resolviendo un token")
             return None
         finally:
             # La sesión con ámbito es del hilo: si no se suelta, queda una
@@ -72,16 +95,6 @@ class _VerificadorDeToken(TokenVerifier):
             # horizon y frena autovacuum en TODA la base — el problema que ya
             # apareció en las corridas del Centro de Datos.
             Session.remove()
-
-        if caller is None:
-            return None
-        return AccessToken(
-            token=token,
-            client_id=str(caller.user_id),
-            subject=str(caller.user_id),
-            scopes=sorted(caller.scopes),
-            claims={"is_admin": caller.is_admin},
-        )
 
 
 def _caller_autenticado() -> AiCaller | None:
@@ -135,6 +148,84 @@ async def _ejecutar_herramienta(
     )
 
 
+# ── Página de autorización ───────────────────────────────────────────────────
+# Los conectores remotos de las aplicaciones de IA no dejan pegar un token a
+# mano: exigen OAuth. Esta es la pantalla del medio, y pide el token de
+# «Conexión IA» en vez de usuario y contraseña — así este servicio nunca ve una
+# contraseña y queda UN solo lugar donde cortar el acceso.
+
+_PAGINA = """<!DOCTYPE html>
+<html lang="es" data-bs-theme="dark"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autorizar acceso — Stock Market Analysis</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>body{{background:#222;color:#dee2e6}}
+.card{{background:#2d3338;border:1px solid #495057}}
+.form-control,.form-control:focus{{background:#1a1d20;color:#dee2e6;border-color:#495057}}</style>
+</head><body><div class="container"><div class="row justify-content-center mt-5">
+<div class="col-md-6"><div class="card shadow p-4">
+<h5 class="mb-3">Autorizar acceso</h5>
+<p class="small mb-3"><strong>{cliente}</strong> quiere leer los datos que vos
+ves en Stock Market Analysis. Solo podrá <strong>consultar</strong>: no puede
+modificar ni borrar nada, ni ver lo que vos no verías.</p>
+{error}
+<form method="post" action="/ia/autorizar">
+  <input type="hidden" name="solicitud" value="{solicitud}">
+  <div class="mb-3">
+    <label class="form-label small">Token de Conexión IA</label>
+    <input type="password" name="token" class="form-control" autofocus required
+           placeholder="sma_...">
+    <div class="form-text">Lo generás en la aplicación, en el menú de tu
+      usuario → <strong>Conexión IA</strong>.</div>
+  </div>
+  <button type="submit" class="btn btn-primary w-100">Autorizar</button>
+</form>
+</div></div></div></div></body></html>"""
+
+_ERROR = '<div class="alert alert-danger py-2 small">{}</div>'
+
+
+def _render(solicitud: str, cliente: str, error: str = "") -> HTMLResponse:
+    return HTMLResponse(_PAGINA.format(
+        solicitud=escape(solicitud), cliente=escape(cliente),
+        error=_ERROR.format(escape(error)) if error else ""))
+
+
+async def _autorizar_get(request: Request):
+    solicitud = request.query_params.get("solicitud", "")
+    datos = oauth.resolver_solicitud(solicitud)
+    if datos is None:
+        return HTMLResponse(
+            "<p>Esta solicitud de autorización no existe o venció. "
+            "Volvé a intentar desde tu aplicación de IA.</p>", status_code=400)
+    return _render(solicitud, datos["client_name"])
+
+
+async def _autorizar_post(request: Request):
+    form = await request.form()
+    solicitud = str(form.get("solicitud") or "")
+    datos = oauth.resolver_solicitud(solicitud)
+    if datos is None:
+        return HTMLResponse(
+            "<p>Esta solicitud de autorización no existe o venció. "
+            "Volvé a intentar desde tu aplicación de IA.</p>", status_code=400)
+
+    destino = oauth.aprobar(solicitud, str(form.get("token") or ""))
+    if destino is None:
+        # Un solo mensaje para token inválido, revocado o usuario dado de baja:
+        # distinguirlos le diría a quien prueba en cuál caso cayó.
+        return _render(solicitud, datos["client_name"],
+                       "Ese token no es válido. Verificá que lo hayas copiado "
+                       "completo desde la pantalla Conexión IA.")
+    return RedirectResponse(destino, status_code=302)
+
+
+_RUTAS = [
+    Route("/ia/autorizar", _autorizar_get, methods=["GET"]),
+    Route("/ia/autorizar", _autorizar_post, methods=["POST"]),
+]
+
+
 configure_logging()
 
 # Al arrancar, decir con qué configuración quedó: si un cliente recibe error de
@@ -168,8 +259,25 @@ app = server.streamable_http_app(
         allowed_hosts=mcp_adapter.hosts_permitidos(_URL_PUBLICA),
     ),
     token_verifier=_VerificadorDeToken(),
+    # El proveedor OAuth convive con el verificador de tokens: un cliente que
+    # puede mandar un header usa el token directo; un conector remoto —que no
+    # puede— pasa por el flujo completo. Los dos terminan en el mismo usuario.
+    auth_server_provider=_PROVEEDOR,
+    custom_starlette_routes=_RUTAS,
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(_URL_PUBLICA),
         resource_server_url=AnyHttpUrl(_URL_PUBLICA.rstrip("/") + "/mcp"),
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+        revocation_options=RevocationOptions(enabled=True),
     ),
 )
+
+# Higiene: sin esto la tabla crece para siempre con códigos de 60 segundos y
+# refrescos viejos. Best-effort — si la migración 0100 todavía no se aplicó, no
+# tiene que impedir que el servidor arranque.
+try:
+    _purgadas = oauth.purgar_vencidas()
+    if _purgadas:
+        logger.info("OAuth: %d concesiones vencidas purgadas al arranque", _purgadas)
+except Exception as _exc:                                   # noqa: BLE001
+    logger.warning("No se pudieron purgar las concesiones OAuth: %s", _exc)
