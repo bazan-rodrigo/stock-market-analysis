@@ -47,9 +47,10 @@ Es una operación segura de repetir: en el peor caso no recupera nada.
 
 Borra todo lo que el sistema **calcula** —indicadores, señales, resultados de
 estrategias, ratios fundamentales—, las corridas guardadas de backtest y de
-cartera, y además los eventos de mercado, los aliases del catálogo y los
-registros de corridas, que no se calculan pero se pueden volver a descargar o
-importar. La pantalla lista en detalle qué se borra y qué se conserva —esa
+cartera, los eventos de mercado y los aliases del catálogo, que no se calculan
+pero se pueden volver a descargar o importar, y el historial de corridas del
+[Centro de Datos](/manual/centro-de-datos) con los registros de actualización.
+La pantalla lista en detalle qué se borra y qué se conserva —esa
 lista es la fuente autorizada, mirala antes de ejecutar.
 
 No toca los datos que se bajaron de la fuente: ni las cotizaciones ni los
@@ -62,6 +63,7 @@ La distinción que importa es entre lo que se puede regenerar y lo que no:
 |---|---|
 | Indicadores, señales, estrategias, ratios fundamentales | **Sí.** Se regeneran con los botones de recálculo completo del [Centro de Datos](/manual/centro-de-datos), aunque tarda. |
 | Corridas guardadas de backtest y de cartera | **No.** Hay que volver a correrlas, y una corrida vieja no se puede reproducir exactamente si cambiaron los datos. |
+| Historial de corridas y registros de actualización | **No**, y no hace falta: es la bitácora de lo que se ejecutó. Queda vacía y se vuelve a llenar sola con las corridas siguientes. |
 
 Esa segunda fila es la que suele doler. Si tenés corridas guardadas que te
 importan, **anotá su configuración antes de limpiar**.

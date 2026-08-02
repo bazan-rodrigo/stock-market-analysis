@@ -76,6 +76,13 @@ _LEAF_TABLES = [
     "import_log",
     "verification_run_log",
     "asset_verification_flag",
+    # Historial de corridas (0096). Quedó afuera de esta lista hasta ago-2026
+    # simplemente porque nació después de escribirla — el trinquete de
+    # clasificación (test_toda_tabla_del_esquema_esta_clasificada) lo destapó.
+    # Va con el resto de los registros de corrida: después de la limpieza
+    # describiría corridas cuyos datos ya no existen. Se autolimpia igual a los
+    # 180 días (run_history_service.prune_old), así que esto no es por tamaño.
+    "run_history",
     # Locks persistidos de corridas: un lock huérfano deja trabado el botón
     # del Centro de Datos, así que la limpieza también lo destraba.
     "run_lock",
@@ -97,6 +104,63 @@ _REFERENCED_TABLES = [
     "portfolio_run",
 ]
 
+# Lo que la limpieza preserva DELIBERADAMENTE, con el motivo de cada una. Es la
+# contracara exacta de las listas de arriba: entre las tres tiene que quedar
+# clasificada CADA tabla del esquema, y eso lo verifica
+# test_toda_tabla_del_esquema_esta_clasificada — una tabla nueva rompe la suite
+# hasta que alguien decida conscientemente de qué lado va.
+#
+# Por qué existe esta lista y no alcanza con "lo que no está en _LEAF_TABLES":
+# ese implícito fue el agujero. Cuando la 0094 dropeó las tablas por señal, la
+# limpieza dejó de vaciar los valores y los tests siguieron en verde, porque
+# preguntaban por nombres escritos a mano en vez de por el esquema real. Lo
+# mismo con `run_history`, que nació después de la lista y quedó sin vaciar sin
+# que nadie lo decidiera. `PRESERVED_INFO` (abajo) dice esto mismo en lenguaje
+# de usuario, para la pantalla; acá está por tabla, para la suite.
+_PRESERVED_TABLES = {
+    # ── El insumo del recálculo: sin esto "Recalcular completo" no puede ──
+    "assets":            "el activo en sí, cargado a mano o por import",
+    "prices":            "serie de precios: insumo de TODOS los derivados",
+    "price_sources":     "de dónde baja los precios cada activo",
+    "fundamental_quarterly":
+        "estados contables CRUDOS de la fuente e insumo de ind_fundamental_*; "
+        "Yahoo sirve una ventana corta de trimestres, así que una redescarga NO "
+        "los restituye (ver el comentario en _LEAF_TABLES)",
+    "fundamental_sources": "de dónde bajan los fundamentales",
+    # ── Catálogos (se reimportan, pero son curados) ──
+    "sectors":           "catálogo",
+    "industries":        "catálogo",
+    "markets":           "catálogo",
+    "countries":         "catálogo",
+    "currencies":        "catálogo",
+    "instrument_types":  "catálogo",
+    # ── Definiciones: la limpieza borra los RESULTADOS, no las reglas ──
+    "indicator_definitions": "definición de indicador",
+    "signal":                "definición de señal",
+    "strategy":              "definición de estrategia",
+    "strategy_component":    "componentes de la estrategia (parte de su definición)",
+    "synthetic_formula":     "fórmula del activo sintético",
+    "synthetic_component":   "operandos de la fórmula sintética",
+    "currency_conversion_divisor":
+        "divisor de conversión de moneda, elegido a mano",
+    # ── Parámetros de cálculo (configuración, no datos) ──
+    "pnf_config":        "parámetros de Point & Figure",
+    "sr_config":         "parámetros de soportes/resistencias",
+    "regime_config":     "parámetros de régimen",
+    "volatility_config": "parámetros de volatilidad",
+    "drawdown_config":   "parámetros de drawdown",
+    "scheduler_config":  "horarios de las tareas diarias",
+    # ── Lo más irreemplazable: cargado a mano y no se recrea solo ──
+    "portfolio":             "cartera",
+    "portfolio_member":      "composición de la cartera",
+    "portfolio_transaction": "registro de operaciones, cargado a mano",
+    # ── Acceso ──
+    "users":        "usuarios y sus roles",
+    "oauth_client": "conector MCP autorizado: borrarlo cortaría el acceso de "
+                    "la IA sin avisar, igual que borrar el usuario",
+    "oauth_grant":  "sesión OAuth viva del conector MCP",
+}
+
 # Descripción para la UI: qué se borra, en lenguaje de usuario. El detalle
 # exacto sale de resolve_tables(); esto es el resumen legible.
 TABLES_INFO = [
@@ -110,6 +174,7 @@ TABLES_INFO = [
     ("market_event",              "Eventos de mercado"),
     ("catalog_aliases",           "Aliases del catálogo"),
     ("run_lock",                  "Locks de corridas"),
+    ("run_history",               "Historial de corridas"),
     ("*_update_log / *_eval_log / import_log",
      "Logs de actualización, evaluación e importación"),
     ("asset_verification_flag / verification_run_log",
@@ -195,30 +260,41 @@ RESET_KEEPS_INFO = [
 ]
 
 
+# Lo único que sobrevive al reinicio TOTAL: la versión de migraciones (el
+# esquema ya está en head, no hace falta re-estampar). Va explícito porque el
+# alcance se deriva del catálogo — antes quedaba afuera de casualidad.
+_RESET_KEEP_TABLES = frozenset({"alembic_version"})
+
+
 def _fresh_install_wipe(conn) -> list[str]:
     """Vacía TODAS las tablas de la base y devuelve sus nombres.
 
-    NO toca `alembic_version`: no está en el metadata ORM ni matchea los
-    prefijos dinámicos, así que la versión de migraciones queda intacta (el
-    esquema ya está en head, no hace falta re-estampar).
+    El alcance sale del CATÁLOGO (todo lo que existe menos _RESET_KEEP_TABLES),
+    no de Base.metadata + prefijos: enumerar dejaba afuera EN SILENCIO todo lo
+    que no fuera modelo ORM ni matcheara un prefijo, y se comió dos casos
+    (ago-2026):
+    - `signal_values_wide` / `strategy_results_wide`, el almacenamiento vivo de
+      señales y estrategias desde el cutover, no son modelos (se crean con un
+      MetaData propio en signal_store) y no empiezan con "sig_"/"strat_res_" →
+      el reinicio "a fábrica" las dejaba POBLADAS, con filas de activos que ya
+      no existían. Mismo hueco que la 0094 abrió en clean_data, arreglado allá
+      y no acá.
+    - Por el camino del CLI (`scripts/clean_data.py --reset` importa solo este
+      servicio) `Base.metadata` está VACÍO: el reset no vaciaba ni `assets`, y
+      el script informaba igual que había reiniciado la base.
+    Derivar del catálogo hace que nada pueda quedar afuera y que el resultado no
+    dependa de qué módulos estén importados. La contracara es que una tabla
+    ajena en el mismo schema también se vacía: es lo correcto para un botón que
+    promete dejar la base como recién instalada.
 
-    El vaciado —incluidas las tablas dinámicas ind_*/sig_*/strat_res_— lo hace
-    db_compat.truncate_all_tables de una sola vez, salteando la verificación de
-    FK: es seguro porque se vacía TODO el grafo (nada puede quedar huérfano) y
-    así se resuelve el ciclo assets ↔ markets, que un DELETE ordenado no podría
-    (a diferencia de la limpieza parcial de clean_data, que mantiene los FK).
+    El vaciado lo hace db_compat.truncate_all_tables de una sola vez, salteando
+    la verificación de FK: es seguro porque se vacía TODO el grafo (nada puede
+    quedar huérfano) y así se resuelve el ciclo assets ↔ markets, que un DELETE
+    ordenado no podría (a diferencia de la limpieza parcial de clean_data, que
+    mantiene los FK).
     """
-    from app.database import Base
-
-    existing = set(sa.inspect(conn).get_table_names())
-    core_names = [n for n in Base.metadata.tables if n in existing]
-    # Dinámicas: existen fuera del metadata (ind_asset_meta SÍ es modelo, así
-    # que ya está en core_names y no se duplica).
-    core_set = set(core_names)
-    dynamic = [t for t in db_compat.list_tables_by_prefix(conn, *_DYNAMIC_PREFIXES)
-               if t not in core_set]
-
-    names = dynamic + core_names
+    names = sorted(n for n in sa.inspect(conn).get_table_names()
+                   if n not in _RESET_KEEP_TABLES)
     db_compat.truncate_all_tables(conn, names)
     for name in names:
         logger.info("%-40s vaciada", name)
@@ -256,7 +332,12 @@ def reset_to_fresh_install(bind=None) -> dict:
     migraciones queda intacta. Las tablas dinámicas sig_*/strat_res_* huérfanas
     las dropea el reconciliador que corre dentro de ensure_builtin_data (ya sin
     definición que las respalde); las ind_* de los indicadores integrados se
-    conservan vacías (checkfirst en la resiembra).
+    conservan vacías (checkfirst en la resiembra). Ese mismo reconciliador
+    dropea las COLUMNAS de las anchas (reconcile_wide_columns): sin señales ni
+    estrategias vivas, signal_values_wide/strategy_results_wide quedan sin
+    columnas de valor. Es la diferencia con clean_data, que preserva las
+    definiciones y por eso vacía las filas SIN tocar las columnas — tienen que
+    seguir ahí para que "Recalcular completo" las repueble.
 
     El vaciado corre en una transacción sobre `bind` (default: engine); la
     resiembra y el admin usan la sesión global de la app (mismo engine). Es la

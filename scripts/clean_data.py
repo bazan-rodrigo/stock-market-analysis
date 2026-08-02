@@ -55,9 +55,9 @@ if __name__ == "__main__":
 
     if "--confirm" not in sys.argv:
         print("Esto eliminará indicadores, ratios fundamentales, señales,")
-        print("resultados de estrategias, logs y las corridas guardadas de")
-        print("backtest y cartera. Se conservan activos, precios, fuentes,")
-        print("catálogos, definiciones, carteras y usuarios.")
+        print("resultados de estrategias, logs, el historial de corridas y las")
+        print("corridas guardadas de backtest y cartera. Se conservan activos,")
+        print("precios, fuentes, catálogos, definiciones, carteras y usuarios.")
         resp = input("¿Confirmar? (s/N): ").strip().lower()
         if resp != "s":
             print("Cancelado.")

@@ -181,6 +181,156 @@ def test_clean_data_vacia_lo_derivado_y_respeta_lo_curado(tmp_path):
     assert "portfolio_run" in res["tables"]
 
 
+# ── El alcance de la limpieza, DERIVADO del esquema ──────────────────────────
+# Los tests de cobertura de arriba (logs, snapshots, anchas) enumeran nombres a
+# mano: son útiles para explicar POR QUÉ cada grupo está, pero no pueden ver una
+# tabla que nadie escribió en ninguna lista. Este par de tests sí — recorren el
+# esquema real y exigen una decisión explícita por tabla.
+
+def _universo_de_tablas() -> set[str]:
+    """Toda tabla ESTÁTICA del esquema: los modelos ORM más las que se crean
+    fuera de Base.metadata (las anchas de indicadores y de señales, que tienen
+    su propio MetaData en los stores). Las dinámicas —ind_{code}, y las
+    sig_{id}/strat_res_{id} de bases sin migrar— no son enumerables sin datos:
+    las cubren los prefijos, y que los prefijos no se lleven puesta una tabla de
+    definición lo fija test_prefijos_dinamicos_no_barren_tablas_de_definicion.
+    """
+    import app.models  # noqa: F401  — puebla Base.metadata
+    from app.database import Base
+    from app.models.indicator_store import _WIDE_CADENCE_TABLE
+    from app.models import signal_store as ss
+
+    return (set(Base.metadata.tables)
+            | set(_WIDE_CADENCE_TABLE.values())
+            | {ss.SIG_WIDE_TABLE, ss.STRAT_WIDE_TABLE})
+
+
+def _en_alcance(tabla: str) -> bool:
+    return (tabla in cs._LEAF_TABLES or tabla in cs._REFERENCED_TABLES
+            or any(tabla.startswith(p) for p in cs._DYNAMIC_PREFIXES))
+
+
+def test_toda_tabla_del_esquema_esta_clasificada():
+    """Trinquete DERIVADO: cada tabla del esquema tiene que estar o en el
+    alcance de la limpieza, o en `_PRESERVED_TABLES` con su motivo escrito.
+
+    Es la red que faltaba. Los tests de cobertura escritos a mano estuvieron en
+    verde mientras la limpieza estaba ROTA: cuando la 0094 dropeó las tablas por
+    señal, `sig_`/`strat_res_` dejaron de matchear y los valores de señales
+    quedaron sin vaciar, pero los tests seguían preguntando por los nombres que
+    alguien había tipeado. Lo mismo con `run_history`, que nació con la 0096 y
+    quedó sin vaciar sin que nadie lo decidiera: lo destapó este test.
+
+    NO decide nada por vos — te impide olvidarte de decidir. Una tabla nueva
+    rompe la suite hasta que se la clasifica de un lado o del otro.
+    """
+    sin_clasificar = sorted(
+        t for t in _universo_de_tablas()
+        if not _en_alcance(t) and t not in cs._PRESERVED_TABLES)
+
+    assert not sin_clasificar, (
+        "Tablas sin clasificar en cleanup_service: "
+        f"{sin_clasificar}.\nAgregá cada una a _LEAF_TABLES/_REFERENCED_TABLES "
+        "(si la limpieza tiene que vaciarla) o a _PRESERVED_TABLES con el "
+        "motivo por el que se conserva.")
+
+
+def test_preservadas_y_alcance_no_se_solapan_ni_mienten():
+    """La clasificación tiene que ser una PARTICIÓN del esquema: sin tablas en
+    los dos lados (contradicción) y sin entradas que ya no existan (una
+    preservada fantasma tapa el agujero que este test busca: parece decidida y
+    no hay nada)."""
+    universo = _universo_de_tablas()
+
+    en_ambos = sorted(t for t in cs._PRESERVED_TABLES if _en_alcance(t))
+    assert not en_ambos, f"declaradas preservadas Y en el alcance: {en_ambos}"
+
+    fantasmas = sorted(set(cs._PRESERVED_TABLES) - universo)
+    assert not fantasmas, (
+        f"_PRESERVED_TABLES nombra tablas que no existen: {fantasmas}")
+
+    sin_motivo = sorted(t for t, m in cs._PRESERVED_TABLES.items() if not m.strip())
+    assert not sin_motivo, f"preservadas sin motivo escrito: {sin_motivo}"
+
+
+# ── Reinicio a fábrica: el alcance se DERIVA del catálogo ────────────────────
+
+def _esquema_completo(engine):
+    """Arma el esquema como en una instalación real: los modelos ORM MÁS las
+    tablas que viven fuera de Base.metadata (las anchas de indicadores y de
+    señales, una ind_{code} per-código) y alembic_version."""
+    import app.models  # noqa: F401  — puebla Base.metadata
+    from app.database import Base
+    from app.models.indicator_store import ensure_wide_ind_tables
+    from app.models.signal_store import ensure_wide_signal_tables
+
+    Base.metadata.create_all(engine)
+    ensure_wide_ind_tables(bind=engine)
+    ensure_wide_signal_tables(bind=engine)
+    md = sa.MetaData()
+    sa.Table("ind_aapl", md, sa.Column("date", sa.Date, primary_key=True))
+    sa.Table("alembic_version", md,
+             sa.Column("version_num", sa.String(32), primary_key=True))
+    md.create_all(engine)
+
+
+def test_reset_vacia_todo_lo_que_existe_menos_alembic_version(tmp_path):
+    """Trinquete DERIVADO, no una lista a mano —que es justo lo que se pudre—:
+    el reinicio a fábrica tiene que alcanzar CADA tabla del catálogo.
+
+    La versión enumerada (Base.metadata + prefijos dinámicos) dejaba afuera en
+    silencio todo lo que no fuera modelo ORM ni matcheara un prefijo: las
+    anchas de señales cumplen las dos condiciones, así que el botón prometía
+    una base recién instalada y dejaba adentro los valores de señales y los
+    rankings de estrategias.
+    """
+    engine = sa.create_engine(f"sqlite:///{tmp_path/'reset.db'}")
+    _esquema_completo(engine)
+
+    with engine.begin() as conn:
+        wiped = cs._fresh_install_wipe(conn)
+
+    existentes = set(sa.inspect(engine).get_table_names())
+    assert set(wiped) == existentes - {"alembic_version"}
+    # Nombradas aparte para que el fallo diga QUÉ se escapó, no solo cuántas:
+    assert {"signal_values_wide", "strategy_results_wide",
+            "ind_daily", "ind_aapl"} <= set(wiped)
+
+
+def test_reset_no_depende_de_que_la_tabla_sea_modelo_orm(tmp_path):
+    """El alcance no puede salir de Base.metadata: por el camino del CLI
+    (`scripts/clean_data.py --reset` importa SOLO cleanup_service) el metadata
+    está vacío y el reset no vaciaba ni `assets`, mientras el script informaba
+    que había reiniciado la base. Se fija con tablas que no son modelo ni
+    matchean los prefijos dinámicos."""
+    engine = sa.create_engine(f"sqlite:///{tmp_path/'ajenas.db'}")
+    tablas = ("signal_values_wide", "strategy_results_wide", "zz_ajena")
+    md = sa.MetaData()
+    for name in tablas:
+        sa.Table(name, md, sa.Column("id", sa.Integer, primary_key=True))
+    sa.Table("alembic_version", md,
+             sa.Column("version_num", sa.String(32), primary_key=True))
+    md.create_all(engine)
+    with engine.begin() as conn:
+        for name in tablas:
+            conn.execute(sa.text(f"INSERT INTO {name} (id) VALUES (1)"))
+        conn.execute(sa.text(
+            "INSERT INTO alembic_version (version_num) VALUES ('0100')"))
+
+    with engine.begin() as conn:
+        cs._fresh_install_wipe(conn)
+
+    with engine.connect() as conn:
+        def count(t):
+            return conn.execute(sa.text(f"SELECT COUNT(*) FROM {t}")).scalar()
+
+        for name in tablas:
+            assert count(name) == 0, f"{name} debería haber quedado vacía"
+        # La versión de migraciones sobrevive: el esquema ya está en head y el
+        # reinicio no lo toca (no hay que re-estampar).
+        assert count("alembic_version") == 1
+
+
 # ── Mantenimiento: VACUUM/OPTIMIZE ───────────────────────────────────────────
 
 def test_vacuum_tolera_tabla_que_desaparecio_a_mitad_de_corrida(monkeypatch):
