@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-02T05:42:10.358Z
+  modified: 2026-08-02T22:24:35.938Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -269,6 +269,65 @@ entera de bug no tiene red.
 **OJO — HAY SESIONES EN PARALELO en este repo.** Aparecieron cambios sin
 commitear que no eran míos (el arreglo del modal, una reescritura de
 `_fresh_install_wipe`). Commitear solo los archivos propios, nunca `git add -A`.
+
+**GEMINI NO CONECTABA (2-ago). QUE ANDE CON CLAUDE NO PRUEBA NADA SOBRE OTRO
+CLIENTE** — cada conector elige por su cuenta cómo se autentica, y las tres
+fallas que aparecieron eran **invisibles desde el servidor**.
+
+Dos falsos comienzos que no eran del código, y que van a volver: el usuario pegó
+como URL del servidor primero la de DESCUBRIMIENTO
+(`…/.well-known/oauth-protected-resource/mcp`) y después la RAÍZ pelada. Se ve
+clarísimo en el log: el cliente inserta `/.well-known/oauth-protected-resource`
+**delante del path del recurso** (RFC 9728), así que una URL mal pegada aparece
+duplicada en el pedido. Lo que va es el host + **`/mcp`**, nada más.
+
+**El bug real: `POST /token → 401`, con el usuario YA autorizado.** Todo lo
+demás del flujo daba bien (register → authorize → pantalla → aprobación →
+código). Google se registra declarando `token_endpoint_auth_method:
+client_secret_basic` y después **no manda ese header** al canjear; el SDK mira
+SOLO donde el cliente dijo que iban las credenciales y contesta 401. El conector
+lo muestra como *"Debes vincular la cuenta"*, que no dice nada.
+
+**Arreglo: `register_client` registra a TODOS como públicos** (`none`, sin
+secret, y hay que limpiar las dos cosas — con el secret guardado el SDK igual lo
+exige). No debilita nada: el registro dinámico está abierto a cualquiera, así
+que ese secreto no acredita identidad; lo que protege el canje es PKCE y la
+identidad la pone el token de «Conexión IA» en la pantalla. Se muta el objeto
+que llega, no una copia: el handler arma con él la respuesta de registro
+DESPUÉS de llamarnos, así el cliente se entera de que quedó público.
+
+**Dos huecos más que destapó, del mismo origen (nadie ejercitó otro cliente):**
+1. **Sin `default_scopes`, todo cliente quedaba con `scope=None`** y
+   `validate_scope` compara contra una lista VACÍA → rechaza **cualquier**
+   scope que se pida en /authorize. Claude no manda `scope` y por eso nunca se
+   vio. Latente desde el día uno.
+2. **La metadata anunciaba solo los métodos CON secreto** mientras emitíamos
+   clientes públicos: el mismo desencuentro visto desde el otro lado. Para
+   corregirla hay que insertar la Route ANTES de las del SDK
+   (`app.router.routes.insert(0, …)`) — `custom_starlette_routes` se agrega al
+   FINAL y ahí nunca llega el pedido.
+
+**LA LECCIÓN NUEVA, y es de observabilidad: un fallo de OAuth no dejaba NINGÚN
+rastro.** El motivo se lo lleva el cliente, que lo traduce a un mensaje inútil;
+en el log quedaba `POST /token 401` pelado. Encontrar la causa exigió
+**interrogar producción desde afuera con pedidos fabricados a mano** (registrar
+un cliente de prueba, mandar Basic con secret incorrecto para distinguir "no
+llegó el header" de "no coincide"). Eso ensucia la base y no siempre se va a
+poder. Ahora está `oauth.LogDeFallosOAuth`, middleware ASGI puro —no
+`BaseHTTPMiddleware`, que bufferearía el streaming de `/mcp`— que loguea el
+motivo. Ojo con la segunda forma de fallar: **/authorize rechaza con 302 y el
+error en el `Location`**, indistinguible de un éxito sin mirar el destino; es
+donde vivió escondido el `invalid_scope`. Solo se loguea si el `Location` trae
+`error=`, nunca cuando trae el `code`, y del header de autenticación va el
+ESQUEMA y jamás el valor.
+
+Todo el arreglo vive en `app/ai/oauth.py` y no en `mcp_server.py`, que la suite
+no ve — la misma regla que ya se había aprendido tres veces.
+
+**PENDIENTE:** desplegar, **borrar y volver a agregar el conector en Gemini**
+(las filas ya registradas conservan su método viejo, así que sin re-registrar
+falla igual), y limpiar de `oauth_client` el cliente de Google viejo más el
+`prueba-diagnostico` que dejó mi sondeo contra producción.
 
 Relacionado: [[project-backtest]], [[feedback-entorno-verificacion]] (Railway es
 producción, no hay entorno descartable), [[feedback-reflejar-en-ui-y-spec]].

@@ -22,7 +22,7 @@
 
 ## IA / MCP
 
-- [IA con cuenta propia — MCP: **ANDANDO EN PRODUCCIÓN**](project_ia_mcp.md) — 1/2-ago, **14 herramientas de solo lectura**. Servicio `mcp` aparte en Railway, migraciones 0099 (token en `users`) + 0100 (OAuth: el conector remoto NO acepta token pegado a mano). Riesgo central resuelto: **el gate de visibilidad no se hereda** (vive en la UI) y se re-aplica en `app/ai`. Ninguna IA escribe señales; backtest y carteras corren **sin persistir**, con KPIs por tramo contra el sobreajuste. Destapó 2 bugs de producción ajenos a la IA
+- [IA con cuenta propia — MCP: **ANDANDO EN PRODUCCIÓN**](project_ia_mcp.md) — 1/2-ago, **14 herramientas de solo lectura**. Servicio `mcp` aparte en Railway, migraciones 0099 (token en `users`) + 0100 (OAuth: el conector remoto NO acepta token pegado a mano). Riesgo central resuelto: **el gate de visibilidad no se hereda** (vive en la UI) y se re-aplica en `app/ai`. Ninguna IA escribe señales; backtest y carteras corren **sin persistir**, con KPIs por tramo contra el sobreajuste. Destapó 2 bugs de producción ajenos a la IA. **2-ago: Gemini no conectaba — que ande con Claude no prueba nada sobre otro cliente.** Los clientes de DCR ahora se registran como PÚBLICOS; un fallo de OAuth no dejaba NINGÚN rastro en el log y hubo que interrogar producción a mano
 - [Packs como estándar publicado](project_packs_estandar.md) — SPEC.md v1 + catálogo por instalación + validador offline; el import resuelve atributos por NOMBRE. **El SPEC se desfasó y el trinquete no lo vio: ataba las LISTAS, no la PROSA**
 
 ## Arquitectura y datos
