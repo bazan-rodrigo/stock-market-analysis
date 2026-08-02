@@ -163,6 +163,39 @@ def test_las_senales_tambien_se_filtran(db):
     assert claves == {"pub"}
 
 
+# ── Los componentes se pueden cruzar con las señales ──────────────────────────
+
+def test_los_componentes_identifican_la_senal_por_key(db):
+    """Antes venían con el `signal_id` interno, y `list_signals` identifica por
+    key sin exponer ids: las dos respuestas no se podían cruzar, así que la IA
+    veía "componente 3, peso 2" sin poder saber qué señal era — inútil para lo
+    primero que uno pregunta, de qué está hecha la estrategia."""
+    from app.models import SignalDefinition, Strategy, StrategyComponent
+
+    s = get_session()
+    sig = SignalDefinition(key="rsi_bajo", name="RSI bajo",
+                           formula_type="threshold", params="{}",
+                           owner_id=_ADMIN, is_public=True)
+    s.add(sig)
+    st = Strategy(name="E", owner_id=_ADMIN, is_public=True)
+    s.add(st)
+    s.commit()
+    s.add(StrategyComponent(strategy_id=st.id, signal_id=sig.id, weight=2.0))
+    s.commit()
+
+    out = registry.call("list_strategies", AiCaller(user_id=_ANA))
+    comp = out["strategies"][0]["componentes"][0]
+
+    assert comp["signal_key"] == "rsi_bajo"
+    assert comp["signal_name"] == "RSI bajo"
+    assert comp["weight"] == 2.0
+
+    # Y la key tiene que existir en list_signals, o el cruce sigue sin cerrar
+    claves = {x["key"] for x in
+              registry.call("list_signals", AiCaller(user_id=_ANA))["signals"]}
+    assert comp["signal_key"] in claves
+
+
 # ── Manual: el nivel del caller ───────────────────────────────────────────────
 
 def _slugs_visibles(caller):

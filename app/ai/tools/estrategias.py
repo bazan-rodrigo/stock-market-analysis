@@ -49,19 +49,37 @@ def _estrategia_visible(caller: AiCaller, strategy_id: int):
 def list_strategies(caller: AiCaller, limit: int | None = None) -> dict:
     from app.services import strategy_service
 
+    from app.services import signal_service
+
     user_id, is_admin = caller.viewer()
     tope = limite(limit, 200)
     filas = strategy_service.get_visible_strategies(user_id, is_admin)
+
+    # Los componentes se devuelven por `signal_key`, no por el id interno. Con
+    # el id la herramienta era casi inútil para lo primero que uno pregunta
+    # ("¿de qué está hecha esta estrategia?"): `list_signals` identifica por
+    # key y no expone ids, así que las dos respuestas no se podían cruzar.
+    # La key es además el identificador del formato de packs.
+    por_id = {s.id: s for s in signal_service.get_visible_signals(user_id, is_admin)}
+
+    def _componentes(st):
+        salida = []
+        for c in st.components:
+            sig = por_id.get(c.signal_id)
+            salida.append({
+                "signal_key": sig.key if sig else None,
+                "signal_name": sig.name if sig else None,
+                "weight": c.weight,
+            })
+        return salida
+
     return {
         "total": len(filas),
         "devueltas": min(len(filas), tope),
         "strategies": [
             {"id": st.id, "name": st.name, "description": st.description,
              "publica": bool(st.is_public),
-             "componentes": [
-                 {"signal_id": c.signal_id, "weight": c.weight}
-                 for c in st.components
-             ],
+             "componentes": _componentes(st),
              "filter_conditions": st.filter_conditions}
             for st in filas[:tope]
         ],
