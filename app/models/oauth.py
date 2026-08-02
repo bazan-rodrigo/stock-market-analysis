@@ -25,12 +25,13 @@ class OAuthClient(Base):
     documento del protocolo, no un modelo nuestro, y así una versión nueva del
     SDK que agregue campos no pierde información ni exige una migración.
 
-    Ojo: ese JSON incluye el `client_secret` **en claro**. No es una
-    distracción, es una restricción del protocolo — el SDK pide el cliente
-    completo por `get_client()` para validar el secreto que manda la
-    aplicación, así que tiene que ser recuperable. No es una credencial de
-    usuario: por sí solo no da acceso a ningún dato; hace falta además que una
-    persona autorice con su token.
+    **No hay ningún secreto acá.** `ProveedorOAuth.register_client` registra a
+    todos como clientes públicos (`token_endpoint_auth_method: none`, sin
+    `client_secret`): el registro es abierto, así que un secreto autogenerado no
+    acreditaría ninguna identidad. Lo que protege el canje es PKCE, y la
+    identidad la pone la persona con su token de «Conexión IA». Filas viejas
+    —anteriores a ese cambio— sí pueden traer un `client_secret` en claro en el
+    JSON; se limpian volviendo a registrar el cliente.
     """
 
     __tablename__ = "oauth_client"

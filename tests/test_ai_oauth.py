@@ -345,6 +345,254 @@ def test_un_cliente_desconocido_no_resuelve(db):
     assert corre(oauth.ProveedorOAuth().get_client("jamas-registrado")) is None
 
 
+# ── El cliente queda público ──────────────────────────────────────────────────
+# Un conector real (Google) se registraba declarando `client_secret_basic` y
+# después no mandaba ese header al canjear. El SDK mira SOLO donde el cliente
+# dijo que iban las credenciales, así que contestaba 401 en el último paso, con
+# el usuario ya autorizado — y el conector lo mostraba como "no se pudo vincular
+# la cuenta". Registrar siempre como público saca ese desencuentro del medio.
+
+def test_el_cliente_registrado_queda_publico(db):
+    """Aunque se declare confidencial: el registro dinámico es abierto, así que
+    el secret no acredita nada. PKCE es lo que protege el canje."""
+    prov, cli = oauth.ProveedorOAuth(), _cliente()
+
+    corre(prov.register_client(cli))
+
+    guardado = corre(prov.get_client(_CLIENTE))
+    assert guardado.token_endpoint_auth_method == "none"
+    assert guardado.client_secret is None
+
+
+def test_el_registro_le_avisa_al_cliente_que_quedo_publico(db):
+    """El handler del SDK arma la respuesta de registro con el MISMO objeto,
+    después de llamarnos. Si no lo mutáramos, el cliente se llevaría un secret
+    que nuestro endpoint de token no va a aceptar nunca."""
+    prov, cli = oauth.ProveedorOAuth(), _cliente()
+
+    corre(prov.register_client(cli))
+
+    assert cli.token_endpoint_auth_method == "none"
+    assert cli.client_secret is None
+
+
+def test_el_secret_no_queda_en_la_base(db):
+    prov, cli = oauth.ProveedorOAuth(), _cliente()
+    secreto = cli.client_secret
+
+    corre(prov.register_client(cli))
+
+    filas = get_session().execute(sa.text("SELECT * FROM oauth_client")).mappings().all()
+    assert secreto not in " ".join(str(v) for f in filas for v in f.values())
+
+
+def _pedido_de_token(cuerpo: str, headers: dict | None = None):
+    """Un Request de Starlette como el que recibe `/token`."""
+    from starlette.requests import Request
+
+    crudos = [(b"content-type", b"application/x-www-form-urlencoded")]
+    crudos += [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]
+
+    async def receive():
+        return {"type": "http.request", "body": cuerpo.encode(), "more_body": False}
+
+    return Request({"type": "http", "method": "POST", "path": "/token",
+                    "headers": crudos, "query_string": b""}, receive)
+
+
+@pytest.mark.parametrize("headers, cuerpo", [
+    (None, f"grant_type=authorization_code&client_id={_CLIENTE}"),
+    # Como manda Google: dice basic al registrarse y después manda otra cosa.
+    (None, f"grant_type=authorization_code&client_id={_CLIENTE}&client_secret=x"),
+    ({"Authorization": "Basic bm86bm8="},
+     f"grant_type=authorization_code&client_id={_CLIENTE}"),
+])
+def test_el_canje_no_rebota_mande_lo_que_mande_el_cliente(db, headers, cuerpo):
+    """Contra el autenticador REAL del SDK, que es donde salía el 401.
+
+    Las tres variantes son formas distintas de presentar (o no) credenciales.
+    Con el cliente público, ninguna puede fallar la autenticación: lo que se
+    valida después es el código y PKCE, que es donde tiene que decidirse.
+    """
+    from mcp.server.auth.middleware.client_auth import ClientAuthenticator
+
+    prov = oauth.ProveedorOAuth()
+    corre(prov.register_client(_cliente()))
+
+    autenticado = corre(
+        ClientAuthenticator(prov).authenticate_request(_pedido_de_token(cuerpo, headers)))
+
+    assert autenticado.client_id == _CLIENTE
+
+
+# ── El scope ──────────────────────────────────────────────────────────────────
+# Sin un scope por defecto, el cliente queda registrado con `scope=None` y el
+# SDK compara lo que pide /authorize contra una lista VACÍA: rechaza cualquier
+# cosa. Un cliente que no manda scope no lo nota nunca; uno que sí, no entra
+# jamás. Estuvo así hasta que un conector real mandó `scope`.
+
+def test_el_cliente_queda_con_un_scope_utilizable(db):
+    prov, cli = oauth.ProveedorOAuth(), _cliente()
+    cli.scope = None
+
+    corre(prov.register_client(cli))
+
+    assert corre(prov.get_client(_CLIENTE)).scope == "read"
+
+
+def test_pedir_el_scope_read_no_rebota(db):
+    """El camino exacto que fallaba: `validate_scope` es lo que corre /authorize
+    antes de mandar a la pantalla de autorización."""
+    prov, cli = oauth.ProveedorOAuth(), _cliente()
+    cli.scope = None
+    corre(prov.register_client(cli))
+
+    assert corre(prov.get_client(_CLIENTE)).validate_scope("read") == ["read"]
+
+
+def test_las_opciones_de_registro_declaran_el_scope(db):
+    opciones = oauth.opciones_de_registro()
+
+    assert opciones.default_scopes == ["read"]
+    assert opciones.valid_scopes == ["read"]
+
+
+# ── Lo que se anuncia ─────────────────────────────────────────────────────────
+
+def test_la_metadata_anuncia_el_metodo_que_de_verdad_se_acepta(db):
+    """El SDK publica los dos métodos con secreto y nosotros emitimos clientes
+    públicos. Un cliente que le cree a esa lista se registra pidiendo un
+    secreto y después el canje no le cierra."""
+    md = oauth.metadata_publicada("https://ejemplo.test")
+
+    assert md.token_endpoint_auth_methods_supported == ["none"]
+
+
+def test_la_metadata_publica_los_scopes_y_los_endpoints(db):
+    md = oauth.metadata_publicada("https://ejemplo.test")
+
+    assert md.scopes_supported == ["read"]
+    assert str(md.token_endpoint) == "https://ejemplo.test/token"
+    assert str(md.registration_endpoint) == "https://ejemplo.test/register"
+
+
+def test_la_ruta_de_metadata_tapa_la_del_sdk(db):
+    """Mismo path que la del SDK: se inserta adelante y Starlette la elige."""
+    assert oauth.ruta_de_metadata("https://ejemplo.test").path == \
+        "/.well-known/oauth-authorization-server"
+
+
+# ── El log de diagnóstico ─────────────────────────────────────────────────────
+# Un flujo roto se veía como `POST /token 401` y nada más. El motivo se lo lleva
+# el cliente, que lo traduce a "no se pudo vincular la cuenta"; del lado del
+# servidor no quedaba rastro y hubo que interrogar producción a mano.
+
+def _app_falsa(status=200, cuerpo=b"", headers=None):
+    """Una app ASGI mínima que contesta lo que se le pida."""
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": status,
+                    "headers": headers or []})
+        await send({"type": "http.response.body", "body": cuerpo})
+    return app
+
+
+def _pedir(app, path, metodo="POST", headers=None):
+    """Corre un pedido contra la app y devuelve los mensajes que emitió."""
+    emitidos = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(mensaje):
+        emitidos.append(mensaje)
+
+    corre(app({"type": "http", "method": metodo, "path": path,
+               "headers": headers or []}, receive, send))
+    return emitidos
+
+
+def test_un_401_de_token_deja_el_motivo_en_el_log(db, caplog):
+    cuerpo = b'{"error":"invalid_client","error_description":"Invalid client_secret"}'
+    app = oauth.LogDeFallosOAuth(_app_falsa(401, cuerpo))
+
+    with caplog.at_level("WARNING"):
+        _pedir(app, "/token", headers=[(b"authorization", b"Basic eGQ6eGQ=")])
+
+    assert "Invalid client_secret" in caplog.text
+    assert "Authorization: Basic" in caplog.text     # cómo vino autenticado
+
+
+def test_no_se_registra_el_valor_de_las_credenciales(db, caplog):
+    """Del header va el ESQUEMA y nada más: el log no es un lugar donde puedan
+    aparecer credenciales."""
+    app = oauth.LogDeFallosOAuth(_app_falsa(401, b'{"error":"invalid_client"}'))
+
+    with caplog.at_level("WARNING"):
+        _pedir(app, "/token", headers=[(b"authorization", b"Basic c2VjcmV0bw==")])
+
+    assert "c2VjcmV0bw==" not in caplog.text
+
+
+def test_un_authorize_rechazado_se_ve_aunque_conteste_302(db, caplog):
+    """/authorize falla redirigiendo, con el error en la query. Sin mirar el
+    destino, un rechazo es indistinguible de un flujo sano — es donde vivió
+    escondido el `invalid_scope`."""
+    destino = b"https://cliente.test/cb?error=invalid_scope&state=xyz"
+    app = oauth.LogDeFallosOAuth(_app_falsa(302, headers=[(b"location", destino)]))
+
+    with caplog.at_level("WARNING"):
+        _pedir(app, "/authorize", metodo="GET")
+
+    assert "invalid_scope" in caplog.text
+
+
+def test_una_autorizacion_exitosa_no_se_registra(db, caplog):
+    """El `Location` de un éxito lleva el código de autorización. Loguearlo
+    sería filtrar una credencial al log."""
+    destino = b"https://cliente.test/cb?code=SECRETO-DE-UN-SOLO-USO&state=xyz"
+    app = oauth.LogDeFallosOAuth(_app_falsa(302, headers=[(b"location", destino)]))
+
+    with caplog.at_level("WARNING"):
+        _pedir(app, "/authorize", metodo="GET")
+
+    assert caplog.text == ""
+
+
+def test_las_rutas_que_no_son_de_oauth_pasan_sin_tocarse(db, caplog):
+    """`/mcp` hace streaming: bufferear su respuesta lo rompería."""
+    app = oauth.LogDeFallosOAuth(_app_falsa(401, b'{"error":"no importa"}'))
+
+    with caplog.at_level("WARNING"):
+        emitidos = _pedir(app, "/mcp")
+
+    assert caplog.text == ""
+    assert emitidos[0]["status"] == 401          # la respuesta llega igual
+
+
+def test_la_respuesta_llega_intacta_al_cliente(db):
+    """Espía, no intercepta: el cuerpo se copia para el log y se manda igual."""
+    cuerpo = b'{"error":"invalid_client"}'
+    app = oauth.LogDeFallosOAuth(_app_falsa(401, cuerpo))
+
+    emitidos = _pedir(app, "/token")
+
+    assert emitidos[0]["status"] == 401
+    assert emitidos[1]["body"] == cuerpo
+
+
+def test_el_lifespan_pasa_derecho(db):
+    """La app se envuelve entera. Si el arranque no atravesara, el gestor de
+    sesiones de MCP nunca se iniciaría y el servicio no levantaría."""
+    visto = []
+
+    async def app(scope, receive, send):
+        visto.append(scope["type"])
+
+    corre(oauth.LogDeFallosOAuth(app)({"type": "lifespan"}, None, None))
+
+    assert visto == ["lifespan"]
+
+
 def test_revocar_borra_la_concesion(db):
     prov, cli, tok = _flujo_hasta_tokens(_usuario())
     rt = corre(prov.load_refresh_token(cli, tok.refresh_token))

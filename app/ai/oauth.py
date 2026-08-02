@@ -82,8 +82,42 @@ class ProveedorOAuth(OAuthAuthorizationServerProvider):
             Session.remove()
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
+        """Registra al cliente, siempre como **público** (sin secret).
+
+        El SDK, si el cliente no aclara nada, le inventa un `client_secret` y lo
+        anota como confidencial. Eso rompe conectores reales por un desencuentro
+        entre lo que el cliente DECLARA al registrarse y lo que MANDA al canjear:
+        Google declara `client_secret_basic` y después no manda ese header, y el
+        SDK —que mira solo donde el cliente dijo— contesta 401 al final del
+        flujo, con el usuario ya autorizado. Se veía como "no se pudo vincular
+        la cuenta" sin ninguna pista de por qué.
+
+        Un cliente de registro dinámico es público por definición: el registro
+        está abierto a cualquiera, así que ese secret no acredita ninguna
+        identidad. Lo que protege el canje es PKCE, y la identidad la pone el
+        token de «Conexión IA» en la pantalla de autorización.
+
+        Se limpian LAS DOS cosas a propósito: con el secret guardado y el método
+        en `none`, el SDK igual lo exige y el 401 vuelve. Y se muta el objeto que
+        llega —no una copia— porque el handler arma con él la respuesta de
+        registro DESPUÉS de llamarnos: así el cliente se entera de que quedó
+        público en vez de recibir un secret que nunca va a servirle.
+        """
         from app.database import Session, get_session
         from app.models import OAuthClient
+
+        client_info.token_endpoint_auth_method = "none"
+        client_info.client_secret = None
+        client_info.client_secret_expires_at = None
+        # Red de seguridad del scope. Si el cliente no declaró ninguno y la
+        # configuración del servidor tampoco pone un default, queda en None — y
+        # entonces `validate_scope` compara contra una lista VACÍA y rechaza
+        # cualquier `scope` que el cliente pida en /authorize. Un cliente que no
+        # manda scope nunca lo nota; uno que sí, rebota siempre. La config vive
+        # en `opciones_de_registro()`, pero eso es un argumento que se puede
+        # olvidar: acá no.
+        if not client_info.scope:
+            client_info.scope = SCOPE_READ
 
         s = get_session()
         try:
@@ -439,6 +473,150 @@ async def resolver_cualquier_token(token: str) -> AccessToken | None:
             claims={"is_admin": caller.is_admin})
 
     return await ProveedorOAuth().load_access_token(token)
+
+
+# ── Cómo se anuncia el servicio ──────────────────────────────────────────────
+# Vive acá y no en `mcp_server.py` porque ese archivo no lo ve la suite, y estas
+# tres decisiones ya fallaron en silencio una vez cada una.
+
+METODO_DE_AUTENTICACION = "none"
+
+
+def opciones_de_registro():
+    """Cómo se registran los clientes nuevos.
+
+    `default_scopes` es lo que evita el agujero descripto en `register_client`:
+    sin él, todo cliente queda con `scope=None` y cualquiera que pida un scope
+    en /authorize rebota con `invalid_scope`. `valid_scopes` acota lo que se
+    puede pedir y —efecto secundario buscado— es de donde el SDK saca el
+    `scopes_supported` que publica en la metadata.
+    """
+    from mcp.server.auth.settings import ClientRegistrationOptions
+
+    return ClientRegistrationOptions(
+        enabled=True, valid_scopes=[SCOPE_READ], default_scopes=[SCOPE_READ])
+
+
+def opciones_de_revocacion():
+    from mcp.server.auth.settings import RevocationOptions
+
+    return RevocationOptions(enabled=True)
+
+
+RUTA_DE_METADATA = "/.well-known/oauth-authorization-server"
+
+
+def metadata_publicada(issuer_url):
+    """La metadata del servidor de autorización, con los métodos que de verdad
+    se aceptan.
+
+    El SDK publica `["client_secret_post", "client_secret_basic"]` fijo, pero
+    `register_client` emite clientes **públicos**: un cliente que le cree a esa
+    lista se registra pidiendo un secreto y después el canje no le cierra. Es el
+    desencuentro que rompió a Google, visto desde el otro lado.
+
+    Se construye con el mismo `build_metadata` del SDK y solo se corrige ese
+    campo: si una versión nueva agrega campos, no quedan afuera.
+    """
+    from mcp.server.auth.routes import build_metadata
+
+    md = build_metadata(
+        issuer_url=issuer_url,
+        service_documentation_url=None,
+        client_registration_options=opciones_de_registro(),
+        revocation_options=opciones_de_revocacion(),
+    )
+    md.token_endpoint_auth_methods_supported = [METODO_DE_AUTENTICACION]
+    return md
+
+
+def ruta_de_metadata(issuer_url):
+    """La metadata anterior, como `Route` para insertar ANTES de las del SDK.
+
+    Starlette resuelve por orden y gana la primera; `custom_starlette_routes` se
+    agrega al final, así que desde ahí el pedido nunca llegaría.
+    """
+    from mcp.server.auth.handlers.metadata import MetadataHandler
+    from mcp.server.auth.routes import cors_middleware
+    from starlette.routing import Route
+
+    handler = MetadataHandler(metadata_publicada(issuer_url))
+    return Route(RUTA_DE_METADATA,
+                 endpoint=cors_middleware(handler.handle, ["GET", "OPTIONS"]),
+                 methods=["GET", "OPTIONS"])
+
+
+# ── Por qué falló ────────────────────────────────────────────────────────────
+
+_RUTAS_VIGILADAS = frozenset({"/authorize", "/token", "/register", "/revoke"})
+
+
+def _credenciales_presentadas(scope) -> str:
+    """Cómo vino autenticado el pedido. **El esquema, jamás el valor.**"""
+    for clave, valor in scope.get("headers") or ():
+        if clave == b"authorization":
+            esquema = valor.split(b" ")[0].decode("ascii", "replace")
+            return f"Authorization: {esquema}"
+    return "sin header Authorization"
+
+
+class LogDeFallosOAuth:
+    """Deja en el log el motivo de un fallo de OAuth.
+
+    Sin esto, un flujo roto se ve como `POST /token 401` y nada más: el SDK
+    contesta el motivo al cliente, el cliente lo traduce a "no se pudo vincular
+    la cuenta", y del lado del servidor no queda rastro. Encontrar la causa del
+    401 de Google exigió interrogar el endpoint desde afuera, con pedidos
+    fabricados a mano contra producción. Esa arqueología es lo que esto evita.
+
+    Dos formas de fallar, porque OAuth tiene dos:
+
+    - **4xx** en cualquiera de los endpoints: el cuerpo trae `error` y
+      `error_description`, que es exactamente el diagnóstico.
+    - **302 con `error=` en el `Location`**, que es como falla /authorize.
+      Devuelve 302 igual que un éxito, así que sin mirar el destino un rechazo
+      es indistinguible de un flujo sano. El `invalid_scope` que estuvo vivo
+      hasta hoy caía justo acá.
+
+    Es ASGI puro y no HTTP middleware de Starlette a propósito: los mensajes
+    pasan sin tocarse y las rutas que no son de OAuth ni entran. `/mcp` hace
+    streaming, y bufferearlo lo rompería.
+
+    No se registra ningún secreto: del pedido solo el ESQUEMA de autenticación,
+    y del `Location` solo cuando lleva `error=` — nunca cuando lleva el `code`.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or scope.get("path") not in _RUTAS_VIGILADAS:
+            await self.app(scope, receive, send)
+            return
+
+        estado: dict = {"status": 200, "motivo": ""}
+        cuerpo = bytearray()
+
+        async def espiar(mensaje):
+            if mensaje["type"] == "http.response.start":
+                estado["status"] = mensaje["status"]
+                for clave, valor in mensaje.get("headers") or ():
+                    if clave.lower() == b"location":
+                        destino = valor.decode("utf-8", "replace")
+                        if "error=" in destino:
+                            estado["motivo"] = destino.split("?", 1)[-1]
+            elif mensaje["type"] == "http.response.body" and estado["status"] >= 400:
+                cuerpo.extend(mensaje.get("body") or b"")
+            await send(mensaje)
+
+        await self.app(scope, receive, espiar)
+
+        motivo = estado["motivo"] or cuerpo.decode("utf-8", "replace")
+        if estado["status"] >= 400 or estado["motivo"]:
+            logger.warning(
+                "OAuth RECHAZADO %s %s → %s | %s | %s",
+                scope.get("method"), scope.get("path"), estado["status"],
+                _credenciales_presentadas(scope), motivo[:500])
 
 
 def purgar_vencidas() -> int:

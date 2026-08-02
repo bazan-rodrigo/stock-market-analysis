@@ -29,8 +29,7 @@ from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
-from mcp.server.auth.settings import (AuthSettings, ClientRegistrationOptions,
-                                      RevocationOptions)
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
 from starlette.requests import Request
@@ -280,10 +279,23 @@ app = server.streamable_http_app(
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(_URL_PUBLICA),
         resource_server_url=AnyHttpUrl(_URL_PUBLICA.rstrip("/") + "/mcp"),
-        client_registration_options=ClientRegistrationOptions(enabled=True),
-        revocation_options=RevocationOptions(enabled=True),
+        # Las dos salen de `oauth` —no se arman acá— para que la metadata que se
+        # publica más abajo describa exactamente esta configuración y no una
+        # copia que se despegue con el tiempo.
+        client_registration_options=oauth.opciones_de_registro(),
+        revocation_options=oauth.opciones_de_revocacion(),
     ),
 )
+
+# El SDK anuncia métodos de autenticación de cliente que este servidor ya no
+# usa. Se inserta ADELANTE porque Starlette resuelve por orden: las rutas
+# propias del SDK se registran primero y `custom_starlette_routes` va al final,
+# así que es el único lugar desde donde se puede corregir.
+app.router.routes.insert(0, oauth.ruta_de_metadata(AnyHttpUrl(_URL_PUBLICA)))
+
+# Envuelve todo: sin esto, un flujo de OAuth que se rompe deja en el log un
+# `401` pelado y ninguna pista de por qué.
+app = oauth.LogDeFallosOAuth(app)
 
 # Higiene: sin esto la tabla crece para siempre con códigos de 60 segundos y
 # refrescos viejos. Best-effort — si la migración 0100 todavía no se aplicó, no

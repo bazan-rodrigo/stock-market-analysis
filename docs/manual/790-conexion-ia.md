@@ -52,6 +52,24 @@ uno nuevo**; es instantáneo y no rompe nada más.
 Tenés un token a la vez. Generar uno nuevo reemplaza al anterior, que es
 también la forma de rotarlo cada tanto si querés.
 
+## Conectar tu programa de IA
+
+En tu programa de IA vas a tener que agregar una conexión —según cuál uses, la
+va a llamar *conector*, *extensión* o *aplicación personalizada*— y pegarle la
+dirección de este servicio. **No es la misma dirección con la que entrás a la
+aplicación**: es una aparte, y te la da el administrador.
+
+> **Pegala tal cual, terminada en `/mcp`, y no le agregues nada más.** Es el
+> error más común y el más difícil de darse cuenta, porque el programa no dice
+> que la dirección esté mal: dice que no pudo conectarse, o que tenés que
+> vincular la cuenta. Si te pasa, lo primero que hay que revisar es la
+> dirección.
+
+Cuando la agregues, tu programa de IA va a abrir una página de esta plataforma
+pidiéndote autorización. **Ahí va el token, no tu usuario y contraseña** — esta
+conexión nunca te pide la contraseña. Pegás el token, autorizás, y el programa
+queda conectado hasta que lo revoques.
+
 ## Qué puede hacer la IA con tu token
 
 Puede **leer** exactamente lo que vos podrías ver entrando a la aplicación:
