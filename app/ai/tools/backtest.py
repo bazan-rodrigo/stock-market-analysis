@@ -102,6 +102,119 @@ def get_backtest_results(caller: AiCaller, run_id: int) -> dict:
     }
 
 
+def _resumen_ic(datos: dict) -> dict:
+    """El IC punto a punto puede ser de miles de fechas; al modelo le va el
+    resumen por horizonte, que es lo que se lee para decidir."""
+    resumen = {}
+    for h in datos["config"]["horizons"]:
+        ics = [p["ic"] for p in datos["ic_points"]
+               if p["horizon"] == h and p["ic"] is not None]
+        if not ics:
+            continue
+        n = len(ics)
+        media = sum(ics) / n
+        desvio = None
+        if n > 1:
+            desvio = (sum((x - media) ** 2 for x in ics) / (n - 1)) ** 0.5
+        resumen[str(h)] = {
+            "ic_medio": round(media, 4),
+            "ic_desvio": round(desvio, 4) if desvio else None,
+            "pct_fechas_positivas": round(sum(1 for x in ics if x > 0) / n, 4),
+            "n_fechas": n,
+        }
+    return resumen
+
+
+@tool(
+    name="backtest_strategy_variant",
+    description=(
+        "Prueba una VARIANTE de una estrategia —otros componentes u otros "
+        "pesos— y la compara con la original, sin crear nada. Contesta '¿y si "
+        "le subo el peso al momentum?' o '¿y si le agrego esta señal?'.\n\n"
+        "La variante hereda el filtro de elegibilidad de la estrategia base: "
+        "se evalúa sobre los mismos activos y fechas, así que la comparación "
+        "aísla el efecto de los componentes. Para cambiar el universo hay que "
+        "editar la estrategia en la aplicación.\n\n"
+        "El peso puede ser NEGATIVO: la señal aporta al revés (el activo "
+        "puntúa alto donde esa señal puntúa bajo). Es cómo se pide 'momentum "
+        "alto pero volatilidad baja' sin necesitar una señal invertida."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "strategy_id": {"type": "integer",
+                            "description": "La estrategia base a variar."},
+            "components": {
+                "type": "array",
+                "description": "Los componentes de la VARIANTE (reemplazan a "
+                               "los de la base, no se suman).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "signal_key": {"type": "string",
+                                       "description": "La key de la señal "
+                                                      "(list_signals la da)."},
+                        "weight": {"type": "number",
+                                   "description": "Puede ser negativo. 0 no."},
+                    },
+                    "required": ["signal_key", "weight"],
+                    "additionalProperties": False,
+                },
+            },
+            "horizons": {"type": "array", "items": {"type": "integer", "minimum": 1},
+                         "description": f"Máximo {_TOPE_HORIZONTES}."},
+            "n_quantiles": {"type": "integer", "minimum": 2, "maximum": 20},
+            "date_from": {"type": "string", "description": "AAAA-MM-DD."},
+            "date_to": {"type": "string", "description": "AAAA-MM-DD."},
+        },
+        "required": ["strategy_id", "components"],
+        "additionalProperties": False,
+    },
+)
+def backtest_strategy_variant(caller: AiCaller, strategy_id: int,
+                              components: list,
+                              horizons: list | None = None,
+                              n_quantiles: int | None = None,
+                              date_from: str | None = None,
+                              date_to: str | None = None) -> dict:
+    from app.services import backtest_service
+
+    strat = _estrategia_visible(caller, strategy_id)
+
+    cfg = {}
+    if horizons:
+        cfg["horizons"] = list(horizons)[:_TOPE_HORIZONTES]
+    if n_quantiles:
+        cfg["n_quantiles"] = int(n_quantiles)
+    if date_from:
+        cfg["date_from"] = date_from
+    if date_to:
+        cfg["date_to"] = date_to
+
+    datos = backtest_service.compute_variant_backtest(
+        strat.id, list(components), cfg)
+
+    return {
+        "strategy_id": strat.id,
+        "name": strat.name,
+        "guardado": False,
+        "config": datos["config"],
+        "duration_seconds": round(datos.get("duration_seconds") or 0, 2),
+        "base": {"ic": _resumen_ic(datos["base"]),
+                 "quantiles": datos["base"]["quantile_stats"],
+                 "n_dates": datos["base"]["n_dates"]},
+        "variante": {"componentes": components,
+                     "ic": _resumen_ic(datos["variante"]),
+                     "quantiles": datos["variante"]["quantile_stats"],
+                     "n_dates": datos["variante"]["n_dates"]},
+        "nota": ("Nada de esto se guardó ni se creó. La variante se evaluó "
+                 "sobre la misma elegibilidad que la estrategia base, así que "
+                 "la diferencia de IC aísla el efecto de los componentes. "
+                 "Cuidado con leer una mejora chica como una mejora real: "
+                 "probar muchas variantes sobre la misma historia sobreajusta."),
+    }
+
+
 @tool(
     name="run_backtest_preview",
     description=(
@@ -153,27 +266,7 @@ def run_backtest_preview(caller: AiCaller, strategy_id: int,
         cfg["date_to"] = date_to
 
     datos = backtest_service.compute_backtest(strat.id, cfg)
-
-    # La serie de IC punto a punto puede ser de miles de fechas: al modelo le
-    # va el resumen por horizonte, que es lo que se lee para decidir.
-    resumen = {}
-    for h in datos["config"]["horizons"]:
-        ics = [p["ic"] for p in datos["ic_points"]
-               if p["horizon"] == h and p["ic"] is not None]
-        if not ics:
-            continue
-        n = len(ics)
-        media = sum(ics) / n
-        desvio = None
-        if n > 1:
-            var = sum((x - media) ** 2 for x in ics) / (n - 1)
-            desvio = var ** 0.5
-        resumen[str(h)] = {
-            "ic_medio": round(media, 4),
-            "ic_desvio": round(desvio, 4) if desvio else None,
-            "pct_fechas_positivas": round(sum(1 for x in ics if x > 0) / n, 4),
-            "n_fechas": n,
-        }
+    resumen = _resumen_ic(datos)
 
     return {
         "strategy_id": strat.id,

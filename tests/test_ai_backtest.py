@@ -28,15 +28,45 @@ def db():
 
     Session.remove()
     Base.metadata.create_all(engine)
+    # Se limpia también lo que usan los tests de variante (activos, precios,
+    # señales y las tablas anchas): sin eso, el segundo test choca contra el
+    # ticker único del primero.
     tablas = ("backtest_ic_point", "backtest_quantile_stat", "backtest_run",
-              "strategy")
-    with engine.begin() as conn:
+              "strategy_component", "strategy", "`signal`", "prices", "assets")
+    anchas = ("signal_values_wide", "strategy_results_wide")
+
+    def _limpiar(conn):
         for t in tablas:
             conn.execute(sa.text(f"DELETE FROM {t}"))
+        for t in anchas:
+            if sa.inspect(conn).has_table(t):
+                conn.execute(sa.text(f"DELETE FROM {t}"))
+
+    def _dropear_dinamicas():
+        """Las sig_{id}/strat_res_{id} sobreviven al DELETE de las
+        definiciones, y sqlite RECICLA los ids: sin esto, el segundo test
+        escribe en la tabla que dejó el primero y choca contra su PK."""
+        from app.models import signal_store
+
+        sig, strat = signal_store._list_dynamic_tables()
+        nombres = list(sig.values()) + list(strat.values())
+        with engine.begin() as conn:
+            for n in nombres:
+                conn.execute(sa.text(f"DROP TABLE IF EXISTS {n}"))
+        for n in nombres:
+            if n in signal_store._meta.tables:
+                signal_store._meta.remove(signal_store._meta.tables[n])
+
+    _dropear_dinamicas()
+    with engine.begin() as conn:
+        _limpiar(conn)
     yield
+    # Antes de tocar la base con otra conexión: si el test dejó una sesión
+    # abierta, sqlite responde "database is locked" y el teardown se cae.
+    Session.remove()
+    _dropear_dinamicas()
     with engine.begin() as conn:
-        for t in tablas:
-            conn.execute(sa.text(f"DELETE FROM {t}"))
+        _limpiar(conn)
     Session.remove()
 
 
@@ -191,6 +221,165 @@ def test_la_vista_previa_respeta_la_visibilidad(db):
     with pytest.raises(ValueError):
         registry.call("run_backtest_preview", AiCaller(user_id=_ANA),
                       {"strategy_id": sid})
+
+
+# ── Variante sin materializar ─────────────────────────────────────────────────
+
+def _mundo_para_variante(n_activos=24, n_fechas=14):
+    """Una estrategia con historia, dos señales y precios.
+
+    Son 24 activos y no 2 a propósito: el IC es una correlación, así que con
+    dos puntos por fecha es degenerado, y el mínimo de observaciones por
+    defecto del backtest es 20. Un mundo chico haría pasar los tests por
+    vacuidad (sin cross-sections que medir) en vez de por lo que dicen medir.
+    """
+    from app.models import (Asset, Price, SignalDefinition, signal_store)
+
+    s = get_session()
+    sid = _estrategia("Base")
+    activos = [Asset(ticker=f"A{i:03d}", name=f"A{i}", price_source_id=1)
+               for i in range(n_activos)]
+    s.add_all(activos)
+    sig_a = SignalDefinition(key="sig_a", name="A", formula_type="threshold",
+                             params="{}", owner_id=_ADMIN, is_public=True)
+    sig_b = SignalDefinition(key="sig_b", name="B", formula_type="threshold",
+                             params="{}", owner_id=_ADMIN, is_public=True)
+    s.add_all([sig_a, sig_b])
+    s.commit()
+
+    fechas = [datetime.date(2024, 1, 1) + datetime.timedelta(days=d)
+              for d in range(n_fechas)]
+    # Cada activo crece a un ritmo distinto: así los retornos forward difieren
+    # y la correlación con el puntaje tiene algo que ordenar.
+    for i, a in enumerate(activos):
+        for t_i, f in enumerate(fechas):
+            s.add(Price(asset_id=a.id, date=f,
+                        close=100.0 + i * 0.5 + t_i * (1 + (i % 7) * 0.1)))
+    s.commit()
+
+    signal_store.ensure_signal_storage(sig_a.id)
+    signal_store.ensure_signal_storage(sig_b.id)
+    signal_store.ensure_strategy_storage(sid)
+
+    # sig_b es el espejo de sig_a: sirve para comprobar que pesarla al revés
+    # da lo mismo que pesar sig_a en positivo.
+    valores = {activos[i].id: (i - n_activos // 2) * 8.0
+               for i in range(n_activos)}
+
+    st = signal_store.read_strat_table(s, sid)
+    s.execute(st.insert(), [
+        {"date": f, "asset_id": aid, "score": v, "pct": 50.0}
+        for f in fechas for aid, v in valores.items()])
+    for sig_id, signo in ((sig_a.id, 1.0), (sig_b.id, -1.0)):
+        rt = signal_store.read_sig_table(s, sig_id)
+        s.execute(rt.insert(), [
+            {"date": f, "asset_id": aid, "score": v * signo}
+            for f in fechas for aid, v in valores.items()])
+    s.commit()
+    return sid
+
+
+def test_la_variante_no_crea_ni_escribe_nada(db):
+    """LO CENTRAL: probar otra combinación de pesos no materializa ninguna
+    estrategia. Crear una de verdad son dos ALTER TABLE sobre una tabla ancha
+    compartida mas una corrida de backfill en produccion."""
+    from app.models import Strategy, StrategyComponent
+    from app.services import backtest_service
+
+    sid = _mundo_para_variante()
+    antes = (get_session().query(Strategy).count(),
+             get_session().query(StrategyComponent).count())
+
+    out = backtest_service.compute_variant_backtest(
+        sid, [{"signal_key": "sig_a", "weight": 1}], {"horizons": [1]})
+    Session.remove()
+
+    assert (get_session().query(Strategy).count(),
+            get_session().query(StrategyComponent).count()) == antes
+    assert out["base"]["n_dates"] > 0
+    assert out["variante"]["n_dates"] > 0
+
+
+def test_la_variante_hereda_la_elegibilidad_de_la_base(db):
+    """Se evalúa sobre los mismos pares (fecha, activo) que la base tiene
+    puntuados: eso ES su filtro, y hace que la comparación aísle el efecto de
+    los componentes en vez de mezclarlo con un cambio de universo."""
+    from app.services import backtest_service
+
+    sid = _mundo_para_variante()
+    out = backtest_service.compute_variant_backtest(
+        sid, [{"signal_key": "sig_a", "weight": 1}], {"horizons": [1]})
+
+    assert out["variante"]["n_dates"] == out["base"]["n_dates"]
+
+
+def test_el_peso_negativo_invierte_la_variante(db):
+    """Con una sola señal, pesar −1 tiene que dar el IC opuesto al de +1. Es la
+    prueba de que la variante usa la misma semántica de score que el motor
+    real, incluido el divisor en valor absoluto."""
+    from app.services import backtest_service
+
+    sid = _mundo_para_variante()
+    cfg = {"horizons": [1]}
+
+    mas = backtest_service.compute_variant_backtest(
+        sid, [{"signal_key": "sig_a", "weight": 1}], cfg)["variante"]
+    menos = backtest_service.compute_variant_backtest(
+        sid, [{"signal_key": "sig_a", "weight": -1}], cfg)["variante"]
+
+    ic_mas = [p["ic"] for p in mas["ic_points"] if p["ic"] is not None]
+    ic_menos = [p["ic"] for p in menos["ic_points"] if p["ic"] is not None]
+    assert ic_mas and len(ic_mas) == len(ic_menos)
+    assert all(a == pytest.approx(-b) for a, b in zip(ic_mas, ic_menos))
+
+
+def test_una_senal_inexistente_avisa_con_su_nombre(db):
+    from app.services import backtest_service
+
+    sid = _mundo_para_variante()
+    with pytest.raises(ValueError, match="no_existe"):
+        backtest_service.compute_variant_backtest(
+            sid, [{"signal_key": "no_existe", "weight": 1}])
+
+
+def test_la_variante_rechaza_el_peso_cero(db):
+    """Misma validación que el motor real: un componente que no aporta es un
+    error de tipeo, no una intención."""
+    from app.services import backtest_service
+
+    sid = _mundo_para_variante()
+    with pytest.raises(ValueError, match="no puede ser 0"):
+        backtest_service.compute_variant_backtest(
+            sid, [{"signal_key": "sig_a", "weight": 0}])
+
+
+def test_sin_componentes_avisa(db):
+    from app.services import backtest_service
+
+    sid = _mundo_para_variante()
+    with pytest.raises(ValueError, match="al menos un componente"):
+        backtest_service.compute_variant_backtest(sid, [])
+
+
+def test_la_herramienta_respeta_la_visibilidad(db):
+    sid = _estrategia("privada", owner=_OTRO, publica=False)
+    with pytest.raises(ValueError):
+        registry.call("backtest_strategy_variant", AiCaller(user_id=_ANA),
+                      {"strategy_id": sid,
+                       "components": [{"signal_key": "sig_a", "weight": 1}]})
+
+
+def test_la_herramienta_devuelve_base_y_variante_para_comparar(db):
+    sid = _mundo_para_variante()
+    out = registry.call("backtest_strategy_variant", AiCaller(user_id=_ANA),
+                        {"strategy_id": sid,
+                         "components": [{"signal_key": "sig_a", "weight": 2},
+                                        {"signal_key": "sig_b", "weight": -1}],
+                         "horizons": [1]})
+
+    assert out["guardado"] is False
+    assert "ic" in out["base"] and "ic" in out["variante"]
+    assert "sobreajusta" in out["nota"]
 
 
 # ── Retención ─────────────────────────────────────────────────────────────────

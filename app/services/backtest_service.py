@@ -24,6 +24,7 @@ from app.database import get_session
 from app.models import (BacktestIcPoint, BacktestQuantileStat, BacktestRun,
                         Price, signal_store)
 from app.services import backtest_engine as eng
+from app.services import db_compat
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,110 @@ def run_backtest(strategy_id: int, config=None, owner_id=None,
     return run_id
 
 
+def compute_variant_backtest(strategy_id: int, components: list[dict],
+                             config=None, progress_cb=None) -> dict:
+    """Backtestea una VARIANTE de una estrategia **sin materializarla**.
+
+    Contesta "¿y si le cambio los pesos?" sin crear nada. Importa porque crear
+    una estrategia de verdad no es barato: son dos `ALTER TABLE ADD COLUMN`
+    sobre una tabla ancha COMPARTIDA (con su lock sobre lo que usa todo el
+    pipeline), una corrida de backfill sobre producción, y en PostgreSQL la
+    columna borrada después sigue ocupando lugar y contando contra el tope de
+    1600 hasta reescribir la tabla. Probar cinco variantes así es caro y sucio.
+
+    **La variante hereda la elegibilidad de la estrategia base.** Los pares
+    (fecha, activo) que se evalúan son exactamente los que la base tiene
+    puntuados, y eso ya codifica su filtro: un activo tiene score en una fecha
+    si y solo si pasó el filtro ese día. Sale gratis y es fiel — pero implica
+    que esto sirve para cambiar COMPONENTES Y PESOS, no el filtro. Cambiar el
+    universo es otra cosa y exige recalcular la elegibilidad fecha por fecha.
+
+    `components`: [{"signal_key": str, "weight": float}]. Misma semántica de
+    score que el motor real (`strategy_service._compute_asset_score`): promedio
+    ponderado con divisor Σ|peso|, y los componentes sin dato se SALTEAN en vez
+    de contar como cero.
+
+    Devuelve {"base": …, "variante": …} con la misma forma que
+    `compute_backtest`, para poder compararlos lado a lado. Los dos se calculan
+    sobre el MISMO panel de precios: la parte cara se paga una sola vez.
+    """
+    from app.models import SignalDefinition
+    from app.services.strategy_service import parse_component_weight
+
+    if not components:
+        raise ValueError("Indicá al menos un componente.")
+
+    cfg = normalize_config(config)
+    s = get_session()
+    t0 = time.time()
+
+    base_rows = leer_scores(s, strategy_id, cfg)
+
+    # Componentes → (signal_id, peso). La key es el identificador del formato
+    # de packs, así que es lo que ve y escribe quien arma la variante.
+    pesos: dict[int, float] = {}
+    for c in components:
+        clave = str(c.get("signal_key") or "").strip()
+        if not clave:
+            raise ValueError("Cada componente necesita un signal_key.")
+        sig = s.query(SignalDefinition).filter(
+            db_compat.ci_equals(SignalDefinition.key, clave)).first()
+        if sig is None:
+            raise ValueError(f"No existe la señal '{clave}'.")
+        pesos[sig.id] = parse_component_weight(c.get("weight"))
+
+    d0 = min(d for d, _a, _s in base_rows)
+    d1 = max(d for d, _a, _s in base_rows)
+
+    # Se lee por `read_sig_table`, que es el despacho que anda con la tabla
+    # ancha y con las per-señal. `load_wide_signal_scores` sería un scan menos,
+    # pero solo existe en modo ancho: con el flag apagado esto quedaría roto, y
+    # son unos pocos componentes — la diferencia no paga saltear la abstracción.
+    por_par: dict = defaultdict(dict)
+    for sid in pesos:
+        rt = signal_store.read_sig_table(s, sid)
+        q = (sa.select(rt.c.date, rt.c.asset_id, rt.c.score)
+             .where(rt.c.score.isnot(None), rt.c.date >= d0, rt.c.date <= d1))
+        for d, aid, val in s.execute(q).all():
+            por_par[(d, aid)][sid] = float(val)
+
+    # Solo los pares que la base tiene puntuados: ahí está su elegibilidad.
+    variante_rows = []
+    for d, aid, _sc in base_rows:
+        disponibles = por_par.get((d, aid))
+        if not disponibles:
+            continue
+        num = tot = 0.0
+        for sid, w in pesos.items():
+            v = disponibles.get(sid)
+            if v is None:
+                continue        # se saltea, no cuenta como cero
+            num += v * w
+            tot += abs(w)
+        if tot:
+            variante_rows.append((d, aid, round(num / tot, 4)))
+
+    if not variante_rows:
+        raise ValueError(
+            "Ninguna de esas señales tiene valores en el período de la "
+            "estrategia. Revisá que las señales tengan historia calculada.")
+
+    # Un solo panel de precios para los dos: es la parte cara.
+    fwd = _retornos_forward(s, base_rows, cfg, progress_cb)
+
+    def _resultado(filas):
+        datos = _agregar(_por_fecha(filas, fwd, cfg), cfg, None)
+        datos["config"] = cfg
+        return datos
+
+    return {
+        "config": cfg,
+        "duration_seconds": time.time() - t0,
+        "base": _resultado(base_rows),
+        "variante": _resultado(variante_rows),
+    }
+
+
 def _persistir(s, run_id: int, datos: dict) -> None:
     """Vuelca un resultado computado a las tablas del snapshot."""
     s.add_all([BacktestIcPoint(run_id=run_id, **p) for p in datos["ic_points"]])
@@ -150,12 +255,14 @@ def _chunks(lst, n):
         yield lst[i:i + n]
 
 
-def _computar(s, strategy_id, cfg, progress_cb) -> dict:
-    """El cálculo, sin escribir. Devuelve dicts planos (no objetos ORM) para
-    que el resultado pueda viajar sin arrastrar una sesión."""
-    horizons = cfg["horizons"]
+def leer_scores(s, strategy_id, cfg) -> list[tuple]:
+    """[(date, asset_id, score)] de una estrategia MATERIALIZADA, en el período.
 
-    # ── Scores de la estrategia ───────────────────────────────────────────
+    Separado de `_computar` para que el resto del cálculo —precios, retornos
+    forward, cross-sections, agregación— pueda alimentarse también con scores
+    calculados en memoria (ver `compute_variant_backtest`). Sin esta división
+    habría que duplicar todo el motor para backtestear una variante.
+    """
     rt = signal_store.read_strat_table(s, strategy_id)
     q = (sa.select(rt.c.date, rt.c.asset_id, rt.c.score)
          .where(rt.c.score.isnot(None)))
@@ -163,22 +270,45 @@ def _computar(s, strategy_id, cfg, progress_cb) -> dict:
         q = q.where(rt.c.date >= cfg["date_from"])
     if cfg["date_to"]:
         q = q.where(rt.c.date <= cfg["date_to"])
-    score_rows = s.execute(q).all()
-    if not score_rows:
+    filas = s.execute(q).all()
+    if not filas:
         raise ValueError(
             "La estrategia no tiene historia calculada en el período. "
             "Correr «Recalcular completo» en Centro de Datos → Señales y "
             "Estrategias.")
+    return filas
 
-    scores_by_asset = defaultdict(list)
-    for d, aid, sc in score_rows:
-        scores_by_asset[aid].append((d, float(sc)))
-    asset_ids = sorted(scores_by_asset)
 
-    # ── Precios por lote + gate + retornos forward ────────────────────────
-    # per_date[D] = [(score, {h: ret|None}), ...] — solo pares (activo, D)
-    # donde el activo tiene precio PROPIO en D (gate).
-    per_date = defaultdict(list)
+def _computar(s, strategy_id, cfg, progress_cb, score_rows=None) -> dict:
+    """El cálculo, sin escribir. Devuelve dicts planos (no objetos ORM) para
+    que el resultado pueda viajar sin arrastrar una sesión.
+
+    `score_rows` permite alimentar el motor con puntajes que no salen de la
+    tabla de la estrategia: es lo que hace posible backtestear una variante
+    hipotética sin materializarla.
+    """
+    horizons = cfg["horizons"]
+
+    if score_rows is None:
+        score_rows = leer_scores(s, strategy_id, cfg)
+
+    per_date = _por_fecha(score_rows,
+                          _retornos_forward(s, score_rows, cfg, progress_cb),
+                          cfg)
+    return _agregar(per_date, cfg, progress_cb)
+
+
+def _retornos_forward(s, score_rows, cfg, progress_cb) -> dict:
+    """{asset_id: (posición_por_fecha, retornos_forward)} — la parte CARA.
+
+    Está separada porque es lo único que depende de los precios y no de los
+    puntajes: así se puede evaluar más de un juego de scores sobre el mismo
+    panel sin volver a leer millones de filas de `prices`. Es lo que hace
+    viable comparar una estrategia con una variante en una sola pasada.
+    """
+    horizons = cfg["horizons"]
+    asset_ids = sorted({aid for _d, aid, _sc in score_rows})
+    salida: dict = {}
     done = 0
     for batch in _chunks(asset_ids, _ASSET_BATCH):
         price_rows = (s.query(Price.asset_id, Price.date, Price.close)
@@ -195,16 +325,34 @@ def _computar(s, strategy_id, cfg, progress_cb) -> dict:
             if not series:
                 continue
             closes = [c for _, c in series]
-            pos = {d: i for i, (d, _) in enumerate(series)}
-            fwd = eng.forward_returns_for_series(closes, horizons, cfg["lag"])
-            for d, sc in scores_by_asset[aid]:
-                i = pos.get(d)
-                if i is None:
-                    continue  # GATE: sin precio propio en D → afuera
-                per_date[d].append((sc, fwd[i]))
+            salida[aid] = ({d: i for i, (d, _) in enumerate(series)},
+                           eng.forward_returns_for_series(closes, horizons,
+                                                          cfg["lag"]))
         done += len(batch)
         if progress_cb:
             progress_cb(done, len(asset_ids), "activos")
+    return salida
+
+
+def _por_fecha(score_rows, fwd_por_activo, cfg) -> dict:
+    """per_date[D] = [(score, {h: ret|None}), ...] — solo pares (activo, D)
+    donde el activo tiene precio PROPIO en D (el gate de lectura)."""
+    per_date = defaultdict(list)
+    for d, aid, sc in score_rows:
+        datos = fwd_por_activo.get(aid)
+        if datos is None:
+            continue
+        pos, fwd = datos
+        i = pos.get(d)
+        if i is None:
+            continue          # GATE: sin precio propio en D → afuera
+        per_date[d].append((float(sc), fwd[i]))
+    return per_date
+
+
+def _agregar(per_date, cfg, progress_cb) -> dict:
+    """Cross-sections por fecha × horizonte y sus agregados."""
+    horizons = cfg["horizons"]
 
     # ── Cross-sections por fecha × horizonte ──────────────────────────────
     all_dates = sorted(per_date)
