@@ -190,19 +190,27 @@ def render_comp_rows(uid_store, signal_opts):
                 md=8,
             ),
             dbc.Col(
-                dbc.Input(
-                    id={"type": "str-comp-weight", "index": uid},
-                    type="number", value=iv.get("weight", 1.0),
-                    step=0.01,
-                    # Sin min=0: el peso admite SIGNO. Negativo = la señal
-                    # aporta al revés (puntúa alto donde la señal puntúa bajo),
-                    # que es cómo se usa una señal invertida sin duplicarla en
-                    # el catálogo. El divisor es Σ|peso| (ver
-                    # strategy_service._compute_asset_score).
+                # El tooltip va en un Div envolvente y NO en el Input: dbc 2.x
+                # rechaza `title` en dbc.Input con TypeError, y como esto se
+                # arma dentro del callback, la excepción deja la lista de
+                # componentes VACÍA en pantalla (la estrategia se ve sin
+                # ninguna señal aunque las tenga). Lo fija
+                # tests/test_strategy_modal_rows.py.
+                html.Div(
+                    dbc.Input(
+                        id={"type": "str-comp-weight", "index": uid},
+                        type="number", value=iv.get("weight", 1.0),
+                        step=0.01,
+                        # Sin min=0: el peso admite SIGNO. Negativo = la señal
+                        # aporta al revés (puntúa alto donde la señal puntúa
+                        # bajo), que es cómo se usa una señal invertida sin
+                        # duplicarla en el catálogo. El divisor es Σ|peso| (ver
+                        # strategy_service._compute_asset_score).
+                        style={"fontSize": "0.80rem"},
+                    ),
                     title="Peso del componente. Negativo = la señal aporta al "
                           "revés (alto donde la señal puntúa bajo). 0 no se "
                           "acepta.",
-                    style={"fontSize": "0.80rem"},
                 ),
                 md=3,
             ),
