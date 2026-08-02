@@ -19,6 +19,7 @@ aunque pidas un año—, así que `date_from`/`date_to` recortan las fases 1 y 3
 pero no la 2. Si la fase 2 domina, acotar el período no compra casi nada y el
 arreglo es filtrar los precios; si no domina, no hay nada que optimizar.
 
+    python scripts/profile_backtest_preview.py --listar
     python scripts/profile_backtest_preview.py <strategy_id> [--desde AAAA-MM-DD]
 
 Sin --desde corre sobre toda la historia (el peor caso, que es justo el que
@@ -45,6 +46,37 @@ for _flujo in (sys.stdout, sys.stderr):
 
 def _fmt(seg: float) -> str:
     return f"{seg * 1000:8.0f} ms" if seg < 1 else f"{seg:8.2f} s "
+
+
+def listar_estrategias() -> list[tuple]:
+    """[(id, nombre, tiene_resultados)] de las estrategias de esta instalación.
+
+    Un id inexistente no da un error legible: la lectura arma la columna
+    `strat_{id}_score` a ciegas (sa.column() sin autoload, ver signal_store.
+    _strat_view) y PostgreSQL responde con un UndefinedColumn crudo. Por eso
+    el script valida el id ANTES de medir y ofrece la lista.
+    """
+    from app.database import get_session
+    from app.models import Strategy, signal_store
+
+    s = get_session()
+    filas = s.query(Strategy.id, Strategy.name).order_by(Strategy.id).all()
+    cols = set()
+    if signal_store.use_wide_signal_tables():
+        cols = signal_store._wide_columns(s.connection(),
+                                          signal_store.STRAT_WIDE_TABLE)
+    return [(sid, nombre,
+             not cols or signal_store.strat_score_column(sid) in cols)
+            for sid, nombre in filas]
+
+
+def _imprimir_lista(estrategias: list[tuple]) -> None:
+    if not estrategias:
+        print("   (no hay estrategias en esta instalación)")
+        return
+    for sid, nombre, materializada in estrategias:
+        marca = " " if materializada else "  ← sin resultados calculados"
+        print(f"   {sid:>4}  {nombre}{marca}")
 
 
 def medir(strategy_id: int, desde: str | None, hasta: str | None,
@@ -93,15 +125,32 @@ def _informe(titulo: str, r: dict) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("strategy_id", type=int)
+    p.add_argument("strategy_id", type=int, nargs="?")
+    p.add_argument("--listar", action="store_true",
+                   help="lista las estrategias de esta instalación y sale")
     p.add_argument("--desde", help="AAAA-MM-DD para la corrida acotada")
     p.add_argument("--hasta", help="AAAA-MM-DD")
     p.add_argument("--horizontes", default="1,5,20,60")
     args = p.parse_args()
 
+    estrategias = listar_estrategias()
+    if args.listar or args.strategy_id is None:
+        print("Estrategias de esta instalación:")
+        _imprimir_lista(estrategias)
+        sys.exit(0 if args.listar else 2)
+
+    elegida = next((e for e in estrategias if e[0] == args.strategy_id), None)
+    if elegida is None or not elegida[2]:
+        motivo = ("no existe" if elegida is None
+                  else "existe pero no tiene resultados calculados")
+        print(f"La estrategia {args.strategy_id} {motivo}. Las disponibles son:")
+        _imprimir_lista(estrategias)
+        sys.exit(2)
+
     horizontes = [int(h) for h in args.horizontes.split(",") if h.strip()]
 
-    print(f"Estrategia {args.strategy_id} · horizontes {horizontes}")
+    print(f"Estrategia {args.strategy_id} ({elegida[1]}) · "
+          f"horizontes {horizontes}")
     completa = medir(args.strategy_id, None, None, horizontes)
     _informe("HISTORIA COMPLETA", completa)
 
