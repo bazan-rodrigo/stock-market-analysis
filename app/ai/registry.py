@@ -110,5 +110,5 @@ def _cargar() -> None:
     existe."""
     if _REGISTRO:
         return
-    from app.ai.tools import (backtest, catalogo, estrategias,  # noqa: F401
-                              manual)
+    from app.ai.tools import (backtest, cartera, catalogo,  # noqa: F401
+                              estrategias, manual)

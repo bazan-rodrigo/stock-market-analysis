@@ -188,12 +188,26 @@ def curated_equity_series(session, portfolio_id):
     """Equity de una cartera teórica CURADA: constant-mix de sus miembros
     (rebalanceo diario a los pesos objetivo). Devuelve {'dates','equity', **KPIs}
     o None si no hay miembros con precios. Es sincrónica (pocos miembros)."""
+    from app.services.portfolio_service import resolve_membership
+
+    return curated_equity_from_members(session,
+                                       resolve_membership(session, portfolio_id))
+
+
+def curated_equity_from_members(session, members):
+    """Lo mismo, pero a partir de la LISTA de miembros [(asset_id, peso)] en
+    vez de una cartera guardada.
+
+    Separado para poder simular una cartera hipotética **sin crearla**. A
+    diferencia de una estrategia, una cartera es barata de crear (son filas
+    planas, sin DDL ni backfill), pero probar diez combinaciones de pesos igual
+    dejaría diez carteras que después hay que borrar a mano — y la que importa
+    es la que el usuario decida guardar, no las nueve del camino.
+    """
     from app.models import Price
     from app.services import portfolio_metrics as pm
     from app.services import portfolio_sim_engine as eng
-    from app.services.portfolio_service import resolve_membership
 
-    members = resolve_membership(session, portfolio_id)
     if not members:
         return None
     target = {aid: w for aid, w in members}
