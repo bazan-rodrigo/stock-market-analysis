@@ -38,20 +38,15 @@ from app.logging_setup import configure_logging
 
 logger = logging.getLogger(__name__)
 
-# URL pública del servicio en Railway. Hace falta para dos cosas distintas:
-# el SDK la publica como identificador del recurso, y la protección contra DNS
-# rebinding exige declarar los hosts aceptados (por defecto solo entra
-# localhost, así que sin esto Railway devolvería 421 a todo).
-_URL_PUBLICA = os.environ.get("MCP_PUBLIC_URL", "http://127.0.0.1:8000")
-
-
-def _hosts_permitidos(url: str) -> list[str]:
-    """El host de la URL pública, con y sin puerto: el SDK compara contra el
-    header `Host` tal como llega, y detrás de un proxy puede traer el puerto."""
-    sin_esquema = url.split("://", 1)[-1].rstrip("/")
-    host = sin_esquema.split("/", 1)[0]
-    solo_host = host.split(":", 1)[0]
-    return sorted({host, solo_host, f"{solo_host}:*"})
+# URL pública del servicio. Hace falta para dos cosas distintas: el SDK la
+# publica como identificador del recurso, y la protección contra DNS rebinding
+# exige declarar los hosts aceptados (por defecto solo entra localhost, así que
+# sin esto un deploy devuelve error a todo).
+#
+# La normalización vive en mcp_adapter —no acá— porque este archivo no lo ve la
+# suite: el primer deploy se cayó justamente por una URL sin esquema, que es el
+# tipo de error que tiene que estar cubierto por un test.
+_URL_PUBLICA = mcp_adapter.normalizar_url_publica(os.environ.get("MCP_PUBLIC_URL"))
 
 
 class _VerificadorDeToken(TokenVerifier):
@@ -142,6 +137,16 @@ async def _ejecutar_herramienta(
 
 configure_logging()
 
+# Al arrancar, decir con qué configuración quedó: si un cliente recibe error de
+# host, esta línea es la que lo explica sin tener que adivinar.
+logger.info("Servidor MCP — URL pública: %s | hosts aceptados: %s",
+            _URL_PUBLICA, ", ".join(mcp_adapter.hosts_permitidos(_URL_PUBLICA)))
+if os.environ.get("MCP_PUBLIC_URL") is None:
+    logger.warning(
+        "MCP_PUBLIC_URL no está definida: se asume %s. En un deploy hay que "
+        "definirla con el dominio público del servicio o TODO pedido externo "
+        "va a ser rechazado.", _URL_PUBLICA)
+
 server = Server(
     "Stock Market Analysis",
     instructions=(
@@ -160,7 +165,7 @@ server = Server(
 app = server.streamable_http_app(
     host="0.0.0.0",                                   # noqa: S104 — Railway
     transport_security=TransportSecuritySettings(
-        allowed_hosts=_hosts_permitidos(_URL_PUBLICA),
+        allowed_hosts=mcp_adapter.hosts_permitidos(_URL_PUBLICA),
     ),
     token_verifier=_VerificadorDeToken(),
     auth=AuthSettings(

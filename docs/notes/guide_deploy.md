@@ -153,10 +153,14 @@ Para levantarlo:
 
 1. Nuevo servicio en el proyecto, mismo repo, **Start Command**
    `uvicorn mcp_server:app --host 0.0.0.0 --port $PORT`.
-2. Variables: **`DATABASE_URL`** (la misma que el resto) y **`MCP_PUBLIC_URL`**
-   con el dominio público del servicio, por ejemplo
-   `https://mcp-xxxx.up.railway.app`.
-3. Generar un dominio público para ese servicio.
+2. Generar un dominio público para ese servicio (**Networking → Generate
+   Domain**) y copiarlo.
+3. Variables: **`DATABASE_URL`** (la misma que el resto) y **`MCP_PUBLIC_URL`**
+   con ese dominio. Vale tal como lo entrega Railway
+   (`mcp-xxxx.up.railway.app`) o con esquema (`https://mcp-xxxx.up.railway.app`):
+   si falta el `https://` se completa solo.
+
+El orden importa: el dominio existe antes que la variable que lo usa.
 
 > **`MCP_PUBLIC_URL` no es cosmético.** El SDK trae protección contra DNS
 > rebinding y **por defecto solo acepta pedidos a `localhost`**: sin esa

@@ -21,6 +21,45 @@ logger = logging.getLogger(__name__)
 
 _BEARER = "bearer "
 
+# Valor de MCP_PUBLIC_URL cuando nadie la define: sirve para correr el servidor
+# a mano en la máquina propia. En un deploy hay que definirla siempre.
+URL_PUBLICA_POR_DEFECTO = "http://127.0.0.1:8000"
+
+
+def normalizar_url_publica(valor: str | None) -> str:
+    """Completa el esquema si falta y saca la barra final.
+
+    Railway entrega el dominio **pelado** al generarlo
+    (`ia-production-2197.up.railway.app`), y es lo que uno copia y pega. Sin
+    esquema, `AnyHttpUrl` lo rechaza y el contenedor no arranca: el traceback
+    de pydantic dice "Input should be a valid URL" sin mencionar en ningún lado
+    que lo que falta es el `https://`. Pasó en el primer deploy.
+
+    Mismo criterio que `Config._normalize_db_url` con las cadenas `postgres://`
+    que entrega Railway: aceptar lo que la plataforma da y normalizarlo acá, en
+    vez de exigirle al operador que adivine el formato exacto.
+    """
+    v = (valor or "").strip().rstrip("/")
+    if not v:
+        return URL_PUBLICA_POR_DEFECTO
+    if "://" not in v:
+        return "https://" + v
+    return v
+
+
+def hosts_permitidos(url: str) -> list[str]:
+    """Los hosts que el servidor acepta, derivados de la URL pública.
+
+    El SDK trae protección contra DNS rebinding y **solo acepta localhost por
+    defecto**: sin esta lista, un deploy devuelve error a todo. Se incluyen el
+    host con y sin puerto porque detrás de un proxy el header `Host` puede
+    traerlo, y el comodín `host:*` para cualquier puerto.
+    """
+    sin_esquema = normalizar_url_publica(url).split("://", 1)[-1]
+    host = sin_esquema.split("/", 1)[0]
+    solo_host = host.split(":", 1)[0]
+    return sorted({host, solo_host, f"{solo_host}:*"})
+
 
 def tool_specs() -> list[dict]:
     """El registro en el formato que espera un cliente MCP.

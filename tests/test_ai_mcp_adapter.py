@@ -60,6 +60,53 @@ def test_el_esquema_es_el_mismo_objeto_que_declara_la_herramienta():
         assert spec["inputSchema"] is por_nombre[spec["name"]].input_schema
 
 
+# ── La URL pública ────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("crudo,esperado", [
+    # EL CASO QUE TIRÓ ABAJO EL PRIMER DEPLOY: Railway entrega el dominio
+    # pelado al generarlo, y es lo que uno copia y pega. Sin esquema,
+    # AnyHttpUrl lo rechaza y el contenedor no arranca — con un traceback de
+    # pydantic que no menciona en ningún lado que falta el "https://".
+    ("ia-production-2197.up.railway.app", "https://ia-production-2197.up.railway.app"),
+    ("https://mcp.example.com", "https://mcp.example.com"),
+    ("https://mcp.example.com/", "https://mcp.example.com"),
+    ("  https://mcp.example.com  ", "https://mcp.example.com"),
+    ("http://127.0.0.1:8000", "http://127.0.0.1:8000"),
+    ("127.0.0.1:8000", "https://127.0.0.1:8000"),
+])
+def test_la_url_publica_se_normaliza(crudo, esperado):
+    assert mcp_adapter.normalizar_url_publica(crudo) == esperado
+
+
+@pytest.mark.parametrize("vacio", [None, "", "   "])
+def test_sin_url_publica_se_asume_local(vacio):
+    assert (mcp_adapter.normalizar_url_publica(vacio)
+            == mcp_adapter.URL_PUBLICA_POR_DEFECTO)
+
+
+def test_la_url_normalizada_es_valida_para_el_validador_del_sdk():
+    """El contrato real: lo que salga de acá tiene que poder construir el
+    AnyHttpUrl que mcp_server le pasa al SDK. Sin esto el test de arriba
+    verificaría un formato que igual podría ser rechazado."""
+    from pydantic import AnyHttpUrl
+
+    for crudo in ("ia-production-2197.up.railway.app", "https://mcp.example.com",
+                  "mcp.example.com/", None):
+        AnyHttpUrl(mcp_adapter.normalizar_url_publica(crudo))
+
+
+@pytest.mark.parametrize("url,esperado", [
+    ("https://mcp.example.com", ["mcp.example.com", "mcp.example.com:*"]),
+    ("mcp.example.com", ["mcp.example.com", "mcp.example.com:*"]),
+    ("http://127.0.0.1:8000",
+     ["127.0.0.1", "127.0.0.1:*", "127.0.0.1:8000"]),
+])
+def test_los_hosts_aceptados_incluyen_con_y_sin_puerto(url, esperado):
+    """Detrás de un proxy el header `Host` puede traer el puerto; si no está en
+    la lista, el SDK rechaza el pedido por protección de DNS rebinding."""
+    assert mcp_adapter.hosts_permitidos(url) == esperado
+
+
 # ── Autenticación ─────────────────────────────────────────────────────────────
 
 def test_un_bearer_valido_resuelve_al_usuario(db):
