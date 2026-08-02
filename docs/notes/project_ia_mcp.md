@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-02T02:31:08.122Z
+  modified: 2026-08-02T05:22:40.873Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -207,6 +207,44 @@ servicio MCP nunca ve una y hay UN solo lugar para cortar el acceso (revocar el
 token mata las sesiones OAuth porque `load_access_token` lo revalida en cada
 llamada). Códigos de un solo uso de 60s, refresh rotativo, sin ampliación de
 scopes al renovar, todo hasheado, purga al arrancar. PKCE lo valida el SDK.
+
+**BACKTEST HECHO Y ANDANDO EN PRODUCCIÓN (2-ago).** 11 herramientas, cuatro de
+backtest. Verificado por el usuario contra Railway.
+- **Se separó computar de persistir** en `backtest_service`
+  (`compute_backtest` / `save_backtest_run` / `run_backtest` sin cambios para
+  la UI). No es un patrón nuevo: los niveles B y C ya lo hacían. Ojo:
+  `run_backtest` NO es `save(compute(...))` — crea el run ANTES de computar para
+  que un backtest que falla quede con `status='error'` visible.
+- `run_backtest_preview` corre **sin guardar**; `backtest_strategy_variant`
+  prueba otros pesos/componentes **sin materializar nada**. Persistir no está
+  restringido: la herramienta no existe (+ lista negra en el trinquete).
+- **La variante hereda la elegibilidad de la base**: los pares (fecha, activo)
+  que la base tiene puntuados YA codifican su filtro. Sale gratis, es fiel, y
+  aísla el efecto de los componentes. Sirve para pesos/componentes, NO filtro.
+- El motor se partió en etapas (`leer_scores` / `_retornos_forward` /
+  `_por_fecha` / `_agregar`) para que base y variante compartan **un solo panel
+  de precios** — la parte cara se paga una vez.
+- **Estabilidad por tramos** en la respuesta: el IC medio es in-sample y con
+  muchas variantes está inflado. Partirlo hace visible el caso
+  `0,40/0,01/0,01/0,01` (promedia 0,11 y no hay señal, hay un tramo con suerte).
+  La guía de lectura viaja DENTRO de la respuesta: quien interpreta es el modelo.
+- Retención `prune_old(180d)` al arrancar.
+
+**DOS BUGS DE PRODUCCIÓN QUE DESTAPÓ, ninguno de la capa de IA:**
+1. **Fechas**: la config guarda ISO y se comparaba contra la columna `date`.
+   sqlite coerciona, PostgreSQL no (`operator does not exist: date >= character
+   varying`). **La pantalla de Backtest tenía el mismo bug**: cualquiera que
+   completara «desde» lo pegaba. Arreglado con `a_fecha()`.
+   El test mira la EXPRESIÓN de SQLAlchemy y no el SQL ejecutado: el driver de
+   sqlite convierte los `date` a texto antes de bindear, así que a nivel de
+   cursor los dos casos se ven iguales y el test habría pasado siempre.
+2. `list_strategies` devolvía los componentes con `signal_id` interno mientras
+   `list_signals` identifica por `key`: **no se podían cruzar**. Lo encontró una
+   pregunta del usuario, no un test.
+
+**PENDIENTE — el único dato que falta: CUÁNTO TARDA** `run_backtest_preview`
+sobre la historia completa. No se puede medir en la PC de desarrollo. Si tarda
+minutos, el conector corta por timeout y hay que convertirlo en job asíncrono.
 
 **Siguiente candidato acordado:** que la IA arme y simule **carteras** (filas
 planas, sin DDL ni backfill; las CURADAS solo dependen de precios). Para
