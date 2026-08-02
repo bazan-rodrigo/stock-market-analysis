@@ -1,0 +1,621 @@
+{
+  "spec_version": 1,
+  "pack": "senales_base",
+  "description": "Catálogo base de señales: una señal por indicador, sin estrategias. Todas puntúan en la misma orientación — +100 son las mejores condiciones para comprar y esperar que el precio suba, −100 las peores. Para leer una señal al revés no se duplica: el componente de la estrategia admite peso negativo.",
+  "signals": [
+    {
+      "key": "trend_daily",
+      "name": "Tendencia diaria",
+      "description": "Régimen de tendencia del día: alcista fuerte +100, lateral 0, bajista fuerte −100. Los regímenes nacientes puntúan entre medio.",
+      "indicator_key": "trend_daily",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "bullish_strong": 100,
+          "bullish_nascent_strong": 75,
+          "bullish": 60,
+          "bullish_nascent": 40,
+          "lateral_nascent": 5,
+          "lateral": 0,
+          "bearish_nascent": -40,
+          "bearish": -60,
+          "bearish_nascent_strong": -75,
+          "bearish_strong": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "trend_weekly",
+      "name": "Tendencia semanal",
+      "description": "Régimen de tendencia semanal, con el mismo mapa que la diaria: alcista fuerte +100, lateral 0, bajista fuerte −100.",
+      "indicator_key": "trend_weekly",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "bullish_strong": 100,
+          "bullish_nascent_strong": 75,
+          "bullish": 60,
+          "bullish_nascent": 40,
+          "lateral_nascent": 5,
+          "lateral": 0,
+          "bearish_nascent": -40,
+          "bearish": -60,
+          "bearish_nascent_strong": -75,
+          "bearish_strong": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "trend_monthly",
+      "name": "Tendencia mensual",
+      "description": "Régimen de tendencia mensual, con el mismo mapa que la diaria: alcista fuerte +100, lateral 0, bajista fuerte −100. Es la lectura más lenta y la que menos cambia de un día para el otro.",
+      "indicator_key": "trend_monthly",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "bullish_strong": 100,
+          "bullish_nascent_strong": 75,
+          "bullish": 60,
+          "bullish_nascent": 40,
+          "lateral_nascent": 5,
+          "lateral": 0,
+          "bearish_nascent": -40,
+          "bearish": -60,
+          "bearish_nascent_strong": -75,
+          "bearish_strong": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "volatility_daily",
+      "name": "Volatilidad diaria (régimen)",
+      "description": "Puntúa mejor la calma: volatilidad baja +100, extrema −100. Dentro de cada nivel la duración modula — una calma instalada suma y una turbulencia instalada resta. Para buscar activos movidos, usala con peso negativo.",
+      "indicator_key": "volatility_daily",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "baja_larga": 100,
+          "baja_media": 90,
+          "baja_corta": 80,
+          "normal_larga": 50,
+          "normal_media": 40,
+          "normal_corta": 30,
+          "alta_corta": -30,
+          "alta_media": -45,
+          "alta_larga": -60,
+          "extrema_corta": -70,
+          "extrema_media": -85,
+          "extrema_larga": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "volatility_weekly",
+      "name": "Volatilidad semanal (régimen)",
+      "description": "Mismo criterio que la diaria, en cadencia semanal: la calma puntúa +100 y la volatilidad extrema −100.",
+      "indicator_key": "volatility_weekly",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "baja_larga": 100,
+          "baja_media": 90,
+          "baja_corta": 80,
+          "normal_larga": 50,
+          "normal_media": 40,
+          "normal_corta": 30,
+          "alta_corta": -30,
+          "alta_media": -45,
+          "alta_larga": -60,
+          "extrema_corta": -70,
+          "extrema_media": -85,
+          "extrema_larga": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "volatility_monthly",
+      "name": "Volatilidad mensual (régimen)",
+      "description": "Mismo criterio que la diaria, en cadencia mensual: la calma puntúa +100 y la volatilidad extrema −100.",
+      "indicator_key": "volatility_monthly",
+      "formula_type": "discrete_map",
+      "params": {
+        "map": {
+          "baja_larga": 100,
+          "baja_media": 90,
+          "baja_corta": 80,
+          "normal_larga": 50,
+          "normal_media": 40,
+          "normal_corta": 30,
+          "alta_corta": -30,
+          "alta_media": -45,
+          "alta_larga": -60,
+          "extrema_corta": -70,
+          "extrema_media": -85,
+          "extrema_larga": -100
+        }
+      },
+      "publica": true
+    },
+    {
+      "key": "atr_percentile_daily",
+      "name": "Compresión de volatilidad diaria",
+      "description": "Percentil del ATR de hoy contra la propia historia del activo, invertido: percentil 0 (máxima compresión) +100, percentil 100 (expansión) −100. Cada activo se compara consigo mismo, así que sirve para rankear entre activos de escalas distintas.",
+      "indicator_key": "atr_percentile_daily",
+      "formula_type": "range",
+      "params": { "min": 100, "max": 0, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "atr_percentile_weekly",
+      "name": "Compresión de volatilidad semanal",
+      "description": "Percentil del ATR semanal contra la propia historia del activo, invertido: compresión +100, expansión −100.",
+      "indicator_key": "atr_percentile_weekly",
+      "formula_type": "range",
+      "params": { "min": 100, "max": 0, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "atr_percentile_monthly",
+      "name": "Compresión de volatilidad mensual",
+      "description": "Percentil del ATR mensual contra la propia historia del activo, invertido: compresión +100, expansión −100.",
+      "indicator_key": "atr_percentile_monthly",
+      "formula_type": "range",
+      "params": { "min": 100, "max": 0, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "atr_pct_daily",
+      "name": "ATR % diario",
+      "description": "Rango diario típico medido como porcentaje del precio, invertido: 1% o menos +100, 6% o más −100. A diferencia del percentil, es una vara absoluta: compara el ruido de un activo contra el de otro, no contra su propia historia.",
+      "indicator_key": "atr_pct_daily",
+      "formula_type": "range",
+      "params": { "min": 6, "max": 1, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "atr_pct_weekly",
+      "name": "ATR % semanal",
+      "description": "Rango semanal típico como porcentaje del precio, invertido: 2% o menos +100, 12% o más −100.",
+      "indicator_key": "atr_pct_weekly",
+      "formula_type": "range",
+      "params": { "min": 12, "max": 2, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "atr_pct_monthly",
+      "name": "ATR % mensual",
+      "description": "Rango mensual típico como porcentaje del precio, invertido: 4% o menos +100, 24% o más −100.",
+      "indicator_key": "atr_pct_monthly",
+      "formula_type": "range",
+      "params": { "min": 24, "max": 4, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "adx_daily",
+      "name": "Fuerza de tendencia diaria (ADX)",
+      "description": "ADX de 14 ruedas: 40 o más +100, 10 o menos −100. Mide cuánto empuja la tendencia, NO hacia dónde — un derrumbe ordenado también da ADX alto. Combinala siempre con una señal de tendencia; sola no es una condición de compra.",
+      "indicator_key": "adx_daily",
+      "formula_type": "range",
+      "params": { "min": 10, "max": 40, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "adx_weekly",
+      "name": "Fuerza de tendencia semanal (ADX)",
+      "description": "ADX semanal de 14 períodos: 40 o más +100, 10 o menos −100. Mide fuerza, no dirección: combinala con una señal de tendencia.",
+      "indicator_key": "adx_weekly",
+      "formula_type": "range",
+      "params": { "min": 10, "max": 40, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "adx_monthly",
+      "name": "Fuerza de tendencia mensual (ADX)",
+      "description": "ADX mensual de 14 períodos: 40 o más +100, 10 o menos −100. Mide fuerza, no dirección: combinala con una señal de tendencia.",
+      "indicator_key": "adx_monthly",
+      "formula_type": "range",
+      "params": { "min": 10, "max": 40, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "rsi_daily",
+      "name": "RSI diario",
+      "description": "Invertido: RSI 30 o menos +100, RSI 70 o más −100, 50 es cero. Lee el retroceso como oportunidad de compra dentro de una tendencia; por eso conviene acompañarla de un filtro de tendencia. Para una estrategia de momentum puro, usala con peso negativo.",
+      "indicator_key": "rsi_daily",
+      "formula_type": "range",
+      "params": { "min": 70, "max": 30, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "rsi_weekly",
+      "name": "RSI semanal",
+      "description": "Invertido, igual que el diario: RSI 30 o menos +100, 70 o más −100. Retrocesos de mediano plazo.",
+      "indicator_key": "rsi_weekly",
+      "formula_type": "range",
+      "params": { "min": 70, "max": 30, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "rsi_monthly",
+      "name": "RSI mensual",
+      "description": "Invertido, igual que el diario: RSI 30 o menos +100, 70 o más −100. Retrocesos de largo plazo.",
+      "indicator_key": "rsi_monthly",
+      "formula_type": "range",
+      "params": { "min": 70, "max": 30, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "dist_sma20",
+      "name": "Distancia a la media de 20",
+      "description": "Salud de corto plazo: 10% o más por encima de la media de 20 ruedas +100, 10% o más por debajo −100. Las distancias a medias FIJAS se leen como régimen (mejor arriba); el estiramiento lo miden las distancias a la media óptima, que están en desvíos.",
+      "indicator_key": "dist_sma20",
+      "formula_type": "range",
+      "params": { "min": -10, "max": 10, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "dist_sma50",
+      "name": "Distancia a la media de 50",
+      "description": "Salud de mediano plazo: 15% o más por encima de la media de 50 ruedas +100, 15% o más por debajo −100.",
+      "indicator_key": "dist_sma50",
+      "formula_type": "range",
+      "params": { "min": -15, "max": 15, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "dist_sma200",
+      "name": "Distancia a la media de 200",
+      "description": "El filtro de régimen clásico: 25% o más por encima de la media de 200 ruedas +100, 25% o más por debajo −100. Cruza por cero justo donde el precio toca la media.",
+      "indicator_key": "dist_sma200",
+      "formula_type": "range",
+      "params": { "min": -25, "max": 25, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "dist_optimal_sma_daily",
+      "name": "Estiramiento sobre la media óptima diaria",
+      "description": "Distancia en desvíos a la media que mejor funciona como soporte del activo. El mejor puntaje es el retroceso sano —entre medio desvío y desvío y medio POR DEBAJO— con +100; estirado a +2 desvíos −100, y quebrado más allá de −1,5 desvíos −40. No es monótona: invertirla con peso negativo no da momentum, premia los dos extremos a la vez.",
+      "indicator_key": "dist_optimal_sma_daily",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [2, -100],
+          [1, -50],
+          [0.25, 0],
+          [-0.5, 60],
+          [-1.5, 100],
+          [null, -40]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "dist_optimal_sma_weekly",
+      "name": "Estiramiento sobre la media óptima semanal",
+      "description": "Mismo criterio que la diaria, en cadencia semanal: el retroceso hacia la media puntúa +100, el estiramiento y el quiebre puntúan negativo.",
+      "indicator_key": "dist_optimal_sma_weekly",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [2, -100],
+          [1, -50],
+          [0.25, 0],
+          [-0.5, 60],
+          [-1.5, 100],
+          [null, -40]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "dist_optimal_sma_monthly",
+      "name": "Estiramiento sobre la media óptima mensual",
+      "description": "Mismo criterio que la diaria, en cadencia mensual: el retroceso hacia la media puntúa +100, el estiramiento y el quiebre puntúan negativo.",
+      "indicator_key": "dist_optimal_sma_monthly",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [2, -100],
+          [1, -50],
+          [0.25, 0],
+          [-0.5, 60],
+          [-1.5, 100],
+          [null, -40]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "drawdown_pct_daily",
+      "name": "Caída desde el máximo",
+      "description": "Distancia al máximo histórico, día por día: en máximos +100, −60% o peor −100. Premia la fortaleza, no la ganga. Para buscar castigados, usala con peso negativo.",
+      "indicator_key": "drawdown_pct_daily",
+      "formula_type": "range",
+      "params": { "min": -60, "max": 0, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "drawdown_current",
+      "name": "Caída desde el máximo (valor vigente)",
+      "description": "La misma medida que la anterior pero del valor vigente, sin historia: no sirve para backtestear, solo para rankear hoy. Si vas a backtestear, usá la versión con historia.",
+      "indicator_key": "drawdown_current",
+      "formula_type": "range",
+      "params": { "min": -60, "max": 0, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "drawdown_max1",
+      "name": "Peor caída histórica",
+      "description": "La mayor caída que el activo se comió en toda su historia: mide fragilidad. −10% +100, −80% −100. Sin historia propia, así que no sirve para backtestear.",
+      "indicator_key": "drawdown_max1",
+      "formula_type": "range",
+      "params": { "min": -80, "max": -10, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "drawdown_max2",
+      "name": "Segunda peor caída histórica",
+      "description": "La segunda caída más grande de su historia: junto con la primera dice si el derrumbe fue un episodio aislado o la costumbre. Sin historia propia.",
+      "indicator_key": "drawdown_max2",
+      "formula_type": "range",
+      "params": { "min": -70, "max": -8, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "drawdown_max3",
+      "name": "Tercera peor caída histórica",
+      "description": "La tercera caída más grande de su historia. Sin historia propia, así que no sirve para backtestear.",
+      "indicator_key": "drawdown_max3",
+      "formula_type": "range",
+      "params": { "min": -60, "max": -6, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "return_daily",
+      "name": "Retorno del día",
+      "description": "Retorno de la última rueda: +5% o más +100, −5% o menos −100. Momentum de muy corto plazo y muy ruidoso — pesa poco salvo que la estrategia sea explícitamente de un día.",
+      "indicator_key": "return_daily",
+      "formula_type": "range",
+      "params": { "min": -5, "max": 5, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "return_monthly",
+      "name": "Retorno del mes en curso",
+      "description": "Retorno desde el 1º del mes calendario: +10% o más +100, −10% o menos −100. Se reinicia cada mes, así que a principio de mes casi no discrimina.",
+      "indicator_key": "return_monthly",
+      "formula_type": "range",
+      "params": { "min": -10, "max": 10, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "return_quarterly",
+      "name": "Retorno del trimestre en curso",
+      "description": "Retorno desde el inicio del trimestre calendario: +15% o más +100, −15% o menos −100. También se reinicia, con el mismo efecto al principio del trimestre.",
+      "indicator_key": "return_quarterly",
+      "formula_type": "range",
+      "params": { "min": -15, "max": 15, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "return_yearly",
+      "name": "Retorno del año en curso",
+      "description": "Retorno desde el 1º de enero —no los últimos doce meses—: +25% o más +100, −25% o menos −100.",
+      "indicator_key": "return_yearly",
+      "formula_type": "range",
+      "params": { "min": -25, "max": 25, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "return_52w",
+      "name": "Retorno de 52 semanas",
+      "description": "Retorno de los últimos doce meses, con escala asimétrica porque la distribución también lo es: +80% +100, −20% −100. Es el momentum clásico; para una estrategia de reversión, peso negativo.",
+      "indicator_key": "return_52w",
+      "formula_type": "range",
+      "params": { "min": -20, "max": 80, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "price_position_52w",
+      "name": "Posición en el rango de 52 semanas",
+      "description": "Dónde cierra el precio dentro del rango del último año: pegado al máximo +100, pegado al mínimo −100. A diferencia de la caída desde el máximo, mira solo el último año.",
+      "indicator_key": "price_position_52w",
+      "formula_type": "range",
+      "params": { "min": 0, "max": 100, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "relative_strength_52w",
+      "name": "Fuerza relativa de 52 semanas",
+      "description": "Retorno de doce meses menos el del benchmark del activo: 30 puntos de ventaja +100, 30 de desventaja −100. Sin benchmark asignado el activo queda sin puntaje.",
+      "indicator_key": "relative_strength_52w",
+      "formula_type": "range",
+      "params": { "min": -30, "max": 30, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "rvol_daily",
+      "name": "Volumen relativo diario",
+      "description": "Volumen de la rueda sobre el promedio de las 20 anteriores: 3 veces lo normal +100, la mitad −100. Cobertura parcial — los sintéticos y las conversiones de moneda no tienen volumen propio y quedan sin puntaje, y una señal sin puntaje NO castiga: se reparten los pesos entre las demás y el activo sin dato termina mejor rankeado. Si la usás, pedí volumen también en el filtro de elegibilidad.",
+      "indicator_key": "rvol_daily",
+      "formula_type": "range",
+      "params": { "min": 0.5, "max": 3, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "resistance_pct",
+      "name": "Recorrido hasta la resistencia",
+      "description": "Distancia a la resistencia más cercana por encima del precio: 15% o más de aire libre +100, pegado a la resistencia −100. Sin historia, así que no sirve para backtestear.",
+      "indicator_key": "resistance_pct",
+      "formula_type": "range",
+      "params": { "min": 0, "max": 15, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "support_pct",
+      "name": "Cercanía al soporte",
+      "description": "Distancia al soporte más cercano por debajo del precio (el valor es negativo): apoyado en el soporte +100, con el soporte 20% más abajo −100. Premia comprar con el piso cerca, que es donde el riesgo se puede acotar. Sin historia, así que no sirve para backtestear.",
+      "indicator_key": "support_pct",
+      "formula_type": "range",
+      "params": { "min": -20, "max": 0, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "fundamental_pe_ttm",
+      "name": "P/E de los últimos doce meses",
+      "description": "Precio sobre ganancias: barato y rentable puntúa alto (P/E entre 0 y 8 → +100), caro puntúa bajo (más de 40 → −80) y las pérdidas son lo peor (P/E negativo → −100), porque una empresa que pierde plata no está barata. Solo puntúa en activos con fundamentales cargados.",
+      "indicator_key": "fundamental_pe_ttm",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [40, -80],
+          [25, -30],
+          [15, 30],
+          [8, 80],
+          [0, 100],
+          [null, -100]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "fundamental_pb",
+      "name": "P/B (precio sobre valor libro)",
+      "description": "Precio sobre patrimonio por acción: por debajo del valor libro +100, más de 8 veces −80, y patrimonio negativo −100. Solo puntúa en activos con fundamentales cargados.",
+      "indicator_key": "fundamental_pb",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [8, -80],
+          [4, -30],
+          [2, 20],
+          [1, 80],
+          [0, 100],
+          [null, -100]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "fundamental_ps_ttm",
+      "name": "P/S de los últimos doce meses",
+      "description": "Precio sobre ventas: menos de 1 vez las ventas +100, más de 10 veces −80. Sirve donde el P/E no —empresas que todavía no ganan plata—, pero ignora por completo la rentabilidad. Solo puntúa en activos con fundamentales cargados.",
+      "indicator_key": "fundamental_ps_ttm",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [10, -80],
+          [5, -30],
+          [2, 30],
+          [1, 80],
+          [0, 100],
+          [null, -100]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "fundamental_net_margin",
+      "name": "Margen neto",
+      "description": "Ganancia neta sobre ventas del último trimestre: 25% o más +100, −10% o peor −100. Solo puntúa en activos con fundamentales cargados.",
+      "indicator_key": "fundamental_net_margin",
+      "formula_type": "range",
+      "params": { "min": -0.1, "max": 0.25, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "fundamental_gross_margin",
+      "name": "Margen bruto",
+      "description": "Ganancia bruta sobre ventas del último trimestre: 60% o más +100, 10% o menos −100. Es el margen que más habla del poder de fijación de precios. Solo puntúa en activos con fundamentales cargados.",
+      "indicator_key": "fundamental_gross_margin",
+      "formula_type": "range",
+      "params": { "min": 0.1, "max": 0.6, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "fundamental_operating_margin",
+      "name": "Margen operativo",
+      "description": "Resultado operativo sobre ventas del último trimestre: 30% o más +100, −5% o peor −100. Solo puntúa en activos con fundamentales cargados.",
+      "indicator_key": "fundamental_operating_margin",
+      "formula_type": "range",
+      "params": { "min": -0.05, "max": 0.3, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "fundamental_debt_to_equity",
+      "name": "Deuda sobre patrimonio",
+      "description": "Cuánta deuda hay por cada peso de patrimonio: sin deuda +100, más de 3 veces −100. El patrimonio negativo cae en el último tramo (−80) en vez de parecer poco endeudado, que es lo que daría el número crudo. Solo puntúa en activos con fundamentales cargados.",
+      "indicator_key": "fundamental_debt_to_equity",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [3, -100],
+          [2, -60],
+          [1, -10],
+          [0.5, 50],
+          [-0.01, 100],
+          [null, -80]
+        ]
+      },
+      "publica": true
+    },
+    {
+      "key": "fundamental_revenue_growth_yoy",
+      "name": "Crecimiento de ventas interanual",
+      "description": "Ventas del trimestre contra el mismo trimestre del año anterior: +30% o más +100, −10% o peor −100.",
+      "indicator_key": "fundamental_revenue_growth_yoy",
+      "formula_type": "range",
+      "params": { "min": -0.1, "max": 0.3, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "fundamental_eps_growth_yoy",
+      "name": "Crecimiento de ganancias por acción interanual",
+      "description": "Ganancia por acción contra el mismo trimestre del año anterior: +50% o más +100, −30% o peor −100. Ojo con las bases chicas: un salto desde casi cero da un número enorme que el recorte a ±100 aplana.",
+      "indicator_key": "fundamental_eps_growth_yoy",
+      "formula_type": "range",
+      "params": { "min": -0.3, "max": 0.5, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "fundamental_net_income_growth_yoy",
+      "name": "Crecimiento de la ganancia neta interanual",
+      "description": "Ganancia neta contra el mismo trimestre del año anterior: +50% o más +100, −30% o peor −100. A diferencia de la ganancia por acción, no descuenta la emisión de acciones nuevas.",
+      "indicator_key": "fundamental_net_income_growth_yoy",
+      "formula_type": "range",
+      "params": { "min": -0.3, "max": 0.5, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "fundamental_pe_growth_yoy",
+      "name": "Cambio del P/E interanual",
+      "description": "Cuánto se movió el múltiplo contra el de hace un año, invertido: si se comprimió 20% o más +100, si se expandió 30% o más −100. La lectura es de valor —el mismo negocio más barato que el año pasado—, no de expectativas.",
+      "indicator_key": "fundamental_pe_growth_yoy",
+      "formula_type": "range",
+      "params": { "min": 0.3, "max": -0.2, "clamp": true },
+      "publica": true
+    },
+    {
+      "key": "fundamental_roic",
+      "name": "ROIC (retorno sobre el capital invertido)",
+      "description": "Cuánto rinde el capital que la empresa tiene puesto a trabajar, últimos doce meses: más de 20% +100, entre 10% y 20% +60, negativo −80. Es la medida de calidad del negocio. Solo puntúa en activos con fundamentales cargados.",
+      "indicator_key": "fundamental_roic",
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [0.2, 100],
+          [0.1, 60],
+          [0.05, 20],
+          [0, -20],
+          [null, -80]
+        ]
+      },
+      "publica": true
+    }
+  ]
+}

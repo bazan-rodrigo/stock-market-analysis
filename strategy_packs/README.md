@@ -1,7 +1,6 @@
 # Strategy packs
 
-Packs listos para importar desde la app (señales y estrategias armadas como
-casos de prueba).
+Packs listos para importar desde la app.
 
 > **El formato está especificado en [SPEC.md](SPEC.md)** — el contrato que
 > permite que cualquiera (una persona, o un modelo de lenguaje sin acceso a
@@ -16,135 +15,122 @@ casos de prueba).
 > de Señales. Se valida sin base ni app con
 > `python scripts/validate_pack.py <pack>.json --catalog catalogo.json`.
 
-Cada pack de este directorio está en **los dos formatos**: `<pack>.json` (el
-canónico) y sus dos planillas. Se convierten en cualquier dirección, y ninguno
-de los dos se edita a mano por separado — se edita uno y se regenera el otro:
+Hoy hay **un solo pack publicado**: `senales_base`, el catálogo de señales.
+**No hay estrategias** en este directorio — se van a armar más adelante, sobre
+estas señales.
+
+El pack está en **los dos formatos**: `senales_base.json` (el canónico) y su
+planilla. Se convierten en cualquier dirección, y ninguno de los dos se edita a
+mano por separado — se edita uno y se regenera el otro:
 
 ```
-python scripts/pack_from_json.py strategy_packs/pullback.json   # JSON  → xlsx
-python scripts/pack_to_json.py   strategy_packs/pullback        # xlsx → JSON
+python scripts/pack_from_json.py strategy_packs/senales_base.json   # JSON  → xlsx
+python scripts/pack_to_json.py   strategy_packs/senales_base        # xlsx → JSON
 ```
 
-`tests/test_pack_spec.py` verifica que los dos formatos de cada pack digan lo
-mismo y que cada uno valide sin errores: si quedan desalineados, falla la
-suite.
+`tests/test_pack_spec.py` verifica que los dos formatos digan lo mismo y que el
+pack valide sin errores: si quedan desalineados, falla la suite.
 
-Políticas:
-- **Toda señal debe estar usada por alguna estrategia** — las que no, solo
-  agregan costo de procesamiento al pipeline diario y al backfill. El seed
-  inicial y el concepto de señal/estrategia "de sistema" se eliminaron
-  (migración 0064); todo se gestiona por estos Excel.
-- **Cada pack es autosuficiente**: su `<pack>_senales.xlsx` incluye TODAS
-  las señales que su estrategia usa (los componentes). Una señal compartida
-  por varios packs aparece duplicada en cada uno — el import upsertea por
-  key, así que no genera conflicto y el orden entre packs no importa.
+## senales_base — una señal por indicador
 
-## Cómo se importan
+**Una sola señal por indicador, y todas las que el indicador admite.** El
+catálogo cubre **51 de los 57 indicadores** de la instalación: quedan afuera
+los seis `best_sma_*` / `best_ema_*`, cuyo valor es el *período* de la media
+(una de 200 no es "mejor" que una de 20, así que no hay nada que puntuar).
 
-El `<pack>.json` se sube entero a la pantalla **Packs** (`/admin/packs`, solo
-admin): ahí están los botones para bajar la especificación y el catálogo, y
+Antes la regla era la contraria —*toda señal debía estar usada por alguna
+estrategia*, para no pagar cómputo de más— y el catálogo crecía pegado a las
+estrategias que se iban armando. El costo de eso era peor: aparecían dos y tres
+señales sobre el mismo indicador, con umbrales distintos, y dejaba de tener
+sentido comparar dos estrategias entre sí (no se sabía si diferían en la idea o
+en cómo medía cada una). El catálogo ahora es **independiente de las
+estrategias**: se arma completo una vez y las estrategias eligen de ahí.
+
+### La orientación, que es lo que hace comparable al catálogo
+
+**+100 son las mejores condiciones para comprar** —esperando estar largo
+mientras el precio sube— y **−100 las peores**. Todas las señales apuntan para
+el mismo lado, sin excepción.
+
+Para leer una señal al revés **no se duplica**: un componente de estrategia
+admite **peso negativo** (SPEC §5). Así se arma una estrategia bajista, o una
+que pida *"momentum alto pero volatilidad baja"*, sin tocar el catálogo.
+
+Los criterios por familia, que es donde la orientación se vuelve una decisión y
+no un cálculo:
+
+| Familia | Criterio | Por qué |
+|---|---|---|
+| Tendencia (diaria/semanal/mensual) | Alcista +100, bajista −100 | Lectura directa del régimen. |
+| Volatilidad, ATR %, compresión | Calma +100, extrema −100 | La calma es mejor telón de fondo para estar largo; la duración del régimen modula dentro de cada nivel. |
+| ADX | Más fuerza +100 | **No dice dirección**: un derrumbe ordenado también da ADX alto. Va siempre acompañada de tendencia. |
+| RSI y distancia en σ a la media óptima | El **retroceso** puntúa +100 | Son medidas de estiramiento: miden el punto de entrada, no la salud. |
+| Distancia a medias fijas (20/50/200) | **Por encima** +100 | Son medidas de régimen: miden la salud, no el punto de entrada. |
+| Retornos (día, mes, trimestre, año, 52 semanas) | Más retorno +100 | Momentum, sin excepciones dentro de la familia. La reversión se pide con peso negativo. |
+| Caídas desde el máximo y posición en el rango anual | Cerca de máximos +100 | Fortaleza, no ganga. Quien busque castigados usa peso negativo. |
+| Peores caídas históricas | Menos profunda +100 | Miden fragilidad. |
+| Volumen relativo | Más volumen +100 | Confirma el movimiento. Ver el aviso de cobertura parcial, más abajo. |
+| Soporte / resistencia | Soporte cerca y resistencia lejos +100 | El riesgo se acota contra el piso y el recorrido libre está arriba. |
+| Múltiplos (P/E, P/B, P/S, cambio del P/E) | Barato +100 | Y **las pérdidas o el patrimonio negativo caen en el peor tramo**, no en el mejor: una empresa que pierde plata no está barata, aunque el número crudo lo parezca. |
+| Márgenes, crecimiento, ROIC | Más +100 | Calidad y crecimiento se leen de frente. |
+
+Dos consecuencias de esa tabla que conviene tener presentes al armar una
+estrategia:
+
+- **La distancia en σ a la media óptima no es monótona** (premia el retroceso
+  sano y castiga tanto el estiramiento como el quiebre). Invertirla con peso
+  negativo no da "momentum": premia los dos extremos a la vez.
+- Los umbrales son **puntos de partida de manual**, no valores optimizados ni
+  recomendación de inversión.
+
+### Cobertura parcial: la trampa que hay que mirar
+
+Una señal sin valor **no castiga**: el promedio de la estrategia se calcula
+sobre los componentes que sí puntuaron y los pesos se reparten entre ellos, así
+que **el activo al que le falta el dato termina sistemáticamente mejor
+rankeado**. En este catálogo eso toca dos grupos:
+
+- **`rvol_daily`**: los sintéticos y las conversiones de moneda no tienen
+  volumen propio (un cociente entre dos precios no lo tiene).
+- **Los 12 fundamentales**: solo puntúan en activos con fundamentales cargados.
+
+Si tu estrategia usa alguno, pedí el dato **también en el filtro de
+elegibilidad**: ahí el faltante sí deja al activo afuera, que es lo que querés.
+Los ratios fundamentales van en **fracciones** (ROIC 0,15 = 15%).
+
+### Las seis señales sin historia
+
+`drawdown_current`, `drawdown_max1/2/3`, `resistance_pct` y `support_pct` salen
+de indicadores que solo guardan **valor vigente**. Sirven para rankear hoy, pero
+**no para backtestear**: no hay historia que reconstruir. El validador las marca
+con un aviso, y cada una lo dice en su descripción. `drawdown_pct_daily` es la
+versión con historia de la primera.
+
+## Cómo se importa
+
+El `senales_base.json` se sube entero a la pantalla **Packs** (`/admin/packs`,
+solo admin): ahí están los botones para bajar la especificación y el catálogo, y
 subirlo **no escribe nada** — primero se ve el ensayo (errores, avisos, y fila
-por fila qué crea y qué actualiza) y recién después se confirma la importación,
-que aplica las señales y las estrategias en el orden correcto.
+por fila qué crea y qué actualiza) y recién después se confirma la importación.
 
-Las planillas **Excel** van por el camino histórico, en dos pantallas y sin
-ensayo previo:
-
-- `<pack>_senales.xlsx` — se importa primero, en **/admin/signals → Importar**.
-- `<pack>_estrategia.xlsx` — se importa después, en **/admin/strategies →
-  Importar** (sus componentes referencian las señales del archivo anterior
-  por key).
+La planilla **Excel** va por el camino histórico, sin ensayo previo:
+`senales_base_senales.xlsx` en **/admin/signals → Importar**.
 
 Después de importar: en Centro de Datos, card **Señales y Estrategias →
-Ejecutar** (con alcance en la estrategia nueva llena solo su historia).
+Ejecutar**.
 
 La importación es todo-o-nada **dentro de cada paso**: si alguna fila es
 inválida no se escribe ninguna de esa lista y la pantalla muestra el motivo por
-fila. Los dos pasos son transacciones separadas, así que unas señales
-importadas quedan aunque falle la estrategia. Reimportar un archivo actualiza
-por key/nombre (no duplica).
+fila. Reimportar un archivo actualiza por key (no duplica).
 
-Visibilidad (migración 0065): la columna **`publica`** (si/no) de cada hoja
-define si la señal/estrategia queda visible para todos los usuarios o solo
-para su dueño. **Ausente o vacía = PRIVADA**: publicar es siempre un paso
-deliberado (antes el default era público, para no romper los packs anteriores a
-la columna; se unificó con el default de la UI). El que importa (solo admin)
-queda como dueño de las filas nuevas; las existentes conservan su dueño. Todos
-los packs de este directorio traen `publica=si` explícito, así que ese cambio
-de default no los afecta. Regla de referencias: una señal/estrategia pública
-solo puede referenciar señales públicas.
+**Reimportar no borra lo que ya está.** El upsert es por `key`, así que las
+señales viejas que no figuren en el pack **quedan cargadas** aunque el catálogo
+nuevo las reemplace conceptualmente. Sacarlas es un paso aparte, a mano, desde
+la pantalla de Señales — y hay que hacerlo mirando qué estrategias las usan.
 
-## pullback_en_tendencia
-
-Compra retrocesos de corto plazo dentro de tendencias alcistas confirmadas.
-
-**Filtro de elegibilidad** (AND):
-- `trend_weekly` in [bullish, bullish_strong, bullish_nascent_strong]
-- `dist_sma200` > 0 (precio sobre la media de 200 ruedas)
-- `volatility_daily` not in [extrema_corta, extrema_media, extrema_larga]
-
-**Ranking** (promedio ponderado):
-
-| Señal | Peso |
-|---|---|
-| `rsi_señal` (RSI invertido: sobreventa → +100) | 3 |
-| `fuerza_relativa_52w` (>20 → 100, >0 → 50, resto → −50) | 2 |
-| `dist_sma_pullback_d` (2σ arriba → −100, 2σ abajo → +100) | 2 |
-| `tendencia_d` (mapa de régimen diario) | 1 |
-
-Nota: el filtro por tipo de instrumento (`instrument_type in [Equity, FUND]`)
-quedó afuera del archivo. La razón original —que los ids de catálogo cambian de
-base en base— **ya no aplica**: el import resuelve los atributos **por nombre**,
-así que hoy se puede escribir en el pack. Lo que sigue dependiendo de la
-instalación son los nombres en sí (si ahí no existe un tipo llamado `FUND`, el
-import rechaza el archivo entero), así que agregarlo es una decisión de cada
-instalación: desde el editor de la estrategia, o en el pack si se sabe qué
-tipos hay cargados.
-
-## momentum_de_lideres
-
-Contracara del Pullback: compra los activos MÁS fuertes del mismo universo
-(mismo filtro de elegibilidad), en vez de los que retrocedieron. Al
-compartir filtro, cualquier diferencia de resultados entre ambas es
-atribuible 100% al ranking — ideal para comparar filosofías.
-
-**Ranking** (promedio ponderado):
-
-| Señal | Peso |
-|---|---|
-| `retorno_52w` (range −20%→−100 ... +80%→+100) | 3 |
-| `fuerza_relativa_52w` | 2 |
-| `tendencia_d` / `tendencia_w` / `tendencia_m` (régimen por timeframe) | ⅔ c/u |
-| `dist_sma_d` (premia extensión sobre la SMA óptima, sin invertir) | 1 |
-
-## garp_calidad_precio
-
-Calidad a precio razonable, la primera estrategia que usa la dimensión
-fundamental. El filtro por P/E (>0 y <60) restringe el universo a activos
-con fundamentales cargados y rentables; el resto del filtro es técnico
-suave (dist_sma200 > −10, sin volatilidad extrema).
-
-| Señal | Peso |
-|---|---|
-| `roic_calidad` (ROIC TTM: >20% → 100 ... negativo → −80) | 3 |
-| `pe_razonable` (P/E: <8 → 100 ... >40 → −80, pérdidas → −100) | 3 |
-| `crecimiento_ventas` (revenue YoY: −10% → −100, +30% → +100) | 2 |
-| `tendencia_m` (tendencia mensual, desempate técnico) | 1 |
-
-Nota: los ratios fundamentales van en fracciones (ROIC 0.15 = 15%).
-
-## pullback_bajista
-
-Espejo exacto del Pullback en tendencia, para cortos o como lista de
-"evitar": tendencia semanal bajista + precio bajo la SMA200 + sin
-volatilidad extrema, rankeando el rebote de corto plazo.
-
-| Señal | Peso |
-|---|---|
-| `rsi_rebote` (sobrecompra → +100: rally para shortear) | 3 |
-| `debilidad_relativa_52w` (perder contra el benchmark → +100) | 2 |
-| `dist_sma_d` (SIN invertir: extendido sobre su SMA = resistencia) | 2 |
-| `tendencia_d_bajista` (mapa de régimen con signos invertidos) | 1 |
-
-Los parámetros (umbrales, pesos) son puntos de partida de manual para probar
-el sistema, no valores optimizados ni recomendación de inversión.
+Visibilidad (migración 0065): la columna **`publica`** (si/no) define si la
+señal queda visible para todos los usuarios o solo para su dueño. **Ausente o
+vacía = PRIVADA**: publicar es siempre un paso deliberado. El que importa (solo
+admin) queda como dueño de las filas nuevas; las existentes conservan su dueño.
+Todas las señales de `senales_base` traen `publica=si`. Regla de referencias:
+una señal/estrategia pública solo puede referenciar señales públicas.

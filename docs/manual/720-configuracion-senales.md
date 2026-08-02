@@ -27,6 +27,17 @@ demás es plomería. Si no tenés claro dónde encaja este paso, leé antes
 > existe, proponésela a un administrador. Para armar estrategias, en cambio,
 > no necesitás permiso de nadie.
 
+**Una sola señal por indicador**, y todas puntuando para el mismo lado: **+100
+son las mejores condiciones para comprar** y −100 las peores. Esa es la forma
+del catálogo, y es lo que hace que dos estrategias se puedan comparar.
+
+Para usar una señal **al revés** no hace falta duplicarla: el peso de un
+componente de estrategia admite **signo negativo**, y con eso el activo puntúa
+alto donde la señal puntúa bajo. Ver
+[Estrategias](/manual/configuracion-estrategias). Duplicar la señal invertida
+—dos versiones del RSI que dicen lo contrario— es justamente lo que rompe la
+comparación entre estrategias.
+
 ## La lista
 
 La tabla muestra las señales que podés ver: las públicas más las tuyas (un

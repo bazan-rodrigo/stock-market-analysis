@@ -15,6 +15,10 @@ cargar una por una cada señal a mano en
 [Señales](/manual/configuracion-senales) y en
 [Estrategias](/manual/configuracion-estrategias).
 
+Un pack también puede traer **solo señales, sin ninguna estrategia**: es la
+forma de cargar de una vez un catálogo entero de señales, para que después las
+estrategias elijan de ahí. Se sube por esta misma pantalla y se revisa igual.
+
 El formato es **público y estándar**: cualquiera que lo respete produce un
 archivo que esta aplicación importa. La especificación completa se descarga
 desde esta misma pantalla, así que no hace falta pedirle nada a nadie para
@@ -40,8 +44,8 @@ lógica que querés; con eso puede armar un pack que entre sin retoques.
 la misma; el catálogo cambia con lo que tengas cargado, así que conviene bajarlo
 de nuevo cada vez.
 
-**2. Subir el pack.** Un solo archivo con las señales y la estrategia juntas.
-Subirlo **no escribe nada**: solo se revisa.
+**2. Subir el pack.** Un solo archivo, con las señales y la estrategia juntas o
+con señales solas. Subirlo **no escribe nada**: solo se revisa.
 
 **3. Informe.** Acá se ve, antes de decidir, qué va a pasar:
 
@@ -49,14 +53,17 @@ Subirlo **no escribe nada**: solo se revisa.
   deshabilitado: la importación es todo o nada y se rechazaría entera.
 - **Avisos** — no impiden nada, pero conviene leerlos. Marcan las trampas que
   no dan error: una señal que no puntúa en algunas categorías, un ranking que
-  puede quedar dominado por un solo activo, señales que ninguna estrategia usa.
+  puede quedar dominado por un solo activo, o señales que el pack trae y su
+  estrategia no usa. Este último no aparece en un pack de señales solas, donde
+  ninguna señal tiene todavía estrategia que la use.
 - **La tabla** — fila por fila, qué **crea** y qué **actualiza**, y de quién es
   lo que va a pisar. Reimportar un pack ya cargado actualiza sus definiciones
   en vez de duplicarlas, y una definición existente **conserva su dueño**.
 
 Recién con el informe a la vista, **Importar** aplica los dos pasos en el orden
-correcto: primero las señales, después la estrategia (que las referencia). La
-misma tabla se completa con el resultado de cada fila.
+correcto: primero las señales, después la estrategia (que las referencia). Si el
+pack trae solo señales, se aplica ese único paso. La misma tabla se completa con
+el resultado de cada fila.
 
 > Las planillas de Excel se importan como siempre, desde
 > [Señales](/manual/configuracion-senales) y
@@ -68,7 +75,8 @@ misma tabla se completa con el resultado de cada fila.
 Un pack recién importado **todavía no tiene resultados**. Para llenarlos, andá
 al [Centro de Datos](/manual/centro-de-datos) → **Señales y Estrategias** →
 **Ejecutar**, eligiendo como alcance la estrategia nueva: así se calcula solo su
-historia y no se recalcula todo el sistema.
+historia y no se recalcula todo el sistema. Si el pack trajo solo señales, la
+historia se les llena en la próxima corrida.
 
 Recién ahí la estrategia aparece con datos en el
 [screener](/manual/screener-de-senales), en la
