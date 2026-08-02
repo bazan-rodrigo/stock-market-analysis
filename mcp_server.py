@@ -122,8 +122,15 @@ async def _listar_herramientas(
 ) -> types.ListToolsResult:
     # `tool_specs()` ya devuelve las claves del protocolo (`inputSchema`), que
     # el modelo de Tool acepta por alias.
+    specs = mcp_adapter.tool_specs()
+    # Se registra a propósito: cuando un cliente "no ve" una herramienta nueva,
+    # lo primero que hay que saber es si llegó a preguntar y qué se le contestó.
+    # Sin esta línea no había forma de distinguir un caché del cliente de un
+    # deploy que no tomó el código nuevo.
+    logger.info("MCP tools/list → %d herramientas: %s",
+                len(specs), ", ".join(s["name"] for s in specs))
     return types.ListToolsResult(
-        tools=[types.Tool(**spec) for spec in mcp_adapter.tool_specs()])
+        tools=[types.Tool(**spec) for spec in specs])
 
 
 async def _ejecutar_herramienta(
@@ -232,6 +239,12 @@ configure_logging()
 # host, esta línea es la que lo explica sin tener que adivinar.
 logger.info("Servidor MCP — URL pública: %s | hosts aceptados: %s",
             _URL_PUBLICA, ", ".join(mcp_adapter.hosts_permitidos(_URL_PUBLICA)))
+# Qué versión del catálogo quedó arriba. Con esta línea, mirar los logs después
+# de un deploy alcanza para saber si el código nuevo tomó, sin necesitar un
+# cliente conectado para averiguarlo.
+_SPECS = mcp_adapter.tool_specs()
+logger.info("Herramientas publicadas (%d): %s",
+            len(_SPECS), ", ".join(s["name"] for s in _SPECS))
 if os.environ.get("MCP_PUBLIC_URL") is None:
     logger.warning(
         "MCP_PUBLIC_URL no está definida: se asume %s. En un deploy hay que "
