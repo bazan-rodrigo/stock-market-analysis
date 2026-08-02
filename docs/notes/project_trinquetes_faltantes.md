@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-01T17:54:02.965Z
+  modified: 2026-08-02T05:45:57.877Z
 ---
 
 Relevado el **1-ago-2026** a pedido del usuario ("los trinquetes sirven para
@@ -53,12 +53,36 @@ del cutover de la 0094.
 
 ### 4. La cobertura de limpieza, derivada en vez de escrita a mano
 
-Hoy `_LEAF_TABLES` y los tests de cobertura son listas paralelas mantenidas a
-mano. **Arreglo:** recorrer los modelos registrados y exigir que cada tabla esté
-o en el alcance de limpieza, o en una lista de exclusión con su motivo. Una
-tabla nueva rompe la suite hasta que alguien decida conscientemente en qué grupo
-va. Mismo mecanismo que `test_module_registration.py`, que funciona bien
-justamente porque deriva del código.
+**MITAD HECHA el 2-ago-2026, y en el camino aparecieron DOS bugs vivos** que la
+predicción de este hueco anticipaba con exactitud. Disparador: el usuario
+preguntó si la limpieza dropea las columnas de las tablas anchas (no: vacía
+filas, y está bien — `clean_data` preserva las definiciones, así que las
+columnas tienen que quedar para que "Recalcular completo" las repueble; quien
+sí dropea columnas es el ABM al borrar una definición y `reconcile_wide_columns`
+en el arranque). Mirando eso saltó que el **reinicio a fábrica** sí estaba roto:
+
+1. `_fresh_install_wipe` derivaba su alcance de `Base.metadata` + prefijos
+   dinámicos → **no vaciaba `signal_values_wide` ni `strategy_results_wide`**
+   (no son modelos ORM y no empiezan con `sig_`/`strat_res_`). El botón
+   prometía "base como recién instalada" y dejaba adentro los valores de
+   señales y los rankings. Exactamente el mismo hueco que la 0094 abrió en
+   `clean_data`, arreglado allá y no acá.
+2. Por el camino del CLI (`scripts/clean_data.py --reset` importa **solo**
+   `cleanup_service`) `Base.metadata` está **vacío**: el reset no vaciaba ni
+   `assets`, y el script informaba igual que había reiniciado la base.
+
+**Arreglo aplicado:** el alcance del reset sale ahora del **catálogo**
+(`inspect(conn).get_table_names()` menos `_RESET_KEEP_TABLES = {alembic_version}`).
+Elimina la clase entera de bug: nada puede quedar afuera y el resultado no
+depende de qué módulos estén importados. Dos tests nuevos en
+`tests/test_cleanup_service.py`; verificado que **fallan contra el código
+viejo**, señalando las dos anchas por nombre. 1585 passed.
+
+**Lo que SIGUE abierto:** la cobertura de `clean_data` (limpieza parcial), donde
+enumerar es lo correcto por diseño pero no hay nada que obligue a clasificar una
+tabla nueva. Ahí vale el plan original: recorrer los modelos y exigir que cada
+tabla esté en el alcance o en una exclusión con su motivo, al estilo de
+`test_module_registration.py`.
 
 ### 5. El SPEC en prosa
 
