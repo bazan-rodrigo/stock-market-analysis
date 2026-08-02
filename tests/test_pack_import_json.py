@@ -255,7 +255,10 @@ def test_catalogo_exportado_sirve_para_validar_offline(db):
     assert codigos["last_close"]["virtual"] is True, (
         "los indicadores virtuales se aceptan como indicator_key: sin ellos en "
         "el catálogo, quien escribe un pack no sabe que existen")
-    assert catalogo["attributes"]["sector"] == ["Technology"]
+    # El hueco encabeza la lista de cada atributo: es un valor más del
+    # catálogo, y sin él un pack no podría pedir "que tenga sector"
+    assert catalogo["attributes"]["sector"] == ["(sin sector)", "Technology"]
+    assert catalogo["attributes"]["synthetic"] == ["(no sintético)"]
     assert {s["key"] for s in catalogo["signals"]} == {"p_tendencia", "p_rsi"}
 
     # Y con ESE catálogo, el pack valida sin errores ni omisiones

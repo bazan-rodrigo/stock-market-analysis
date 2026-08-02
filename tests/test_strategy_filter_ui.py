@@ -73,6 +73,22 @@ def test_condicion_sin_valor_da_error():
     tree, errors = store_to_tree(store, set())
     assert tree is None and errors
 
+def test_el_valor_sin_benchmark_no_se_pierde_por_ser_cero():
+    """«Benchmark != (sin benchmark)» viaja con el valor 0: si la
+    serialización lo tratara como falsy —el reflejo natural—, la condición se
+    guardaría como "sin valor" y el filtro quedaría sin esa cláusula."""
+    store = {"nodes": {"0": {"kind": "group", "op": "AND", "children": [1]},
+                       "1": _cond_node("attr:benchmark", "!=", val=0)},
+             "root": 0, "counter": 2}
+    tree_json, errors = store_to_tree(store, set())
+    assert errors == []
+    cond = json.loads(tree_json)["children"][0]["cond"]
+    assert cond["left"] == {"type": "attribute", "key": "benchmark"}
+    assert cond["right"] == {"type": "const", "value": 0}
+    # y vuelve al store con el 0 intacto (editar la estrategia no lo borra)
+    assert tree_to_store(tree_json)["nodes"]["1"]["val"] == 0
+
+
 def test_grupo_anidado_vacio_se_omite():
     store = {"nodes": {"0": {"kind": "group", "op": "AND", "children": [1, 2]},
                        "1": _cond_node("ind:rsi_daily", ">", val=70),

@@ -188,19 +188,10 @@ def compute_strategy_results(strategy_id: int, target_date: date_type) -> int:
     # signal_scores, no de agregados de grupo)
     asset_ids_with_data = list({asset_id for _, asset_id in signal_scores})
     if asset_ids_with_data:
-        q = s.query(
-            Asset.id, Asset.sector_id, Asset.market_id,
-            Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
-        ).filter(Asset.id.in_(asset_ids_with_data))
+        q = strategy_filter.asset_attributes_query(s).filter(
+            Asset.id.in_(asset_ids_with_data))
         asset_groups: dict[int, dict] = {
-            a.id: {
-                "sector":          a.sector_id,
-                "market":          a.market_id,
-                "industry":        a.industry_id,
-                "country":         a.country_id,
-                "instrument_type": a.instrument_type_id,
-            }
-            for a in q.all()
+            a.id: strategy_filter.attributes_from_asset_row(a) for a in q.all()
         }
     else:
         asset_groups = {}

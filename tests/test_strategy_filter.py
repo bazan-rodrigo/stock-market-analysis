@@ -2,6 +2,8 @@
 comparaciones por tipo, faltantes, validación de esquema y detección de
 cadenas sin historia. Todo lógica pura — sin DB (salvo los helpers de
 detección, que usan stubs)."""
+from types import SimpleNamespace
+
 import pytest
 
 from app.services.strategy_filter import (
@@ -290,6 +292,156 @@ def test_el_arbol_que_arma_el_constructor_con_igual_es_valido():
                   "operator": "=",
                   "right": {"type": "const", "value": 4}}}]}
     assert _validate(tree) == []
+
+
+# ── El atributo benchmark y su "(sin benchmark)" ──────────────────────────────
+
+def _fila(**overrides):
+    """Fila de `assets` como la devuelve asset_attributes_query."""
+    base = dict(sector_id=1, market_id=2, industry_id=3, country_id=4,
+                instrument_type_id=5, currency_id=6, benchmark_id=7,
+                synthetic_type=None)
+    return SimpleNamespace(**{**base, **overrides})
+
+
+def test_el_dict_de_atributos_cubre_todos_los_filtrables():
+    """attributes_from_asset_row es la fuente única del dict que evalúa el
+    filtro: un atributo declarado en ATTRIBUTE_KEYS que no salga de ahí se
+    evaluaría siempre como vacío, o sea la condición siempre falsa."""
+    from app.services.strategy_filter import ATTRIBUTE_KEYS, attributes_from_asset_row
+
+    assert set(attributes_from_asset_row(_fila())) == set(ATTRIBUTE_KEYS)
+
+
+def test_todo_atributo_vacio_llega_con_el_valor_de_hueco():
+    """El NULL se materializa: si llegara como None, NINGUNA condición sobre
+    ese atributo se cumpliría (ni siquiera !=) y el hueco sería inexpresable."""
+    from app.services.strategy_filter import (
+        ATTRIBUTE_KEYS, ATTRIBUTE_NONE_ID, attributes_from_asset_row)
+
+    vacia = _fila(sector_id=None, market_id=None, industry_id=None,
+                  country_id=None, instrument_type_id=None, currency_id=None,
+                  benchmark_id=None, synthetic_type=None)
+    valores = attributes_from_asset_row(vacia)
+    assert set(valores) == set(ATTRIBUTE_KEYS)
+    assert all(v == ATTRIBUTE_NONE_ID for v in valores.values())
+
+
+def test_el_tipo_de_sintetico_viaja_como_texto():
+    """Único atributo con valores de texto: los otros son ids de catálogo."""
+    from app.services.strategy_filter import attributes_from_asset_row
+
+    assert attributes_from_asset_row(_fila(synthetic_type="ratio"))["synthetic"] \
+        == "ratio"
+
+
+def test_distinto_de_sin_benchmark_deja_pasar_solo_a_los_que_tienen():
+    """El caso de uso: sacar del ranking a los activos donde un indicador que
+    depende del benchmark (relative_strength_52w) nunca se va a calcular."""
+    from app.services.strategy_filter import ATTRIBUTE_NONE_ID
+
+    tree = _cond(_attr("benchmark"), "!=", _const(ATTRIBUTE_NONE_ID))
+    con    = {"benchmark": 12}
+    sin    = {"benchmark": ATTRIBUTE_NONE_ID}
+    assert evaluate_tree(tree, 1, {}, con) is True
+    assert evaluate_tree(tree, 2, {}, sin) is False
+
+
+def test_igual_a_sin_benchmark_aisla_a_los_que_no_tienen():
+    from app.services.strategy_filter import ATTRIBUTE_NONE_ID
+
+    tree = _cond(_attr("benchmark"), "=", _const(ATTRIBUTE_NONE_ID))
+    assert evaluate_tree(tree, 1, {}, {"benchmark": ATTRIBUTE_NONE_ID}) is True
+    assert evaluate_tree(tree, 2, {}, {"benchmark": 12}) is False
+
+
+def test_benchmark_es_un_atributo_valido_y_no_se_ordena():
+    assert _validate(_cond(_attr("benchmark"), "in", _const([12, 34]))) == []
+    errors = _validate(_cond(_attr("benchmark"), ">", _const(12)))
+    assert any("no se ordenan" in e for e in errors)
+
+
+def test_los_atributos_nuevos_son_validos():
+    assert _validate(_cond(_attr("currency"), "=", _const(3))) == []
+    assert _validate(_cond(_attr("synthetic"), "!=", _const("ratio"))) == []
+
+
+def test_excluir_los_sinteticos_deja_pasar_al_activo_comun():
+    """«Tipo de sintético = (no sintético)» saca del universo los calculados —
+    entre ellos los que crea la conversión de divisas, que duplican activos."""
+    from app.services.strategy_filter import ATTRIBUTE_NONE_ID
+
+    tree = _cond(_attr("synthetic"), "=", _const(ATTRIBUTE_NONE_ID))
+    assert evaluate_tree(tree, 1, {}, {"synthetic": ATTRIBUTE_NONE_ID}) is True
+    assert evaluate_tree(tree, 2, {}, {"synthetic": "ratio"}) is False
+
+
+def test_el_filtro_resuelve_el_indicador_virtual_sin_tabla(monkeypatch):
+    """`last_close` no tiene tabla ind_*: la carga caía en NoSuchTableError,
+    devolvía {} y la condición quedaba SIEMPRE FALSA con solo un warning en el
+    log — un pack podía filtrar por precio y filtrar todo a cero."""
+    from datetime import date
+
+    from app.services import strategy_filter as sf
+
+    llamadas = []
+
+    def _fake(_session, code, _fecha):
+        llamadas.append(code)
+        return {7: 12.5}
+
+    monkeypatch.setattr(sf, "_load_virtual_asof", _fake)
+    tree = _cond(_ind("last_close"), ">", _const(10))
+    values = sf.load_operand_values(object(), tree, date(2026, 1, 2))
+    assert llamadas == ["last_close"]
+    assert values[("indicator", "last_close", "historic")] == {7: 12.5}
+
+
+def test_last_close_se_lee_as_of_contra_la_base():
+    """El SQL del virtual es nuevo y no tiene tabla `ind_*` que lo respalde:
+    se ejercita de verdad contra sqlite. Un activo que no cotizó ese día entra
+    igual con su último precio (as-of); uno con precios más viejos que el tope
+    de antigüedad, no."""
+    import datetime
+
+    import sqlalchemy as sa
+
+    from app.database import Base, Session, engine, get_session
+    from app.models import Asset, Price
+    from app.models.indicator_store import ASOF_MAX_LOOKBACK_DAYS
+    from app.services.strategy_filter import _load_virtual_asof
+
+    Session.remove()
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM prices"))
+        conn.execute(sa.text("DELETE FROM assets"))
+
+    hoy = datetime.date(2026, 1, 2)
+    s = get_session()
+    for aid, ticker in ((901, "HOY"), (902, "AYER"), (903, "VIEJO")):
+        s.add(Asset(id=aid, ticker=ticker, name=ticker, price_source_id=1))
+    s.add(Price(asset_id=901, date=hoy, close=10.0))
+    s.add(Price(asset_id=902, date=hoy - datetime.timedelta(days=1), close=20.0))
+    s.add(Price(asset_id=903,
+                date=hoy - datetime.timedelta(days=ASOF_MAX_LOOKBACK_DAYS + 5),
+                close=30.0))
+    s.commit()
+
+    valores = _load_virtual_asof(s, "last_close", hoy)
+    assert valores == {901: 10.0, 902: 20.0}
+
+    Session.remove()
+
+
+def test_distinto_de_un_valor_ahora_incluye_al_que_no_tiene_dato():
+    """CAMBIO DE SEMÁNTICA al materializar el hueco: antes el activo sin sector
+    no cumplía «sector != X» (su None no cumplía nada) y quedaba afuera."""
+    from app.services.strategy_filter import ATTRIBUTE_NONE_ID
+
+    tree = _cond(_attr("sector"), "!=", _const(3))
+    assert evaluate_tree(tree, 1, {}, {"sector": ATTRIBUTE_NONE_ID}) is True
+    assert evaluate_tree(tree, 2, {}, {"sector": 3}) is False
 
 
 # ── legacy_asset_filter_to_tree ───────────────────────────────────────────────

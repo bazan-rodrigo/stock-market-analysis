@@ -103,8 +103,11 @@ queda sin condiciones se descarta solo al guardar.
 
 Cada condición se lee de izquierda a derecha: un operando, un operador y un
 valor. El operando izquierdo puede ser un **[Atributo]** del activo (Sector,
-Industria, Mercado, País o Tipo de instrumento), un **[Ind]** (el valor del
-indicador) o una **[Señal]** (su score).
+Industria, Mercado, País, Tipo de instrumento, Moneda, Benchmark o Tipo de
+sintético), un **[Ind]** (el valor del indicador) o una **[Señal]** (su score).
+Cada atributo trae en su lista de valores un **(sin …)** para quedarte con los
+que tienen ese dato —o justamente con los que no—; ver
+[Referencia de operadores](/manual/operadores-del-filtro).
 
 | Tipo de operando | Operadores |
 |---|---|

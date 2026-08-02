@@ -5,9 +5,10 @@ aplicación sin acceso a su código. Está escrito para que lo pueda seguir tant
 una persona como un modelo de lenguaje: es autosuficiente salvo por una cosa
 —el **catálogo de la instalación**— que se entrega aparte (§7).
 
-Un *pack* es **un archivo JSON** con las señales y la estrategia que las usa.
-Se importa desde la aplicación en dos pasos y no requiere tocar la base ni
-escribir código.
+Un *pack* es **un archivo JSON** con señales y estrategias: o bien una
+estrategia junto con todas las señales que usa, o bien un catálogo de señales
+publicado aparte de las estrategias que lo consumen (§2). Se importa desde la
+aplicación en dos pasos y no requiere tocar la base ni escribir código.
 
 > **Este documento describe el formato, no recomienda inversiones.** Los
 > umbrales y pesos de los ejemplos son ilustrativos.
@@ -69,11 +70,22 @@ primero *Señales → Importar* y después *Estrategias → Importar*.
 | `signals` | sí (ver nota) | Lista de señales. |
 | `strategies` | sí (ver nota) | Lista de estrategias. |
 
-Nota: el archivo debe traer al menos una de las dos listas, pero **un pack
-bien armado trae las dos y es autosuficiente**: incluye *todas* las señales
-que su estrategia usa, aunque ya existan en la instalación de destino. Una
-señal repetida entre packs no genera conflicto — el import actualiza por
-`key`, no duplica.
+Nota: el archivo debe traer al menos una de las dos listas. Hay **dos formas
+sanas** de armarlo:
+
+- **Pack completo** — trae las dos listas y es **autosuficiente**: incluye
+  *todas* las señales que su estrategia usa, aunque ya existan en la
+  instalación de destino. Una señal repetida entre packs no genera conflicto:
+  el import actualiza por `key`, no duplica.
+- **Catálogo de señales** — solo `signals`, publicado aparte de las estrategias
+  que lo consumen. Es la forma de un catálogo curado (una sola señal por
+  indicador, todas orientadas igual) que después varias estrategias usan. Por
+  eso el aviso de "señales que ninguna estrategia usa" (§8) **no se emite**
+  cuando el archivo no trae `strategies`: ahí es la forma del archivo, no un
+  descuido.
+
+Lo que conviene evitar es la mezcla: un pack con estrategias que además
+arrastra señales sueltas que ninguna de ellas usa.
 
 Codificación **UTF-8**. Se admiten tildes y `ñ` en cualquier texto, incluidas
 las `key`.
@@ -293,7 +305,7 @@ cumple **no aparece** en el ranking.
 |---|---|---|
 | `indicator` | `key`: código del catálogo | Valor del indicador del activo ese día |
 | `signal` | `key`: `key` de una señal | Puntaje de la señal (numérico, −100..100) |
-| `attribute` | `key`: `sector`, `market`, `industry`, `country`, `instrument_type` | Grupo al que pertenece el activo |
+| `attribute` | `key`: `sector`, `market`, `industry`, `country`, `instrument_type`, `currency`, `benchmark`, `synthetic` | Característica del activo: su grupo, su moneda, el activo que le sirve de benchmark o el tipo de fórmula si es sintético |
 | `const` | `value`: número, texto o lista | Valor fijo de comparación |
 
 **Operadores**
@@ -308,6 +320,35 @@ Un operando `attribute` es un caso aparte: admite `=` `!=` `in` `not_in` contra
 el nombre o contra el id, indistintamente, y **rechaza los operadores de orden**
 —un sector o un mercado no se ordenan—. No entra en la regla de "mismo tipo de
 los dos lados": comparar un atributo con su propio id es válido.
+
+**Todo atributo puede estar vacío, y el vacío es un valor con nombre.** Un
+activo puede no tener sector, ni país, ni benchmark. Ese hueco se escribe
+`"(sin sector)"`, `"(sin país)"`, `"(sin benchmark)"` —está en el catálogo,
+como cualquier otro valor— y sin él sería inexpresable: un dato faltante no
+cumple ninguna condición, ni siquiera `!=`. Por eso también vale la vuelta:
+`sector != "(sin sector)"` significa "que tenga sector cargado", y una
+condición como `sector != "Technology"` **incluye** al activo sin sector.
+
+Dos atributos no salen de una tabla de catálogo:
+
+- **`benchmark`** — el activo contra el que se mide (el que usan los
+  indicadores de fuerza relativa). Apunta a **otro activo**, así que su nombre
+  es el **ticker**. Sirve para dejar afuera a los activos donde un indicador
+  que depende del benchmark nunca se va a poder calcular:
+
+  ```json
+  { "cond": { "left":  { "type": "attribute", "key": "benchmark" },
+              "operator": "!=",
+              "right": { "type": "const", "value": "(sin benchmark)" } } }
+  ```
+
+- **`synthetic`** — el tipo de fórmula del activo calculado: `ratio`,
+  `weighted_avg`, `weighted_sum`, `index`, o `"(no sintético)"` si es un activo
+  común. `synthetic = "(no sintético)"` deja el universo sin activos
+  calculados, que es lo que se quiere cuando la conversión de divisas creó un
+  sintético por cada activo y esos duplicados compiten en el mismo ranking que
+  su original. Un sintético de conversión de moneda es un `ratio` y **no se
+  distingue** de un ratio armado a mano.
 
 **Reglas de forma**
 
@@ -342,6 +383,15 @@ sin cambios lo que exportó la app.) Los nombres válidos están en el catálogo
 en `attributes`; la comparación no distingue mayúsculas, pero el nombre tiene
 que existir tal cual o el import falla con la lista de valores parecidos.
 
+Para `benchmark` el nombre es el **ticker** del activo (`"^GSPC"`, `"SPY"`), y
+solo valen los que **hoy son benchmark de al menos un activo** en la
+instalación de destino —los que están en `attributes.benchmark` del catálogo—,
+más el `"(sin benchmark)"`. Un ticker de solo dígitos (`"7203"`) se resuelve
+como ticker y no como id, al revés que el resto de los atributos.
+
+Para `synthetic` el nombre es el tipo de fórmula tal cual (`"ratio"`,
+`"index"`, …): no hay ids que resolver, viaja igual entre instalaciones.
+
 ---
 
 ## 7. Lo que depende de la instalación (el catálogo)
@@ -352,7 +402,7 @@ eso viaja aparte, en el JSON del botón *Catálogo*— es:
 | Sección | Para qué la necesitás |
 |---|---|
 | `indicators[]` | Los `indicator_key` válidos: cada entrada los trae en su campo **`code`**. Además `type` (`num`/`str`), `values` si es categórico, `keep_history` y una descripción. |
-| `attributes` | Los nombres de sector, mercado, industria, país y tipo de instrumento **cargados en esa base**. |
+| `attributes` | Los valores válidos de cada atributo **en esa base**: los nombres de sector, mercado, industria, país, tipo de instrumento y moneda cargados; en `benchmark` los tickers que hoy son benchmark de algún activo; en `synthetic` los tipos de fórmula en uso. Cada lista incluye su `(sin …)`. |
 | `signals[]` / `strategies[]` | Lo que ya existe: sirve para no pisar una `key` ajena y para saber qué señales podés reusar. |
 
 Un indicador con `keep_history: false` solo tiene valor vigente: una señal
@@ -360,7 +410,9 @@ sobre él no tendrá historia y **no sirve para backtest**.
 
 Algunas entradas vienen marcadas con `"virtual": true`: no son indicadores
 calculados sino valores que el motor resuelve por su cuenta (hoy `last_close`,
-el precio de cierre del día). Se usan como cualquier otro `indicator_key`.
+el precio de cierre del día). Se usan como cualquier otro `indicator_key`,
+tanto en una señal como en el filtro de una estrategia; en el filtro se leen
+*as-of*, con el mismo tope de 45 días que el resto.
 
 ---
 
@@ -405,8 +457,9 @@ Se **rechaza** (errores):
 - Estrategia sin componentes.
 - Filtro con JSON inválido, operador desconocido, tipos incompatibles, o
   valores fuera del catálogo de un indicador categórico.
-- Nombre de sector/mercado/país/industria/tipo que no existe en la
-  instalación.
+- Nombre de sector/mercado/país/industria/tipo/moneda que no existe en la
+  instalación, ticker que no es benchmark de ningún activo ahí, o tipo de
+  sintético que no está en uso.
 - Estrategia pública que usa señales privadas.
 - `source` en una señal o `scope` en un componente: eran las señales de grupo
   y el Alcance de grupo, **removidos** del sistema. Se rechazan en vez de
@@ -416,7 +469,9 @@ Se **avisa** pero se importa igual (el validador offline los lista como
 `AVISO`): mapa discreto incompleto, `thresholds` desordenados o sin tramo
 final, `clamp: false`, señal sobre un indicador sin historia, estrategia sin
 filtro, y señales que ninguna estrategia del pack usa (cada señal cargada
-cuesta cómputo en cada corrida).
+cuesta cómputo en cada corrida). Este último **solo si el pack trae
+estrategias**: en un catálogo de señales (§2) no se emite, porque ahí ninguna
+señal tiene estrategia que la use y el aviso sería la lista entera.
 
 **Después de importar**, cambiar los parámetros de una señal **no recalcula lo
 ya guardado**: la historia sigue con la definición anterior hasta que corras

@@ -121,6 +121,22 @@ def test_todo_atributo_filtrable_tiene_etiqueta():
         "falte no se puede elegir en el constructor de filtros")
 
 
+def test_todo_atributo_filtrable_tiene_nombre_para_su_hueco():
+    """El "(sin …)" de cada atributo lo muestra la UI y lo resuelven los packs
+    desde NONE_LABELS: el que falte deja su hueco sin poder nombrarse."""
+    assert set(strategy_filter.NONE_LABELS) == set(strategy_filter.ATTRIBUTE_KEYS), (
+        "NONE_LABELS no cubre los mismos atributos que ATTRIBUTE_KEYS")
+
+
+def test_los_indicadores_virtuales_se_ofrecen_en_el_filtro():
+    """`last_close` no tiene fila en indicator_definitions, así que el
+    constructor lo tiene que sumar aparte o el motor soportaría un operando
+    que ninguna pantalla ofrece."""
+    fuente = inspect.getsource(strategy_filter_ui.build_filter_opts)
+    assert "_VIRTUAL_CODES" in fuente, (
+        "build_filter_opts no suma los indicadores virtuales a los operandos")
+
+
 def test_todo_atributo_filtrable_esta_en_el_dropdown():
     """La lista de operandos y el mapeo a tablas de catálogo viven dentro de
     build_filter_opts; se mira su código para no tener que levantar la base."""
@@ -132,10 +148,17 @@ def test_todo_atributo_filtrable_esta_en_el_dropdown():
 
 
 def test_todo_atributo_filtrable_se_resuelve_por_nombre_en_los_packs():
-    assert set(pack_service._attribute_models()) == set(strategy_filter.ATTRIBUTE_KEYS), (
-        "pack_service._attribute_models() no cubre los mismos atributos: el que "
-        "falte no se podría escribir por nombre en un pack (y el catálogo "
-        "exportado tampoco lo listaría)")
+    """attribute_pairs arma los valores de los seis atributos: los cinco de
+    tabla propia salen de _attribute_models y `benchmark` de su propia rama
+    (apunta a activos, no a un catálogo). Se mira el código de las dos para no
+    tener que levantar la base."""
+    fuente = (inspect.getsource(pack_service._attribute_models)
+              + inspect.getsource(pack_service.attribute_pairs))
+    faltantes = [k for k in strategy_filter.ATTRIBUTE_KEYS if f'"{k}"' not in fuente]
+    assert not faltantes, (
+        f"atributos que attribute_pairs no cubre: {faltantes} — no se podrían "
+        f"escribir por nombre en un pack (y el catálogo exportado tampoco los "
+        f"listaría)")
 
 
 # ── El catálogo publicado ─────────────────────────────────────────────────────

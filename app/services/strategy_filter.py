@@ -13,6 +13,8 @@ Esquema del árbol (Strategy.filter_conditions, JSON):
     {"type": "indicator", "key": "rsi_daily"}     valor del indicador
     {"type": "signal",    "key": "rsi_low"}       score de la señal (signal.key)
     {"type": "attribute", "key": "sector"}        atributo del activo (FK id)
+                                                  ("benchmark" usa
+                                                  ATTRIBUTE_NONE_ID si está vacío)
     {"type": "const",     "value": 70 | "bullish" | [1, 4]}
 
   operadores: = != > >= < <=   (numéricos)
@@ -53,13 +55,117 @@ ALL_OPERATORS         = NUMERIC_OPERATORS | CATEGORICAL_OPERATORS
 
 OPERAND_TYPES = frozenset({"indicator", "signal", "attribute", "const"})
 
-# Atributos de Asset filtrables — mismos cinco que resuelve
-# compute_strategy_results para los scopes de grupo (asset_groups).
+# Atributos de Asset filtrables. Los seis primeros son columnas de `assets`
+# (los cinco de grupo más la moneda y el benchmark, que apunta a otro activo);
+# `synthetic` no es columna: sale del LEFT JOIN a synthetic_formula.
 ATTRIBUTE_KEYS = frozenset({
     "sector", "market", "industry", "country", "instrument_type",
+    "currency", "benchmark", "synthetic",
 })
 
+# "Sin valor" como valor comparable. Un atributo vacío llega a _compare como
+# None y ahí NINGUNA condición se cumple (ni siquiera !=), así que "los que no
+# tienen sector / benchmark" no se podría escribir: el hueco es invisible.
+# Materializar el NULL como un id que ninguna fila usa (los ids arrancan en 1)
+# lo vuelve elegible del desplegable — «benchmark != (sin benchmark)».
+#
+# CONSECUENCIA de materializarlo en TODOS los atributos: una condición
+# `sector != Tecnología` ahora incluye al activo sin sector (antes lo dejaba
+# afuera, porque None no cumplía nada). Es la semántica correcta —"no es
+# tecnología" es verdad para el que no tiene sector— pero cambia el resultado
+# de filtros ya guardados: exige recalcular.
+ATTRIBUTE_NONE_ID = 0
+
+# Cómo se llama ese valor en el desplegable del constructor y en los packs
+# (fuente única: la UI lo muestra y el import lo resuelve al id de arriba).
+NONE_LABELS = {
+    "sector":          "(sin sector)",
+    "market":          "(sin mercado)",
+    "industry":        "(sin industria)",
+    "country":         "(sin país)",
+    "instrument_type": "(sin tipo de instrumento)",
+    "currency":        "(sin moneda)",
+    "benchmark":       "(sin benchmark)",
+    "synthetic":       "(no sintético)",
+}
+
 RESOLUTIONS = frozenset({"historic", "current"})
+
+
+def attributes_from_asset_row(row) -> dict:
+    """{atributo: valor} de una fila de `assets` — fuente única del dict que
+    consume evaluate_tree.
+
+    Lo arman dos caminos distintos (el por-fecha de strategy_service y el modo
+    rango de signal_backfill_range) y desincronizarlos no rompe nada visible:
+    el atributo que falte en uno se evalúa como vacío ahí y como valor en el
+    otro, o sea la misma estrategia filtra distinto según cómo se calculó.
+    Por eso el dict se arma acá y no en cada llamador.
+
+    Todo NULL se materializa como ATTRIBUTE_NONE_ID: sin eso el hueco no se
+    puede nombrar en una condición. `row` sale de asset_attributes_query().
+    """
+    return {
+        "sector":          row.sector_id          or ATTRIBUTE_NONE_ID,
+        "market":          row.market_id          or ATTRIBUTE_NONE_ID,
+        "industry":        row.industry_id        or ATTRIBUTE_NONE_ID,
+        "country":         row.country_id         or ATTRIBUTE_NONE_ID,
+        "instrument_type": row.instrument_type_id or ATTRIBUTE_NONE_ID,
+        "currency":        row.currency_id        or ATTRIBUTE_NONE_ID,
+        "benchmark":       row.benchmark_id       or ATTRIBUTE_NONE_ID,
+        # Único con valores de texto (ratio, index, …): el activo que no es
+        # sintético no tiene fila en synthetic_formula
+        "synthetic":       row.synthetic_type     or ATTRIBUTE_NONE_ID,
+    }
+
+
+def asset_attributes_query(session):
+    """Query con las columnas que attributes_from_asset_row necesita, incluido
+    el tipo de sintético (LEFT JOIN: la mayoría de los activos no lo son). El
+    llamador puede acotarlo con .filter(...)."""
+    from app.models import Asset
+    from app.models.synthetic_formula import SyntheticFormula
+
+    return (
+        session.query(
+            Asset.id, Asset.sector_id, Asset.market_id, Asset.industry_id,
+            Asset.country_id, Asset.instrument_type_id, Asset.currency_id,
+            Asset.benchmark_id,
+            SyntheticFormula.formula_type.label("synthetic_type"),
+        )
+        .outerjoin(SyntheticFormula, SyntheticFormula.asset_id == Asset.id)
+    )
+
+
+def synthetic_type_choices(session) -> list[str]:
+    """Tipos de sintético que existen HOY en la base (ratio, index, …), por
+    orden alfabético. Se leen en vez de declararse: la lista canónica vive en
+    la pantalla de Sintéticos y duplicarla acá la dejaría desfasada."""
+    from app.models.synthetic_formula import SyntheticFormula
+
+    return sorted(
+        t for (t,) in session.query(SyntheticFormula.formula_type)
+                             .distinct().all() if t
+    )
+
+
+def benchmark_choices(session) -> list[tuple[int, str, str | None]]:
+    """[(id, ticker, nombre)] de los activos que hoy son benchmark de alguien,
+    por ticker — los valores elegibles del atributo "benchmark".
+
+    No es "todos los activos" a propósito: a 10.000 el desplegable sería
+    inusable y el catálogo de packs impresentable, y un activo que no es
+    benchmark de nadie no puede hacer verdadera ninguna condición.
+    """
+    from app.models import Asset
+
+    usados = sa.select(Asset.benchmark_id).where(Asset.benchmark_id.isnot(None))
+    return [
+        (r.id, r.ticker, r.name)
+        for r in session.query(Asset.id, Asset.ticker, Asset.name)
+                        .filter(Asset.id.in_(usados))
+                        .order_by(Asset.ticker).all()
+    ]
 
 
 # ── Parseo ────────────────────────────────────────────────────────────────────
@@ -118,6 +224,39 @@ def uses_current_resolution(tree: dict | None) -> bool:
 
 # ── Carga batch de valores ────────────────────────────────────────────────────
 
+def _load_virtual_asof(session, code: str, target_date) -> dict[int, float]:
+    """Indicador virtual (sin tabla `ind_*`) para el filtro, con la MISMA
+    semántica as-of que el resto: última fila <= target_date dentro del tope de
+    antigüedad.
+
+    signal_service._load_virtual lee con fecha EXACTA porque así se evalúan las
+    señales; en el filtro esa semántica dejaría afuera a todo activo que no
+    cotizó ese día (feriado local, poca liquidez) — justo lo que el as-of
+    existe para evitar.
+    """
+    from datetime import timedelta
+
+    from app.models.indicator_store import ASOF_MAX_LOOKBACK_DAYS
+    from app.models.price import Price
+
+    if code != "last_close":
+        return {}
+    cutoff = target_date - timedelta(days=ASOF_MAX_LOOKBACK_DAYS)
+    latest = (
+        sa.select(Price.asset_id, sa.func.max(Price.date).label("mx"))
+        .where(Price.date <= target_date, Price.date >= cutoff,
+               Price.close.isnot(None))
+        .group_by(Price.asset_id)
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(Price.asset_id, Price.close).join(
+            latest, sa.and_(Price.asset_id == latest.c.asset_id,
+                            Price.date == latest.c.mx))
+    ).fetchall()
+    return {aid: float(close) for aid, close in rows if close is not None}
+
+
 def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
     """Carga los valores de todos los operandos del árbol para target_date.
 
@@ -127,6 +266,7 @@ def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
     """
     from app.models import SignalDefinition, signal_store
     from app.models.indicator_store import CurrentIndicatorValue
+    from app.services.signal_service import _VIRTUAL_CODES as VIRTUAL_INDICATOR_CODES
 
     values: dict[tuple, dict] = {}
     operands = collect_operands(tree)
@@ -152,6 +292,9 @@ def load_operand_values(session, tree: dict, target_date) -> dict[tuple, dict]:
                 for aid, num, s in rows
                 if num is not None or s is not None
             }
+        elif t == "indicator" and key in VIRTUAL_INDICATOR_CODES:
+            values[(t, key, resolution)] = _load_virtual_asof(session, key,
+                                                              target_date)
         elif t == "indicator":
             # As-of: última fila <= target_date por activo — los indicadores
             # semanales/mensuales no tienen fila en fechas diarias

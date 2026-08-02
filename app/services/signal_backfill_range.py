@@ -49,7 +49,6 @@ from app.database import get_session
 from app.services import db_compat
 from app.services.db_utils import delete_by_ranges
 from app.models import (
-    Asset,
     SignalEvalLog,
     Strategy,
 )
@@ -225,17 +224,8 @@ def run_range(dates, *, only_ids, strategy_id, scope_kind,
         return {"total": 0, "success": 0, "errors": [], "unit": "fechas"}
 
     asset_groups = {
-        a.id: {
-            "sector":          a.sector_id,
-            "market":          a.market_id,
-            "industry":        a.industry_id,
-            "country":         a.country_id,
-            "instrument_type": a.instrument_type_id,
-        }
-        for a in s.query(
-            Asset.id, Asset.sector_id, Asset.market_id,
-            Asset.industry_id, Asset.country_id, Asset.instrument_type_id,
-        ).all()
+        a.id: strategy_filter.attributes_from_asset_row(a)
+        for a in strategy_filter.asset_attributes_query(s).all()
     }
 
     # Estrategias a calcular (con filtro parseado y operandos clasificados)

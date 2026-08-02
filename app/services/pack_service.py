@@ -348,8 +348,8 @@ def _is_id(value) -> bool:
 
 def resolve_attribute_values(tree: dict, index: dict[str, dict]) -> tuple[dict, list[str]]:
     """Reescribe los valores de las condiciones sobre atributos (sector,
-    mercado, industria, país, tipo de instrumento) de **nombre** al valor que
-    espera el evaluador.
+    mercado, industria, país, tipo de instrumento, benchmark) de **nombre** al
+    valor que espera el evaluador. El nombre del benchmark es el **ticker**.
 
     index: {"sector": {"<nombre en minúscula>": <valor>}, ...}.
       - En el import, `<valor>` es el id de la fila de catálogo → el árbol
@@ -366,10 +366,17 @@ def resolve_attribute_values(tree: dict, index: dict[str, dict]) -> tuple[dict, 
     result = copy.deepcopy(tree)
 
     def _map_one(attr: str, value, path: str):
+        table = index.get(attr) or {}
+        # Los tickers pueden ser solo dígitos ("7203", "0700"), así que para
+        # benchmark el nombre gana sobre la lectura "esto ya es un id": si no,
+        # un pack de otra instalación resolvería a un activo ajeno en silencio.
+        if attr == "benchmark" and isinstance(value, str):
+            hit = table.get(value.strip().lower())
+            if hit is not None:
+                return hit
         if _is_id(value):
             return int(value) if not isinstance(value, bool) else value
         text = str(value).strip()
-        table = index.get(attr) or {}
         hit = table.get(text.lower())
         if hit is not None:
             return hit
@@ -645,8 +652,15 @@ def validate_pack(pack: dict, catalog: dict | None = None) -> dict:
                     f"{path}: la estrategia es pública y usa señales privadas "
                     f"{privadas} — marcá esas señales publica: true")
 
+    # El aviso vale para un pack que trae estrategias y se olvidó de usar una
+    # señal que incluyó. Un pack SIN sección `strategies` es otra cosa: un
+    # catálogo de señales publicado aparte de las estrategias que lo consumen
+    # (strategy_packs/senales_base.json). Ahí "ninguna estrategia lo usa" es la
+    # forma del archivo, no un descuido, y avisarlo escupe la lista entera —en
+    # la consola del validador y en el ensayo de la pantalla— tapando los
+    # avisos que sí hay que leer.
     huerfanas = sorted(set(pack_signals) - usadas)
-    if huerfanas:
+    if huerfanas and pack.get("strategies"):
         warnings.append(
             f"señales que ninguna estrategia del pack usa: {huerfanas}. Cada "
             f"señal cargada cuesta cómputo en cada corrida del pipeline")
@@ -671,9 +685,40 @@ def _lax_indicator_codes(tree: dict) -> dict[str, str]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _attribute_models():
-    from app.models import (Country, Industry, InstrumentType, Market, Sector)
+    """{atributo: modelo} de los atributos que salen de una tabla de catálogo
+    propia. `benchmark` y `synthetic` NO están acá: el primero apunta a otro
+    activo (su nombre portable es el ticker) y el segundo a la fórmula del
+    sintético. Los arma attribute_pairs."""
+    from app.models import (Country, Currency, Industry, InstrumentType,
+                            Market, Sector)
     return {"sector": Sector, "market": Market, "industry": Industry,
-            "country": Country, "instrument_type": InstrumentType}
+            "country": Country, "instrument_type": InstrumentType,
+            "currency": Currency}
+
+
+def attribute_pairs(session) -> dict[str, list[tuple]]:
+    """{atributo: [(valor, nombre portable)]} de TODOS los atributos
+    filtrables — fuente única del índice que resuelve los packs al importar y
+    de la sección `attributes` del catálogo que se exporta.
+
+    Cada lista arranca con su "(sin …)": el hueco es un valor más, sin él un
+    pack no podría pedir "que tenga sector" (ver ATTRIBUTE_NONE_ID)."""
+    from app.services import strategy_filter as sf
+
+    def _con_hueco(attr, valores):
+        return [(sf.ATTRIBUTE_NONE_ID, sf.NONE_LABELS[attr])] + valores
+
+    pairs = {
+        attr: _con_hueco(attr, [
+            (fid, nombre) for fid, nombre in
+            session.query(model.id, model.name).order_by(model.name).all()])
+        for attr, model in _attribute_models().items()
+    }
+    pairs["benchmark"] = _con_hueco("benchmark", [
+        (aid, ticker) for aid, ticker, _ in sf.benchmark_choices(session)])
+    pairs["synthetic"] = _con_hueco("synthetic", [
+        (t, t) for t in sf.synthetic_type_choices(session)])
+    return pairs
 
 
 def attribute_index(session) -> dict[str, dict[str, int]]:
@@ -681,8 +726,7 @@ def attribute_index(session) -> dict[str, dict[str, int]]:
     pack. Nombres repetidos con distinto caso: gana el primero por orden
     alfabético, de forma determinista."""
     index: dict[str, dict[str, int]] = {}
-    for attr, model in _attribute_models().items():
-        filas = session.query(model.id, model.name).order_by(model.name).all()
+    for attr, filas in attribute_pairs(session).items():
         tabla: dict[str, int] = {}
         for fid, nombre in filas:
             clave = str(nombre or "").strip().lower()
@@ -739,9 +783,8 @@ def build_catalog() -> dict:
         })
 
     attributes = {
-        attr: [r.name for r in
-               s.query(model.name).order_by(model.name).all() if r.name]
-        for attr, model in _attribute_models().items()
+        attr: [nombre for _, nombre in filas if nombre]
+        for attr, filas in attribute_pairs(s).items()
     }
 
     signals = [

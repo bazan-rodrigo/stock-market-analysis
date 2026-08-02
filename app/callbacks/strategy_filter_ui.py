@@ -31,7 +31,17 @@ _CAT_OPS = [{"label": "=", "value": "="}, {"label": "!=", "value": "!="},
 _ATTR_LABELS = {
     "sector": "Sector", "market": "Mercado", "industry": "Industria",
     "country": "País", "instrument_type": "Tipo de instrumento",
+    "currency": "Moneda", "benchmark": "Benchmark",
+    "synthetic": "Tipo de sintético",
 }
+
+# Solo cosmética: los VALORES los trae la base (synthetic_type_choices), así
+# que un tipo nuevo aparece igual, con su nombre crudo.
+_SYNTH_LABELS = {"ratio": "Ratio", "weighted_avg": "Promedio ponderado",
+                 "weighted_sum": "Suma ponderada", "index": "Índice base"}
+
+# Ídem para los indicadores virtuales (signal_service._VIRTUAL_CODES)
+_VIRTUAL_LABELS = {"last_close": "Último cierre"}
 
 _EMPTY_STORE = {"nodes": {"0": {"kind": "group", "op": "AND", "children": []}},
                 "root": 0, "counter": 1}
@@ -49,11 +59,12 @@ def build_filter_opts() -> dict:
     """Catálogos para los dropdowns del constructor. Se cachean en
     str-filter-opts al abrir el modal."""
     from app.database import get_session
-    from app.models import (Country, Industry, InstrumentType, Market,
+    from app.models import (Country, Currency, Industry, InstrumentType, Market,
                             Sector, SignalDefinition)
     from app.models.indicator_definition import IndicatorDefinition
     from app.services import strategy_filter as sf
     from app.services.indicator_catalog import CATEGORICAL_VALUES
+    from app.services.signal_service import _VIRTUAL_CODES
 
     from app.services.visibility import current_viewer, visible_filter
 
@@ -63,13 +74,18 @@ def build_filter_opts() -> dict:
         IndicatorDefinition.code, IndicatorDefinition.name,
         IndicatorDefinition.type,
     ).order_by(IndicatorDefinition.name).all()
+    # Virtuales: no tienen fila en indicator_definitions (last_close se lee de
+    # prices), pero el filtro los resuelve igual que a cualquier indicador
+    indicators = indicators + [(c, _VIRTUAL_LABELS.get(c, c), "num")
+                               for c in sorted(_VIRTUAL_CODES)]
     signals = (s.query(SignalDefinition.key, SignalDefinition.name)
                .filter(visible_filter(SignalDefinition, *current_viewer()))
                .order_by(SignalDefinition.key).all())
 
     operands = (
         [{"label": f"[Atributo] {_ATTR_LABELS[k]}", "value": f"attr:{k}"}
-         for k in ("instrument_type", "sector", "industry", "market", "country")]
+         for k in ("instrument_type", "sector", "industry", "market", "country",
+                   "currency", "benchmark", "synthetic")]
         + [{"label": f"[Ind] {name} ({code})", "value": f"ind:{code}"}
            for code, name, _ in indicators]
         + [{"label": f"[Señal] {key} — {name}", "value": f"sig:{key}"}
@@ -82,13 +98,34 @@ def build_filter_opts() -> dict:
         f"ind:{code}": [{"label": v, "value": v} for v in sorted(vals)]
         for code, vals in CATEGORICAL_VALUES.items()
     }
+    # El "(sin X)" encabeza cada lista: sin él, "los que no tienen sector" no
+    # se puede escribir (un vacío no cumple ninguna condición) — ver
+    # ATTRIBUTE_NONE_ID en strategy_filter.
+    def _con_hueco(key, opciones):
+        return ([{"label": sf.NONE_LABELS[key], "value": sf.ATTRIBUTE_NONE_ID}]
+                + opciones)
+
     for key, model in (("sector", Sector), ("market", Market),
                        ("industry", Industry), ("country", Country),
-                       ("instrument_type", InstrumentType)):
-        cat_values[f"attr:{key}"] = [
+                       ("instrument_type", InstrumentType),
+                       ("currency", Currency)):
+        cat_values[f"attr:{key}"] = _con_hueco(key, [
             {"label": r.name, "value": r.id}
             for r in s.query(model.id, model.name).order_by(model.name).all()
-        ]
+        ])
+    # "benchmark" no sale de una tabla de catálogo: apunta a otro activo. Se
+    # listan SOLO los que hoy son benchmark de alguien (a 10.000 activos, la
+    # lista entera sería inusable).
+    cat_values["attr:benchmark"] = _con_hueco("benchmark", [
+        {"label": f"{tk} — {nm}" if nm else tk, "value": aid}
+        for aid, tk, nm in sf.benchmark_choices(s)
+    ])
+    # "synthetic" tampoco: sus valores son los tipos de fórmula que existen en
+    # la base, y el hueco significa "no es sintético"
+    cat_values["attr:synthetic"] = _con_hueco("synthetic", [
+        {"label": _SYNTH_LABELS.get(t, t), "value": t}
+        for t in sf.synthetic_type_choices(s)
+    ])
 
     no_hist = ({f"ind:{c}" for c in sf.non_history_indicator_codes(s)}
                | {f"sig:{k}" for k in sf.non_history_signal_keys(s)})

@@ -150,7 +150,10 @@ def test_strategy_rows_sin_filtro_queda_none():
 # ── Atributos: nombre → id ────────────────────────────────────────────────────
 
 INDEX = {"sector": {"technology": 3, "energy": 7},
-         "instrument_type": {"equity": 1, "fund": 2}}
+         "instrument_type": {"equity": 1, "fund": 2},
+         # El benchmark se resuelve por ticker, y "7203" es un ticker real
+         # (Toyota en Tokio) que además parece un id.
+         "benchmark": {"(sin benchmark)": 0, "^gspc": 55, "7203": 61}}
 
 
 def _cond(attr, operator, value):
@@ -196,6 +199,59 @@ def test_nombre_inexistente_es_error_con_sugerencia():
 def test_atributo_sin_valores_cargados_avisa():
     _, errores = ps.resolve_attribute_values(_cond("market", "=", "NASDAQ"), INDEX)
     assert "ningún valor cargado" in errores[0]
+
+
+def test_resuelve_el_benchmark_por_ticker():
+    tree, errores = ps.resolve_attribute_values(_cond("benchmark", "=", "^GSPC"),
+                                                INDEX)
+    assert not errores and tree["cond"]["right"]["value"] == 55
+
+
+def test_resuelve_el_sin_benchmark_por_nombre():
+    """Es el valor que hace expresable «que tenga benchmark cargado»."""
+    tree, errores = ps.resolve_attribute_values(
+        _cond("benchmark", "!=", "(sin benchmark)"), INDEX)
+    assert not errores and tree["cond"]["right"]["value"] == 0
+
+
+def test_un_ticker_de_solo_digitos_se_resuelve_como_ticker():
+    """Al revés que el resto de los atributos: '7203' es un ticker, no el id
+    7203 de otra instalación. Sin esto el pack apuntaría a un activo ajeno en
+    silencio."""
+    tree, errores = ps.resolve_attribute_values(_cond("benchmark", "=", "7203"),
+                                                INDEX)
+    assert not errores and tree["cond"]["right"]["value"] == 61
+
+
+def test_el_id_entero_del_benchmark_sigue_pasando_intacto():
+    """Reimportar lo que exportó la app (ids enteros) no se rompe."""
+    tree, errores = ps.resolve_attribute_values(_cond("benchmark", "=", 55), INDEX)
+    assert not errores and tree["cond"]["right"]["value"] == 55
+
+
+def test_cada_atributo_publica_su_hueco_primero(monkeypatch):
+    """El catálogo publica el ticker (benchmark) y el tipo de fórmula
+    (synthetic) como nombres portables, y el hueco como un valor más: sin él,
+    un pack no podría pedir "que tenga benchmark"."""
+    from app.services import strategy_filter as sf
+
+    monkeypatch.setattr(sf, "benchmark_choices",
+                        lambda _s: [(55, "^GSPC", "S&P 500"), (61, "7203", None)])
+    monkeypatch.setattr(sf, "synthetic_type_choices", lambda _s: ["index", "ratio"])
+    monkeypatch.setattr(ps, "_attribute_models", dict)   # sin base
+
+    pairs = ps.attribute_pairs(None)
+    assert pairs["benchmark"] == [(0, "(sin benchmark)"), (55, "^GSPC"), (61, "7203")]
+    assert pairs["synthetic"] == [(0, "(no sintético)"), ("index", "index"),
+                                  ("ratio", "ratio")]
+
+
+def test_el_tipo_de_sintetico_viaja_por_nombre_sin_ids():
+    """No hay ids que resolver: el mismo texto sirve en cualquier instalación."""
+    tree, errores = ps.resolve_attribute_values(
+        _cond("synthetic", "=", "ratio"),
+        {"synthetic": {"ratio": "ratio", "(no sintético)": 0}})
+    assert not errores and tree["cond"]["right"]["value"] == "ratio"
 
 
 def test_no_muta_el_arbol_original():
@@ -396,6 +452,27 @@ def test_aviso_indicador_sin_historia():
 def test_aviso_señal_que_nadie_usa():
     malo = json.loads(json.dumps(PACK_OK))
     malo["signals"].append({"key": "huerfana", "indicator_key": "rsi_daily",
+                            "formula_type": "range",
+                            "params": {"min": 0, "max": 100}, "publica": True})
+    assert "ninguna estrategia del pack usa" in _avisos(malo)
+
+
+def test_un_pack_solo_de_señales_no_avisa_de_huerfanas():
+    """Un catálogo de señales (sin sección `strategies`) es una forma legítima
+    del formato, no un pack incompleto: ahí "ninguna estrategia la usa" vale
+    para TODAS y el aviso sería la lista entera, tapando los que sí importan.
+    Es el caso de strategy_packs/senales_base.json."""
+    catalogo = {"spec_version": 1,
+                "signals": json.loads(json.dumps(PACK_OK["signals"]))}
+    avisos = _avisos(catalogo)
+    assert "ninguna estrategia" not in avisos, avisos
+
+
+def test_el_aviso_de_huerfanas_sigue_vivo_si_el_pack_trae_estrategias():
+    """El contrapeso del test anterior: silenciarlo sin estrategias no puede
+    silenciarlo también cuando las hay (ahí sí es un descuido)."""
+    malo = json.loads(json.dumps(PACK_OK))
+    malo["signals"].append({"key": "sobrante", "indicator_key": "rsi_daily",
                             "formula_type": "range",
                             "params": {"min": 0, "max": 100}, "publica": True})
     assert "ninguna estrategia del pack usa" in _avisos(malo)

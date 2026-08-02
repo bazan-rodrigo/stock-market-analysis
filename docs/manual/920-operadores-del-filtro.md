@@ -37,9 +37,51 @@ ser otro indicador u otra señal. Los tipos:
 | **Atributo** | Una característica del activo | su sector |
 | **Valor fijo** | Un número que escribís vos, o un valor (o lista de valores) que elegís del desplegable | `70`, `bullish`, una lista de sectores |
 
-Los cinco atributos disponibles son **sector**, **mercado**, **industria**,
-**país** y **tipo de instrumento** — los mismos cinco que sirven para agrupar,
-ver [Activos, sintéticos y grupos](/manual/activos-y-grupos).
+Los atributos disponibles son:
+
+| Atributo | De dónde salen sus valores |
+|---|---|
+| **Sector**, **Mercado**, **Industria**, **País**, **Tipo de instrumento** | Las mismas cinco tablas que sirven para agrupar, ver [Activos, sintéticos y grupos](/manual/activos-y-grupos) |
+| **Moneda** | La moneda en la que cotiza el activo |
+| **Benchmark** | Los activos que **hoy son benchmark de alguien** (no la lista completa de activos) |
+| **Tipo de sintético** | La fórmula del activo calculado: Ratio, Promedio ponderado, Suma ponderada, Índice base |
+
+### Cada lista trae un "(sin …)"
+
+Todos los atributos pueden estar vacíos: hay activos sin sector, sin país, sin
+benchmark. Por eso cada desplegable de valores arranca con su propio hueco
+—**(sin sector)**, **(sin benchmark)**, **(no sintético)**— que se elige como
+cualquier otro valor.
+
+Existe por lo que se explica más abajo: un dato vacío no cumple ninguna
+condición, así que sin ese valor no habría forma de escribir "los que no tienen
+sector". Con él la relación se puede pedir en los dos sentidos:
+
+```
+Benchmark  !=  (sin benchmark)      solo los que tienen benchmark
+Sector      =  (sin sector)         solo los que quedaron sin clasificar
+```
+
+La primera es la forma de sacar del ranking a los activos que **nunca van a
+tener calculado** un indicador que depende del benchmark —como Relative
+Strength 52W—, sin quedar a merced de que el faltante se disimule en el
+puntaje: el filtro descarta, pero el score reparte el peso del componente
+faltante entre los demás, y así el activo sin dato termina midiéndose con otra
+fórmula.
+
+> **Ojo con el `!=`:** como el vacío ahora es un valor, `Sector != Tecnología`
+> **incluye** a los activos sin sector. Es lo correcto —"no es tecnología" es
+> verdad para el que no tiene ninguno— pero si querés además exigir que tenga
+> sector, sumá la condición `Sector != (sin sector)`.
+
+### Sacar del universo los activos calculados
+
+**Tipo de sintético = (no sintético)** deja afuera a todos los activos
+calculados. Importa cuando usás conversión de divisas: esa función crea **un
+sintético por cada activo** en esa moneda, y esos duplicados compiten en el
+mismo ranking que su original. Un sintético de conversión aparece como
+**Ratio**, igual que un ratio que hayas armado a mano — el filtro no los
+distingue entre sí.
 
 ## Operadores
 
