@@ -40,6 +40,36 @@ DEFAULT_CONFIG = {
 _ASSET_BATCH = 200  # activos por query de precios (acota memoria a 10k activos)
 
 
+def a_fecha(valor):
+    """ISO ('2024-01-31') → date. None/'' → None. Ya-date → tal cual.
+
+    Existe porque comparar la columna `date` contra un **string** funciona en
+    sqlite y **falla en PostgreSQL** con `operator does not exist: date >=
+    character varying`. La config guarda las fechas como texto (tiene que
+    serializarse a JSON para el snapshot del run), así que la conversión va
+    donde se arma la query, no en la config.
+
+    Es un bug que vivió en producción sin que nadie lo viera: la pantalla de
+    Backtest pasa la fecha del selector como ISO, así que cualquiera que
+    completara «desde» lo pegaba. La suite corre sobre sqlite, que coerciona el
+    string sin chistar — la misma clase de diferencia entre motores que motiva
+    `tests/test_bootstrap_portability`.
+    """
+    import datetime as _dt
+
+    if not valor:
+        return None
+    if isinstance(valor, _dt.datetime):
+        return valor.date()
+    if isinstance(valor, _dt.date):
+        return valor
+    try:
+        return _dt.date.fromisoformat(str(valor)[:10])
+    except ValueError:
+        raise ValueError(
+            f"Fecha inválida: {valor!r}. Usá el formato AAAA-MM-DD.") from None
+
+
 def normalize_config(config) -> dict:
     """Defaults + validación. Levanta ValueError con mensaje para la UI."""
     cfg = {**DEFAULT_CONFIG, **(config or {})}
@@ -52,6 +82,12 @@ def normalize_config(config) -> dict:
     if not 2 <= cfg["n_quantiles"] <= 20:
         raise ValueError("Cuantiles: entre 2 y 20.")
     cfg["min_assets"] = max(int(cfg["min_assets"]), cfg["n_quantiles"])
+    # Se validan acá para que una fecha mal escrita falle con un mensaje claro
+    # en vez de con un error de SQL. Se guardan como ISO: la config se
+    # serializa a JSON para el snapshot del run, y un `date` no es JSON.
+    for k in ("date_from", "date_to"):
+        f = a_fecha(cfg[k])
+        cfg[k] = f.isoformat() if f else None
     return cfg
 
 
@@ -194,7 +230,8 @@ def compute_variant_backtest(strategy_id: int, components: list[dict],
     for sid in pesos:
         rt = signal_store.read_sig_table(s, sid)
         q = (sa.select(rt.c.date, rt.c.asset_id, rt.c.score)
-             .where(rt.c.score.isnot(None), rt.c.date >= d0, rt.c.date <= d1))
+             .where(rt.c.score.isnot(None),
+                    rt.c.date >= a_fecha(d0), rt.c.date <= a_fecha(d1)))
         for d, aid, val in s.execute(q).all():
             por_par[(d, aid)][sid] = float(val)
 
@@ -266,10 +303,11 @@ def leer_scores(s, strategy_id, cfg) -> list[tuple]:
     rt = signal_store.read_strat_table(s, strategy_id)
     q = (sa.select(rt.c.date, rt.c.asset_id, rt.c.score)
          .where(rt.c.score.isnot(None)))
+    # a_fecha y no el string crudo: PostgreSQL no compara `date` con `varchar`.
     if cfg["date_from"]:
-        q = q.where(rt.c.date >= cfg["date_from"])
+        q = q.where(rt.c.date >= a_fecha(cfg["date_from"]))
     if cfg["date_to"]:
-        q = q.where(rt.c.date <= cfg["date_to"])
+        q = q.where(rt.c.date <= a_fecha(cfg["date_to"]))
     filas = s.execute(q).all()
     if not filas:
         raise ValueError(

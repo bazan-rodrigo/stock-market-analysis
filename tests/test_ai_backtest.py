@@ -463,6 +463,66 @@ def test_los_tramos_cubren_todo_el_periodo_sin_huecos(db):
     assert est["tramos"][-1]["hasta"] == str(f[-1])
 
 
+# ── Fechas: el bug que sqlite escondía ────────────────────────────────────────
+
+@pytest.mark.parametrize("crudo,esperado", [
+    ("2024-01-31", datetime.date(2024, 1, 31)),
+    ("2024-01-31T00:00:00", datetime.date(2024, 1, 31)),
+    (datetime.date(2024, 1, 31), datetime.date(2024, 1, 31)),
+    (datetime.datetime(2024, 1, 31, 10, 30), datetime.date(2024, 1, 31)),
+    (None, None), ("", None),
+])
+def test_a_fecha_normaliza_todas_las_formas(crudo, esperado):
+    from app.services.backtest_service import a_fecha
+
+    assert a_fecha(crudo) == esperado
+
+
+def test_una_fecha_mal_escrita_avisa_en_castellano():
+    """Antes llegaba hasta el motor y reventaba con un error de SQL."""
+    from app.services.backtest_service import normalize_config
+
+    with pytest.raises(ValueError, match="AAAA-MM-DD"):
+        normalize_config({"date_from": "31/01/2024"})
+
+
+def test_la_config_guarda_las_fechas_como_texto():
+    """Tiene que serializarse a JSON para el snapshot del run, y un `date` no
+    es JSON. Por eso la conversión va en la query, no en la config."""
+    import json
+
+    from app.services.backtest_service import normalize_config
+
+    cfg = normalize_config({"date_from": datetime.date(2024, 1, 31)})
+    assert cfg["date_from"] == "2024-01-31"
+    json.dumps(cfg)
+
+
+def test_la_comparacion_de_fechas_bindea_un_date_y_no_un_string(db):
+    """REGRESIÓN de un bug que vivió en producción: comparar la columna `date`
+    contra un string funciona en sqlite y **falla en PostgreSQL** con
+    `operator does not exist: date >= character varying`. Lo pegaba también la
+    pantalla de Backtest, que pasa la fecha del selector como ISO.
+
+    Se mira la EXPRESIÓN de SQLAlchemy y no el SQL ejecutado, porque el driver
+    de sqlite convierte los `date` a texto antes de bindear: a nivel de cursor
+    los dos casos se ven idénticos y un test ahí pasaría por la razón
+    equivocada, sin poder fallar nunca.
+    """
+    from app.models import signal_store
+    from app.services.backtest_service import a_fecha
+
+    sid = _mundo_para_variante()
+    rt = signal_store.read_strat_table(get_session(), sid)
+
+    bueno = rt.c.date >= a_fecha("2024-01-02")
+    assert isinstance(bueno.right.value, datetime.date)
+
+    # Lo que hacía antes, para que quede escrito qué se rompía:
+    malo = rt.c.date >= "2024-01-02"
+    assert isinstance(malo.right.value, str)
+
+
 # ── Retención ─────────────────────────────────────────────────────────────────
 
 def test_la_purga_borra_los_viejos_con_sus_hijas(db):
