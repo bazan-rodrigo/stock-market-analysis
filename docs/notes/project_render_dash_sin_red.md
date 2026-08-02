@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: f076c123-f0e5-44f4-8a7c-832753c1889b
-  modified: 2026-08-02T05:36:13.167Z
+  modified: 2026-08-02T06:03:36.937Z
 ---
 
 **El bug (producción, 2-ago-2026):** una estrategia con 4 componentes se abría
@@ -32,11 +32,30 @@ callback —filas dinámicas, árboles de filtro, tablas de preview— está fue
 cualquier red. Es el mismo patrón de [[project-trinquetes-faltantes]]: no era
 una lista desactualizada, era una zona sin cobertura.
 
-Cubierto con `tests/test_strategy_modal_rows.py`: llama a `render_comp_rows` y
-exige una fila por componente, buscando los controles **por su id
-pattern-matching y no por posición** (envolver un control en otro contenedor es
-un cambio de layout legítimo y no debe romper el test). Queda pendiente la
-misma red para los demás renders dinámicos.
+**La red, en tres archivos** (2c584c8 + 70f7154, 1664 passed):
+
+1. `test_strategy_modal_rows.py` — el render que falló, fila por componente.
+2. `test_dash_props.py` — **la capa que de verdad cubre todo**: análisis
+   estático de las 4755 construcciones de componentes de la app; cada kwarg
+   literal se valida contra la firma real del componente instalado. Llega a lo
+   que no se puede ejercitar sin base ni yfinance (sintéticos, evolución,
+   gráficos). Un componente se reconoce por **ser subclase de `dash.Component`**,
+   no por una lista de paquetes. Trae self-tests: el detector tiene que agarrar
+   el caso que llegó a producción, o el archivo entero queda en verde por estar
+   roto.
+3. `test_render_dinamico.py` — ejercita el constructor del filtro y el editor de
+   parámetros de señal, con casos **derivados** de `NUMERIC/CATEGORICAL_OPERATORS`,
+   `FORMULA_TYPES` y `CATEGORICAL_VALUES`.
+
+Buscar los controles **por su id pattern-matching y no por posición**: envolver
+un control en otro contenedor es un cambio de layout legítimo (fue justo el
+arreglo) y no debe romper el test.
+
+Lección de la sesión, aparte del bug: la primera versión del test parametrizaba
+sobre `pullback.json`/`momentum.json`/`garp.json` y **se pudrió en veinte
+minutos** — esos packs nunca estuvieron en git y otra sesión los reemplazó por
+`senales_base.json` mientras se escribía. Derivar de las fuentes únicas del
+motor no es elegancia: es lo único que sobrevive.
 
 Dato útil para el futuro: en dbc 2.0.4 `Button`, `Textarea` y `Badge` aceptan
 `title`; `Input`, `Select`, `Switch` y `Col` **no**. `requirements.txt` pide
