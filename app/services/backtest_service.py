@@ -54,12 +54,56 @@ def normalize_config(config) -> dict:
     return cfg
 
 
+def compute_backtest(strategy_id: int, config=None, progress_cb=None) -> dict:
+    """Corre el backtest y DEVUELVE el resultado. **No escribe nada.**
+
+    Correr y guardar son dos cosas distintas, y hasta ahora estaban pegadas
+    solo en este nivel: los niveles de reglas y de cartera ya computaban sin
+    persistir (`run_portfolio_backtest` + `save_portfolio_run` son funciones
+    separadas). Esto alinea el nivel A con ese patrón, que ya estaba probado
+    dos módulos más allá.
+
+    Sirve para explorar sin dejar rastro —probar tres horizontes y quedarse con
+    uno— y es lo que hace que una IA pueda backtestear sin llenar la base de
+    corridas de prueba, sin necesidad de un camino paralelo.
+
+    Devuelve dicts planos, no objetos ORM: el resultado puede viajar (a la UI,
+    a una herramienta MCP, a un JSON) sin arrastrar una sesión de base.
+    """
+    cfg = normalize_config(config)
+    s = get_session()
+    t0 = time.time()
+    datos = _computar(s, int(strategy_id), cfg, progress_cb)
+    datos["duration_seconds"] = time.time() - t0
+    return datos
+
+
+def save_backtest_run(resultado: dict, strategy_id: int,
+                      owner_id=None) -> int:
+    """Persiste como snapshot un resultado de `compute_backtest`. Devuelve el
+    run_id. Es una acción explícita: correr no guarda."""
+    s = get_session()
+    run = BacktestRun(strategy_id=int(strategy_id), owner_id=owner_id,
+                      config=json.dumps(resultado["config"]), status="done",
+                      duration_seconds=resultado.get("duration_seconds"))
+    s.add(run)
+    s.commit()
+    try:
+        _persistir(s, run.id, resultado)
+    except Exception:
+        s.rollback()
+        raise
+    return run.id
+
+
 def run_backtest(strategy_id: int, config=None, owner_id=None,
                  progress_cb=None) -> int:
-    """Ejecuta un backtest completo y lo persiste. Devuelve el run_id.
+    """Corre y persiste, en un paso. Devuelve el run_id.
 
-    Ante error deja el run con status='error' + mensaje y relanza (el caller
-    en thread decide cómo mostrarlo). progress_cb(cur, tot, fase).
+    El run se crea ANTES de computar y a propósito: ante error queda con
+    status='error' y el mensaje, visible en la lista de corridas. Si se creara
+    al final, un backtest que falla no dejaría ningún rastro de haber existido.
+    Por eso no es simplemente `save_backtest_run(compute_backtest(...))`.
     """
     cfg = normalize_config(config)
     s = get_session()
@@ -70,7 +114,8 @@ def run_backtest(strategy_id: int, config=None, owner_id=None,
     run_id = run.id
     t0 = time.time()
     try:
-        _execute(s, run_id, int(strategy_id), cfg, progress_cb)
+        datos = _computar(s, int(strategy_id), cfg, progress_cb)
+        _persistir(s, run_id, datos)
     except Exception as exc:
         s.rollback()
         run = s.get(BacktestRun, run_id)
@@ -85,12 +130,29 @@ def run_backtest(strategy_id: int, config=None, owner_id=None,
     return run_id
 
 
+def _persistir(s, run_id: int, datos: dict) -> None:
+    """Vuelca un resultado computado a las tablas del snapshot."""
+    s.add_all([BacktestIcPoint(run_id=run_id, **p) for p in datos["ic_points"]])
+    s.add_all([BacktestQuantileStat(run_id=run_id, **q)
+               for q in datos["quantile_stats"]])
+    run = s.get(BacktestRun, run_id)
+    run.status = "done"
+    run.date_from = datos["date_from"]
+    run.date_to = datos["date_to"]
+    run.n_dates = datos["n_dates"]
+    s.commit()
+    logger.info("Backtest run %s: %s fechas, %s horizontes",
+                run_id, datos["n_dates"], len(datos["config"]["horizons"]))
+
+
 def _chunks(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
 
 
-def _execute(s, run_id, strategy_id, cfg, progress_cb):
+def _computar(s, strategy_id, cfg, progress_cb) -> dict:
+    """El cálculo, sin escribir. Devuelve dicts planos (no objetos ORM) para
+    que el resultado pueda viajar sin arrastrar una sesión."""
     horizons = cfg["horizons"]
 
     # ── Scores de la estrategia ───────────────────────────────────────────
@@ -157,9 +219,8 @@ def _execute(s, run_id, strategy_id, cfg, progress_cb):
             if cs is None:
                 continue
             sections_by_h[h].append(cs)
-            ic_rows.append(BacktestIcPoint(
-                run_id=run_id, date=d, horizon=h,
-                ic=cs["ic"], spread=cs["spread"], n_assets=cs["n"]))
+            ic_rows.append({"date": d, "horizon": h, "ic": cs["ic"],
+                            "spread": cs["spread"], "n_assets": cs["n"]})
         if progress_cb and (j % 100 == 0 or j == len(all_dates) - 1):
             progress_cb(j + 1, len(all_dates), "fechas")
 
@@ -170,28 +231,62 @@ def _execute(s, run_id, strategy_id, cfg, progress_cb):
         if agg is None:
             continue
         for qd in agg["quantiles"]:
-            stat_rows.append(BacktestQuantileStat(
-                run_id=run_id, horizon=h, quantile=qd["quantile"],
-                n_dates=qd["n_dates"], mean_ret=qd["mean_ret"],
-                median_ret=qd["median_ret"], pct_pos=qd["pct_pos"]))
+            stat_rows.append({"horizon": h, "quantile": qd["quantile"],
+                              "n_dates": qd["n_dates"], "mean_ret": qd["mean_ret"],
+                              "median_ret": qd["median_ret"],
+                              "pct_pos": qd["pct_pos"]})
     if not stat_rows:
         raise ValueError(
             "Ninguna fecha alcanzó el mínimo de observaciones "
             f"({cfg['min_assets']}). Bajá el mínimo o revisá la historia.")
 
-    s.add_all(ic_rows)
-    s.add_all(stat_rows)
-    computed = sorted({r.date for r in ic_rows})
-    run = s.get(BacktestRun, run_id)
-    run.status = "done"
-    run.date_from, run.date_to = computed[0], computed[-1]
-    run.n_dates = len(computed)
-    s.commit()
-    logger.info("Backtest run %s: %s fechas, %s horizontes",
-                run_id, len(computed), len(horizons))
+    computed = sorted({r["date"] for r in ic_rows})
+    # La config viaja DENTRO del resultado: así el dict se explica solo, y
+    # `_persistir` no depende de que el caller se acuerde de adjuntarla.
+    return {"config": cfg, "ic_points": ic_rows, "quantile_stats": stat_rows,
+            "date_from": computed[0], "date_to": computed[-1],
+            "n_dates": len(computed)}
 
 
 # ── Lectura para la UI ────────────────────────────────────────────────────────
+
+RETENCION_DIAS = 180
+
+
+def prune_old(retention_days: int = RETENCION_DIAS) -> int:
+    """Borra los backtests guardados más viejos que la retención.
+
+    Sin esto la tabla crece para siempre: `backtest_ic_point` guarda una fila
+    por fecha × horizonte, así que cada corrida deja miles. Mismo criterio y
+    misma retención que `run_history_service.prune_old`.
+
+    Fail-open a propósito (devuelve 0 y no propaga): corre al arrancar la
+    aplicación, y no poder podar nunca puede ser motivo de que la app no
+    levante.
+    """
+    from datetime import datetime, timedelta
+
+    corte = datetime.utcnow() - timedelta(days=int(retention_days))
+    s = get_session()
+    try:
+        viejos = [r.id for r in s.query(BacktestRun.id)
+                  .filter(BacktestRun.created_at < corte).all()]
+        if not viejos:
+            return 0
+        # Las hijas primero y explícitas: el CASCADE está declarado en el
+        # modelo, pero en SQLite no se aplica salvo que las FK estén activas.
+        for modelo in (BacktestIcPoint, BacktestQuantileStat):
+            s.query(modelo).filter(modelo.run_id.in_(viejos)).delete(
+                synchronize_session=False)
+        s.query(BacktestRun).filter(BacktestRun.id.in_(viejos)).delete(
+            synchronize_session=False)
+        s.commit()
+        return len(viejos)
+    except Exception as exc:                                # noqa: BLE001
+        s.rollback()
+        logger.warning("No se pudieron purgar backtests viejos: %s", exc)
+        return 0
+
 
 def list_runs(strategy_ids) -> list[BacktestRun]:
     """Runs de las estrategias visibles para el viewer, más reciente primero."""

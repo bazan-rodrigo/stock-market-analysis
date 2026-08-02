@@ -84,6 +84,10 @@ _PROHIBIDO = (
     # llamada directa que cuelgue la herramienta media hora
     "rebuild_signal_history", "update_signal_history", "run_recalculate",
     "compute_all_strategies",
+    # Persistir un backtest es una decisión humana desde la pantalla. La IA
+    # corre con compute_backtest, que no escribe. `run_backtest` tampoco va:
+    # computa Y guarda, que es justo lo que no queremos que pueda hacer.
+    "save_backtest_run", "run_backtest(", "save_portfolio_run",
     # SQL libre
     "text(", "execute(",
 )

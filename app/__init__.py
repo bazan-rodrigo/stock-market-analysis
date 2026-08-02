@@ -400,6 +400,17 @@ def create_app():
     except Exception as exc:
         logger.warning("No se pudo limpiar la bitácora de corridas: %s", exc)
 
+    # Backtests guardados viejos: cada corrida deja una fila por fecha ×
+    # horizonte en backtest_ic_point (miles), así que sin retención la tabla
+    # crece para siempre. Mismo criterio que la bitácora.
+    try:
+        from app.services import backtest_service as _bt
+        n_bt = _bt.prune_old()
+        if n_bt:
+            logger.info("Backtests viejos purgados (retención): %d", n_bt)
+    except Exception as exc:
+        logger.warning("No se pudieron purgar backtests viejos: %s", exc)
+
     # El scheduler arranca solo donde RUN_SCHEDULER está activo: en un
     # deploy multi-proceso (gunicorn/réplicas) va en un worker dedicado
     # (worker.py), no en cada web worker. En dev/Codespace (proceso único,
