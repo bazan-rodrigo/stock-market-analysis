@@ -193,7 +193,7 @@ def test_la_vista_previa_no_escribe_nada(db, monkeypatch):
     assert get_session().query(BacktestRun).count() == antes
     assert out["guardado"] is False
     assert "NO se guardó" in out["nota"]
-    assert out["ic"]["5"]["ic_medio"] == 0.3
+    assert out["ic_in_sample"]["5"]["ic_medio"] == 0.3
 
 
 def test_la_vista_previa_acota_la_cantidad_de_horizontes(db, monkeypatch):
@@ -378,8 +378,89 @@ def test_la_herramienta_devuelve_base_y_variante_para_comparar(db):
                          "horizons": [1]})
 
     assert out["guardado"] is False
-    assert "ic" in out["base"] and "ic" in out["variante"]
-    assert "sobreajusta" in out["nota"]
+    assert "ic_in_sample" in out["base"] and "ic_in_sample" in out["variante"]
+    # La lectura viaja con el resultado: sin eso el modelo reporta el promedio
+    # como si fuera una mejora.
+    assert "estabilidad" in out["variante"]
+    assert "in_sample" in out["como_leerlo"]
+
+
+# ── Estabilidad por tramos: la defensa contra el sobreajuste ──────────────────
+
+def _datos_ic(valores_por_fecha):
+    """Un resultado mínimo con solo lo que mira `_estabilidad`."""
+    return {
+        "config": {"horizons": [1]},
+        "ic_points": [{"date": f, "horizon": 1, "ic": v}
+                      for f, v in valores_por_fecha],
+    }
+
+
+def _fechas(n):
+    return [datetime.date(2024, 1, 1) + datetime.timedelta(days=i)
+            for i in range(n)]
+
+
+def test_detecta_un_ic_que_sale_de_un_solo_tramo(db):
+    """EL CASO QUE MOTIVA TODO ESTO. Un IC medio decente que en realidad viene
+    de un tramo bueno y tres planos: el promedio lo esconde, los tramos lo
+    muestran. Es lo que pasa cuando se prueban muchas variantes y se elige la
+    que se ajustó al ruido de un período."""
+    from app.ai.tools.backtest import _estabilidad
+
+    f = _fechas(40)
+    valores = [(d, 0.40) for d in f[:10]] + [(d, 0.0) for d in f[10:]]
+
+    est = _estabilidad(_datos_ic(valores))["tramos"]["1"]
+
+    assert est["tramos"][0]["ic_medio"] == pytest.approx(0.40)
+    assert est["tramos_positivos"] == 1        # uno solo de cuatro
+    assert est["ic_holdout"] == pytest.approx(0.0)
+
+
+def test_una_senal_estable_se_ve_estable(db):
+    from app.ai.tools.backtest import _estabilidad
+
+    valores = [(d, 0.12) for d in _fechas(40)]
+    est = _estabilidad(_datos_ic(valores))["tramos"]["1"]
+
+    assert est["tramos_positivos"] == est["tramos_medidos"] == 4
+    assert all(t["ic_medio"] == pytest.approx(0.12) for t in est["tramos"])
+
+
+def test_el_holdout_es_el_ultimo_tramo(db):
+    """Lo más parecido a una prueba honesta que se puede dar sin rehacer la
+    elección: el final del período, que quien eligió idealmente no miró."""
+    from app.ai.tools.backtest import _estabilidad
+
+    f = _fechas(40)
+    valores = [(d, 0.5) for d in f[:30]] + [(d, -0.2) for d in f[30:]]
+
+    est = _estabilidad(_datos_ic(valores))["tramos"]["1"]
+    assert est["ic_holdout"] == pytest.approx(-0.2)
+
+
+def test_con_pocas_fechas_no_inventa_tramos(db):
+    """Partir 5 fechas en 4 tramos daría números sin significado. Mejor decir
+    que no alcanza que devolver ruido con forma de medición."""
+    from app.ai.tools.backtest import _estabilidad
+
+    out = _estabilidad(_datos_ic([(d, 0.1) for d in _fechas(5)]))
+    assert out["tramos"] is None
+    assert "fechas" in out["motivo"]
+
+
+def test_los_tramos_cubren_todo_el_periodo_sin_huecos(db):
+    """Si un tramo se comiera fechas, el promedio por tramos no reconciliaría
+    con el IC total y la comparación mentiría."""
+    from app.ai.tools.backtest import _estabilidad
+
+    f = _fechas(41)          # no divisible por 4: el último tramo absorbe
+    est = _estabilidad(_datos_ic([(d, 0.1) for d in f]))["tramos"]["1"]
+
+    assert sum(t["n_fechas"] for t in est["tramos"]) == len(f)
+    assert est["tramos"][0]["desde"] == str(f[0])
+    assert est["tramos"][-1]["hasta"] == str(f[-1])
 
 
 # ── Retención ─────────────────────────────────────────────────────────────────

@@ -102,6 +102,80 @@ def get_backtest_results(caller: AiCaller, run_id: int) -> dict:
     }
 
 
+_TRAMOS = 4
+
+# Viaja en la respuesta a propósito: sin esto, el modelo lee "ic_medio 0.09" y
+# lo reporta como una mejora. El número solo significa algo acompañado de cómo
+# se lee, y quien lo interpreta es el modelo, no un humano leyendo una tabla.
+_COMO_LEERLO = (
+    "`ic_in_sample` está medido sobre las MISMAS fechas con las que se eligió "
+    "la variante, así que está inflado si probaste varias combinaciones: con "
+    "suficientes intentos siempre aparece una que se ajusta al ruido. Mirá "
+    "`estabilidad` antes de concluir nada, y compará los tramos ENTRE SÍ, no "
+    "solo su signo. Hay dos formas de que el promedio mienta: que el signo se "
+    "dé vuelta entre tramos, o —más engañosa— que todos sean positivos pero "
+    "uno sea mucho más grande que el resto (por ejemplo 0,40 / 0,01 / 0,01 / "
+    "0,01 promedia 0,11 y no hay señal, hay un tramo con suerte). Una relación "
+    "que se sostiene se parece en todos los tramos. `ic_holdout` es el último "
+    "tramo y es lo más cercano a una prueba honesta, pero solo vale si no lo "
+    "miraste para elegir. Al informarle esto a la persona, mostrale los tramos, "
+    "no solo el promedio."
+)
+
+
+def _estabilidad(datos: dict, n_tramos: int = _TRAMOS) -> dict:
+    """El IC partido en tramos consecutivos, y el último aparte (holdout).
+
+    Por qué está: el IC medio de todo el período es **in-sample** — se mide
+    sobre los mismos datos con los que se eligieron los componentes, así que
+    está contaminado por la elección. Probar muchas variantes y quedarse con la
+    mejor no encuentra la mejor estrategia: encuentra la que mejor se ajustó al
+    ruido de esa historia. Con suficientes intentos siempre hay una que parece
+    excelente por casualidad, y la casualidad no se repite.
+
+    Partir en tramos no convierte el número en honesto, pero **hace visible el
+    problema**: un IC medio de 0,08 que sale de 0,22 / 0,01 / −0,03 / 0,05 no
+    es una señal estable, es un tramo bueno arrastrando al promedio. Y el
+    último tramo es lo más parecido a un holdout que se puede dar sin rehacer
+    la elección: vale solo si quien eligió los componentes no lo miró.
+
+    Sale gratis: son los mismos `ic_points` ya calculados, agrupados por fecha.
+    """
+    fechas = sorted({p["date"] for p in datos["ic_points"]})
+    if len(fechas) < n_tramos * 2:
+        return {"tramos": None,
+                "motivo": (f"hacen falta al menos {n_tramos * 2} fechas para "
+                           f"partir en {n_tramos} tramos comparables")}
+
+    corte = len(fechas) // n_tramos
+    limites = [(fechas[i * corte],
+                fechas[(i + 1) * corte - 1] if i < n_tramos - 1 else fechas[-1])
+               for i in range(n_tramos)]
+
+    por_horizonte: dict = {}
+    for h in datos["config"]["horizons"]:
+        tramos = []
+        for desde, hasta in limites:
+            ics = [p["ic"] for p in datos["ic_points"]
+                   if p["horizon"] == h and p["ic"] is not None
+                   and desde <= p["date"] <= hasta]
+            tramos.append({
+                "desde": str(desde), "hasta": str(hasta),
+                "ic_medio": round(sum(ics) / len(ics), 4) if ics else None,
+                "n_fechas": len(ics),
+            })
+        if not any(t["ic_medio"] is not None for t in tramos):
+            continue
+        medidos = [t["ic_medio"] for t in tramos if t["ic_medio"] is not None]
+        por_horizonte[str(h)] = {
+            "tramos": tramos,
+            "ic_holdout": tramos[-1]["ic_medio"],
+            "tramos_positivos": sum(1 for x in medidos if x > 0),
+            "tramos_medidos": len(medidos),
+        }
+    return {"tramos": por_horizonte}
+
+
 def _resumen_ic(datos: dict) -> dict:
     """El IC punto a punto puede ser de miles de fechas; al modelo le va el
     resumen por horizonte, que es lo que se lee para decidir."""
@@ -200,18 +274,19 @@ def backtest_strategy_variant(caller: AiCaller, strategy_id: int,
         "guardado": False,
         "config": datos["config"],
         "duration_seconds": round(datos.get("duration_seconds") or 0, 2),
-        "base": {"ic": _resumen_ic(datos["base"]),
+        "base": {"ic_in_sample": _resumen_ic(datos["base"]),
+                 "estabilidad": _estabilidad(datos["base"]),
                  "quantiles": datos["base"]["quantile_stats"],
                  "n_dates": datos["base"]["n_dates"]},
         "variante": {"componentes": components,
-                     "ic": _resumen_ic(datos["variante"]),
+                     "ic_in_sample": _resumen_ic(datos["variante"]),
+                     "estabilidad": _estabilidad(datos["variante"]),
                      "quantiles": datos["variante"]["quantile_stats"],
                      "n_dates": datos["variante"]["n_dates"]},
+        "como_leerlo": _COMO_LEERLO,
         "nota": ("Nada de esto se guardó ni se creó. La variante se evaluó "
                  "sobre la misma elegibilidad que la estrategia base, así que "
-                 "la diferencia de IC aísla el efecto de los componentes. "
-                 "Cuidado con leer una mejora chica como una mejora real: "
-                 "probar muchas variantes sobre la misma historia sobreajusta."),
+                 "la diferencia de IC aísla el efecto de los componentes."),
     }
 
 
@@ -277,8 +352,10 @@ def run_backtest_preview(caller: AiCaller, strategy_id: int,
         "date_to": str(datos["date_to"]),
         "n_dates": datos["n_dates"],
         "duration_seconds": round(datos.get("duration_seconds") or 0, 2),
-        "ic": resumen,
+        "ic_in_sample": resumen,
+        "estabilidad": _estabilidad(datos),
         "quantiles": datos["quantile_stats"],
+        "como_leerlo": _COMO_LEERLO,
         "nota": ("Este resultado NO se guardó. Para conservarlo hay que correr "
                  "el backtest desde la pantalla de Backtest de la aplicación."),
     }
