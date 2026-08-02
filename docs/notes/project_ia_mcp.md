@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-02T05:22:40.873Z
+  modified: 2026-08-02T05:42:10.358Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -246,11 +246,29 @@ backtest. Verificado por el usuario contra Railway.
 sobre la historia completa. No se puede medir en la PC de desarrollo. Si tarda
 minutos, el conector corta por timeout y hay que convertirlo en job asíncrono.
 
-**Siguiente candidato acordado:** que la IA arme y simule **carteras** (filas
-planas, sin DDL ni backfill; las CURADAS solo dependen de precios). Para
-simular sin persistir haría falta una variante de `curated_equity_series` que
-tome la lista de miembros en vez de un `portfolio_id`. Y que toda optimización
-pase por `walk_forward` y reporte out-of-sample, o la IA va a sobreajustar.
+**CARTERAS HECHAS Y ANDANDO (2-ago, 9794f76).** 14 herramientas en total.
+`list_portfolios`, `get_portfolio_performance` y `simulate_portfolio` — esta
+última toma tickers+pesos y devuelve los KPIs **sin crear nada**. Se extrajo
+`curated_equity_from_members()` de `curated_equity_series()`: lo único atado a
+la base era `resolve_membership`. Pesos normalizados solos; sin pesos,
+equiponderada.
+- **El sobreajuste es MAYOR acá** que en señales: optimizar pesos contra una
+  curva histórica es literalmente ajustar parámetros a datos pasados. Por eso
+  los KPIs vienen **por tramo, reescalados a 1 en cada uno** — si arrastraran
+  el nivel acumulado todos parecerían crecientes y el desglose no serviría
+  (hay test). La guía de lectura viaja dentro de la respuesta.
+
+**BUG PROPIO QUE SHIPEÉ Y NO VI:** le puse `title=` a un `dbc.Input` en el
+commit del peso con signo; dbc 2.x lo rechaza con TypeError y, como se arma
+dentro de un callback, **el modal de Estrategias mostraba la lista de
+componentes VACÍA** — una estrategia con 4 señales se veía sin ninguna. Lo
+arregló una sesión paralela. Ver [[project-render-dash-sin-red]]: la suite es
+toda lógica pura y **nunca construye un componente Dash**, así que esa clase
+entera de bug no tiene red.
+
+**OJO — HAY SESIONES EN PARALELO en este repo.** Aparecieron cambios sin
+commitear que no eran míos (el arreglo del modal, una reescritura de
+`_fresh_install_wipe`). Commitear solo los archivos propios, nunca `git add -A`.
 
 Relacionado: [[project-backtest]], [[feedback-entorno-verificacion]] (Railway es
 producción, no hay entorno descartable), [[feedback-reflejar-en-ui-y-spec]].
