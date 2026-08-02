@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-01T18:33:03.153Z
+  modified: 2026-08-01T19:22:35.982Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -154,12 +154,39 @@ ejercitó; los callbacks sí se validaron importando el módulo (Dash rechaza al
 importar los outputs duplicados). Ojo: `test_module_registration` solo mira el
 TEXTO del código, no importa los módulos — no habría detectado un conflicto.
 
-**PENDIENTE — lo que falta del MCP:** el transporte (`mcp_server.py`), la
-dependencia del SDK y el servicio aparte en Railway. La capa de capacidades y
-la identidad ya están; el transporte es adaptar `registry.all_tools()` al
-formato MCP y `tokens.resolver()` al header de autorización.
-Después: que la IA arme y simule **carteras** (filas planas, sin DDL ni
-backfill, y que toda optimización pase por `walk_forward`).
+**TRANSPORTE HECHO (dac9287 + 9f8734e, 1424 passed). El MCP está COMPLETO.**
+- `app/ai/mcp_adapter.py` — traducción y errores, **sin importar el SDK a
+  propósito** (no está en la PC de desarrollo, como `yfinance`): así todo lo
+  que se puede equivocar queda cubierto por la suite.
+- `mcp_server.py` — caparazón. Servicio APARTE (proceso `mcp` del Procfile),
+  no dentro de `web`, por el worker único de gunicorn con `--timeout 1800`.
+- **Se instaló el SDK (`mcp` 2.0.0) en el venv para verificar en serio**, y
+  apareció una diferencia con la documentación que habría roto el deploy: el
+  `Server` de bajo nivel **NO toma `token_verifier` en el constructor** — va en
+  `streamable_http_app()`. También: `Tool` acepta `inputSchema` por alias.
+- **Verificado de punta a punta** levantando uvicorn contra sqlite sembrada y
+  hablándole como cliente MCP: 7 herramientas, `list_strategies` devolvió **1
+  de 2** estrategias (solo la pública), token inválido rechazado. El gate de
+  visibilidad atraviesa el transporte.
+- Auth por el `TokenVerifier` del SDK (no leyendo el header a mano); el rol
+  viaja en `claims` para no reconsultar la base por herramienta.
+- **`Session.remove()` después de cada llamada Y de cada verificación**: sin eso
+  queda una transacción abierta por request y en PG se fija el xmin horizon.
+- **`MCP_PUBLIC_URL` no es cosmético**: el SDK trae protección contra DNS
+  rebinding y por defecto **solo acepta localhost** → sin esa variable Railway
+  devuelve error a todo.
+
+**PENDIENTE en Railway (nada de esto se probó allá):** crear el servicio `mcp`
+(start command `uvicorn mcp_server:app --host 0.0.0.0 --port $PORT`), setear
+`DATABASE_URL` + `MCP_PUBLIC_URL`, generar dominio, y conectar un cliente real.
+Ojo: **es un endpoint público que lee producción** — si no se va a usar la IA,
+simplemente no se crea el servicio.
+
+**Siguiente candidato acordado:** que la IA arme y simule **carteras** (filas
+planas, sin DDL ni backfill; las CURADAS solo dependen de precios). Para
+simular sin persistir haría falta una variante de `curated_equity_series` que
+tome la lista de miembros en vez de un `portfolio_id`. Y que toda optimización
+pase por `walk_forward` y reporte out-of-sample, o la IA va a sobreajustar.
 
 Relacionado: [[project-backtest]], [[feedback-entorno-verificacion]] (Railway es
 producción, no hay entorno descartable), [[feedback-reflejar-en-ui-y-spec]].
