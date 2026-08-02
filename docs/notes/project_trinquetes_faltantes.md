@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-02T05:45:57.877Z
+  modified: 2026-08-02T16:30:43.736Z
 ---
 
 Relevado el **1-ago-2026** a pedido del usuario ("los trinquetes sirven para
@@ -51,9 +51,9 @@ fue bug** en `cleanup_service`, donde el nombre viejo estaba en la lógica.
 una migración. Feo pero efectivo — habría encontrado el bug de Limpieza el día
 del cutover de la 0094.
 
-### 4. La cobertura de limpieza, derivada en vez de escrita a mano
+### 4. La cobertura de limpieza, derivada en vez de escrita a mano — **CERRADO**
 
-**MITAD HECHA el 2-ago-2026, y en el camino aparecieron DOS bugs vivos** que la
+**HECHO el 2-ago-2026, y en el camino aparecieron TRES bugs vivos** que la
 predicción de este hueco anticipaba con exactitud. Disparador: el usuario
 preguntó si la limpieza dropea las columnas de las tablas anchas (no: vacía
 filas, y está bien — `clean_data` preserva las definiciones, así que las
@@ -78,11 +78,25 @@ depende de qué módulos estén importados. Dos tests nuevos en
 `tests/test_cleanup_service.py`; verificado que **fallan contra el código
 viejo**, señalando las dos anchas por nombre. 1585 passed.
 
-**Lo que SIGUE abierto:** la cobertura de `clean_data` (limpieza parcial), donde
-enumerar es lo correcto por diseño pero no hay nada que obligue a clasificar una
-tabla nueva. Ahí vale el plan original: recorrer los modelos y exigir que cada
-tabla esté en el alcance o en una exclusión con su motivo, al estilo de
-`test_module_registration.py`.
+**Y el tercer bug, el que el trinquete estaba buscando:** `run_history` (la
+tabla del Historial de corridas, 0096) **no estaba ni en el alcance ni
+preservada** — nació después de que se escribiera la lista y quedó sin vaciar
+sin que nadie lo decidiera. El usuario resolvió **vaciarla**, coherente con el
+resto de los registros de corrida que la limpieza ya borra.
+
+**Arreglo de la parte de `clean_data`:** acá enumerar es correcto por diseño (la
+limpieza *distingue* qué preserva; el reset no tiene nada que decidir), así que
+lo que se derivó es la **verificación**, no la lista. Nuevo `_PRESERVED_TABLES`
+en el servicio: dict {tabla: motivo} con las 30 que se conservan a propósito.
+El test recorre el esquema REAL (`Base.metadata` + las anchas, que viven fuera
+del ORM) y exige que cada tabla esté de un lado o del otro; otro test verifica
+que la clasificación sea una partición (sin solapes, sin entradas fantasma, sin
+motivos vacíos). No decide nada por vos: **te impide olvidarte de decidir**.
+Verificado que muerde (una tabla nueva ficticia y el estado real de ayer con
+`run_history` afuera). 1666 passed.
+
+Reflejado en los tres lados como pide CLAUDE.md: `TABLES_INFO` (la pantalla),
+`docs/manual/830-limpieza-de-datos.md` y el aviso de `scripts/clean_data.py`.
 
 ### 5. El SPEC en prosa
 
