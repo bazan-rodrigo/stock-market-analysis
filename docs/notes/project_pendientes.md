@@ -1,12 +1,50 @@
 ---
 name: pendientes-proxima-sesion
-description: Log de pendientes sesión por sesión (más reciente arriba); al 26-jul-2026, las grillas ya están en ag-grid y los packs publicados — ambos pendientes de verificar en Railway, más varias migraciones sin aplicar
+description: Log de pendientes sesión por sesión (más reciente arriba); al 2-ago-2026, el filtro de estrategias pasó a 8 atributos y espera Recalcular completo en Railway, y siguen las grillas ag-grid, los packs y varias migraciones sin aplicar
 metadata: 
   node_type: memory
   type: project
   originSessionId: 4589549a-6aad-4d01-a4e5-246338bd5547
   modified: 2026-08-01T02:23:41.851Z
 ---
+
+**Sesión 2-ago-2026: el filtro de estrategias pasó a 8 atributos, y el vacío se
+puede nombrar** (1688 passed, **sin migraciones**). Arrancó con "no encuentro
+Benchmark para filtrar": no existía.
+
+- **El hallazgo de diseño**: un atributo vacío llega a `_compare` como None y
+  ahí NINGUNA condición se cumple, ni siquiera `!=` — o sea "los que NO tienen
+  benchmark" era **inexpresable**, que es justo lo que se buscaba (sacar del
+  ranking a los que nunca van a tener `relative_strength_52w`). Se materializa
+  el NULL como `ATTRIBUTE_NONE_ID = 0`, elegible del desplegable como
+  "(sin benchmark)".
+- Después se completó el resto: los 8 atributos son sector, mercado, industria,
+  país, tipo de instrumento, **moneda**, **benchmark** y **tipo de sintético**,
+  y **todos** materializan su hueco (`(sin sector)`, `(no sintético)`, …).
+  `synthetic` sale de un LEFT JOIN a `synthetic_formula` y es el único con
+  valores de TEXTO; sirve para sacar del universo los duplicados que crea la
+  conversión de divisas.
+- **CAMBIO DE SEMÁNTICA a vigilar**: al materializar el NULL en los cinco
+  atributos viejos, `sector != Tecnología` ahora **incluye** al activo sin
+  sector (antes su None no cumplía nada y quedaba afuera). Es lo correcto, pero
+  cambia el resultado de filtros YA GUARDADOS.
+- **Bug destapado y arreglado**: `last_close` (indicador virtual) se publicaba
+  en el catálogo de packs como usable, pero el filtro no tenía tabla `ind_*`
+  que leer → devolvía `{}` y la condición quedaba **siempre falsa** con solo un
+  warning. Ahora se resuelve as-of contra `prices` (mismo tope de 45 días) y se
+  ofrece en la UI.
+- El dict de atributos se armaba **duplicado** en `strategy_service` y
+  `signal_backfill_range`; ahora sale de `strategy_filter.attributes_from_asset_row`
+  (+ trinquete que exige que cubra `ATTRIBUTE_KEYS`) — desincronizarlos hacía
+  que la misma estrategia filtrara distinto según cómo se calculó.
+- **PENDIENTE Railway**: **Recalcular completo** las estrategias con filtro por
+  atributo (por el cambio de semántica, no solo las que usen lo nuevo). Límite
+  conocido: si un activo deja de ser benchmark de todos, el desplegable ya no lo
+  lista y la condición guardada aparece **sin valor** al editar.
+- **Evaluado y NO hecho**: operadores `tiene valor`/`no tiene valor` para
+  indicadores y señales (el centinela no sirve con números), indicador de
+  **liquidez** (volumen en $; hoy solo `rvol_daily`, que es relativo), filtro
+  por antigüedad de la serie y por las marcas de `asset_verification_flag`.
 
 **Sesión 31-jul-2026: el contrato de packs volvió a decir lo que el código hace**
 (19e3bc5, 1209 passed, **sin migraciones**). El usuario preguntó si el manual y
