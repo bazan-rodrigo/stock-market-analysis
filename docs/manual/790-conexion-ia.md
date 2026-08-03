@@ -60,21 +60,49 @@ también la forma de rotarlo cada tanto si querés.
 
 ## Conectar tu programa de IA
 
-En tu programa de IA vas a tener que agregar una conexión —según cuál uses, la
-va a llamar *conector*, *extensión* o *aplicación personalizada*— y pegarle la
-dirección de este servicio. **No es la misma dirección con la que entrás a la
-aplicación**: es una aparte, y te la da el administrador.
+Es un trámite de una sola vez por programa. Tené a mano **el token** que
+generaste recién y la **dirección del servicio**, que te da el administrador.
 
-> **Pegala tal cual, terminada en `/mcp`, y no le agregues nada más.** Es el
-> error más común y el más difícil de darse cuenta, porque el programa no dice
-> que la dirección esté mal: dice que no pudo conectarse, o que tenés que
-> vincular la cuenta. Si te pasa, lo primero que hay que revisar es la
-> dirección.
+Esa dirección **no es la misma con la que entrás a la aplicación**: es una
+aparte, dedicada a las consultas de IA, y **termina en `/mcp`**.
 
-Cuando la agregues, tu programa de IA va a abrir una página de esta plataforma
-pidiéndote autorización. **Ahí va el token, no tu usuario y contraseña** — esta
-conexión nunca te pide la contraseña. Pegás el token, autorizás, y el programa
-queda conectado hasta que lo revoques.
+1. **Buscá en tu programa de IA dónde se agregan conexiones externas.** Cada uno
+   lo llama distinto: *conector*, *extensión*, *servidor MCP* o *aplicación
+   personalizada*. Suele estar en la configuración, en la sección de
+   integraciones o de herramientas.
+2. **Pegá la dirección tal cual, sin agregarle nada.** Ni antes ni después.
+3. **Autorizá.** Apenas la agregues, tu programa va a abrir una página de esta
+   plataforma pidiéndote permiso. **Ahí va el token, no tu usuario y
+   contraseña**: esta conexión nunca te pide la contraseña, y por eso el
+   programa de IA nunca llega a verla.
+4. **Probá que quedó.** Preguntale algo simple, como *"¿qué estrategias tengo
+   disponibles?"*. Si te contesta con tu catálogo, ya está.
+
+Después no hay que hacer nada más: el programa se reconecta solo cada vez que lo
+abrís, hasta que revoques el token.
+
+### Si no conecta
+
+El mensaje que muestra tu programa casi nunca dice cuál es el problema de
+verdad: habla de que no pudo conectarse, o de que tenés que vincular la cuenta.
+Revisá en este orden.
+
+**La dirección.** Es el error más común, lejos. Tiene que ser la del servicio de
+IA —no la de la aplicación web— y terminar en `/mcp`. Un error clásico es pegar
+una dirección más larga, copiada de un mensaje de error: si tiene algo después
+de `/mcp`, sobra.
+
+**Si ya falló una vez, borrá la conexión y agregala de nuevo** en lugar de
+corregirle la dirección. Los programas se guardan cómo salió el primer intento,
+y editarlo no siempre repite el proceso desde cero.
+
+**Si la página de autorización te rechaza el token**, generá uno nuevo acá y
+volvé a intentar. Puede haber quedado cortado al copiarlo, o anulado porque
+generaste otro después.
+
+Si con eso no alcanza, avisale al administrador: del lado del servidor queda
+registrado el motivo exacto del rechazo, que es bastante más preciso que lo que
+te muestra tu programa.
 
 ## Qué puede hacer la IA con tu token
 
