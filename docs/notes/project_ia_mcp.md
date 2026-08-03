@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-02T22:24:35.938Z
+  modified: 2026-08-03T02:39:09.170Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -242,9 +242,22 @@ backtest. Verificado por el usuario contra Railway.
    `list_signals` identifica por `key`: **no se podían cruzar**. Lo encontró una
    pregunta del usuario, no un test.
 
-**PENDIENTE — el único dato que falta: CUÁNTO TARDA** `run_backtest_preview`
-sobre la historia completa. No se puede medir en la PC de desarrollo. Si tarda
-minutos, el conector corta por timeout y hay que convertirlo en job asíncrono.
+**MEDIDO (2-ago, en Railway): `run_backtest_preview` ENTRA.** Peor caso
+—historia completa, 494 activos, 1,76 M de scores, 11.632 fechas desde 1975—
+**19,5 s**, contra los 30-60 s a los que corta un cliente de IA. Acotado a 2025:
+7 s. Nada de job asíncrono. Herramienta: `scripts/profile_backtest_preview.py`
+(solo lectura, sin `run_lock`, desglosa las tres fases).
+- **Me equivoqué al diagnosticar y el usuario lo cobró bien**: leí que la query
+  de precios no filtra por fecha y CONCLUÍ que acotar el período no serviría.
+  Sirve 64%, porque hay un segundo filtro que no vi (`asset_id.in_(batch)`: al
+  acotar, el universo cae de 494 a 342 activos). Leer bien el código no alcanza
+  para predecir la consecuencia — por eso se mide.
+- Lo que sí era cierto: sin piso de fecha, una corrida acotada a 2025 leía 50
+  años de precios para usar 1,6. Arreglado en 84c4002 (**piso sí, techo no**: los
+  retornos son forward, así que recortar la cabeza no puede cambiar un resultado,
+  pero un techo truncaría en silencio la ventana del horizonte más largo).
+- A 10.000 activos esto no se sostiene: las tres fases escalan con la cantidad
+  de activos. Ahí el filtro deja de ser optimización.
 
 **CARTERAS HECHAS Y ANDANDO (2-ago, 9794f76).** 14 herramientas en total.
 `list_portfolios`, `get_portfolio_performance` y `simulate_portfolio` — esta

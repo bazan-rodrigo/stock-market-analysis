@@ -1,11 +1,11 @@
 ---
 name: project-trinquetes-faltantes
-description: "Los cuatro huecos de trinquete que quedaron sin cubrir (1-ago-2026), medidos en el código, con el arreglo propuesto de cada uno"
+description: "Relevamiento de huecos de trinquete (1-ago-2026): #2, #3, #4, #5 y #6 CERRADOS (destaparon 4 bugs vivos); queda abierto solo el #1, el espejo JS de simulateTrades"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-02T16:30:43.736Z
+  modified: 2026-08-03T02:39:48.010Z
 ---
 
 Relevado el **1-ago-2026** a pedido del usuario ("los trinquetes sirven para
@@ -39,7 +39,37 @@ acuerde de tocar los dos archivos.
 intérprete embebido (`dukpy`, `quickjs`) sobre los mismos fixtures. Dependencia
 de test, no de producción. Es el más caro de los cuatro.
 
-### 3. Nombres de tablas dropeadas que sobreviven en el código
+### 3. Nombres de tablas dropeadas que sobreviven — **CERRADO (2-ago, da06060)**
+
+**Y destapó un bug vivo, el que este hueco predecía**: `purge_assets` barría la
+historia por prefijo (`ind_`, `sig_`, `strat_res_`) más una lista fija, y **las
+anchas no caen en ninguna de las dos** — no empiezan con esos prefijos y no
+tienen FK a assets (deliberado). Borrar un activo le dejaba los scores y los
+rankings adentro **para siempre**, en las dos tablas más grandes de la base. El
+docstring de `ensure_wide_signal_tables` afirmaba lo contrario ("purge_assets
+limpia estas tablas explícitamente"): el contrato estaba escrito y nunca
+implementado. Mismo hueco que la 0094 abrió en `cleanup_service`, en otro
+servicio. Arreglado en d384ad0 con `tablas_de_historia_por_activo()`.
+
+**El grep de nombres a secas se evaluó y se DESCARTÓ**: la prosa que explica que
+una tabla ya no se usa es legítima y abunda ("group_scores ya no se escribe
+acá"), así que el trinquete moriría de ruido en una semana. Lo que se hizo:
+
+1. Nombres muertos **solo en código EJECUTABLE** — literales de string, con los
+   docstrings excluidos por construcción vía `ast`. La lista de muertas se
+   deriva de las migraciones (dropeadas en algún `upgrade()` que nadie vuelve a
+   crear, menos `Base.metadata`). Encontró 6 restos, **dos de ellos texto en
+   PANTALLA** nombrando `indicator_values`.
+2. **Conciencia de las anchas**: quien usa los accesores per-entidad o barre por
+   prefijo tiene que nombrar también las anchas. Esta es la forma exacta del bug
+   de `cleanup_service` — y es el chequeo que agarró a `purge_assets`
+   (verificado contra el archivo viejo).
+
+Cada chequeo trae su test de que MUERDE. Ojo con el sabor MySQL: el LIKE escapa
+el guión bajo (`'sig\_%'`), así que sin normalizar la barra justo la rama que
+barre por prefijo se escapaba del control.
+
+### 3-bis. La versión original de este hueco (histórico)
 
 Nueve referencias vivas a `sig_{id}` / `strat_res_{id}` en docstrings y
 comentarios: `asset_service`, `maintenance_service`, `portfolio_backtest_service`,
@@ -98,14 +128,48 @@ Verificado que muerde (una tabla nueva ficticia y el estado real de ayer con
 Reflejado en los tres lados como pide CLAUDE.md: `TABLES_INFO` (la pantalla),
 `docs/manual/830-limpieza-de-datos.md` y el aviso de `scripts/clean_data.py`.
 
-### 5. El SPEC en prosa
+### 5. El SPEC en prosa — **CERRADO (2-ago, da06060)**
 
-Ya estaba anotado en [[project-packs-estandar]] y sigue vigente:
-`test_pack_spec.py` ata las **listas** (fórmulas, operadores, columnas) pero no
-la **prosa**, y por eso §1 quedó describiendo un flujo viejo durante 4 días. El
-1-ago se le agregó a §8 la regla de que las señales exigen admin, y esa frase
-**tampoco tiene quién la verifique**: si mañana se revierte el gate, el SPEC va
-a seguir afirmándolo.
+`tests/test_pack_spec_prosa.py`: cada afirmación normativa se registra **dos
+veces** —el texto que tiene que seguir en el documento y el hecho del código que
+la vuelve verdad— y se verifica en los **dos sentidos**. Si se revierte el gate
+de admin falla el verificador; si alguien reescribe la frase falla el patrón y
+hay que volver a registrarla. Siete afirmaciones: divisor Σ|peso|, peso ≠ 0,
+peso negativo, señales solo admin, `spec_version: 1`, versión desconocida se
+rechaza entera, y composite/`source:group`/`scope` removidos.
+
+**Decisión de diseño a respetar: NO se marcan las frases dentro del SPEC.** Se
+evaluó anclarlas con comentarios HTML y se descartó — el SPEC es un documento
+**publicado**, que se le entrega a personas y modelos que no ven este repo, y
+llenarlo de andamiaje de test lo ensucia para su lector real. El costo aceptado:
+cubre lo registrado, **no promete una partición** (a diferencia de
+`_PRESERVED_TABLES`, donde enumerar todo sí era posible).
+
+
+### 6. El inventario de herramientas de IA vs el manual — CERRADO (2-ago)
+
+**Hueco que el relevamiento del 1-ago no vio**, y lo encontró el usuario
+preguntando "¿dónde se consulta el catálogo de herramientas de la IA? me parece
+que el manual está desactualizado". Lo estaba: describía **8 de 15**
+herramientas. Faltaban las dos familias más nuevas y más consecuentes —backtest
+y carteras—, así que el usuario no se enteraba de que la IA **corre backtests y
+simula carteras**.
+
+**Por qué se escapó:** `test_manual_coverage.py` ata PANTALLAS ↔ manual, y las
+herramientas de IA no son pantallas. Quedaban fuera de toda red, y la única
+garantía era que la persona se acordara.
+
+**El arreglo tuvo una restricción propia:** el manual no puede enumerar
+herramientas por su nombre técnico (lo lee alguien que no programa). Así que el
+puente son **familias de capacidad**: cada `@tool` declara `familia=`
+(obligatoria, sin default, validada contra `registry.FAMILIAS`) y la sección
+Conexión IA declara las suyas en `familias_ia` del front-matter — que no se
+muestra al lector. `test_contract_coverage.py` exige que las dos listas
+coincidan **en los dos sentidos**: capacidad sin documentar, y capacidad
+documentada que ya no existe (peor, porque el usuario la pide y no está).
+
+El `familias_ia` va en el front-matter y no como comentario HTML en el cuerpo:
+el cuerpo se renderiza y el comentario podría verse.
 
 ---
 
