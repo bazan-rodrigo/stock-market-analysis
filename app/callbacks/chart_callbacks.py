@@ -1613,7 +1613,13 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
      (filtro → caps → score_exits), entries en AND, salidas en OR, misma
      semántica de cola sin score. Cualquier cambio de semántica va en AMBOS
      archivos en el mismo commit; el contrato ejecutable vive en
-     tests/fixtures/trade_simulator_cases.json. */
+     tests/fixtures/trade_simulator_cases.json.
+
+     Los centinelas de abajo NO son decorativos: tests/test_trade_simulator_js.py
+     recorta por ellos esta función del f-string y la corre de verdad, con un
+     intérprete JavaScript, contra los mismos casos que la versión Python. Si
+     los movés o los borrás, el test falla diciendo por qué. */
+  /* <homologacion:simulateTrades> */
   window._lwc.simulateTrades = function(closes, scores, spec, percentiles) {{
     var entries = spec.entries || [], scoreExits = spec.score_exits || [];
     var caps = spec.caps || [];
@@ -1710,6 +1716,7 @@ function(chartData, chartType, freq, logScale, volumeEnabled, eventsEnabled, reg
     }}
     return trades;
   }};
+  /* </homologacion:simulateTrades> */
 
   /* Spec del simulador desde los controles del panel, en el ORDEN CANÓNICO
      que el contrato evalúa (listas OR: gana la primera). Compartido por el

@@ -1,2 +1,9 @@
 pytest>=8.0
 hypothesis>=6.100
+# Intérprete JavaScript embebido (Duktape). Lo usa
+# tests/test_trade_simulator_js.py para CORRER el espejo JS del simulador de
+# trades contra los mismos casos que la versión Python — la regla de
+# homologación de CLAUDE.md. Sin esto, ese test se saltea y la homologación
+# vuelve a depender de que alguien se acuerde. Solo para tests: la app no lo
+# importa y no viaja a producción.
+dukpy>=0.5

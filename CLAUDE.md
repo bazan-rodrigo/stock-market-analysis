@@ -107,6 +107,11 @@ poder retomar el proyecto sin la memoria de sesiones previas.
   se hace en AMBOS archivos en el mismo commit, junto con los casos de
   `tests/fixtures/trade_simulator_cases.json` (el contrato ejecutable). La
   fase 2 del backtest (simulación de cartera) consume el motor Python.
+  **Ya no depende solo de la memoria de quien edita:**
+  `tests/test_trade_simulator_js.py` recorta el espejo JS por sus centinelas
+  `/* <homologacion:simulateTrades> */`, lo CORRE con un intérprete embebido
+  (`dukpy`, dependencia de test) y exige que dé lo mismo que Python en los 35
+  casos, campo por campo. Si tocás uno solo de los dos archivos, la suite falla.
 
 ## Stack
 
