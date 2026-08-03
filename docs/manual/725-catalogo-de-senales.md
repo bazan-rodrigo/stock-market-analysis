@@ -127,6 +127,14 @@ tercio del universo dejaba de ordenarse entre sí en ese componente — sin que
 nada diera error. Ese es el modo de fallar que hay que vigilar: una señal mal
 escalada no se rompe, se queda muda.
 
+Los tres retornos que se reinician con el calendario tienen una regla propia:
+**se calibran con el período completo**, no a mitad de camino. Su dispersión
+crece a lo largo del mes, del trimestre o del año, así que una escala tomada
+temprano se queda corta después y termina recortando. Se prefiere que la señal
+opine poco al principio del período antes que dejar a un tercio de los activos
+pegados en el tope al final: comprimir solo le baja el peso, recortar destruye
+el orden.
+
 Ninguno de los dos grupos es óptimo ni recomendación de inversión. Ajustar el
 resto es el mismo trabajo: mirar cómo se reparte el indicador entre los activos
 y correr un [backtest](/manual/backtest) antes de tomar el cambio por bueno.

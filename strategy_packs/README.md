@@ -100,14 +100,32 @@ Vale para cualquier umbral que toques después:
   escala vieja, el retorno del año dejaba **un tercio** de los activos pegados
   en ±100. Apuntar a ~10% de saturación total (los percentiles 5 y 95) deja la
   masa ordenándose.
+- **Los dos modos de fallar no son simétricos.** Recortar **destruye orden** y
+  no se recupera: los activos pegados en ±100 dejan de distinguirse entre sí.
+  Comprimir —una escala más ancha que los datos— solo **baja el peso efectivo**
+  del componente; el orden se conserva. Ante la duda, ancho.
+- **Un indicador que se reinicia con el calendario se calibra en su punto
+  MADURO.** El retorno del mes, el del trimestre y el del año ensanchan su
+  dispersión a lo largo del período, así que ninguna escala fija les sirve todo
+  el tiempo. Se calibran con el período completo —un trimestre entero, un año
+  entero— y se acepta que al principio casi no opinen. Calibrarlos en su punto
+  inmaduro es el error que se cometió con el trimestral: copiarle la escala al
+  mensual un 31 de julio, que es justo el día en que el trimestral todavía no
+  acumuló nada, lo dejaba saturando un tercio del universo con el trimestre
+  cerrado.
 - **La excepción es la cobertura parcial.** Ahí el promedio sí importa: si una
   señal vale −58 para el activo mediano y el 4% de los activos no tiene el dato,
-  ese 4% se ahorra los −58 y gana el ranking por carecer del dato. Por eso
-  `rvol_daily` pasó a tramos centrados en su mediana: con promedio cero, el
-  regalo se achica.
+  ese 4% se ahorra esos −58 **ponderados por el peso del componente** (la
+  renormalización reparte proporcionalmente) y sube en el ranking por carecer
+  del dato. Por eso `rvol_daily` pasó a tramos centrados en su mediana: con
+  promedio cero la ventaja **esperada** desaparece y queda ruido sin sesgo.
 - **Una cola larga pide tramos, no rango lineal.** El volumen relativo tiene
   mediana 1 y máximo medido 162: cualquier `range` que cubra ese extremo aplasta
   todo lo demás contra el cero.
+- **Percentiles siempre; el desvío no sirve para esto.** Medido en el retorno
+  anual: entre julio y diciembre el desvío BAJÓ (122,2 → 117,9) mientras la
+  dispersión útil se ensanchaba (el rango intercuartil pasó de 26,7 a 38,3
+  puntos). Lo dominaba un solo activo con +2.500% de retorno.
 
 ### Cobertura parcial: la trampa que hay que mirar
 

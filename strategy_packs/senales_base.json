@@ -396,19 +396,19 @@
     {
       "key": "return_quarterly",
       "name": "Retorno del trimestre en curso",
-      "description": "Retorno desde el inicio del trimestre calendario: +18% o más +100, −13% o menos −100. También se reinicia, con el mismo efecto al principio del trimestre. Ojo al combinarla con la mensual: durante el primer mes de cada trimestre las dos arrancan en la misma rueda y son el MISMO número, y el resto del tiempo la trimestral contiene a la mensual — usarlas juntas es ponerle doble peso al mismo factor.",
+      "description": "Retorno desde el inicio del trimestre calendario: +44% o más +100, −25% o menos −100. La escala está calibrada sobre un trimestre COMPLETO, que es cuando la dispersión es máxima: medida a mitad de trimestre recorta menos, y eso es lo buscado — comprimir una señal solo le baja el peso efectivo, mientras que recortarla destruye el orden entre los activos que quedan pegados en ±100. Ojo al combinarla con la mensual: durante el primer mes de cada trimestre las dos arrancan en la misma rueda y son el MISMO número, y el resto del tiempo la trimestral contiene a la mensual — usarlas juntas es ponerle doble peso al mismo factor.",
       "indicator_key": "return_quarterly",
       "formula_type": "range",
-      "params": { "min": -13, "max": 18, "clamp": true },
+      "params": { "min": -25, "max": 44, "clamp": true },
       "publica": true
     },
     {
       "key": "return_yearly",
       "name": "Retorno del año en curso",
-      "description": "Retorno desde el 1º de enero —no los últimos doce meses—: +52% o más +100, −35% o menos −100. La escala sale de los percentiles 5 y 95 medidos con el año ya avanzado; con ±25, que era lo anterior, un tercio de los activos quedaba pegado en ±100 y dejaba de ordenar. Es la que más sufre el reinicio de calendario: en enero casi no discrimina y en diciembre recorta más de lo estimado.",
+      "description": "Retorno desde el 1º de enero —no los últimos doce meses—: +92% o más +100, −35% o menos −100. Es la señal que más sufre el reinicio de calendario, y la escala está calibrada sobre un año COMPLETO por eso: en enero casi no va a discriminar, que es el costo aceptado. La asimetría no es un gusto: un retorno anual no puede caer de −100% pero no tiene techo para arriba, así que al madurar el año la cola derecha se estira y la izquierda no. Por eso el ajuste va casi todo en el máximo — el mínimo cubre la cola baja más ancha que se midió.",
       "indicator_key": "return_yearly",
       "formula_type": "range",
-      "params": { "min": -35, "max": 52, "clamp": true },
+      "params": { "min": -35, "max": 92, "clamp": true },
       "publica": true
     },
     {
@@ -441,7 +441,7 @@
     {
       "key": "rvol_daily",
       "name": "Volumen relativo diario",
-      "description": "Volumen de la rueda sobre el promedio de las 20 anteriores. Los tramos están anclados en la distribución real y son simétricos alrededor de la mediana, así que el puntaje promedio de la señal es cero: el 10% que más opera saca +100 y el 10% que menos, −100. Es a tramos y no lineal porque el ratio tiene cola derecha larguísima (se midió un máximo de 162 contra una mediana de 1) y cualquier escala lineal quedaría dominada por ese extremo. Cobertura parcial — los sintéticos y las conversiones de moneda no tienen volumen propio y quedan sin puntaje, y una señal sin puntaje NO castiga: se reparten los pesos entre las demás y el activo sin dato termina mejor rankeado. Que el promedio sea cero limita ese regalo, pero no lo elimina: si la usás, pedí volumen también en el filtro de elegibilidad.",
+      "description": "Volumen de la rueda sobre el promedio de las 20 anteriores. Los tramos están anclados en la distribución real y son simétricos alrededor de la mediana, así que el puntaje promedio de la señal es cero: los extremos de la distribución sacan +100 y −100, y el 20% central queda en cero. Es a tramos y no lineal porque el ratio tiene cola derecha larguísima (se midió un máximo de 162 contra una mediana de 1) y cualquier escala lineal quedaría dominada por ese extremo. Cobertura parcial — los sintéticos y las conversiones de moneda no tienen volumen propio y quedan sin puntaje, y una señal sin puntaje NO castiga: se reparten los pesos entre las demás y el activo sin dato termina mejor rankeado. Que el promedio sea cero limita ese regalo, pero no lo elimina: si la usás, pedí volumen también en el filtro de elegibilidad.",
       "indicator_key": "rvol_daily",
       "formula_type": "threshold",
       "params": {
