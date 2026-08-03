@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-03T02:39:09.170Z
+  modified: 2026-08-03T20:13:37.548Z
 ---
 
 Análisis del **1-ago-2026** (solo diseño, sin código). Objetivo del usuario: que
@@ -342,5 +342,47 @@ no ve — la misma regla que ya se había aprendido tres veces.
 falla igual), y limpiar de `oauth_client` el cliente de Google viejo más el
 `prueba-diagnostico` que dejó mi sondeo contra producción.
 
-Relacionado: [[project-backtest]], [[feedback-entorno-verificacion]] (Railway es
-producción, no hay entorno descartable), [[feedback-reflejar-en-ui-y-spec]].
+**LA IA TENÍA EL CATÁLOGO PERO NO EL CONTRATO (3-ago). 16 herramientas.** Lo
+levantó el usuario: *"la IA no tiene acceso a la especificación y catálogo para
+armar señales y estrategias"*. Verificado llamando al MCP de producción desde la
+sesión: `get_catalog` andaba y devolvía TODO (57 indicadores, operadores,
+atributos, 50 señales con sus `params`) — la mitad **variable** del estándar
+estaba resuelta desde el día uno. Lo que faltaba era la **fija**: `SPEC.md`
+existía, `pack_service.spec_bytes()` existía, y su único consumidor era el botón
+de descarga de `/admin/packs`. Un camino de navegador no existe para quien
+conversa por MCP: el modelo llegaba a la sección del manual que dice "la
+especificación se descarga desde esta misma pantalla" y **se enteraba de que hay
+un documento de 600 líneas que no puede abrir**.
+- `get_pack_spec` (documento entero, 28 KB, o por capítulo — acepta "6", "filtro"
+  o el "§7" con que el propio SPEC se autorreferencia) y `preview_pack` (el
+  ensayo contra ESTA base, sin escribir). Familia nueva `packs` → hay que tocar
+  **tres** caras: `registry.FAMILIAS`, el front-matter `familias_ia` del manual
+  y `_IA_CAPACIDADES` del brochure; dos tests distintos lo exigen.
+- **`preview_pack` es admin-only**: el informe dice qué definiciones ya existen
+  **y de quién son**, así que sin gate un analista enumeraba lo privado ajeno
+  probando nombres. La pantalla equivalente también es admin. `get_pack_spec`
+  NO: el contrato es público por diseño.
+- Ganancia sobre `scripts/validate_pack.py`, que ya existía: ese lo tiene que
+  correr **una persona** en una consola, y **sin `--catalog` valida a medias**.
+  Del lado del servidor el catálogo está a mano → el ensayo sale completo.
+
+**HALLAZGO LATERAL, y es el mismo patrón: `search_manual` fallaba en silencio.**
+`manual_service.search` buscaba la **frase literal** (`q in cuerpo`). Una persona
+teclea "packs" y funciona; un modelo consulta con frases enteras y obtenía
+**cero resultados — no un error, vacío**, así que concluía que el manual no dice
+nada del tema y contestaba de conocimiento general de finanzas, que es
+exactamente lo que la herramienta existe para evitar. Medido contra producción:
+"pack formato especificación importar señales" → 0; "packs" → 5. Ahora hay
+segunda pasada por términos (ordenada por cuántos aparecen, sin AND estricto) y
+los conectores se descartan **por lista de palabras vacías, no por largo**: "que"
+mide lo mismo que "ADX".
+
+**La regla que sale de las dos cosas: una capacidad expuesta a medias no da
+error, da vacío** — y el vacío es indistinguible de "no hay nada que decir".
+Ninguno de los dos huecos rompía ningún test: los trinquetes atan que la
+herramienta REGISTRADA esté documentada, no que exista la herramienta que hace
+falta. Lo encontró usar el sistema.
+
+Relacionado: [[project-backtest]], [[project-packs-estandar]],
+[[feedback-entorno-verificacion]] (Railway es producción, no hay entorno
+descartable), [[feedback-reflejar-en-ui-y-spec]].

@@ -9,7 +9,7 @@ page: /ia
 # las familias que declaran las herramientas registradas (app/ai/registry.py).
 # Si se estrena una capacidad, va descrita en "Qué puede hacer la IA" y sumada
 # acá; si no, falla la suite. No se muestra al lector.
-familias_ia: catalogo, indicadores, ranking, backtest, carteras, manual
+familias_ia: catalogo, indicadores, ranking, backtest, carteras, manual, packs
 ---
 
 
@@ -141,6 +141,18 @@ en los otros no es una buena estrategia, es una casualidad bien contada, y el
 promedio sola la tapa. Probar diez variantes y quedarse con la mejor es la forma
 más fácil de engañarse — ver [Backtest](/manual/backtest).
 
+Y puede **entregarte una estrategia armada**, en vez de dictártela paso a paso:
+
+- Conoce **el formato de intercambio** —el mismo documento que se descarga desde
+  la pantalla de [Packs](/manual/packs-de-senales-y-estrategias)—, así que te da
+  el archivo listo para subir, con la estrategia y todas las señales que usa.
+  Antes lo tenías que conseguir vos y pegárselo en el chat.
+- Si sos administrador, además puede **ensayarlo contra tu instalación antes de
+  dártelo**: comprueba que los indicadores existan acá, que los sectores y
+  mercados del filtro estén cargados, y te anticipa qué crearía y qué pisaría de
+  lo que ya tenés. Es el mismo informe que ves en pantalla antes de decidir, y
+  tampoco escribe nada — le sirve para corregir el archivo antes de entregártelo.
+
 Y **no puede**:
 
 - Ver nada que vos no veas. Si una estrategia es privada de otro usuario, para
@@ -151,8 +163,9 @@ Y **no puede**:
   siempre una decisión de una persona.
 - Modificar ni borrar datos de ningún tipo.
 
-Si la IA te propone una señal o una estrategia interesante, te la va a describir
-para que la lleves vos: no la carga sola.
+Si la IA te propone una señal o una estrategia interesante, te la va a entregar
+lista para que la lleves vos —descrita, o directamente como archivo—, pero
+subirla e importarla es siempre una decisión tuya: no la carga sola.
 
 ## Si sos administrador
 

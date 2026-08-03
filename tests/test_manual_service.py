@@ -199,6 +199,62 @@ def test_search_respeta_el_limite():
     assert len(ms.search(secciones, "comun", limit=5)) == 5
 
 
+# ── Segunda pasada: por términos ─────────────────────────────────────────────
+# El buscador de la web recibe palabras sueltas, pero este mismo servicio lo
+# consulta la capa de IA, y un modelo pregunta con frases enteras. Contra la
+# frase literal eso devolvía CERO —no un error: vacío—, así que el modelo
+# concluía que el manual no dice nada del tema y contestaba de conocimiento
+# general. Medido en producción: "pack formato especificación importar señales"
+# no encontraba la sección de packs, y "packs" sí.
+
+def test_search_encuentra_con_una_frase_natural():
+    secciones = [_sec("packs", title="Packs",
+                      body="El formato es público: la especificación se "
+                           "descarga y sirve para importar señales.")]
+    assert [h.section.slug for h in
+            ms.search(secciones, "pack formato especificación importar señales")] \
+        == ["packs"]
+
+
+def test_search_no_exige_que_esten_todos_los_terminos():
+    """Con AND estricto, una sola palabra ajena ('explicame') tira abajo la
+    consulta entera: el mismo problema con otra cara."""
+    secciones = [_sec("a", title="Backtest", body="mide una estrategia")]
+    assert ms.search(secciones, "explicame el backtest de estrategia")
+
+
+def test_search_ordena_por_cantidad_de_terminos_encontrados():
+    secciones = [
+        _sec("flojo", title="Otra", body="habla de estrategia", order=10),
+        _sec("fuerte", title="Otra más", body="estrategia con filtro y señales",
+             order=20),
+    ]
+    assert [h.section.slug for h in
+            ms.search(secciones, "estrategia filtro señales")] \
+        == ["fuerte", "flojo"]
+
+
+def test_search_prefiere_la_frase_literal_cuando_la_hay():
+    """La pasada por términos solo corre si la literal no encontró nada: es la
+    que da los resultados precisos y no se puede diluir con parciales."""
+    secciones = [
+        _sec("parcial", title="Otra", body="walk aparece y forward también",
+             order=10),
+        _sec("literal", title="Otra más", body="dice walk forward entero",
+             order=20),
+    ]
+    assert [h.section.slug for h in ms.search(secciones, "walk forward")] \
+        == ["literal"]
+
+
+def test_search_ignora_los_conectores():
+    """Sin descartarlos, 'de'/'la' harían matchear cualquier sección."""
+    secciones = [_sec("a", title="Precios", body="nada que ver"),
+                 _sec("b", title="Otra", body="habla de backtest")]
+    assert [h.section.slug for h in ms.search(secciones, "que es el backtest")] \
+        == ["b"]
+
+
 # ── Carga desde disco ────────────────────────────────────────────────────────
 
 def _escribir(directorio, nombre, texto):

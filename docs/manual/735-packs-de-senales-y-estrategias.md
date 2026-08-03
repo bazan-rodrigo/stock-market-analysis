@@ -38,6 +38,13 @@ Por eso la pantalla arranca con los dos botones: **Especificación** y
 artificial, adjuntale los dos archivos y describile en castellano común la
 lógica que querés; con eso puede armar un pack que entre sin retoques.
 
+**Si ese asistente está conectado a la plataforma** —ver
+[Conexión IA](/manual/conexion-ia)— no hace falta que le pases nada: consigue el
+formato y el catálogo por su cuenta. Y si tu usuario es administrador, además
+puede **ensayar el archivo contra esta instalación antes de dártelo**, con el
+mismo informe del paso 3, así llega corregido. Subirlo e importarlo lo seguís
+haciendo vos, acá.
+
 ## Los tres pasos de la pantalla
 
 **1. Qué entregar.** Los dos archivos de arriba. La especificación es siempre

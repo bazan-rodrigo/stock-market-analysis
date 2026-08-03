@@ -44,6 +44,15 @@ junta las dos descargas, el ensayo y la importación.
    Ejecutar*, con alcance en la estrategia nueva. Hasta que eso corra, la
    estrategia existe pero no tiene resultados.
 
+> **Si quien escribe el pack es un modelo conectado a esta aplicación** (la
+> pantalla *Conexión IA* publica un servicio MCP), los pasos 1 a 4 no necesitan
+> que nadie le pase archivos: `get_pack_spec` devuelve este documento,
+> `get_catalog` el catálogo de la instalación, y `preview_pack` corre el mismo
+> ensayo del punto 4 contra esta base —sin escribir nada— para poder corregir
+> antes de entregar. El ensayo exige rol admin, igual que la pantalla; los dos
+> primeros no. **Los pasos 5 y 6 siguen siendo de una persona**: ninguna IA
+> importa ni dispara corridas.
+
 La pantalla Packs acepta **solo el archivo JSON**. Las planillas Excel (§10)
 siguen entrando por el camino histórico, en dos pantallas y sin ensayo previo:
 primero *Señales → Importar* y después *Estrategias → Importar*.

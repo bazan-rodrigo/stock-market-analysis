@@ -234,6 +234,15 @@ _IA_CAPACIDADES = [
         "ejemplo": "¿Cómo habría andado esta lista en partes iguales?",
     },
     {
+        "familia": "packs",
+        "icono": "fa-file-arrow-up",
+        "titulo": "Te arma la estrategia entera",
+        "texto": "Conoce el formato de intercambio, así que en vez de "
+                 "dictártela te entrega el archivo listo para importar — y lo "
+                 "ensaya contra tu instalación antes de dártelo.",
+        "ejemplo": "Armame una estrategia de momentum con lo que tengo.",
+    },
+    {
         "familia": "manual",
         "icono": "fa-circle-question",
         "titulo": "Explica este sistema",

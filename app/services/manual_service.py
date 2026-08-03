@@ -220,16 +220,54 @@ class Hit:
     snippet: str
 
 
+# Qué cuenta como término en la segunda pasada. El largo mínimo se queda corto
+# a propósito —"RSI", "ADX" y "P/E" discriminan más que cualquier palabra larga—
+# y por eso los conectores se descartan por lista y no por tamaño: "que" mide lo
+# mismo que "ADX" y aparece en todas las secciones del manual.
+_TERMINO_MINIMO = 3
+_VACIAS = frozenset("""
+    que los las una unos unas del con por para como cual cuales cuando donde
+    este esta esto estos estas ese esa eso esos esas sus mis tus hay son ser
+    mas muy pero sobre todo toda todos todas sin tiene tienen puedo puede
+    pueden hacer quiero sirve entre desde hasta algo alguna alguno cada
+    """.split())
+
+
 def search(sections: list[Section], query: str, limit: int = 40) -> list[Hit]:
-    """Búsqueda de texto sobre título y cuerpo.
+    """Búsqueda de texto sobre título y cuerpo, en dos pasadas.
 
     Sin ranking sofisticado a propósito: el manual son decenas de secciones,
     no miles de documentos. Ordena por coincidencia en el título primero.
+
+    La primera pasada es la frase LITERAL. Es lo que escribe una persona en el
+    buscador ("backtest", "walk forward") y da los resultados más precisos, así
+    que manda: mientras encuentre algo, la segunda ni corre.
+
+    La segunda existe por la capa de IA, que consulta este mismo servicio. Un
+    modelo no busca palabras sueltas: busca frases ("qué formato tiene un pack
+    de señales"), y contra la frase literal eso no encuentra NADA. Medido:
+    "pack formato especificación importar señales" devolvía cero y "packs"
+    devolvía cinco. Es la peor forma de fallar para una herramienta cuya
+    descripción le dice al modelo que consulte el manual ANTES de explicar cómo
+    funciona un cálculo — no da error, da vacío, y el modelo concluye que el
+    manual no dice nada del tema y contesta de conocimiento general.
+
+    Por eso la segunda pasada no exige que estén TODOS los términos: ordena por
+    cuántos aparecen. Con el AND estricto, una sola palabra ajena a la sección
+    ("querría", "explicame") tira abajo la consulta entera, que es el mismo
+    problema con otra cara.
     """
     q = normalize(query or "").strip()
     if len(q) < 2:
         return []
-    resultados: list[tuple[int, Hit]] = []
+    hits = _por_frase(sections, q)
+    if not hits:
+        hits = _por_terminos(sections, q)
+    return hits[:limit]
+
+
+def _por_frase(sections: list[Section], q: str) -> list[Hit]:
+    resultados: list[tuple[tuple, Hit]] = []
     for s in sections:
         titulo_norm = normalize(s.title)
         cuerpo_norm = normalize(s.body)
@@ -237,9 +275,34 @@ def search(sections: list[Section], query: str, limit: int = 40) -> list[Hit]:
         pos = cuerpo_norm.find(q)
         if not en_titulo and pos < 0:
             continue
-        resultados.append((0 if en_titulo else 1, Hit(s, _snippet(s.body, pos))))
-    resultados.sort(key=lambda t: (t[0], t[1].section.order))
-    return [hit for _, hit in resultados[:limit]]
+        resultados.append(((0 if en_titulo else 1, s.order),
+                           Hit(s, _snippet(s.body, pos))))
+    resultados.sort(key=lambda t: t[0])
+    return [hit for _, hit in resultados]
+
+
+def _por_terminos(sections: list[Section], q: str) -> list[Hit]:
+    """Las secciones que contienen alguno de los términos, las que más primero."""
+    terminos = {t for t in q.split()
+                if len(t) >= _TERMINO_MINIMO and t not in _VACIAS}
+    if not terminos or terminos == {q}:
+        return []                      # nada nuevo que probar: ya fue la frase
+
+    resultados: list[tuple[tuple, Hit]] = []
+    for s in sections:
+        titulo_norm = normalize(s.title)
+        cuerpo_norm = normalize(s.body)
+        presentes = {t for t in terminos
+                     if t in titulo_norm or t in cuerpo_norm}
+        if not presentes:
+            continue
+        en_titulo = any(t in titulo_norm for t in presentes)
+        posiciones = [p for p in (cuerpo_norm.find(t) for t in presentes) if p >= 0]
+        resultados.append(
+            ((-len(presentes), 0 if en_titulo else 1, s.order),
+             Hit(s, _snippet(s.body, min(posiciones) if posiciones else -1))))
+    resultados.sort(key=lambda t: t[0])
+    return [hit for _, hit in resultados]
 
 
 def _snippet(body: str, pos: int, radio: int = 90) -> str:

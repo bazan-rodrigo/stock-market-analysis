@@ -53,6 +53,7 @@ FAMILIAS = frozenset({
     "backtest",     # medir una estrategia contra la historia, sin persistir
     "carteras",     # ver carteras y simular hipotéticas, sin crearlas
     "manual",       # el manual de esta instalación
+    "packs",        # el formato publicado + ensayar un pack, sin importarlo
 })
 
 
@@ -147,4 +148,4 @@ def _cargar() -> None:
     if _REGISTRO:
         return
     from app.ai.tools import (backtest, cartera, catalogo,  # noqa: F401
-                              estrategias, manual)
+                              estrategias, manual, packs)
