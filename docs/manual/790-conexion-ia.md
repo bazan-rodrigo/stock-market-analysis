@@ -61,10 +61,12 @@ también la forma de rotarlo cada tanto si querés.
 ## Conectar tu programa de IA
 
 Es un trámite de una sola vez por programa. Tené a mano **el token** que
-generaste recién y la **dirección del servicio**, que te da el administrador.
+generaste recién y la **dirección del servicio**, que está en esta misma
+pantalla, en el recuadro *Dirección para tu programa de IA*.
 
 Esa dirección **no es la misma con la que entrás a la aplicación**: es una
-aparte, dedicada a las consultas de IA, y **termina en `/mcp`**.
+aparte, dedicada a las consultas de IA, y **termina en `/mcp`**. Si en tu
+pantalla aparece un aviso en lugar de la dirección, pedísela al administrador.
 
 1. **Buscá en tu programa de IA dónde se agregan conexiones externas.** Cada uno
    lo llama distinto: *conector*, *extensión*, *servidor MCP* o *aplicación
@@ -87,10 +89,10 @@ El mensaje que muestra tu programa casi nunca dice cuál es el problema de
 verdad: habla de que no pudo conectarse, o de que tenés que vincular la cuenta.
 Revisá en este orden.
 
-**La dirección.** Es el error más común, lejos. Tiene que ser la del servicio de
-IA —no la de la aplicación web— y terminar en `/mcp`. Un error clásico es pegar
-una dirección más larga, copiada de un mensaje de error: si tiene algo después
-de `/mcp`, sobra.
+**La dirección.** Es el error más común, lejos. Copiala de esta pantalla en vez
+de escribirla: tiene que ser la del servicio de IA —no la de la aplicación web—
+y terminar en `/mcp`. Un error clásico es pegar una dirección más larga, sacada
+de un mensaje de error: si tiene algo después de `/mcp`, sobra.
 
 **Si ya falló una vez, borrá la conexión y agregala de nuevo** en lugar de
 corregirle la dirección. Los programas se guardan cómo salió el primer intento,

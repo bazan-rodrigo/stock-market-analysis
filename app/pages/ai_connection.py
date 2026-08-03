@@ -21,6 +21,48 @@ _QUE_ES = (
 )
 
 
+def _tarjeta_direccion():
+    """La dirección que hay que pegar en el cliente de IA.
+
+    Existe porque era el dato que NO estaba en ningún lado y había que
+    transmitir de boca en boca: se probó con la dirección de la aplicación web,
+    con la de descubrimiento del protocolo y con el dominio pelado antes de dar
+    con la buena. Ningún cliente avisa que el problema es la dirección —dicen
+    que no pudieron conectarse, o que hay que vincular la cuenta—, así que un
+    error acá cuesta una tarde.
+    """
+    from flask_login import current_user
+
+    from app.ai import mcp_adapter
+
+    url = mcp_adapter.url_del_conector()
+    if url is None:
+        aviso = ("Esta instalación todavía no declaró la dirección pública del "
+                 "servicio de IA, así que no se puede mostrar acá. Pedísela al "
+                 "administrador.")
+        if getattr(current_user, "is_admin", False):
+            aviso = ("Falta definir MCP_PUBLIC_URL en este servicio (el web) "
+                     "con el dominio público del servicio de IA. El servicio "
+                     "de IA ya la tiene; hace falta también acá solo para "
+                     "poder mostrarla en esta pantalla.")
+        cuerpo = html.Small(aviso, style={"color": TEXT_MUTED})
+    else:
+        cuerpo = html.Div([
+            html.Code(url, style={"fontSize": "0.85rem", "userSelect": "all",
+                                  "wordBreak": "break-all"}),
+            html.Small(
+                "Pegala tal cual, sin agregarle nada. No es la dirección con "
+                "la que entrás a la aplicación: es una aparte, para las "
+                "consultas de IA.",
+                className="d-block mt-2", style={"color": TEXT_MUTED}),
+        ])
+
+    return dbc.Card(dbc.CardBody([
+        html.H6("Dirección para tu programa de IA", className="mb-2"),
+        cuerpo,
+    ]), className="mb-3", style={"maxWidth": "760px"})
+
+
 def layout(**kwargs):
     from flask_login import current_user
 
@@ -45,6 +87,8 @@ def layout(**kwargs):
             dbc.Alert(id="ia-alert", is_open=False, dismissable=True,
                       className="mt-3 mb-0"),
         ]), className="mb-3", style={"maxWidth": "760px"}),
+
+        _tarjeta_direccion(),
 
         dbc.Card(dbc.CardBody([
             html.H6("Qué puede hacer", className="mb-2"),

@@ -278,7 +278,8 @@ app = server.streamable_http_app(
     custom_starlette_routes=_RUTAS,
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(_URL_PUBLICA),
-        resource_server_url=AnyHttpUrl(_URL_PUBLICA.rstrip("/") + "/mcp"),
+        resource_server_url=AnyHttpUrl(_URL_PUBLICA.rstrip("/")
+                                       + mcp_adapter.RUTA_MCP),
         # Las dos salen de `oauth` —no se arman acá— para que la metadata que se
         # publica más abajo describa exactamente esta configuración y no una
         # copia que se despegue con el tiempo.

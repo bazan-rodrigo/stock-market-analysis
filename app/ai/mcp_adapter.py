@@ -47,13 +47,45 @@ def normalizar_url_publica(valor: str | None) -> str:
     return v
 
 
-def url_publica() -> str:
-    """La URL pública del servicio, normalizada. Único lugar donde se lee
-    `MCP_PUBLIC_URL`: si cada módulo la leyera por su cuenta, uno normalizaría
-    y otro no, y el flujo de OAuth armaría redirecciones inconsistentes."""
+# El camino donde escucha el servidor MCP. Sale de acá —y no escrito a mano en
+# cada lado— porque lo usan el servidor para declararse y la pantalla para
+# decirle al usuario qué pegar: si se separaran, la pantalla enseñaría una
+# dirección que no existe y nadie se enteraría hasta que alguien no pudiera
+# conectarse.
+RUTA_MCP = "/mcp"
+
+
+def _valor_configurado() -> str:
+    """Lo que declaró la instalación, sin interpretar. Único lugar donde se lee
+    `MCP_PUBLIC_URL`: si cada módulo la leyera por su cuenta, uno normalizaría y
+    otro no, y el flujo de OAuth armaría redirecciones inconsistentes."""
     import os
 
-    return normalizar_url_publica(os.environ.get("MCP_PUBLIC_URL"))
+    return (os.environ.get("MCP_PUBLIC_URL") or "").strip()
+
+
+def url_publica() -> str:
+    """La URL pública del servicio, normalizada."""
+    return normalizar_url_publica(_valor_configurado())
+
+
+def url_del_conector() -> str | None:
+    """La dirección que hay que pegar en el cliente de IA, o None si esta
+    instalación no la declaró.
+
+    None y no el default de desarrollo, a propósito: esto se muestra para copiar
+    y pegar, y un `http://127.0.0.1:8000/mcp` presentado con la misma cara que
+    el valor bueno es PEOR que no mostrar nada — quien lo copia no tiene forma
+    de saber que está mal, y el error recién aparece en el cliente, que además
+    no dice que el problema sea la dirección.
+
+    Ojo que esto se lee desde DOS servicios distintos: el de IA, donde la
+    variable siempre está, y el web, donde puede faltar. Que falte no es un
+    error de programación sino una instalación incompleta, y así se cuenta.
+    """
+    if not _valor_configurado():
+        return None
+    return url_publica() + RUTA_MCP
 
 
 def hosts_permitidos(url: str) -> list[str]:

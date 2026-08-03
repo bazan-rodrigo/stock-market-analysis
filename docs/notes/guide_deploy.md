@@ -160,6 +160,14 @@ Para levantarlo:
    (`mcp-xxxx.up.railway.app`) o con esquema (`https://mcp-xxxx.up.railway.app`):
    si falta el `https://` se completa solo.
 
+4. **`MCP_PUBLIC_URL` también en el servicio `web`**, con el mismo valor. No la
+   necesita para funcionar: es solo para que la pantalla «Conexión IA» pueda
+   mostrarle al usuario qué dirección pegar en su cliente. Sin ella la pantalla
+   no se rompe —muestra un aviso de que falta—, pero el dato vuelve a
+   transmitirse de boca en boca, que es exactamente como se perdió una tarde
+   probando la dirección de la aplicación web, la de descubrimiento del
+   protocolo y el dominio pelado antes de dar con la buena.
+
 El orden importa: el dominio existe antes que la variable que lo usa.
 
 > **`MCP_PUBLIC_URL` no es cosmético.** El SDK trae protección contra DNS

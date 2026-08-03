@@ -4,6 +4,7 @@ Está separado del SDK a propósito (ver `app/ai/mcp_adapter`), así que todo lo
 que puede salir mal al exponer la capa se prueba acá y no en Railway.
 """
 import datetime
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -82,6 +83,52 @@ def test_la_url_publica_se_normaliza(crudo, esperado):
 def test_sin_url_publica_se_asume_local(vacio):
     assert (mcp_adapter.normalizar_url_publica(vacio)
             == mcp_adapter.URL_PUBLICA_POR_DEFECTO)
+
+
+# ── La dirección que se le muestra al usuario ────────────────────────────────
+# Era el dato que no estaba en ningún lado y se transmitía de boca en boca: se
+# probó con la de la aplicación web, con la de descubrimiento del protocolo y
+# con el dominio pelado antes de dar con la buena. Ningún cliente avisa que el
+# problema sea la dirección.
+
+@pytest.mark.parametrize("crudo,esperado", [
+    ("ia-production-2197.up.railway.app",
+     "https://ia-production-2197.up.railway.app/mcp"),
+    ("https://mcp.example.com", "https://mcp.example.com/mcp"),
+    ("https://mcp.example.com/", "https://mcp.example.com/mcp"),
+])
+def test_la_direccion_del_conector_es_la_publica_mas_la_ruta(monkeypatch, crudo,
+                                                             esperado):
+    monkeypatch.setenv("MCP_PUBLIC_URL", crudo)
+
+    assert mcp_adapter.url_del_conector() == esperado
+
+
+@pytest.mark.parametrize("vacio", ["", "   "])
+def test_sin_declarar_no_se_inventa_una_direccion(monkeypatch, vacio):
+    """None y no el default de desarrollo: la pantalla la ofrece para copiar, y
+    un `127.0.0.1` con la misma cara que el valor bueno es peor que nada — quien
+    lo pega no tiene cómo saber que está mal."""
+    monkeypatch.setenv("MCP_PUBLIC_URL", vacio)
+
+    assert mcp_adapter.url_del_conector() is None
+
+
+def test_sin_la_variable_tampoco(monkeypatch):
+    monkeypatch.delenv("MCP_PUBLIC_URL", raising=False)
+
+    assert mcp_adapter.url_del_conector() is None
+
+
+def test_la_direccion_que_se_muestra_es_la_que_el_servidor_atiende():
+    """La pantalla y el servidor tienen que decir lo mismo. Si se escribieran a
+    mano en cada lado, la pantalla podría enseñar una dirección que no existe y
+    nadie se enteraría hasta que alguien no pudiera conectarse."""
+    fuente = (Path(__file__).resolve().parents[1] / "mcp_server.py").read_text(
+        encoding="utf-8")
+
+    assert "mcp_adapter.RUTA_MCP" in fuente
+    assert '+ "/mcp"' not in fuente
 
 
 def test_la_url_normalizada_es_valida_para_el_validador_del_sdk():
