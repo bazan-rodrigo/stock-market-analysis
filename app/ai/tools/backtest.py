@@ -8,12 +8,43 @@ humana desde la aplicación.
 
 Lo que la IA NO puede hacer acá: persistir. No existe la herramienta.
 """
+from app.ai import prudencia
 from app.ai.caller import AiCaller
 from app.ai.registry import limite, tool
 from app.ai.tools.estrategias import _estrategia_visible
 
 _TOPE_RUNS = 20
 _TOPE_HORIZONTES = 4
+
+# Las dos herramientas que CORREN algo (no las que leen un run guardado)
+# comparten el holdout reservado y el contador de intentos con las de borrador:
+# el sobreajuste no distingue si la estrategia existe o no, y un corte distinto
+# por herramienta haría que dos mediciones no se puedan comparar.
+_HOLDOUT_SCHEMA = {
+    "type": "boolean",
+    "description": ("Correr SOLO el tramo de historia reservado, el que no "
+                    "entra en las corridas normales. Una vez y al final, "
+                    "cuando ya elegiste: mirarlo antes de decidir lo "
+                    "convierte en un tramo más de exploración."),
+}
+
+
+def _ventana(caller, date_from, date_to, revelar_holdout):
+    from app.database import get_session
+
+    return prudencia.ventana(get_session(), date_from, date_to,
+                             revelar_holdout)
+
+
+def _prudencia(caller, vent: dict) -> dict:
+    """Los campos de holdout y contador que acompañan a toda corrida."""
+    n = prudencia.registrar_intento(caller)
+    salida = {"modo": vent["modo"], "corte_holdout": vent["corte"],
+              "holdout": vent["nota"], "simulaciones_en_esta_sesion": n}
+    aviso = prudencia.aviso_intentos(n)
+    if aviso:
+        salida["aviso_sobreajuste"] = aviso
+    return salida
 
 
 @tool(
@@ -118,10 +149,12 @@ _COMO_LEERLO = (
     "dé vuelta entre tramos, o —más engañosa— que todos sean positivos pero "
     "uno sea mucho más grande que el resto (por ejemplo 0,40 / 0,01 / 0,01 / "
     "0,01 promedia 0,11 y no hay señal, hay un tramo con suerte). Una relación "
-    "que se sostiene se parece en todos los tramos. `ic_holdout` es el último "
-    "tramo y es lo más cercano a una prueba honesta, pero solo vale si no lo "
-    "miraste para elegir. Al informarle esto a la persona, mostrale los tramos, "
-    "no solo el promedio."
+    "que se sostiene se parece en todos los tramos. Ojo con `ic_ultimo_tramo`: "
+    "es el último tramo de la ventana de exploración y NO es una prueba "
+    "independiente —lo estás mirando igual que a los demás para elegir—. La "
+    "prueba independiente es el tramo reservado, que no está en estos números "
+    "y se pide aparte con `revelar_holdout` cuando ya te decidiste. Al "
+    "informarle esto a la persona, mostrale los tramos, no solo el promedio."
 )
 
 
@@ -171,7 +204,11 @@ def _estabilidad(datos: dict, n_tramos: int = _TRAMOS) -> dict:
         medidos = [t["ic_medio"] for t in tramos if t["ic_medio"] is not None]
         por_horizonte[str(h)] = {
             "tramos": tramos,
-            "ic_holdout": tramos[-1]["ic_medio"],
+            # NO se llama holdout: es el último tramo de la ventana que la IA
+            # mira entera para elegir, así que no prueba nada por sí solo. El
+            # holdout de verdad quedó afuera del período (app/ai/prudencia.py),
+            # y un campo con ese nombre acá haría creer que ya se lo vio.
+            "ic_ultimo_tramo": tramos[-1]["ic_medio"],
             "tramos_positivos": sum(1 for x in medidos if x > 0),
             "tramos_medidos": len(medidos),
         }
@@ -243,6 +280,7 @@ def _resumen_ic(datos: dict) -> dict:
             "n_quantiles": {"type": "integer", "minimum": 2, "maximum": 20},
             "date_from": {"type": "string", "description": "AAAA-MM-DD."},
             "date_to": {"type": "string", "description": "AAAA-MM-DD."},
+            "revelar_holdout": _HOLDOUT_SCHEMA,
         },
         "required": ["strategy_id", "components"],
         "additionalProperties": False,
@@ -253,20 +291,18 @@ def backtest_strategy_variant(caller: AiCaller, strategy_id: int,
                               horizons: list | None = None,
                               n_quantiles: int | None = None,
                               date_from: str | None = None,
-                              date_to: str | None = None) -> dict:
+                              date_to: str | None = None,
+                              revelar_holdout: bool = False) -> dict:
     from app.services import backtest_service
 
     strat = _estrategia_visible(caller, strategy_id)
+    vent = _ventana(caller, date_from, date_to, revelar_holdout)
 
-    cfg = {}
+    cfg = {"date_from": vent["date_from"], "date_to": vent["date_to"]}
     if horizons:
         cfg["horizons"] = list(horizons)[:_TOPE_HORIZONTES]
     if n_quantiles:
         cfg["n_quantiles"] = int(n_quantiles)
-    if date_from:
-        cfg["date_from"] = date_from
-    if date_to:
-        cfg["date_to"] = date_to
 
     datos = backtest_service.compute_variant_backtest(
         strat.id, list(components), cfg)
@@ -275,6 +311,7 @@ def backtest_strategy_variant(caller: AiCaller, strategy_id: int,
         "strategy_id": strat.id,
         "name": strat.name,
         "guardado": False,
+        **_prudencia(caller, vent),
         "config": datos["config"],
         "duration_seconds": round(datos.get("duration_seconds") or 0, 2),
         "base": {"ic_in_sample": _resumen_ic(datos["base"]),
@@ -318,6 +355,7 @@ def backtest_strategy_variant(caller: AiCaller, strategy_id: int,
                             "description": "Cuantiles (por defecto 10)."},
             "date_from": {"type": "string", "description": "AAAA-MM-DD."},
             "date_to": {"type": "string", "description": "AAAA-MM-DD."},
+            "revelar_holdout": _HOLDOUT_SCHEMA,
         },
         "required": ["strategy_id"],
         "additionalProperties": False,
@@ -327,22 +365,20 @@ def run_backtest_preview(caller: AiCaller, strategy_id: int,
                          horizons: list | None = None,
                          n_quantiles: int | None = None,
                          date_from: str | None = None,
-                         date_to: str | None = None) -> dict:
+                         date_to: str | None = None,
+                         revelar_holdout: bool = False) -> dict:
     from app.services import backtest_service
 
     strat = _estrategia_visible(caller, strategy_id)
+    vent = _ventana(caller, date_from, date_to, revelar_holdout)
 
-    cfg = {}
+    cfg = {"date_from": vent["date_from"], "date_to": vent["date_to"]}
     if horizons:
         # El tope no es capricho: cada horizonte es una cross-section más por
         # fecha, así que el cómputo crece linealmente con la lista.
         cfg["horizons"] = list(horizons)[:_TOPE_HORIZONTES]
     if n_quantiles:
         cfg["n_quantiles"] = int(n_quantiles)
-    if date_from:
-        cfg["date_from"] = date_from
-    if date_to:
-        cfg["date_to"] = date_to
 
     datos = backtest_service.compute_backtest(strat.id, cfg)
     resumen = _resumen_ic(datos)
@@ -351,6 +387,7 @@ def run_backtest_preview(caller: AiCaller, strategy_id: int,
         "strategy_id": strat.id,
         "name": strat.name,
         "guardado": False,
+        **_prudencia(caller, vent),
         "config": datos["config"],
         "date_from": str(datos["date_from"]),
         "date_to": str(datos["date_to"]),

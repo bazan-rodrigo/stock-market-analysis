@@ -15,6 +15,7 @@ parámetros a datos pasados. Por eso toda simulación devuelve además los KPIs
 **por tramo**: un Sharpe alto que sale de un solo año no es una cartera buena,
 es un año bueno.
 """
+from app.ai import prudencia
 from app.ai.caller import AiCaller
 from app.ai.registry import limite, tool
 
@@ -244,8 +245,18 @@ def simulate_portfolio(caller: AiCaller, holdings: list) -> dict:
         raise ValueError(
             "Ninguno de esos activos tiene precios cargados en el período.")
 
+    # Contador sí, holdout no: acá el período sale de los precios de los
+    # tickers elegidos y no de la historia de señales, así que el corte
+    # compartido no significaría lo mismo. Pero el riesgo de probar
+    # combinaciones hasta que una brille es idéntico, y eso el contador lo
+    # hace visible.
+    intentos = prudencia.registrar_intento(caller)
+    aviso = prudencia.aviso_intentos(intentos)
+
     return {
         "guardado": False,
+        "simulaciones_en_esta_sesion": intentos,
+        **({"aviso_sobreajuste": aviso} if aviso else {}),
         "composicion": detalle,
         "desde": str(curva["dates"][0]), "hasta": str(curva["dates"][-1]),
         "n_ruedas": len(curva["dates"]),

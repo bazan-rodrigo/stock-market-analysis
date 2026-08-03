@@ -26,7 +26,10 @@ def _estrategia_visible(caller: AiCaller, strategy_id: int):
                                      user_id, is_admin):
         raise ValueError(
             f"no existe una estrategia con id={strategy_id} que puedas ver. "
-            f"Usá list_strategies para ver las disponibles.")
+            f"Usá list_strategies para ver las disponibles. Si no hay "
+            f"ninguna creada todavía, no es un callejón sin salida: "
+            f"backtest_strategy_draft mide una estrategia que no existe, a "
+            f"partir de señales y pesos.")
     return strat
 
 
@@ -74,7 +77,7 @@ def list_strategies(caller: AiCaller, limit: int | None = None) -> dict:
             })
         return salida
 
-    return {
+    salida = {
         "total": len(filas),
         "devueltas": min(len(filas), tope),
         "strategies": [
@@ -85,6 +88,20 @@ def list_strategies(caller: AiCaller, limit: int | None = None) -> dict:
             for st in filas[:tope]
         ],
     }
+    # El cartel va donde se choca la pared. Una lista vacía leída sin contexto
+    # se informa como "no hay nada que analizar", y eso es falso: las señales
+    # están calculadas y una estrategia se puede medir entera sin crearla. La
+    # instalación recién instalada es justamente cuando más sirve saberlo.
+    if not filas:
+        salida["sugerencia"] = (
+            "No hay ninguna estrategia creada, pero eso NO impide analizar ni "
+            "proponer una: con backtest_strategy_draft podés medir una "
+            "estrategia inventada (señales, pesos y filtro) contra la historia "
+            "real, y con simulate_strategy_draft_portfolio ver cuánto habría "
+            "rendido su cartera. Empezá por list_signals para ver con qué "
+            "contás. Si el resultado convence, el pack se arma con "
+            "get_pack_spec y lo importa la persona desde la aplicación.")
+    return salida
 
 
 @tool(

@@ -185,6 +185,99 @@ def run_portfolio_backtest(strategy_id, spec, *, top_n, rebalance_every=1,
             "benchmark_ew": _pack(bench)}
 
 
+def run_draft_portfolio_backtest(score_rows, *, top_n, rebalance_every=1,
+                                 cost_bps=0.0, progress_cb=None):
+    """Nivel C de una estrategia que **no existe**: la cartera top-N sobre
+    scores calculados en memoria, sin tabla de estrategia de dónde leerlos.
+
+    `score_rows`: [(date, asset_id, score)] — lo que devuelve
+    `backtest_service.compute_draft_backtest` por dentro. El `pct` que
+    `run_portfolio_backtest` lee de la tabla no hace falta acá: solo lo consume
+    el sub-modo *gated* (los umbrales por percentil del simulador de trades), y
+    este camino corre ranking puro contra el benchmark equiponderado.
+
+    Devuelve {'dates', 'ranking', 'benchmark_ew'} con la misma forma que el
+    nivel C de siempre, así que se lee igual.
+    """
+    from collections import defaultdict
+
+    from app.database import get_session
+    from app.models import Price
+    from app.services import portfolio_metrics as pm
+    from app.services import portfolio_sim_engine as eng
+
+    filas = list(score_rows)
+    if not filas:
+        raise ValueError("No hay scores para simular.")
+
+    por_activo: dict = defaultdict(dict)
+    for d, aid, sc in filas:
+        por_activo[aid][d] = float(sc)
+    asset_ids = sorted(por_activo)
+
+    d0 = min(d for d, _a, _s in filas)
+    d1 = max(d for d, _a, _s in filas)
+
+    s = get_session()
+    per_asset = {}
+    done = 0
+    for batch in _chunks(asset_ids, _ASSET_BATCH):
+        # PISO **Y TECHO**, a diferencia de los retornos forward del nivel A.
+        # Acá no se mira hacia adelante: el calendario de la simulación sale de
+        # estos precios, y un precio posterior al último score haría que la
+        # cartera siga operando con el score arrastrado más allá del período
+        # pedido. Con el holdout reservado eso sería, literalmente, operar
+        # sobre el tramo que se decidió no mirar.
+        prows = (s.query(Price.asset_id, Price.date, Price.close)
+                 .filter(Price.asset_id.in_(batch), Price.close.isnot(None),
+                         Price.date >= d0, Price.date <= d1)
+                 .order_by(Price.asset_id, Price.date).all())
+        prices = defaultdict(list)
+        for aid, d, c in prows:
+            prices[aid].append((d, float(c)))
+        for aid in batch:
+            series = prices.get(aid)
+            if not series:
+                continue
+            fechas = [d for d, _ in series]
+            propios = por_activo.get(aid, {})
+            per_asset[aid] = {
+                "dates": fechas,
+                "closes": [c for _, c in series],
+                "scores": [propios.get(d) for d in fechas],
+                # Sin gated: la elegibilidad por trailing no se computa, así
+                # que ningún activo queda "en posición" por esa vía.
+                "in_position": set()}
+        done += len(batch)
+        if progress_cb:
+            progress_cb(done, len(asset_ids), "activos")
+
+    if not per_asset:
+        raise ValueError(
+            "Ninguno de los activos puntuados tiene precios en el período.")
+
+    dates, scores_by_date, rets_by_date, _elig = build_panels(per_asset)
+    if not dates:
+        raise ValueError("No hay ruedas con precio en el período.")
+
+    ranking = eng.simulate_topn(dates, scores_by_date, rets_by_date,
+                                top_n=top_n, rebalance_every=rebalance_every,
+                                cost_bps=cost_bps)
+    # El benchmark es el mismo motor sin tope de posiciones y sin costos: es
+    # "comprar todo el universo elegible", la vara contra la que el top-N tiene
+    # que demostrar que seleccionar sirvió de algo.
+    bench = eng.simulate_topn(dates, scores_by_date, rets_by_date,
+                              top_n=10 ** 9, rebalance_every=rebalance_every,
+                              cost_bps=0.0)
+
+    def _pack(res):
+        return {"equity": res["equity"],
+                **pm.summary(res["equity"], dates=dates)}
+
+    return {"dates": dates, "ranking": _pack(ranking),
+            "benchmark_ew": _pack(bench)}
+
+
 def curated_equity_series(session, portfolio_id):
     """Equity de una cartera teórica CURADA: constant-mix de sus miembros
     (rebalanceo diario a los pesos objetivo). Devuelve {'dates','equity', **KPIs}

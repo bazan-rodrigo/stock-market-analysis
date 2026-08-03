@@ -132,14 +132,51 @@ También puede **calcular**, sin guardar nada:
   la misma elegibilidad que la original, así que la diferencia aísla el efecto
   del cambio. Y puede leerte los resultados de las corridas que sí guardaste
   desde la pantalla.
+- **Diseñar una estrategia desde cero y medirla**, aunque no exista todavía. Le
+  pedís por ejemplo "armame una de momentum que evite las muy volátiles" y la
+  arma, la puntúa contra la historia real y te dice si ordena bien los activos —
+  todo sin crear nada. Es la diferencia entre que te proponga una idea de
+  memoria y que te la proponga con números atrás. **Si tu instalación todavía no
+  tiene ninguna estrategia creada, este es el camino**: no hace falta armar una a
+  mano primero para poder medirla.
+- **Simular la cartera de esa estrategia**: comprar los mejores del ranking,
+  rebalancear cada tantas ruedas y descontar costos, para ver cuánto habría
+  rendido de verdad y si le gana a comprar todo el mercado sin elegir nada.
+  Ordenar bien los activos y ganar plata después de comisiones no son lo mismo.
 - **Simular una cartera hipotética** a partir de una lista de activos y pesos,
   sin crearla, y ver el rendimiento de las que ya tenés.
 
-En los dos casos te va a mostrar los números **por tramos de tiempo** además del
-promedio. No es un adorno: una estrategia que anduvo bárbaro en un tramo y mal
-en los otros no es una buena estrategia, es una casualidad bien contada, y el
+En todos los casos te va a mostrar los números **por tramos de tiempo** además
+del promedio. No es un adorno: una estrategia que anduvo bárbaro en un tramo y
+mal en los otros no es una buena estrategia, es una casualidad bien contada, y el
 promedio sola la tapa. Probar diez variantes y quedarse con la mejor es la forma
 más fácil de engañarse — ver [Backtest](/manual/backtest).
+
+### Por qué la IA no ve toda la historia
+
+Hay una parte de esto que conviene que sepas, porque si no los números pueden
+sorprenderte: **cuando la IA simula algo, el último tramo de la historia queda
+afuera del resultado**. No es un error ni le falta información — está reservado a
+propósito.
+
+El motivo es el problema más viejo de esta disciplina. Si probás cincuenta
+combinaciones contra los mismos años y te quedás con la que mejor dio, no
+encontraste la mejor estrategia: encontraste la que mejor se acomodó a lo que
+pasó en esos años en particular. Con suficientes intentos siempre aparece una que
+parece excelente por pura casualidad, y la casualidad no se repite cuando ponés
+plata.
+
+Por eso el sistema parte la historia: la IA explora y compara en la parte de
+adelante, y el tramo final queda guardado sin tocar. Cuando ya se decidió por una
+configuración, recién ahí puede pedir ver ese tramo reservado, **una sola vez**.
+Si el resultado ahí se parece al que venía viendo, la idea es creíble. Si se
+derrumba, era casualidad — y te enteraste antes de operar, que es exactamente
+para lo que sirve.
+
+Vale la pena pedirle que te muestre ese número aparte, y también **cuántas
+combinaciones probó antes de llegar a la que te propone**. El sistema se lo
+recuerda solo, y es un dato tan importante como el rendimiento: veinte intentos y
+un resultado espectacular dicen menos que dos intentos y uno modesto.
 
 Y puede **entregarte una estrategia armada**, en vez de dictártela paso a paso:
 

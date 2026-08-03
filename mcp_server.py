@@ -259,7 +259,20 @@ server = Server(
         "get_catalog, que dice qué existe en esta instalación, y consultá "
         "search_manual antes de explicar cómo funciona un cálculo: las reglas "
         "propias de este sistema no se deducen del conocimiento general de "
-        "finanzas. Solo ves lo que el usuario dueño del token vería en pantalla."
+        "finanzas. Solo ves lo que el usuario dueño del token vería en "
+        "pantalla.\n\n"
+        "Que no haya estrategias creadas NO significa que no se pueda "
+        "analizar: backtest_strategy_draft mide una estrategia inventada "
+        "—señales, pesos y filtro— contra la historia real sin crear nada, y "
+        "simulate_strategy_draft_portfolio simula su cartera. Es el camino "
+        "para proponer una estrategia con números que la respalden en vez de "
+        "de memoria. Nada de lo que corras queda guardado: para materializar "
+        "lo que valga la pena se arma un pack y lo importa la persona.\n\n"
+        "Toda simulación reserva el tramo final de la historia y no lo "
+        "incluye en el resultado. Explorá con la ventana normal y dejá "
+        "`revelar_holdout` para el final, una sola vez, cuando ya elegiste: "
+        "es la única medición no contaminada por haber probado muchas "
+        "variantes, y mirarla antes de decidir la gasta."
     ),
     on_list_tools=_listar_herramientas,
     on_call_tool=_ejecutar_herramienta,

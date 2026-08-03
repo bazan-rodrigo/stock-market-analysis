@@ -415,7 +415,7 @@ def test_detecta_un_ic_que_sale_de_un_solo_tramo(db):
 
     assert est["tramos"][0]["ic_medio"] == pytest.approx(0.40)
     assert est["tramos_positivos"] == 1        # uno solo de cuatro
-    assert est["ic_holdout"] == pytest.approx(0.0)
+    assert est["ic_ultimo_tramo"] == pytest.approx(0.0)
 
 
 def test_una_senal_estable_se_ve_estable(db):
@@ -428,16 +428,20 @@ def test_una_senal_estable_se_ve_estable(db):
     assert all(t["ic_medio"] == pytest.approx(0.12) for t in est["tramos"])
 
 
-def test_el_holdout_es_el_ultimo_tramo(db):
-    """Lo más parecido a una prueba honesta que se puede dar sin rehacer la
-    elección: el final del período, que quien eligió idealmente no miró."""
+def test_el_ultimo_tramo_no_se_llama_holdout(db):
+    """El nombre importa. Este es el último tramo de la ventana que se mira
+    ENTERA para elegir, así que no prueba nada por sí solo — el holdout de
+    verdad quedó fuera del período (app/ai/prudencia.py). Llamarlo `holdout`
+    acá haría creer que la prueba independiente ya se vio, que es exactamente
+    lo que la reserva existe para evitar."""
     from app.ai.tools.backtest import _estabilidad
 
     f = _fechas(40)
     valores = [(d, 0.5) for d in f[:30]] + [(d, -0.2) for d in f[30:]]
 
     est = _estabilidad(_datos_ic(valores))["tramos"]["1"]
-    assert est["ic_holdout"] == pytest.approx(-0.2)
+    assert est["ic_ultimo_tramo"] == pytest.approx(-0.2)
+    assert "ic_holdout" not in est
 
 
 def test_con_pocas_fechas_no_inventa_tramos(db):

@@ -167,6 +167,235 @@ def run_backtest(strategy_id: int, config=None, owner_id=None,
     return run_id
 
 
+def resolver_componentes(s, components: list[dict]) -> dict[int, float]:
+    """[{"signal_key", "weight"}] → {signal_id: peso}.
+
+    Por key y no por id: la key es el identificador del formato de packs, y es
+    lo único que ve quien arma una variante o un borrador desde afuera del
+    repositorio.
+    """
+    from app.models import SignalDefinition
+    from app.services.strategy_service import parse_component_weight
+
+    if not components:
+        raise ValueError("Indicá al menos un componente.")
+
+    pesos: dict[int, float] = {}
+    for c in components:
+        clave = str(c.get("signal_key") or "").strip()
+        if not clave:
+            raise ValueError("Cada componente necesita un signal_key.")
+        sig = s.query(SignalDefinition).filter(
+            db_compat.ci_equals(SignalDefinition.key, clave)).first()
+        if sig is None:
+            raise ValueError(f"No existe la señal '{clave}'.")
+        pesos[sig.id] = parse_component_weight(c.get("weight"))
+    return pesos
+
+
+def leer_valores_de_senales(s, signal_ids, date_from=None,
+                            date_to=None) -> dict:
+    """{(date, asset_id): {signal_id: valor}} en el rango (bordes opcionales).
+
+    Se lee por `read_sig_table`, que es el despacho que anda con la tabla ancha
+    y con las per-señal. `load_wide_signal_scores` sería un scan menos, pero
+    solo existe en modo ancho: con el flag apagado esto quedaría roto, y son
+    unos pocos componentes — la diferencia no paga saltear la abstracción.
+    """
+    por_par: dict = defaultdict(dict)
+    for sid in signal_ids:
+        rt = signal_store.read_sig_table(s, sid)
+        q = sa.select(rt.c.date, rt.c.asset_id, rt.c.score).where(
+            rt.c.score.isnot(None))
+        if date_from:
+            q = q.where(rt.c.date >= a_fecha(date_from))
+        if date_to:
+            q = q.where(rt.c.date <= a_fecha(date_to))
+        for d, aid, val in s.execute(q).all():
+            por_par[(d, aid)][sid] = float(val)
+    return por_par
+
+
+def rango_de_senales(s, signal_ids) -> tuple:
+    """(primera, última) fecha con dato entre esas señales, o (None, None).
+
+    Es la historia REALMENTE disponible para medir un borrador, y por eso es
+    de donde sale el corte del holdout: reservar "el último cuarto" contra un
+    calendario inventado no reservaría nada.
+    """
+    d0 = d1 = None
+    for sid in signal_ids:
+        rt = signal_store.read_sig_table(s, sid)
+        fila = s.execute(
+            sa.select(sa.func.min(rt.c.date), sa.func.max(rt.c.date))
+            .where(rt.c.score.isnot(None))).first()
+        if not fila or fila[0] is None:
+            continue
+        d0 = fila[0] if d0 is None else min(d0, fila[0])
+        d1 = fila[1] if d1 is None else max(d1, fila[1])
+    return d0, d1
+
+
+def combinar_componentes(pesos: dict[int, float], valores_por_par: dict,
+                         pares=None) -> list[tuple]:
+    """[(date, asset_id, score)] — el score ponderado de un juego de componentes.
+
+    MISMA semántica que el motor real (`strategy_service._compute_asset_score`):
+    promedio ponderado con divisor Σ|peso|, y los componentes sin dato se
+    SALTEAN en vez de contar como cero.
+
+    `pares` restringe la salida a esos (date, asset_id): es por donde entra la
+    elegibilidad, venga heredada de una estrategia materializada (los pares que
+    ya tiene puntuados) o calculada al vuelo con
+    `strategy_filter.eligible_by_dates`. Sin `pares` puntúa todo par que tenga
+    al menos un componente con dato, que es exactamente lo que hace el motor
+    real cuando la estrategia no tiene filtro.
+
+    Vive acá y no repetida en cada llamador porque la semántica del score es la
+    definición misma de "estrategia": dos caminos que la calculen distinto
+    darían rankings distintos para la misma configuración, y la diferencia
+    aparecería recién al comparar un borrador contra la estrategia ya creada.
+    """
+    filas = []
+    for par in (valores_por_par if pares is None else pares):
+        disponibles = valores_por_par.get(par)
+        if not disponibles:
+            continue
+        num = tot = 0.0
+        for sid, w in pesos.items():
+            v = disponibles.get(sid)
+            if v is None:
+                continue        # se saltea, no cuenta como cero
+            num += v * w
+            tot += abs(w)
+        if tot:
+            filas.append((par[0], par[1], round(num / tot, 4)))
+    return filas
+
+
+def cobertura_por_componente(pesos: dict[int, float], valores_por_par: dict,
+                             pares=None) -> dict[int, float]:
+    """{signal_id: % de los pares puntuados que tienen dato de esa señal}.
+
+    No es un adorno. Como los componentes sin dato se SALTEAN y el divisor se
+    achica, un activo al que le falta la mitad de las señales igual puntúa
+    —renormalizado sobre lo que sí tiene— y sistemáticamente termina MEJOR
+    rankeado que uno completo, mientras que el filtro de elegibilidad lo
+    excluiría. Es el hallazgo de la ronda de indicadores 0098, y sin este
+    número quien lee el backtest no tiene forma de detectarlo: el IC sale
+    igual de lindo.
+    """
+    total = 0
+    con_dato = {sid: 0 for sid in pesos}
+    for par in (valores_por_par if pares is None else pares):
+        disponibles = valores_por_par.get(par)
+        if not disponibles:
+            continue
+        total += 1
+        for sid in pesos:
+            if disponibles.get(sid) is not None:
+                con_dato[sid] += 1
+    if not total:
+        return {sid: 0.0 for sid in pesos}
+    return {sid: round(n / total * 100, 2) for sid, n in con_dato.items()}
+
+
+def draft_score_rows(components: list[dict], filter_conditions=None,
+                     config=None, date_step: int = 1, progress_cb=None) -> dict:
+    """Los puntajes de una estrategia que **no existe**, calculados en memoria.
+
+    Devuelve {"score_rows": [(date, asset_id, score)], "cobertura", "config",
+    "date_step"}. Separado del backtest porque los mismos puntajes alimentan
+    dos motores distintos —el de cuantiles/IC (nivel A) y el de cartera top-N
+    (nivel C)— y calcularlos dos veces sería pagar dos veces la parte cara: la
+    evaluación del filtro fecha por fecha.
+
+    `filter_conditions`: el árbol JSON de siempre (§6 del SPEC de packs), o
+    None para rankear a todo el que tenga dato.
+
+    `date_step`: quedarse con una fecha de cada N. Las cross-sections de días
+    consecutivos están casi perfectamente correlacionadas, así que el IC medio
+    no se mueve — y el costo del filtro, que es una query por operando y por
+    fecha, baja proporcionalmente. Es la perilla para que un borrador con
+    filtro sobre años de historia no se vuelva impagable.
+    """
+    from app.services import strategy_filter
+
+    cfg = normalize_config(config)
+    s = get_session()
+
+    pesos = resolver_componentes(s, components)
+    por_par = leer_valores_de_senales(s, pesos, cfg["date_from"], cfg["date_to"])
+    if not por_par:
+        raise ValueError(
+            "Ninguna de esas señales tiene valores en el período. Revisá que "
+            "las señales tengan historia calculada (Centro de Datos → Señales "
+            "y Estrategias) y que el rango de fechas no sea anterior a ella.")
+
+    paso = max(1, int(date_step))
+    fechas = sorted({d for d, _aid in por_par})[::paso]
+
+    tree = strategy_filter.parse_tree(filter_conditions)
+    elegibles = strategy_filter.eligible_by_dates(
+        s, tree, fechas, asset_ids={aid for _d, aid in por_par},
+        progress_cb=progress_cb)
+
+    # Se itera sobre los pares CON DATO y no sobre fechas × activos: el
+    # producto cartesiano a 10k activos es de millones de tuplas que en su
+    # mayoría no existen. El paso de fechas queda aplicado solo, porque una
+    # fecha salteada no está en `elegibles`.
+    pares = [(d, aid) for (d, aid) in por_par if aid in elegibles.get(d, ())]
+    if not pares:
+        raise ValueError(
+            "El filtro no dejó pasar ningún activo en ninguna fecha del "
+            "período. Revisá las condiciones: un dato faltante cuenta como "
+            "condición NO cumplida.")
+
+    score_rows = combinar_componentes(pesos, por_par, pares)
+    if not score_rows:
+        raise ValueError(
+            "Ningún activo elegible tiene valor en alguno de los componentes.")
+
+    # La cobertura se devuelve por KEY y no por signal_id: quien pidió el
+    # borrador escribió keys, y un id interno no le dice nada.
+    from app.models import SignalDefinition
+    keys = {r.id: r.key for r in s.query(SignalDefinition.id,
+                                         SignalDefinition.key)
+            .filter(SignalDefinition.id.in_(list(pesos))).all()}
+    cobertura = {keys.get(sid, str(sid)): pct for sid, pct in
+                 cobertura_por_componente(pesos, por_par, pares).items()}
+
+    return {"score_rows": score_rows, "cobertura": cobertura, "config": cfg,
+            "date_step": paso}
+
+
+def compute_draft_backtest(components: list[dict], filter_conditions=None,
+                           config=None, date_step: int = 1,
+                           progress_cb=None) -> dict:
+    """Backtestea una estrategia que **no existe**: componentes y filtro sueltos.
+
+    Es el nivel A sin estrategia. `compute_variant_backtest` ya combinaba
+    señales al vuelo, pero heredaba de una estrategia materializada los pares
+    (fecha, activo) elegibles — así que sin ninguna estrategia creada no había
+    forma de medir una idea, y con la base recién instalada la IA quedaba sin
+    nada que ofrecer. Acá la elegibilidad se calcula con
+    `strategy_filter.eligible_by_dates`, que es el mismo filtro del motor real
+    evaluado fecha por fecha.
+
+    Devuelve lo mismo que `compute_backtest` más `cobertura`. **No escribe
+    nada**: no hay estrategia, no hay tabla, no queda rastro.
+    """
+    t0 = time.time()
+    borrador = draft_score_rows(components, filter_conditions, config,
+                                date_step, progress_cb)
+    datos = _computar(get_session(), None, borrador["config"], progress_cb,
+                      score_rows=borrador["score_rows"])
+    datos["duration_seconds"] = time.time() - t0
+    datos["cobertura"] = borrador["cobertura"]
+    datos["date_step"] = borrador["date_step"]
+    return datos
+
+
 def compute_variant_backtest(strategy_id: int, components: list[dict],
                              config=None, progress_cb=None) -> dict:
     """Backtestea una VARIANTE de una estrategia **sin materializarla**.
@@ -194,62 +423,20 @@ def compute_variant_backtest(strategy_id: int, components: list[dict],
     `compute_backtest`, para poder compararlos lado a lado. Los dos se calculan
     sobre el MISMO panel de precios: la parte cara se paga una sola vez.
     """
-    from app.models import SignalDefinition
-    from app.services.strategy_service import parse_component_weight
-
-    if not components:
-        raise ValueError("Indicá al menos un componente.")
-
     cfg = normalize_config(config)
     s = get_session()
     t0 = time.time()
 
     base_rows = leer_scores(s, strategy_id, cfg)
-
-    # Componentes → (signal_id, peso). La key es el identificador del formato
-    # de packs, así que es lo que ve y escribe quien arma la variante.
-    pesos: dict[int, float] = {}
-    for c in components:
-        clave = str(c.get("signal_key") or "").strip()
-        if not clave:
-            raise ValueError("Cada componente necesita un signal_key.")
-        sig = s.query(SignalDefinition).filter(
-            db_compat.ci_equals(SignalDefinition.key, clave)).first()
-        if sig is None:
-            raise ValueError(f"No existe la señal '{clave}'.")
-        pesos[sig.id] = parse_component_weight(c.get("weight"))
+    pesos = resolver_componentes(s, components)
 
     d0 = min(d for d, _a, _s in base_rows)
     d1 = max(d for d, _a, _s in base_rows)
-
-    # Se lee por `read_sig_table`, que es el despacho que anda con la tabla
-    # ancha y con las per-señal. `load_wide_signal_scores` sería un scan menos,
-    # pero solo existe en modo ancho: con el flag apagado esto quedaría roto, y
-    # son unos pocos componentes — la diferencia no paga saltear la abstracción.
-    por_par: dict = defaultdict(dict)
-    for sid in pesos:
-        rt = signal_store.read_sig_table(s, sid)
-        q = (sa.select(rt.c.date, rt.c.asset_id, rt.c.score)
-             .where(rt.c.score.isnot(None),
-                    rt.c.date >= a_fecha(d0), rt.c.date <= a_fecha(d1)))
-        for d, aid, val in s.execute(q).all():
-            por_par[(d, aid)][sid] = float(val)
+    por_par = leer_valores_de_senales(s, pesos, d0, d1)
 
     # Solo los pares que la base tiene puntuados: ahí está su elegibilidad.
-    variante_rows = []
-    for d, aid, _sc in base_rows:
-        disponibles = por_par.get((d, aid))
-        if not disponibles:
-            continue
-        num = tot = 0.0
-        for sid, w in pesos.items():
-            v = disponibles.get(sid)
-            if v is None:
-                continue        # se saltea, no cuenta como cero
-            num += v * w
-            tot += abs(w)
-        if tot:
-            variante_rows.append((d, aid, round(num / tot, 4)))
+    variante_rows = combinar_componentes(
+        pesos, por_par, [(d, aid) for d, aid, _sc in base_rows])
 
     if not variante_rows:
         raise ValueError(

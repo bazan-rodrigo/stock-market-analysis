@@ -461,6 +461,62 @@ def evaluate_tree_bulk(tree: dict, asset_ids, operand_values: dict[tuple, dict],
     return current
 
 
+def eligible_by_dates(session, tree: dict | None, dates, asset_ids=None,
+                      progress_cb=None) -> dict:
+    """{fecha: set(asset_id)} — el filtro de elegibilidad evaluado en CADA
+    fecha de `dates`.
+
+    Existe para poder evaluar la elegibilidad de una estrategia que **no está
+    materializada**. El backtest de una estrategia ya creada la lee gratis de
+    su propia tabla —un activo tiene score en una fecha si y solo si pasó el
+    filtro ese día—, pero un borrador no tiene tabla de dónde leerla, y sin
+    esto la única opción sería crear la estrategia para poder medirla.
+
+    Es el mismo par de pasos que `strategy_service.compute_strategy_results`
+    hace para UN día (`load_operand_values` + `evaluate_tree_bulk`), repetido
+    sobre el rango. Los atributos del activo se cargan **una sola vez**: no
+    dependen de la fecha, y recargarlos por día sería la query más cara del
+    barrido sin cambiar un solo resultado.
+
+    OJO CON EL COSTO: `load_operand_values` hace una query por operando
+    distinto, y acá corre una vez por fecha — un árbol de cuatro operandos
+    sobre mil fechas son cuatro mil queries. Acotar el barrido es
+    responsabilidad del llamador, y es la razón del paso de fechas de las
+    herramientas de borrador (medir cada N ruedas en vez de todas).
+
+    `tree=None` (sin filtro) devuelve el universo entero en todas las fechas,
+    que es exactamente lo que hace el motor real: sin filtro, la estrategia
+    rankea a todo el que tenga dato.
+    """
+    fechas = list(dates)
+    if not fechas:
+        return {}
+
+    # Los atributos de TODOS los activos en una query, y el recorte a los
+    # pedidos en Python. Un IN con miles de ids es peor que traer una tabla de
+    # una fila por activo, y a 10k activos el IN además se vuelve ilegible para
+    # el planner.
+    asset_groups = {a.id: attributes_from_asset_row(a)
+                    for a in asset_attributes_query(session).all()}
+    if asset_ids is not None:
+        pedidos = {int(a) for a in asset_ids}
+        asset_groups = {aid: attrs for aid, attrs in asset_groups.items()
+                        if aid in pedidos}
+    universo = set(asset_groups)
+
+    if tree is None or not universo:
+        return {d: set(universo) for d in fechas}
+
+    salida: dict = {}
+    for i, d in enumerate(fechas):
+        operand_values = load_operand_values(session, tree, d)
+        salida[d] = evaluate_tree_bulk(tree, universo, operand_values,
+                                       asset_groups)
+        if progress_cb:
+            progress_cb(i + 1, len(fechas), "fechas")
+    return salida
+
+
 # ── Detección de operandos sin historia ──────────────────────────────────────
 #
 # Un indicador keep_history=False no tiene tabla ind_* — a fecha pasada solo
