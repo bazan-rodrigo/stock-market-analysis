@@ -126,6 +126,46 @@ def test_estrategia_sin_historia_marca_error(bt_db):
     assert "Recalcular completo" in run.error
 
 
+def test_piso_de_precios_recorta_la_cabeza_sin_cambiar_los_retornos(bt_db):
+    """El piso de fecha en la query de precios es una OPTIMIZACIÓN, y como tal
+    tiene que ser invisible en el resultado.
+
+    Se verifica en los dos sentidos, porque cada uno solo, solo, engaña: que la
+    cabeza efectivamente se recorte (si no, no hay optimización y el test
+    pasaría igual sin el filtro) y que los retornos de las fechas puntuadas
+    sean idénticos con y sin recorte (si no, la optimización miente).
+    """
+    from app.services import backtest_service as bs
+
+    dates = _trading_dates(60)
+    _seed(dates)
+    s = get_session()
+
+    puntuadas = dates[40:]
+    score_rows = [(d, aid, 100.0) for d in puntuadas for aid in (1, 2)]
+
+    base = {"horizons": [1, 5], "lag": 1, "n_quantiles": 2, "min_assets": 2}
+    sin_piso = bs.normalize_config(base)
+    con_piso = bs.normalize_config({**base,
+                                    "date_from": puntuadas[0].isoformat()})
+
+    completo = bs._retornos_forward(s, score_rows, sin_piso, None)
+    recortado = bs._retornos_forward(s, score_rows, con_piso, None)
+
+    # 1. La cabeza se recorta de verdad (40 ruedas menos por activo).
+    assert dates[0] in completo[1][0]
+    assert dates[0] not in recortado[1][0]
+    assert min(recortado[1][0]) == puntuadas[0]
+
+    # 2. …y aun así cada fecha puntuada da exactamente el mismo retorno. Es la
+    # propiedad que autoriza el recorte: los retornos miran hacia adelante.
+    for aid in (1, 2):
+        pos_c, fwd_c = completo[aid]
+        pos_r, fwd_r = recortado[aid]
+        for d in puntuadas:
+            assert fwd_c[pos_c[d]] == fwd_r[pos_r[d]]
+
+
 def test_normalize_config_valida():
     from app.services.backtest_service import normalize_config
 

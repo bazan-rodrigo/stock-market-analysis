@@ -349,11 +349,18 @@ def _retornos_forward(s, score_rows, cfg, progress_cb) -> dict:
     salida: dict = {}
     done = 0
     for batch in _chunks(asset_ids, _ASSET_BATCH):
-        price_rows = (s.query(Price.asset_id, Price.date, Price.close)
-                      .filter(Price.asset_id.in_(batch),
-                              Price.close.isnot(None))
-                      .order_by(Price.asset_id, Price.date)
-                      .all())
+        q = (s.query(Price.asset_id, Price.date, Price.close)
+             .filter(Price.asset_id.in_(batch), Price.close.isnot(None)))
+        # PISO SÍ, TECHO NO — y la asimetría es la parte importante. Los
+        # retornos son FORWARD: ningún precio anterior a date_from se usa
+        # jamás, así que recortar la cabeza no puede cambiar un resultado
+        # (medido: sin esto, una corrida acotada a 2025 leía 50 años de
+        # precios para usar 1,6). Un techo, en cambio, truncaría en silencio
+        # la ventana futura del horizonte más largo: el retorno a 60 días de
+        # la última fecha necesita precios POSTERIORES a date_to.
+        if cfg["date_from"]:
+            q = q.filter(Price.date >= a_fecha(cfg["date_from"]))
+        price_rows = q.order_by(Price.asset_id, Price.date).all()
         prices_by_asset = defaultdict(list)
         for aid, d, c in price_rows:
             prices_by_asset[aid].append((d, float(c)))
