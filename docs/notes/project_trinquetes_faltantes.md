@@ -1,11 +1,11 @@
 ---
 name: project-trinquetes-faltantes
-description: "Relevamiento de huecos de trinquete (1-ago-2026): #2, #3, #4, #5 y #6 CERRADOS (destaparon 4 bugs vivos); queda abierto solo el #1, el espejo JS de simulateTrades"
+description: "Relevamiento de huecos de trinquete (1-ago-2026): LOS SEIS CERRADOS al 3-ago, y destaparon 4 bugs vivos. El #1 (espejo JS) salió mucho más barato que mi estimación, que la hice sin mirar el código"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 022a1659-e3a1-43ba-8580-b5a5499c6b9f
-  modified: 2026-08-03T02:39:48.010Z
+  modified: 2026-08-03T04:51:28.342Z
 ---
 
 Relevado el **1-ago-2026** a pedido del usuario ("los trinquetes sirven para
@@ -23,21 +23,38 @@ un ejemplo JSON inválido, porque parsea el artefacto.
 
 ---
 
-### 1. El espejo JS del simulador de trades — EL MÁS GRAVE
+### 1. El espejo JS del simulador — **CERRADO (3-ago-2026, a800101)**
 
-CLAUDE.md llama a la homologación "la regla principal del módulo" y **no tiene
-red automatizada**. Verificado: `tests/test_trade_simulator.py` corre
-`fixtures/trade_simulator_cases.json` contra **Python solamente**;
-`chart_callbacks.py:1616` solo tiene un *comentario* que menciona el archivo;
-no hay `package.json` ni jest ni intérprete JS en las dependencias.
+`tests/test_trade_simulator_js.py` **ejecuta** el JS con `dukpy` (Duktape
+embebido) sobre los mismos 35 casos. **Salió mucho más barato de lo que yo
+mismo había estimado acá** ("el más caro de los cuatro"): estimé sin revisar el
+código. Revisado, tres cosas jugaban a favor y conviene recordarlas:
 
-Una divergencia en `window._lwc.simulateTrades` produce un gráfico que miente
-sobre los trades y nada la detecta. Depende enteramente de que la persona se
-acuerde de tocar los dos archivos.
+- el bloque es **ES5 estricto** (cero arrow/let/const/template literals), así
+  que cualquier intérprete embebido lo corre sin transpilar;
+- **cero interpolaciones de f-string** adentro, así que el fuente se recorta y
+  se des-duplican las llaves mecánicamente, sin renderizar nada;
+- las firmas ya coincidían: `simulate_trades(closes, scores, spec, percentiles)`
+  contra `simulateTrades(closes, scores, spec, percentiles)`.
 
-**Arreglo:** extraer la función JS del string de Python y correrla con un
-intérprete embebido (`dukpy`, `quickjs`) sobre los mismos fixtures. Dependencia
-de test, no de producción. Es el más caro de los cuatro.
+`dukpy` instaló con **rueda cp312 win_amd64**, sin compilador. El riesgo que yo
+anticipaba (que no hubiera wheel) no se materializó.
+
+**Decisiones que valen para trinquetes futuros:**
+- Se compara contra **Python**, no contra `expected`. El fixture solo fija
+  entry_idx/exit_idx/reason; comparar las dos implementaciones entre sí agrega
+  entry_close/exit_close/ret — donde una divergencia pasaría desapercibida
+  porque los marcadores caerían bien y el retorno mentiría.
+- El JS se recorta por **centinelas** `/* <homologacion:simulateTrades> */`, no
+  por "hasta la próxima función" (frágil) ni importando el módulo (arrastra
+  media app y `yfinance`, que no está en esta PC).
+- La des-duplicación `{{`→`{` **solo es válida sin interpolaciones**, así que el
+  test lo VERIFICA en vez de suponerlo: si alguien mete un `{variable}` adentro,
+  falla explicando que hay que renderizar `_JS_RENDER`, en vez de correr un
+  JavaScript corrupto y dar un resultado sin sentido.
+
+Cobertura medida del contrato: 33 de 35 casos producen trades, 51 trades, 133
+valores no nulos comparados, **11 razones de salida distintas**.
 
 ### 3. Nombres de tablas dropeadas que sobreviven — **CERRADO (2-ago, da06060)**
 
