@@ -95,3 +95,26 @@ def test_purge_de_no_componente_no_se_bloquea():
 
     assert purge_assets(s, [7131]) == 1
     assert s.get(Asset, 7131) is None
+
+
+def test_el_alcance_del_purge_incluye_las_tablas_anchas():
+    """Las anchas de señales/estrategias NO tienen FK a assets (deliberado) y
+    tampoco empiezan con `sig_`/`strat_res_`, así que no las alcanza ni el
+    ON DELETE CASCADE ni el barrido por prefijo. Si se caen de esta lista,
+    borrar un activo le deja los scores y los rankings huérfanos para siempre
+    — que es lo que pasaba hasta el 2-ago-2026.
+    """
+    from app.database import Base, engine, get_session
+    import app.models  # noqa: F401
+    from app.models import signal_store
+    from app.services.asset_service import tablas_de_historia_por_activo
+
+    Base.metadata.create_all(engine)
+    signal_store.ensure_wide_signal_tables(bind=engine)
+    s = get_session()
+
+    alcance = tablas_de_historia_por_activo(s)
+    assert signal_store.SIG_WIDE_TABLE in alcance
+    assert signal_store.STRAT_WIDE_TABLE in alcance
+    # Y las de siempre no se perdieron en el camino.
+    assert "prices" in alcance and "current_indicator_values" in alcance

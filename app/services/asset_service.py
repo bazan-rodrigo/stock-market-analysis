@@ -26,6 +26,30 @@ _HIGH_VOLUME_ASSET_TABLES = (
 _DELETE_BATCH = 5000
 
 
+def tablas_de_historia_por_activo(s) -> tuple[str, ...]:
+    """Tablas con filas por `asset_id` que hay que borrar A MANO, porque no las
+    alcanza ni el ON DELETE CASCADE ni el descubrimiento por prefijo.
+
+    Las anchas de señales y estrategias caen justo en ese hueco: no tienen FK a
+    assets (deliberado, ver `signal_store.ensure_wide_signal_tables`) y no
+    empiezan con `sig_`/`strat_res_`, así que el barrido dinámico no las ve.
+    Sin ellas acá, borrar un activo le dejaba los scores y los rankings
+    huérfanos para siempre — exactamente el hueco que el cutover a tablas
+    anchas (0094) ya había abierto en `cleanup_service`.
+
+    Se filtra por existencia: una base anterior a la 0091 no las tiene y el
+    DELETE fallaría, convirtiendo un borrado de activo en un error.
+    """
+    import sqlalchemy as sa
+
+    from app.models import signal_store
+
+    insp = sa.inspect(s.connection())
+    anchas = [t for t in (signal_store.SIG_WIDE_TABLE,
+                          signal_store.STRAT_WIDE_TABLE) if insp.has_table(t)]
+    return (*_HIGH_VOLUME_ASSET_TABLES, *anchas)
+
+
 def _bloquear_si_es_componente(s, ids: list[int]) -> None:
     """ValueError si algún id es componente de un sintético fuera del lote.
 
@@ -103,7 +127,7 @@ def purge_assets(s, asset_ids, progress_cb=None) -> int:
             "WHERE table_schema = DATABASE() AND (table_name LIKE 'ind\\_%' "
             "OR table_name LIKE 'sig\\_%' "
             "OR table_name LIKE 'strat\\_res\\_%')")).all()]
-        tables = (*_HIGH_VOLUME_ASSET_TABLES, *dyn)
+        tables = (*tablas_de_historia_por_activo(s), *dyn)
         total  = len(tables) + 1  # +1: el DELETE final de assets (cascade)
         for i, tbl in enumerate(tables):
             if progress_cb:
@@ -129,7 +153,7 @@ def purge_assets(s, asset_ids, progress_cb=None) -> int:
         # tabla acota la transacción igual que los lotes en InnoDB.
         id_list = ", ".join(str(i) for i in ids)
         dyn = db_compat.list_tables_by_prefix(s, "ind_", "sig_", "strat_res_")
-        tables = (*_HIGH_VOLUME_ASSET_TABLES, *dyn)
+        tables = (*tablas_de_historia_por_activo(s), *dyn)
         total  = len(tables) + 1
         for i, tbl in enumerate(tables):
             if progress_cb:
