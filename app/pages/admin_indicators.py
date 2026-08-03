@@ -37,8 +37,7 @@ def layout(**kwargs):
         page_header("Indicadores del Sistema", "configuracion-indicadores", className="mb-1"),
         html.P(
             "Indicadores técnicos disponibles como input para las señales. "
-            "Se calculan automáticamente a partir del historial de precios "
-            "y se almacenan en indicator_values.",
+            "Se calculan automáticamente a partir del historial de precios.",
             className="text-muted mb-3",
             style={"fontSize": "0.83rem"},
         ),

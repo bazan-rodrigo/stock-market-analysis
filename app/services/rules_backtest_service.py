@@ -68,7 +68,8 @@ def aggregate_rules_results(per_asset):
 def run_rules_backtest(strategy_id, spec, *, progress_cb=None):
     """Orquesta el fan-out sobre el universo de la estrategia (toca BD).
 
-    Enumera los activos con score en strat_res_{id}, corre el simulador por
+    Enumera los activos con score de la estrategia (`read_strat_table`), corre
+    el simulador por
     activo con `spec` y agrega. Devuelve el dict de `aggregate_rules_results`.
     """
     import sqlalchemy as sa

@@ -148,7 +148,7 @@ def layout(**kwargs):
         dbc.Card(dbc.CardBody([
             html.P([
                 html.Strong("Señales: ", style={"color": "#e5e7eb"}),
-                "fórmulas que transforman indicadores técnicos (de indicator_values) en scores "
+                "fórmulas que transforman indicadores técnicos en scores "
                 "normalizados de −100 a +100. Usá ",
                 html.Strong('"Ejecutar pipeline"', style={"color": COLOR_INFO}),
                 " para calcular señales → estrategias para la fecha seleccionada. "

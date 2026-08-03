@@ -136,7 +136,8 @@ def compute_signal_values(target_date: date_type,
                           latest_price_date: date_type | None = None) -> int:
     """
     Calcula los scores de señal de target_date para todos los activos y
-    los upsertea en las tablas sig_{id} (una por señal).
+    los upsertea en `signal_values_wide` (una columna por señal; con el flag
+    de anchas apagado, en la tabla `sig_{id}` de cada una).
     Lee valores desde cada tabla ind_{code} por separado.
 
     only_signal_ids acota el cálculo a un subconjunto (alcance por señal o
@@ -232,11 +233,11 @@ def compute_signal_values(target_date: date_type,
             s, signal_store.SIG_WIDE_TABLE, cols,
             signal_store.sig_wide_rows(sv_by_sig, signal_ids))
         s.commit()
-        logger.info("signal_service: %d signal_value escritos para %s",
+        logger.info("signal_service: %d valores de señal escritos para %s",
                     written, target_date)
         return written
 
-    # Cada señal escribe en su propia tabla sig_{id} (upsert de la fecha)
+    # Camino per-entidad (flag apagado): cada señal escribe en su sig_{id}
     by_sig: dict[int, dict[int, float]] = {}
     for (sig_id, asset_id), score in scores.items():
         by_sig.setdefault(sig_id, {})[asset_id] = score
@@ -263,7 +264,7 @@ def compute_signal_values(target_date: date_type,
         written += len(asset_scores)
 
     s.commit()
-    logger.info("signal_service: %d signal_value escritos para %s", written, target_date)
+    logger.info("signal_service: %d valores de señal escritos para %s", written, target_date)
     return written
 
 

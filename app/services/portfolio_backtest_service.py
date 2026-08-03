@@ -1,7 +1,8 @@
 """
 Orquestación del backtest de cartera (nivel C).
 
-Arma el cross-section del universo (scores de `strat_res_{id}` + retornos de
+Arma el cross-section del universo (scores de la estrategia, leídos por
+`signal_store.read_strat_table` + retornos de
 precios), computa la elegibilidad por-activo corriendo `trade_simulator`, y corre
 los dos sub-modos (`simulate_topn` ranking-puro y `simulate_gated`) más el
 benchmark EW, con los KPIs de `portfolio_metrics`.

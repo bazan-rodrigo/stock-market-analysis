@@ -125,12 +125,10 @@ def classify_table(name: str) -> str:
             "indicator_update_log"):
         return "Indicadores"
     if n.startswith("sig_") or n in (
-            "signal", "signal_value", "signal_eval_log",
-            "signal_values_wide"):
+            "signal", "signal_eval_log", "signal_values_wide"):
         return "Señales"
     if n.startswith("strat_res_") or n in (
-            "strategy", "strategy_component", "strategy_result",
-            "strategy_results_wide"):
+            "strategy", "strategy_component", "strategy_results_wide"):
         return "Estrategias"
     if n.startswith("fundamental"):
         return "Fundamentales"

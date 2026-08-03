@@ -1,11 +1,18 @@
 """
-Almacenamiento de señales y estrategias por tabla separada.
+Almacenamiento de señales y estrategias.
 
-Cada señal tiene su tabla `sig_{id}` (asset_id, date, score) y cada
-estrategia su `strat_res_{id}` (asset_id, date, score, pct) — mismo patrón
-que los indicadores (`ind_{code}`): recalcular una unidad es TRUNCATE de su
-tabla + insertar en vacío, sin borrar-e-insertar dentro de tablas pobladas
-(medido 3-5× más caro) y sin contención entre unidades.
+HOY, y por default: **tablas anchas** — `signal_values_wide` con una columna
+`sig_{id}` por señal y `strategy_results_wide` con dos por estrategia. El
+cutover se hizo en la 0093/0094, que además DROPEÓ las tablas per-entidad de
+las bases existentes. Para leer se usa `read_sig_table` / `read_strat_table`,
+que despachan según el flag; ver la sección de tablas anchas más abajo.
+
+El modelo PER-ENTIDAD que describe el resto de este módulo —una tabla
+`sig_{id}` por señal y una `strat_res_{id}` por estrategia— sigue vivo detrás
+de `USE_WIDE_SIGNAL_TABLES=0` y es el que ejercita la suite. Su ventaja era
+que recalcular una unidad es TRUNCATE de su tabla + insertar en vacío, sin
+borrar-e-insertar dentro de tablas pobladas (medido 3-5× más caro) y sin
+contención entre unidades.
 
 Las tablas se nombran por ID INMUTABLE, nunca por key: la key de una señal
 es editable desde el ABM y el DDL de MySQL no es transaccional (commit

@@ -16,10 +16,11 @@ cálculo para un RANGO de fechas con:
   <= fecha, tope 45 días, valores NULL excluidos).
 - Escrituras en bloque por chunk: DELETE de las fechas procesadas (acotado
   al alcance) + INSERT masivo, un commit por chunk.
-- Una tabla por señal (sig_{id}) y por estrategia (strat_res_{id}), ver
-  app.models.signal_store: el rebuild que cubre toda la historia limpia
-  con TRUNCATE por tabla (inserción siempre sobre tablas vacías — insertar
-  en pobladas midió 3-5× más caro) y las unidades no compiten entre sí.
+- Escritura por `app.models.signal_store`, que despacha entre las tablas
+  ANCHAS (default: una columna por señal/estrategia) y las per-entidad
+  sig_{id}/strat_res_{id} del flag apagado: el rebuild que cubre toda la
+  historia limpia con TRUNCATE (inserción siempre sobre vacío — insertar en
+  pobladas midió 3-5× más caro) y las unidades no compiten entre sí.
 
 La MATEMÁTICA no vive acá: los evaluadores compartidos
 (_evaluate_asset_signal_scores, rank_strategy_assets) son los mismos que usa

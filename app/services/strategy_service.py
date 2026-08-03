@@ -1,8 +1,10 @@
 """
 Servicio de estrategias.
 Combina los scores de señal ponderados según la configuración de
-strategy_component y persiste el score final + ranking en strat_res_{id}
-(una tabla por estrategia, ver app.models.signal_store).
+strategy_component y persiste el score final + ranking en
+`strategy_results_wide` (una COLUMNA de score y otra de percentil por
+estrategia; la lectura va por `signal_store.read_strat_table`, que despacha
+según el flag de tablas anchas).
 """
 import logging
 from datetime import date as date_type
