@@ -80,8 +80,34 @@ estrategia:
 - **La distancia en σ a la media óptima no es monótona** (premia el retroceso
   sano y castiga tanto el estiramiento como el quiebre). Invertirla con peso
   negativo no da "momentum": premia los dos extremos a la vez.
-- Los umbrales son **puntos de partida de manual**, no valores optimizados ni
-  recomendación de inversión.
+- **El retorno del mes y el del trimestre son el MISMO número durante el primer
+  mes de cada trimestre** (enero, abril, julio, octubre): los dos miden desde la
+  última rueda anterior al 1º, que para esos meses coincide. El resto del año
+  tampoco son independientes —el trimestre contiene al mes—, así que usarlos
+  juntos es doble peso al mismo factor.
+- Los umbrales son **puntos de partida de manual**, salvo cinco señales
+  —`rvol_daily` y los cuatro retornos— **calibradas sobre la distribución real**
+  de una instalación de 498 activos, con los cortes en los percentiles 5 y 95
+  medidos. Ninguno es óptimo ni recomendación de inversión.
+
+### Qué se aprendió calibrando
+
+Vale para cualquier umbral que toques después:
+
+- **Lo que importa es cuánto satura, no dónde queda el promedio.** El ranking es
+  transversal, así que un puntaje sistemáticamente negativo le resta lo mismo a
+  todos y no cambia el orden. Lo que sí destruye orden es el recorte: con la
+  escala vieja, el retorno del año dejaba **un tercio** de los activos pegados
+  en ±100. Apuntar a ~10% de saturación total (los percentiles 5 y 95) deja la
+  masa ordenándose.
+- **La excepción es la cobertura parcial.** Ahí el promedio sí importa: si una
+  señal vale −58 para el activo mediano y el 4% de los activos no tiene el dato,
+  ese 4% se ahorra los −58 y gana el ranking por carecer del dato. Por eso
+  `rvol_daily` pasó a tramos centrados en su mediana: con promedio cero, el
+  regalo se achica.
+- **Una cola larga pide tramos, no rango lineal.** El volumen relativo tiene
+  mediana 1 y máximo medido 162: cualquier `range` que cubra ese extremo aplasta
+  todo lo demás contra el cero.
 
 ### Cobertura parcial: la trampa que hay que mirar
 

@@ -387,37 +387,37 @@
     {
       "key": "return_monthly",
       "name": "Retorno del mes en curso",
-      "description": "Retorno desde el 1º del mes calendario: +10% o más +100, −10% o menos −100. Se reinicia cada mes, así que a principio de mes casi no discrimina.",
+      "description": "Retorno desde el 1º del mes calendario: +18% o más +100, −13% o menos −100. La escala es asimétrica porque la distribución también lo es, y sale de los percentiles 5 y 95 medidos sobre un mes completo. Dos advertencias: se reinicia cada mes, así que a principio de mes casi no discrimina; y durante el PRIMER mes de cada trimestre (enero, abril, julio y octubre) esta señal y la trimestral miden exactamente lo mismo, porque las dos arrancan en la misma rueda.",
       "indicator_key": "return_monthly",
       "formula_type": "range",
-      "params": { "min": -10, "max": 10, "clamp": true },
+      "params": { "min": -13, "max": 18, "clamp": true },
       "publica": true
     },
     {
       "key": "return_quarterly",
       "name": "Retorno del trimestre en curso",
-      "description": "Retorno desde el inicio del trimestre calendario: +15% o más +100, −15% o menos −100. También se reinicia, con el mismo efecto al principio del trimestre.",
+      "description": "Retorno desde el inicio del trimestre calendario: +18% o más +100, −13% o menos −100. También se reinicia, con el mismo efecto al principio del trimestre. Ojo al combinarla con la mensual: durante el primer mes de cada trimestre las dos arrancan en la misma rueda y son el MISMO número, y el resto del tiempo la trimestral contiene a la mensual — usarlas juntas es ponerle doble peso al mismo factor.",
       "indicator_key": "return_quarterly",
       "formula_type": "range",
-      "params": { "min": -15, "max": 15, "clamp": true },
+      "params": { "min": -13, "max": 18, "clamp": true },
       "publica": true
     },
     {
       "key": "return_yearly",
       "name": "Retorno del año en curso",
-      "description": "Retorno desde el 1º de enero —no los últimos doce meses—: +25% o más +100, −25% o menos −100.",
+      "description": "Retorno desde el 1º de enero —no los últimos doce meses—: +52% o más +100, −35% o menos −100. La escala sale de los percentiles 5 y 95 medidos con el año ya avanzado; con ±25, que era lo anterior, un tercio de los activos quedaba pegado en ±100 y dejaba de ordenar. Es la que más sufre el reinicio de calendario: en enero casi no discrimina y en diciembre recorta más de lo estimado.",
       "indicator_key": "return_yearly",
       "formula_type": "range",
-      "params": { "min": -25, "max": 25, "clamp": true },
+      "params": { "min": -35, "max": 52, "clamp": true },
       "publica": true
     },
     {
       "key": "return_52w",
       "name": "Retorno de 52 semanas",
-      "description": "Retorno de los últimos doce meses, con escala asimétrica porque la distribución también lo es: +80% +100, −20% −100. Es el momentum clásico; para una estrategia de reversión, peso negativo.",
+      "description": "Retorno de los últimos doce meses, con escala asimétrica porque la distribución también lo es: +85% +100, −38% −100 (percentiles 5 y 95 medidos). La asimetría anterior —−20/+80— estaba inclinada para el lado equivocado y recortaba el doble abajo que arriba. Es el momentum clásico y, a diferencia de los retornos de calendario, su ventana no se reinicia: la escala vale todo el año. Para una estrategia de reversión, peso negativo.",
       "indicator_key": "return_52w",
       "formula_type": "range",
-      "params": { "min": -20, "max": 80, "clamp": true },
+      "params": { "min": -38, "max": 85, "clamp": true },
       "publica": true
     },
     {
@@ -441,10 +441,20 @@
     {
       "key": "rvol_daily",
       "name": "Volumen relativo diario",
-      "description": "Volumen de la rueda sobre el promedio de las 20 anteriores: 3 veces lo normal +100, la mitad −100. Cobertura parcial — los sintéticos y las conversiones de moneda no tienen volumen propio y quedan sin puntaje, y una señal sin puntaje NO castiga: se reparten los pesos entre las demás y el activo sin dato termina mejor rankeado. Si la usás, pedí volumen también en el filtro de elegibilidad.",
+      "description": "Volumen de la rueda sobre el promedio de las 20 anteriores. Los tramos están anclados en la distribución real y son simétricos alrededor de la mediana, así que el puntaje promedio de la señal es cero: el 10% que más opera saca +100 y el 10% que menos, −100. Es a tramos y no lineal porque el ratio tiene cola derecha larguísima (se midió un máximo de 162 contra una mediana de 1) y cualquier escala lineal quedaría dominada por ese extremo. Cobertura parcial — los sintéticos y las conversiones de moneda no tienen volumen propio y quedan sin puntaje, y una señal sin puntaje NO castiga: se reparten los pesos entre las demás y el activo sin dato termina mejor rankeado. Que el promedio sea cero limita ese regalo, pero no lo elimina: si la usás, pedí volumen también en el filtro de elegibilidad.",
       "indicator_key": "rvol_daily",
-      "formula_type": "range",
-      "params": { "min": 0.5, "max": 3, "clamp": true },
+      "formula_type": "threshold",
+      "params": {
+        "thresholds": [
+          [2.1, 100],
+          [1.3, 60],
+          [1.13, 25],
+          [0.92, 0],
+          [0.76, -25],
+          [0.5, -60],
+          [null, -100]
+        ]
+      },
       "publica": true
     },
     {

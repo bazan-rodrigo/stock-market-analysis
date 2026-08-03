@@ -80,6 +80,15 @@ da momentum**, premia los dos extremos a la vez.
 activos. Si tu estrategia se apoya en ellos, tenelo en cuenta al leer el ranking
 los primeros días.
 
+Y hay un caso que sorprende a todo el mundo: **durante el primer mes de cada
+trimestre —enero, abril, julio y octubre— el retorno del mes y el del trimestre
+son el mismo número.** No es un error: los dos miden desde la última rueda
+anterior al 1º, y para julio esa rueda es la misma que para el trimestre. El
+resto del año tampoco son independientes, porque el trimestre contiene al mes.
+**Usar las dos en una misma estrategia es ponerle doble peso al mismo factor**;
+si querés las dos escalas de tiempo, combiná el retorno del mes con el de 52
+semanas, que sí miden cosas distintas.
+
 ## La trampa de la cobertura
 
 Una señal sin valor **no castiga al activo**: el promedio de la estrategia se
@@ -107,16 +116,21 @@ descripción.
 
 ## De dónde salen los umbrales
 
-Los cortes de cada señal —dónde empieza a puntuar +100, dónde −100— son
-**puntos de partida de manual**: valores razonables de la literatura, no
-percentiles medidos sobre los activos de esta instalación. Sirven para arrancar
-y para comparar estrategias entre sí, pero no son óptimos ni recomendación de
-inversión.
+La mayoría son **puntos de partida de manual**: valores razonables de la
+literatura. Cinco no: el volumen relativo y los cuatro retornos están
+**calibrados sobre la distribución real** de los activos de esta instalación,
+con los cortes puestos en los percentiles 5 y 95 medidos.
 
-Ajustarlos con datos es un trabajo aparte: hay que mirar cómo se reparte cada
-indicador entre los activos y correr un [backtest](/manual/backtest) antes de
-tomar el cambio por bueno. Y cuidado con una cosa: **cambiar los parámetros de
-una señal no recalcula lo ya guardado**. La historia sigue con la definición
-anterior hasta que corras un recálculo completo desde el
-[Centro de Datos](/manual/centro-de-datos), y hasta entonces un backtest estaría
-midiendo la versión vieja.
+La diferencia importa y se ve en un número: con la escala anterior, el retorno
+del año dejaba a **un tercio de los activos pegados en ±100**, o sea que un
+tercio del universo dejaba de ordenarse entre sí en ese componente — sin que
+nada diera error. Ese es el modo de fallar que hay que vigilar: una señal mal
+escalada no se rompe, se queda muda.
+
+Ninguno de los dos grupos es óptimo ni recomendación de inversión. Ajustar el
+resto es el mismo trabajo: mirar cómo se reparte el indicador entre los activos
+y correr un [backtest](/manual/backtest) antes de tomar el cambio por bueno.
+Y cuidado con una cosa: **cambiar los parámetros de una señal no recalcula lo ya
+guardado**. La historia sigue con la definición anterior hasta que corras un
+recálculo completo desde el [Centro de Datos](/manual/centro-de-datos), y hasta
+entonces un backtest estaría midiendo la versión vieja.
