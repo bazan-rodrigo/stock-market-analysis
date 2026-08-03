@@ -8,9 +8,13 @@ page: /acerca
 ---
 
 **[Acerca de](/acerca)** es la página de presentación del sitio: un resumen
-de qué hace el sistema —diseño de señales sobre indicadores, estrategias,
+de qué hace el sistema —catálogo de señales sobre indicadores, estrategias,
 backtesting y seguimiento— y de los datos de contexto sobre los que trabaja
 (precios, fundamentales, eventos, sintéticos y herramientas de análisis).
+
+También presenta la posibilidad de conectar tu propia inteligencia artificial
+y qué puede consultar con ella, que está explicado en detalle en
+[Conexión IA](/manual/conexion-ia).
 
 Es la **única página pública** de la aplicación: se puede ver **sin iniciar
 sesión**. Se llega desde el link *«¿Qué es este sistema? Conocé de qué se

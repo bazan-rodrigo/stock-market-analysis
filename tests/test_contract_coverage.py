@@ -220,6 +220,34 @@ def test_toda_familia_de_herramientas_esta_descrita_en_el_manual():
         f"faltar: el usuario las pide y no están.")
 
 
+def test_el_brochure_publicita_todas_las_familias_de_ia():
+    """La tercera cara de la misma regla, para la página pública.
+
+    El manual le cuenta qué puede hacer su IA a quien YA tiene usuario; el
+    brochure (/acerca) es lo único que se lo cuenta a quien todavía no lo
+    tiene. Una capacidad que nadie sabe que existe no vende nada, y una que la
+    página promete pero el registro ya no tiene es peor: se pide y no está.
+
+    Se lee el AST por lo mismo que `_literal`: importar la página dispara
+    `register_page`.
+    """
+    from app.ai import registry
+
+    caps = _literal(ROOT / "app" / "pages" / "brochure.py", "_IA_CAPACIDADES")
+    publicitadas = {c["familia"] for c in caps}
+    en_uso = {t.familia for t in registry.all_tools()}
+
+    sin_publicitar = sorted(en_uso - publicitadas)
+    assert not sin_publicitar, (
+        f"familias de herramientas que el brochure no menciona: "
+        f"{sin_publicitar}. La IA puede hacerlo y quien mira la página no se "
+        f"entera: sumalas a _IA_CAPACIDADES en app/pages/brochure.py.")
+
+    de_mas = sorted(publicitadas - en_uso)
+    assert not de_mas, (
+        f"el brochure promete capacidades de IA que ya no existen: {de_mas}.")
+
+
 def test_las_familias_declaradas_estan_en_el_vocabulario():
     """Un typo en `familia=` crearía una familia fantasma. El constructor de
     Tool ya lo rechaza; esto fija que el vocabulario no se pueble solo."""
