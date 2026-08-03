@@ -5,7 +5,13 @@ chapter: 7. Configuración
 order: 790
 roles: analista
 page: /ia
+# familias_ia lo lee tests/test_contract_coverage.py: tiene que coincidir con
+# las familias que declaran las herramientas registradas (app/ai/registry.py).
+# Si se estrena una capacidad, va descrita en "Qué puede hacer la IA" y sumada
+# acá; si no, falla la suite. No se muestra al lector.
+familias_ia: catalogo, indicadores, ranking, backtest, carteras, manual
 ---
+
 
 Podés conectar tu propia cuenta de inteligencia artificial —Claude, ChatGPT o
 cualquier otra que sepa conectarse a herramientas externas— para preguntarle en
@@ -87,6 +93,23 @@ Puede **leer** exactamente lo que vos podrías ver entrando a la aplicación:
   activos quedaría recortado.
 - El manual, para explicarte cómo funciona cada cálculo de este sistema en
   particular.
+
+También puede **calcular**, sin guardar nada:
+
+- **Backtestear una estrategia** contra la historia y contarte cómo le fue, sin
+  que la corrida quede registrada. Incluso puede probar una **variante** —otros
+  pesos, otros componentes— sin crear ninguna estrategia nueva: se evalúa sobre
+  la misma elegibilidad que la original, así que la diferencia aísla el efecto
+  del cambio. Y puede leerte los resultados de las corridas que sí guardaste
+  desde la pantalla.
+- **Simular una cartera hipotética** a partir de una lista de activos y pesos,
+  sin crearla, y ver el rendimiento de las que ya tenés.
+
+En los dos casos te va a mostrar los números **por tramos de tiempo** además del
+promedio. No es un adorno: una estrategia que anduvo bárbaro en un tramo y mal
+en los otros no es una buena estrategia, es una casualidad bien contada, y el
+promedio sola la tapa. Probar diez variantes y quedarse con la mejor es la forma
+más fácil de engañarse — ver [Backtest](/manual/backtest).
 
 Y **no puede**:
 

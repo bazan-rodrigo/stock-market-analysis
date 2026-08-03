@@ -84,6 +84,7 @@ def _por_tramos(datos: dict, n: int = _TRAMOS) -> list | None:
 
 @tool(
     name="list_portfolios",
+    familia="carteras",
     description=(
         "Las carteras que podés ver (públicas más las tuyas; un administrador "
         "las ve todas). Hay dos tipos: 'real' (con registro de operaciones, su "
@@ -117,6 +118,7 @@ def list_portfolios(caller: AiCaller, limit: int | None = None) -> dict:
 
 @tool(
     name="get_portfolio_performance",
+    familia="carteras",
     description=(
         "La composición de una cartera y cómo le fue: retorno total, CAGR, "
         "volatilidad, Sharpe, Sortino y máxima caída, más los mismos números "
@@ -161,6 +163,7 @@ def get_portfolio_performance(caller: AiCaller, portfolio_id: int) -> dict:
 
 @tool(
     name="simulate_portfolio",
+    familia="carteras",
     description=(
         "Simula una cartera hipotética a partir de una lista de tickers y "
         "pesos, y devuelve cómo habría andado: retorno, CAGR, volatilidad, "

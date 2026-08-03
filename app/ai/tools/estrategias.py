@@ -32,6 +32,7 @@ def _estrategia_visible(caller: AiCaller, strategy_id: int):
 
 @tool(
     name="list_strategies",
+    familia="catalogo",
     description=(
         "Las estrategias que podés ver (públicas más las tuyas; un "
         "administrador las ve todas). Devuelve el id de cada una, que es lo "
@@ -88,6 +89,7 @@ def list_strategies(caller: AiCaller, limit: int | None = None) -> dict:
 
 @tool(
     name="strategy_ranking",
+    familia="ranking",
     description=(
         "El ranking de una estrategia en una fecha: los activos ordenados por "
         "su puntaje, del mejor al peor. Sin fecha usa la última calculada. El "
@@ -148,6 +150,7 @@ def strategy_ranking(caller: AiCaller, strategy_id: int,
 
 @tool(
     name="strategy_score_history",
+    familia="ranking",
     description=(
         "Cómo evolucionó el puntaje de una estrategia para uno o más activos. "
         "Sirve para ver si un activo viene mejorando o deteriorándose. Acotá "

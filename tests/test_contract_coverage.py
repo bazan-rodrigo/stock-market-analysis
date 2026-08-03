@@ -175,3 +175,55 @@ def test_el_catalogo_publica_el_vocabulario_desde_las_fuentes_unicas():
         assert atributo in fuente, (
             f"build_catalog no publica {atributo}: quien arma un pack sin ver "
             f"el código se quedaría sin esa parte del vocabulario")
+
+
+# ── Lo que la IA puede hacer, y lo que el manual dice que puede ────────────────
+
+def test_toda_familia_de_herramientas_esta_descrita_en_el_manual():
+    """La otra cara de la regla, para la capa de IA: una capacidad que el
+    usuario no sabe que tiene es una capacidad que no existe.
+
+    `test_manual_coverage.py` ata PANTALLAS ↔ manual, y las herramientas de IA
+    no son pantallas: quedaban fuera de toda red. El resultado medido fue que
+    la sección describía 8 de 15 herramientas —sin mencionar que la IA corre
+    backtests y simula carteras— durante días, sin que nada fallara.
+
+    El puente son las familias (registry.FAMILIAS) y no los nombres técnicos:
+    el manual lo lee alguien que no programa, así que enumerar
+    `run_backtest_preview` ahí sería jerga. Las dos listas se derivan: una de
+    las herramientas registradas, la otra del front-matter de la sección.
+    """
+    from app.ai import registry
+    from app.services import manual_service
+
+    ruta = Path(__file__).resolve().parent.parent / "docs" / "manual"
+    archivos = [p for p in ruta.glob("*.md")
+                if "conexion-ia" in manual_service.parse_front_matter(
+                    p.read_text(encoding="utf-8"))[0].get("slug", "")]
+    assert archivos, "no existe la sección conexion-ia del manual"
+
+    meta, _ = manual_service.parse_front_matter(
+        archivos[0].read_text(encoding="utf-8"))
+    declaradas = {f.strip() for f in (meta.get("familias_ia") or "").split(",")
+                  if f.strip()}
+    en_uso = {t.familia for t in registry.all_tools()}
+
+    sin_documentar = sorted(en_uso - declaradas)
+    assert not sin_documentar, (
+        f"familias de herramientas que el manual no describe: "
+        f"{sin_documentar}. La IA puede hacerlo y el usuario no se entera: "
+        f"describilo en la sección Conexión IA y sumalo a `familias_ia`.")
+
+    de_mas = sorted(declaradas - en_uso)
+    assert not de_mas, (
+        f"el manual promete capacidades que ya no existen: {de_mas}. Peor que "
+        f"faltar: el usuario las pide y no están.")
+
+
+def test_las_familias_declaradas_estan_en_el_vocabulario():
+    """Un typo en `familia=` crearía una familia fantasma. El constructor de
+    Tool ya lo rechaza; esto fija que el vocabulario no se pueble solo."""
+    from app.ai import registry
+
+    fuera = sorted({t.familia for t in registry.all_tools()} - registry.FAMILIAS)
+    assert not fuera, f"familias fuera de FAMILIAS: {fuera}"

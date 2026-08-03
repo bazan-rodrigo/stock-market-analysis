@@ -18,6 +18,7 @@ _TOPE_HORIZONTES = 4
 
 @tool(
     name="list_backtest_runs",
+    familia="backtest",
     description=(
         "Los backtests ya guardados de una estrategia, del más reciente al más "
         "viejo, con su configuración y el período analizado. Un backtest "
@@ -61,6 +62,7 @@ def list_backtest_runs(caller: AiCaller, strategy_id: int,
 
 @tool(
     name="get_backtest_results",
+    familia="backtest",
     description=(
         "El resultado de un backtest guardado: rendimiento medio por cuantil y "
         "horizonte, más el resumen del IC (correlación entre el puntaje y el "
@@ -201,6 +203,7 @@ def _resumen_ic(datos: dict) -> dict:
 
 @tool(
     name="backtest_strategy_variant",
+    familia="backtest",
     description=(
         "Prueba una VARIANTE de una estrategia —otros componentes u otros "
         "pesos— y la compara con la original, sin crear nada. Contesta '¿y si "
@@ -292,6 +295,7 @@ def backtest_strategy_variant(caller: AiCaller, strategy_id: int,
 
 @tool(
     name="run_backtest_preview",
+    familia="backtest",
     description=(
         "Corre un backtest de cuantiles y devuelve el resultado SIN guardarlo. "
         "Sirve para explorar: probar otro horizonte o período no deja rastro "

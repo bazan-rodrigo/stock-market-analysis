@@ -10,6 +10,7 @@ from app.ai.caller import AiCaller
 
 @tool(
     name="get_catalog",
+    familia="catalogo",
     description=(
         "Catálogo de esta instalación: indicadores disponibles con su tipo, "
         "categoría y valores posibles; sectores, mercados, países e industrias "
@@ -54,6 +55,7 @@ def get_catalog(caller: AiCaller) -> dict:
 
 @tool(
     name="list_signals",
+    familia="catalogo",
     description=(
         "Las señales que podés ver (públicas más las tuyas; un administrador "
         "las ve todas), con su fórmula y sus parámetros. Una señal traduce un "
@@ -89,6 +91,7 @@ def list_signals(caller: AiCaller, limit: int | None = None) -> dict:
 
 @tool(
     name="indicator_distribution",
+    familia="indicadores",
     description=(
         "Cómo se reparte un indicador entre TODOS los activos en una fecha: "
         "percentiles, mínimo, máximo y cobertura (cuántos activos tienen el "

@@ -32,12 +32,37 @@ class HerramientaDesconocida(KeyError):
     """Nombre que no está en el registro. La allowlist es el registro."""
 
 
+# Familias de capacidad: el vocabulario con el que el MANUAL le cuenta al
+# usuario qué puede hacer la IA con su token (docs/manual/790-conexion-ia.md,
+# clave `familias_ia` de su front-matter). Cada herramienta declara la suya y
+# `tests/test_contract_coverage.py` exige que las dos listas coincidan.
+#
+# Por qué existe: el manual no puede enumerar herramientas por su nombre
+# técnico —lo lee alguien que no programa—, así que sin este puente la única
+# garantía de que esté al día es que la persona se acuerde. Y no se acordó: la
+# sección estuvo describiendo 8 de 15 herramientas durante días, sin mencionar
+# que la IA corre backtests y simula carteras.
+#
+# Estrenar una familia rompe la suite hasta que el manual la describa. Es
+# deliberado: una capacidad nueva que el usuario no sabe que tiene es una
+# capacidad que no existe.
+FAMILIAS = frozenset({
+    "catalogo",     # qué existe: indicadores, señales, estrategias
+    "indicadores",  # cómo se reparten los datos entre activos
+    "ranking",      # resultados ya calculados de una estrategia
+    "backtest",     # medir una estrategia contra la historia, sin persistir
+    "carteras",     # ver carteras y simular hipotéticas, sin crearlas
+    "manual",       # el manual de esta instalación
+})
+
+
 @dataclass(frozen=True)
 class Tool:
     name: str
     description: str
     input_schema: dict          # JSON Schema del objeto de argumentos
     handler: Callable
+    familia: str = ""           # una de FAMILIAS — obligatoria, ver `tool()`
     scope: str = SCOPE_READ
     max_rows: int | None = None   # None = no devuelve listas de filas
 
@@ -46,21 +71,32 @@ class Tool:
             raise ValueError(
                 f"{self.name}: max_rows={self.max_rows} supera el tope global "
                 f"de {MAX_ROWS_TOPE}")
+        if self.familia not in FAMILIAS:
+            raise ValueError(
+                f"{self.name}: familia={self.familia!r} no está en FAMILIAS "
+                f"({', '.join(sorted(FAMILIAS))}). Toda herramienta declara a "
+                f"qué capacidad pertenece, porque es como el manual se la "
+                f"cuenta al usuario. Si de verdad es una capacidad nueva, "
+                f"sumala a FAMILIAS y describila en la sección Conexión IA.")
 
 
 _REGISTRO: dict[str, Tool] = {}
 
 
-def tool(*, name: str, description: str, input_schema: dict,
+def tool(*, name: str, description: str, input_schema: dict, familia: str,
          scope: str = SCOPE_READ, max_rows: int | None = None):
-    """Decorador de registro. El handler recibe `(caller, **argumentos)`."""
+    """Decorador de registro. El handler recibe `(caller, **argumentos)`.
+
+    `familia` es obligatoria y sin default: elegirla es lo que ata la
+    herramienta nueva a su párrafo del manual (ver FAMILIAS).
+    """
 
     def deco(fn: Callable) -> Callable:
         if name in _REGISTRO:
             raise ValueError(f"herramienta duplicada: {name}")
         _REGISTRO[name] = Tool(name=name, description=description,
                                input_schema=input_schema, handler=fn,
-                               scope=scope, max_rows=max_rows)
+                               familia=familia, scope=scope, max_rows=max_rows)
         return fn
 
     return deco

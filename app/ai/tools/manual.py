@@ -35,6 +35,7 @@ def _nivel(caller: AiCaller) -> int:
 
 @tool(
     name="search_manual",
+    familia="manual",
     description=(
         "Busca en el manual de usuario del sistema. Consultalo ANTES de "
         "explicar cómo funciona algo: acá están las reglas propias de esta "
@@ -73,6 +74,7 @@ def search_manual(caller: AiCaller, query: str, limit: int | None = None) -> dic
 
 @tool(
     name="read_manual_section",
+    familia="manual",
     description=(
         "El texto completo de una sección del manual, por su slug (lo devuelve "
         "search_manual). Usalo cuando el fragmento de la búsqueda no alcance."
