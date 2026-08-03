@@ -41,7 +41,7 @@
 - [Promover cartera hereda la config gated](project_hallazgo_promover_cartera.md) — congela la corrida gated como `PortfolioRun` y la vincula (0095). **PENDIENTE: verificar el flujo vivo**
 - [Manual de usuario web](project_manual_usuario.md) — 59 secciones en `docs/manual/`, filtradas por rol; los tests atan el manual al código. **El modo invitado se ELIMINÓ**: login siempre obligatorio
 - [Sistema de diseño único de UI](project_sistema_diseno_ui.md) — `ui_constants` como sistema global + `test_ui_consistency.py`. **`custom.css` y `dark_theme.js` = ZONA INTOCABLE**
-- [Grillas a 10.000 activos — todo en ag-grid](project_grillas_10k.md) — 20 grillas migradas, cero `dash_table.DataTable`. Ojo ag-grid 35: hace falta `theme: "legacy"`. Falta ejercitar borrar/editar
+- [Grillas a 10.000 activos — todo en ag-grid](project_grillas_10k.md) — 20 grillas migradas, cero `dash_table.DataTable`. Ojo ag-grid 35: hace falta `theme: "legacy"`. **CERRADO: borrar/editar validado en Railway el 3-ago**
 - [Resiliencia/monitoreo de corridas](project_resiliencia_corridas.md) — bug del rebuild interrumpido arreglado + `run_history` persistida (0096). DIFERIDO: build-and-swap y el chequeo de cobertura
 - [Reinicio TOTAL a fábrica](project_reset_fabrica.md) — botón + `--reset` que dejan la base como recién instalada. **VERIFICADO en Railway**
 - [Carga masiva de activos](project_carga_masiva_alto_volumen.md) — import Excel en 2 fases + redescarga global por el camino batch compartido

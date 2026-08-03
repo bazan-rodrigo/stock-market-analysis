@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 8b4c25e3-14d8-4e35-98b2-896513d5e1b5
-  modified: 2026-07-27T02:08:23.412Z
+  modified: 2026-08-03T04:28:00.630Z
 ---
 
 Sesión 26-jul-2026. Arrancó como pregunta ("¿tendríamos algún beneficio usando
@@ -190,10 +190,10 @@ render que se habían anotado: el tema **sí** aplica (`theme: "legacy"` +
 `assets/ag_grid.css` funcionan: las grillas salen oscuras, no blancas) y los
 renderers propios dibujan (barra de score y enlaces del ticker).
 
-Lo que la confirmación visual NO cubre y sigue sin ejercitarse: los caminos
-FUNCIONALES de selección — marcar checkbox y apretar los botones destructivos
-(/prices, fundamental), editar/borrar en los ABMs de catálogo, y el
-borrado/recálculo en /admin/synthetic, que es donde hubo cambio estructural
-(se removió el array paralelo de ids indexado por posición). No son riesgo de
-render sino de mapeo fila→id, y el modo de falla del checkbox es seguro: sin
-selección los botones quedan deshabilitados.
+**BORRAR Y EDITAR: VALIDADO (3-ago-2026)** — el usuario lo confirmó en Railway.
+Era lo único que la verificación visual del 27-jul no cubría: el mapeo fila→id
+de los caminos de selección (checkbox + botones destructivos, los ABMs de
+catálogo, y el borrado/recálculo de /admin/synthetic, donde hubo cambio
+estructural — se removió el array paralelo de ids indexado por posición).
+**El hilo de las grillas queda cerrado**: render y caminos funcionales, los dos
+ejercitados contra la app viva.
