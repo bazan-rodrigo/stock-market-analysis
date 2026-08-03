@@ -64,6 +64,7 @@ def build_navbar() -> dbc.Navbar:
                     dbc.DropdownMenuItem("Señales",              href="/admin/signals"),
                     dbc.DropdownMenuItem("Estrategias",          href="/admin/strategies"),
                     dbc.DropdownMenuItem("Packs (importar)",     href="/admin/packs"),
+                    dbc.DropdownMenuItem("Calibración de señales", href="/admin/calibracion"),
                     dbc.DropdownMenuItem("Carteras",             href="/carteras"),
                     dbc.DropdownMenuItem(divider=True),
                     dbc.DropdownMenuItem("Indicadores",          href="/admin/indicators"),
@@ -104,6 +105,7 @@ def build_navbar() -> dbc.Navbar:
                 children=[
                     dbc.DropdownMenuItem("Señales",     href="/admin/signals"),
                     dbc.DropdownMenuItem("Estrategias", href="/admin/strategies"),
+                    dbc.DropdownMenuItem("Calibración de señales", href="/admin/calibracion"),
                     dbc.DropdownMenuItem("Carteras",    href="/carteras"),
                 ],
                 nav=True, in_navbar=True,

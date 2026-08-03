@@ -523,12 +523,37 @@ def _score_axis(fig):
                      range=[-115, 115], zeroline=True)
 
 
-def preview_figure(ftype: str, store: dict):
+def _fondo_real(fig, dist: dict | None) -> None:
+    """Dibuja por detrás de la curva dónde están los activos DE VERDAD.
+
+    Sin esto la vista previa muestra la fórmula en el vacío: se elige un min y
+    un max sin saber si cortan por donde hay activos o por donde no hay nadie.
+    Va en un eje Y propio (cantidad de activos) para no competir con el de
+    score, y con opacidad baja porque es contexto, no el sujeto del gráfico.
+    """
+    h = (dist or {}).get("histograma") or {}
+    bordes, conteos = h.get("bins") or [], h.get("conteos") or []
+    if not conteos:
+        return
+    centros = [(bordes[i] + bordes[i + 1]) / 2 for i in range(len(conteos))]
+    ancho = (bordes[1] - bordes[0]) if len(bordes) > 1 else 1
+    fig.add_bar(x=centros, y=conteos, width=ancho, yaxis="y2",
+                marker=dict(color=TEXT_FAINT), opacity=0.55,
+                hovertemplate="valor %{x:.4g}<br>%{y} activos<extra></extra>")
+    fig.update_layout(yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                                  showticklabels=False, rangemode="tozero"))
+
+
+def preview_figure(ftype: str, store: dict, dist: dict | None = None):
     """Figura de vista previa para el tipo de fórmula con los parámetros
-    cargados (aunque estén incompletos: muestra lo que se pueda)."""
+    cargados (aunque estén incompletos: muestra lo que se pueda).
+
+    `dist` es la distribución real del indicador elegido (opcional): se dibuja
+    de fondo para que los cortes se elijan mirando dónde están los activos."""
     import plotly.graph_objects as go
     from app.components.ui_constants import (
         COLOR_NEGATIVE, COLOR_NEUTRAL, COLOR_POSITIVE, COLOR_RANGE,
+        COLOR_WARNING,
     )
 
     store = store or empty_params_store()
@@ -548,6 +573,7 @@ def preview_figure(ftype: str, store: dict):
             xs = [vmin - pad, vmax + pad]
             ys = [((x - vmin) / span) * 200 - 100 for x in xs]
         fig = _preview_base_figure()
+        _fondo_real(fig, dist)
         fig.add_scatter(x=xs, y=ys, mode="lines",
                         line=dict(color=COLOR_RANGE, width=2),
                         hovertemplate="valor %{x:.4g} → score %{y:.0f}<extra></extra>")
@@ -582,6 +608,7 @@ def preview_figure(ftype: str, store: dict):
             xs += [edges[i], edges[i + 1], None]
             ys += [s, s, None]
         fig = _preview_base_figure()
+        _fondo_real(fig, dist)
         fig.add_scatter(x=xs, y=ys, mode="lines",
                         line=dict(color=COLOR_POSITIVE, width=2),
                         hovertemplate="score %{y:.0f}<extra></extra>")
@@ -601,8 +628,18 @@ def preview_figure(ftype: str, store: dict):
                                  "las barras.")
         cats = [r["cat"] for r in rows]
         scores = [r["score"] for r in rows]
+        # Categorías que existen en los datos y el mapa NO cubre: ahí la señal
+        # queda MUDA (no vale cero: se saltea y renormaliza los pesos de la
+        # estrategia a favor de ese activo). Se agregan al eje como huecos.
+        reales = [c["valor"] for c in ((dist or {}).get("categorias") or [])]
+        faltantes = [c for c in reales if c not in cats]
+        if faltantes:
+            cats = cats + faltantes
+            scores = scores + [0] * len(faltantes)
         colors = [COLOR_POSITIVE if s > 0 else COLOR_NEGATIVE if s < 0
                   else COLOR_NEUTRAL for s in scores]
+        for i in range(len(cats) - len(faltantes), len(cats)):
+            colors[i] = COLOR_WARNING          # sin mapear = la señal no puntúa
         fig = _preview_base_figure()
         fig.add_bar(x=cats, y=scores, marker=dict(color=colors),
                     hovertemplate="%{x} → score %{y:.0f}<extra></extra>")
@@ -652,10 +689,11 @@ PB_FIELD_INPUTS = [
     Input("sig-f-formula-type",  "value"),
     Input("sig-params-advanced", "value"),
     Input("sig-pb-store",        "data"),
+    Input("sig-dist-store",      "data"),
     *PB_FIELD_INPUTS,
     State("sig-pb-store", "data"),
 )
-def update_preview(ftype, advanced, _store_trigger, *rest):
+def update_preview(ftype, advanced, _store_trigger, dist, *rest):
     field_args, (store,) = rest[:-1], rest[-1:]
     if advanced:
         return _preview_note("Vista previa no disponible en modo avanzado.")
@@ -665,7 +703,7 @@ def update_preview(ftype, advanced, _store_trigger, *rest):
     # estructura (uids). Tras un cambio estructural el render recrea los
     # controles y este callback vuelve a disparar con los valores frescos.
     store = pb_capture_from_args(store, field_args)
-    return preview_figure(ftype, store)
+    return preview_figure(ftype, store, dist)
 
 
 # ── Modo avanzado: sincronizar builder → textarea al activarlo ───────────────

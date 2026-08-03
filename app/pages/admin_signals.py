@@ -144,6 +144,10 @@ def layout(**kwargs):
         dcc.Store(id="sig-editing-id",   data=None),
         dcc.Store(id="sig-pb-store",     data=None),
         dcc.Store(id="sig-pb-opts",      data={}),
+        # Distribución real del indicador elegido, para el fondo de la
+        # vista previa. Se cachea acá y no se recalcula con cada tecla
+        # del min/max: sin esto cada pulsación iría a la base.
+        dcc.Store(id="sig-dist-store",   data=None),
 
         dbc.Card(dbc.CardBody([
             html.P([

@@ -136,8 +136,10 @@ pegados en el tope al final: comprimir solo le baja el peso, recortar destruye
 el orden.
 
 Ninguno de los dos grupos es óptimo ni recomendación de inversión. Ajustar el
-resto es el mismo trabajo: mirar cómo se reparte el indicador entre los activos
-y correr un [backtest](/manual/backtest) antes de tomar el cambio por bueno.
+resto es el mismo trabajo, y hay una pantalla para hacerlo:
+[Calibración](/manual/calibracion-de-senales) muestra dónde se reparte cada
+indicador entre los activos y cuánto recortaría la escala que estés probando.
+Después, un [backtest](/manual/backtest) antes de tomar el cambio por bueno.
 Y cuidado con una cosa: **cambiar los parámetros de una señal no recalcula lo ya
 guardado**. La historia sigue con la definición anterior hasta que corras un
 recálculo completo desde el [Centro de Datos](/manual/centro-de-datos), y hasta

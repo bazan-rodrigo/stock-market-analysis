@@ -1,4 +1,5 @@
 import base64
+import logging
 
 from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 
@@ -12,6 +13,9 @@ from app.callbacks.signal_params_ui import (
     PB_FIELD_STATES, builder_from_params, empty_params_store,
     params_from_builder, pb_capture_from_args,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _usernames_by_id() -> dict:
@@ -100,6 +104,54 @@ def update_buttons(selected_ids):
 
 # ── Modal: abrir / cerrar ─────────────────────────────────────────────────────
 
+def _abrir_desde_url(search: str | None):
+    """Abre el editor con la señal de la query string y, si vienen, con el
+    min/max propuestos desde Calibración.
+
+    Devuelve la misma tupla de 14 que `toggle_modal`. Si la key no existe o no
+    es visible, no pasa nada: una URL a mano no tiene por qué abrir un modal
+    vacío.
+    """
+    import json
+
+    from app.components.url_params import (
+        float_param_from_search, text_param_from_search,
+    )
+
+    _noup = no_update
+    _noop = (_noup,) * 14
+
+    key = text_param_from_search(search, "editar")
+    if not key:
+        return _noop
+    sig = next((x for x in _visible_signals()
+                if (x.key or "").lower() == key.lower()), None)
+    if sig is None:
+        return _noop
+
+    propuestos = {c: float_param_from_search(search, c) for c in ("min", "max")}
+    propuestos = {c: v for c, v in propuestos.items() if v is not None}
+    params_txt = sig.params
+    if propuestos:
+        try:
+            p = json.loads(sig.params or "{}")
+            p.update(propuestos)
+            params_txt = json.dumps(p, ensure_ascii=False)
+        except (ValueError, TypeError):
+            params_txt = sig.params
+
+    pb_store = builder_from_params(sig.formula_type, params_txt)
+    return (
+        True, "Editar señal — escala traída de Calibración (sin guardar)",
+        sig.key, True,
+        sig.name, sig.indicator_key,
+        sig.formula_type, sig.description or "", bool(sig.is_public),
+        params_txt,
+        pb_store if pb_store is not None else empty_params_store(),
+        pb_store is None,
+        sig.id, False,
+    )
+
 @callback(
     Output("sig-modal",         "is_open"),
     Output("sig-modal-title",   "children"),
@@ -118,13 +170,21 @@ def update_buttons(selected_ids):
     Input("sig-btn-add",        "n_clicks"),
     Input("sig-btn-cancel",     "n_clicks"),
     Input("sig-btn-edit",       "n_clicks"),
+    Input("url",                "search"),
     State("sig-selected-ids",   "data"),
     prevent_initial_call=True,
 )
-def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
+def toggle_modal(n_add, n_cancel, n_edit, search, selected_ids):
     trigger = ctx.triggered_id
     _noup = no_update
     _noop = (_noup,) * 14  # 14 outputs totales
+
+    if trigger == "url":
+        # Llegada desde Calibración: /admin/signals?editar=<key>&min=&max=.
+        # Abre esta señal con la escala propuesta YA CARGADA pero SIN guardar —
+        # la pantalla de calibración no escribe, y guardar sigue siendo un acto
+        # deliberado acá, con su validación y su dueño.
+        return _abrir_desde_url(search)
 
     if trigger == "sig-btn-cancel":
         # is_open=False, resto sin cambio, editing_id=None, error=False
@@ -435,3 +495,36 @@ def compute_history(_, selected_ids, days):
         return "", msg, True, ("warning" if n_err else "success")
     except Exception as exc:
         return "", str(exc), True, "danger"
+
+
+# ── Distribución real del indicador (fondo de la vista previa) ────────────────
+
+@callback(
+    Output("sig-dist-store", "data"),
+    Input("sig-f-indicator-key", "value"),
+    prevent_initial_call=True,
+)
+def cargar_distribucion(code):
+    """Lee dónde están los activos para el indicador elegido.
+
+    Dispara SOLO al cambiar el indicador, no con cada tecla del min/max: la
+    vista previa la lee del store. Si algo falla se devuelve None y el gráfico
+    queda como antes (la fórmula sola) — el fondo es contexto, no puede tumbar
+    el editor. Para el detalle completo está la pantalla de Calibración.
+    """
+    if not code:
+        return None
+    try:
+        from app.services import indicator_stats_service as stats
+        datos = stats.analisis_indicador(code)
+        primera = (datos.get("fechas") or [{}])[0]
+        return {
+            "histograma": datos.get("histograma"),
+            "categorias": primera.get("categorias"),
+            "n": primera.get("n"),
+            "cobertura_pct": primera.get("cobertura_pct"),
+            "fecha": primera.get("fecha_efectiva"),
+        }
+    except Exception:
+        logger.exception("no se pudo leer la distribución de %s", code)
+        return None

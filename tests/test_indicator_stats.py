@@ -115,3 +115,67 @@ def test_parse_fecha_acepta_iso_date_y_datetime():
 def test_parse_fecha_rechaza_basura_con_el_formato_esperado():
     with pytest.raises(ValueError, match="AAAA-MM-DD"):
         st.parse_fecha("31/07/2026")
+
+
+# ── Histograma ────────────────────────────────────────────────────────────────
+
+def test_el_histograma_recorta_las_colas_para_dibujar_pero_las_informa():
+    """Un solo activo extremo (se midió un volumen relativo de 162 contra una
+    mediana de 1) estira el eje y aplasta toda la masa en la primera barra: el
+    gráfico queda vacío y parece que no hay datos. Se recorta para dibujar y se
+    dice cuántos quedaron afuera, que son justo los que un clamp satura."""
+    valores = list(range(1, 200)) + [100000]
+    h = st.histograma(valores, bins=10)
+    assert h["fuera_der"] >= 1
+    assert sum(h["conteos"]) >= 190
+    assert h["bins"][-1] < 1000, "el extremo no puede estirar el eje"
+
+
+def test_histograma_con_todos_los_valores_iguales_no_revienta():
+    h = st.histograma([5.0] * 20, bins=10)
+    assert sum(h["conteos"]) == 20
+
+
+def test_histograma_sin_valores():
+    assert st.histograma([])["conteos"] == []
+
+
+# ── Distribución del puntaje ──────────────────────────────────────────────────
+
+def test_los_scores_muestran_la_saturacion_en_los_dos_topes():
+    """La vista más directa de una escala mal puesta: los picos en ±100."""
+    valores = [-50, -20, 0, 20, 50]          # escala de -10 a 10 → casi todo satura
+    r = st.resumen_de_scores(valores, "range", {"min": -10, "max": 10})
+    assert r["pct_en_tope"] == 40.0          # 20 y 50
+    assert r["pct_en_piso"] == 40.0          # -20 y -50
+
+
+def test_los_scores_cuentan_aparte_a_los_que_la_formula_no_puntua():
+    """Una categoría fuera del mapa NO vale cero: deja al activo sin ese
+    componente y le renormaliza los pesos a favor. Contarla como cero sería
+    exactamente el error que la señal comete en silencio."""
+    r = st.resumen_de_scores(["bullish", "lateral", "inesperada"],
+                             "discrete_map", {"map": {"bullish": 100, "lateral": 0}})
+    assert r["n"] == 2 and r["sin_puntaje"] == 1
+
+
+def test_los_empates_de_un_threshold_se_ven_y_no_los_muestra_ninguna_otra_medida():
+    """El ranking es transversal: un `threshold` de pocos tramos parte el
+    universo en bloques y adentro de cada bloque la señal no ordena nada.
+
+    Este es el caso que ninguna otra métrica agarra: las dos fórmulas de abajo
+    tienen la MISMA saturación (cero) y el threshold tiene hasta más recorrido
+    de cuartil central, así que por esos dos números parecería la mejor. Los
+    puntajes distintos son 5 contra 101."""
+    valores = list(range(0, 101))
+    continua = st.resumen_de_scores(valores, "range", {"min": -200, "max": 200})
+    tramos = st.resumen_de_scores(valores, "threshold", {"thresholds": [
+        [80, 90], [60, 45], [40, 0], [20, -45], [None, -90]]})
+
+    assert continua["pct_en_tope"] == tramos["pct_en_tope"] == 0.0
+    assert continua["pct_en_piso"] == tramos["pct_en_piso"] == 0.0
+    assert tramos["recorrido_iqr"] >= continua["recorrido_iqr"]
+
+    assert tramos["puntajes_distintos"] == 5
+    assert continua["puntajes_distintos"] == 101
+    assert tramos["pct_distintos"] < 5 < continua["pct_distintos"]

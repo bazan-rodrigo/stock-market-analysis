@@ -44,6 +44,12 @@ qué señales no cubren a todos los activos— está en
 [El catálogo de señales](/manual/catalogo-de-senales). Vale la pena leerlo antes
 de armar la primera estrategia.
 
+Y para **elegir los cortes con datos** en vez de a ojo —ver dónde están los
+activos de verdad y cuánto recorta la escala que estás por escribir— está
+[Calibración](/manual/calibracion-de-senales). La vista previa del editor ya
+dibuja de fondo la distribución del indicador que elijas; la pantalla de
+calibración es la versión completa, con varias fechas y cortes por grupo.
+
 ## La lista
 
 La tabla muestra las señales que podés ver: las públicas más las tuyas (un

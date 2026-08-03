@@ -50,3 +50,26 @@ def preselect_from_options(options, search: str | None, param: str = "asset_id")
     if target is None or target not in option_values(options):
         return no_update
     return target
+
+
+def text_param_from_search(search: str | None, param: str) -> str | None:
+    """Texto del parámetro, sin espacios alrededor, o None si no está o está
+    vacío. Para los parámetros que no son ids: la `key` de una señal, por
+    ejemplo (`/admin/signals?editar=rsi_daily`)."""
+    if not search:
+        return None
+    values = parse_qs(search.lstrip("?")).get(param, [])
+    valor = (values[0] if values else "").strip()
+    return valor or None
+
+
+def float_param_from_search(search: str | None, param: str) -> float | None:
+    """Número del parámetro, o None si no está o no es un número. Lo usa el
+    puente Calibración → editor de Señales para llevar un min/max propuesto."""
+    texto = text_param_from_search(search, param)
+    if texto is None:
+        return None
+    try:
+        return float(texto)
+    except (ValueError, TypeError):
+        return None
