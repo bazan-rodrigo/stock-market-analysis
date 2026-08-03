@@ -53,6 +53,7 @@ def load_table(_a, _m):
             "formula_type":  _FT_LABEL.get(s.formula_type, s.formula_type),
             "owner":         owners.get(s.owner_id, "—"),
             "publica":       publica_str(s.is_public),
+            "description":   s.description or "",
         }
         for s in signals
     ]

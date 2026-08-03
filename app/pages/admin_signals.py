@@ -244,6 +244,14 @@ def layout(**kwargs):
                 {"name": "Fórmula",   "id": "formula_type",  "width": 140},
                 {"name": "Dueño",     "id": "owner",         "width": 130},
                 {"name": "Pública",   "id": "publica",       "width": 100},
+                # La descripción es donde vive el CRITERIO de la señal (que el
+                # RSI puntúa la sobreventa, que tal indicador no cubre a todos
+                # los activos). Estaba solo dentro del editor, así que para
+                # leerla había que abrir señal por señal. Mismo formato que la
+                # grilla de indicadores: flexible y con alto automático.
+                {"field": "description", "headerName": "Descripción",
+                 "flex": 1, "minWidth": 300, "wrapText": True,
+                 "autoHeight": True},
             ]),
             rowData=[],
             className=THEME_CLASS,

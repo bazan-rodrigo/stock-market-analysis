@@ -244,3 +244,33 @@ def test_el_catalogo_no_filtra_las_definiciones_ajenas(db):
     cat = registry.call("get_catalog", AiCaller(user_id=_ANA))
     assert "priv_otro" not in {x["key"] for x in cat["signals"]}
     assert "privada_otro" not in {x["name"] for x in cat["strategies"]}
+
+
+def test_la_herramienta_no_recorta_campos_del_catalogo(db):
+    """La herramienta RE-ARMA la lista de señales para aplicar el gate, así que
+    puede quedarse atrás de `build_catalog` sin que nada falle: ya pasó con
+    `description` y `params`. El síntoma no es un error — el catálogo dice que
+    existe una señal llamada "RSI diario" y calla con qué criterio puntúa, y
+    quien escribe un pack supone (al revés, justamente, porque en este catálogo
+    el RSI puntúa la sobreventa). Las dos formas tienen que decir lo mismo."""
+    from app.models import SignalDefinition
+    from app.services import pack_service
+
+    s = get_session()
+    s.add(SignalDefinition(
+        key="publica_rsi", name="RSI diario",
+        description="Invertido: la sobreventa puntúa +100.",
+        indicator_key="rsi_daily", formula_type="range",
+        params='{"min": 70, "max": 30, "clamp": true}',
+        owner_id=_ADMIN, is_public=True))
+    s.commit()
+
+    del_boton = {x["key"]: x for x in pack_service.build_catalog()["signals"]}
+    de_la_ia = {x["key"]: x for x in
+                registry.call("get_catalog", AiCaller(user_id=_ANA))["signals"]}
+
+    assert set(del_boton["publica_rsi"]) == set(de_la_ia["publica_rsi"]), (
+        "el catálogo del botón y el de la IA describen la misma señal con "
+        "campos distintos")
+    assert de_la_ia["publica_rsi"]["description"]
+    assert de_la_ia["publica_rsi"]["params"]

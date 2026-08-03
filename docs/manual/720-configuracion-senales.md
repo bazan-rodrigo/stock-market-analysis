@@ -38,11 +38,19 @@ alto donde la señal puntúa bajo. Ver
 —dos versiones del RSI que dicen lo contrario— es justamente lo que rompe la
 comparación entre estrategias.
 
+**Con qué criterio puntúa cada una** —por qué el RSI premia la sobreventa, por
+qué las medias fijas y las distancias en desvíos van al revés a propósito, y
+qué señales no cubren a todos los activos— está en
+[El catálogo de señales](/manual/catalogo-de-senales). Vale la pena leerlo antes
+de armar la primera estrategia.
+
 ## La lista
 
 La tabla muestra las señales que podés ver: las públicas más las tuyas (un
 administrador ve todas), con **Key**, **Nombre**, **Indicador**, **Fórmula**,
-**Dueño** y **Pública**. Se ordena y filtra por cualquier columna.
+**Dueño**, **Pública** y **Descripción**. Se ordena y filtra por cualquier
+columna. La descripción es donde está escrito el criterio de cada señal, así
+que se lee de corrido sin abrir una por una.
 
 | Botón | Qué hace |
 |---|---|

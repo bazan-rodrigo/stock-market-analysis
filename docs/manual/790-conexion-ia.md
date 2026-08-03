@@ -74,9 +74,17 @@ queda conectado hasta que lo revoques.
 
 Puede **leer** exactamente lo que vos podrías ver entrando a la aplicación:
 
-- El catálogo de indicadores, señales y estrategias que tenés a la vista.
+- El catálogo de indicadores, señales y estrategias que tenés a la vista —
+  incluido **con qué criterio puntúa** cada señal, no solo cómo se llama.
 - El ranking de una estrategia en una fecha, y cómo evolucionó el puntaje de un
   activo.
+- **Cómo se reparte un indicador entre todos los activos**: percentiles, mínimo,
+  máximo y cuántos activos tienen el dato. Es lo que hace falta para discutir si
+  los cortes de una señal están bien puestos — si el rango de una señal cae
+  fuera de donde vive la masa de los datos, todos los activos terminan con el
+  mismo puntaje y esa señal deja de ordenar el ranking, sin que nada dé error.
+  Podés pedirle que evalúe una escala tentativa y te diga qué porcentaje de
+  activos quedaría recortado.
 - El manual, para explicarte cómo funciona cada cálculo de este sistema en
   particular.
 

@@ -403,7 +403,7 @@ eso viaja aparte, en el JSON del botón *Catálogo*— es:
 |---|---|
 | `indicators[]` | Los `indicator_key` válidos: cada entrada los trae en su campo **`code`**. Además `type` (`num`/`str`), `values` si es categórico, `keep_history` y una descripción. |
 | `attributes` | Los valores válidos de cada atributo **en esa base**: los nombres de sector, mercado, industria, país, tipo de instrumento y moneda cargados; en `benchmark` los tickers que hoy son benchmark de algún activo; en `synthetic` los tipos de fórmula en uso. Cada lista incluye su `(sin …)`. |
-| `signals[]` / `strategies[]` | Lo que ya existe: sirve para no pisar una `key` ajena y para saber qué señales podés reusar. |
+| `signals[]` / `strategies[]` | Lo que ya existe: sirve para no pisar una `key` ajena y para saber qué señales podés reusar. Cada señal viene con su `description` y sus `params`, o sea **con qué criterio puntúa** — no alcanza con el nombre: en un catálogo curado el RSI puede estar definido a la inversa de lo que suponés (§8). |
 
 Un indicador con `keep_history: false` solo tiene valor vigente: una señal
 sobre él no tendrá historia y **no sirve para backtest**.
@@ -445,6 +445,14 @@ administrador para que la cargue; el resto del pack no depende de eso.
 
 Consecuencia práctica al escribir packs: **reusá las señales del catálogo**
 (la sección `signals[]` del catálogo, §7) antes de proponer una nueva.
+
+Y leelas antes de usarlas: **la orientación de una señal no se deduce del
+nombre**. Una instalación puede tener un catálogo donde todas las señales
+apuntan para el mismo lado (por ejemplo, +100 siempre es la mejor condición
+para comprar), y ahí "RSI diario" puntúa la **sobreventa**, no la fuerza. El
+`description` y los `params` de cada señal vienen en el catálogo justamente
+para eso. Si necesitás una señal al revés, **no propongas una nueva**: usá la
+existente con `weight` negativo (§5).
 
 Se **rechaza** (errores):
 

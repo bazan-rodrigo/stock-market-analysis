@@ -94,6 +94,10 @@ sea buena**, solo que el archivo es válido. Antes de usarlo en serio:
   no puntúa en cierta categoría no cuenta como cero: **se saltea**, y el
   promedio se calcula sin ella. Ver
   [Referencia de fórmulas](/manual/formulas-de-senales).
+- Fijate **con qué criterio puntúa** cada señal que el pack trae, no solo cómo
+  se llama. Si el pack lo escribió alguien de afuera, puede haber orientado sus
+  señales al revés que las de acá — ver
+  [El catálogo de señales](/manual/catalogo-de-senales).
 - Fijate cuántas señales trae. Cada señal cargada **se recalcula en cada
   corrida** del sistema, use o no una estrategia: un pack con señales de más
   encarece todas las actualizaciones diarias.

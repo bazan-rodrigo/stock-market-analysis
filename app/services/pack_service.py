@@ -787,9 +787,17 @@ def build_catalog() -> dict:
         for attr, filas in attribute_pairs(s).items()
     }
 
+    # `description` y `params` viajan a propósito: sin ellos el catálogo dice
+    # que existe una señal llamada "RSI diario" pero no con qué criterio
+    # puntúa, y quien escribe un pack —persona o modelo— supone. Con el
+    # catálogo curado (una señal por indicador, todas orientadas a que +100
+    # sean las mejores condiciones para comprar) suponer al revés es fácil:
+    # el RSI puntúa la SOBREVENTA, no la fuerza. Son los dos campos que
+    # convierten la lista en algo reusable en vez de un inventario de nombres.
     signals = [
-        {"key": sg.key, "name": sg.name, "indicator_key": sg.indicator_key,
-         "formula_type": sg.formula_type, "publica": bool(sg.is_public)}
+        {"key": sg.key, "name": sg.name, "description": sg.description,
+         "indicator_key": sg.indicator_key, "formula_type": sg.formula_type,
+         "params": sg.params, "publica": bool(sg.is_public)}
         for sg in s.query(SignalDefinition).order_by(SignalDefinition.key).all()
     ]
     strategies = [

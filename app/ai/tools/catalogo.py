@@ -31,8 +31,9 @@ def get_catalog(caller: AiCaller) -> dict:
     # la vista del usuario. Se reemplaza en vez de tocar pack_service para no
     # cambiar lo que baja el botón, que es un artefacto de admin.
     catalogo["signals"] = [
-        {"key": sg.key, "name": sg.name, "indicator_key": sg.indicator_key,
-         "formula_type": sg.formula_type, "publica": bool(sg.is_public)}
+        {"key": sg.key, "name": sg.name, "description": sg.description,
+         "indicator_key": sg.indicator_key, "formula_type": sg.formula_type,
+         "params": sg.params, "publica": bool(sg.is_public)}
         for sg in signal_service.get_visible_signals(user_id, is_admin)
     ]
     catalogo["strategies"] = [
@@ -84,3 +85,62 @@ def list_signals(caller: AiCaller, limit: int | None = None) -> dict:
             for s in filas[:tope]
         ],
     }
+
+
+@tool(
+    name="indicator_distribution",
+    description=(
+        "Cómo se reparte un indicador entre TODOS los activos en una fecha: "
+        "percentiles, mínimo, máximo y cobertura (cuántos activos tienen el "
+        "dato). Sirve para elegir los cortes de una señal con números medidos "
+        "en vez de a ojo: si el min/max de una señal `range` cae fuera de "
+        "donde vive la masa, todos los activos saturan en ±100 y la señal deja "
+        "de ordenar el ranking sin dar ningún error. Para un indicador "
+        "categórico devuelve la frecuencia de cada categoría, que es lo que "
+        "hace falta para que un `discrete_map` las cubra todas. Podés pasar "
+        "una escala tentativa y te dice qué porcentaje de activos quedaría "
+        "recortado por ella."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "code": {"type": "string",
+                     "description": "Código del indicador (ver get_catalog)."},
+            "fecha": {"type": "string",
+                      "description": "AAAA-MM-DD. Por omisión, la última fecha "
+                                     "con precios cargados."},
+            "escala": {
+                "type": "object",
+                "description": "Escala `range` tentativa, para medir cuánto "
+                               "recortaría. min puede ser mayor que max (así "
+                               "se invierte una señal).",
+                "properties": {"min": {"type": "number"},
+                               "max": {"type": "number"}},
+                "required": ["min", "max"],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["code"],
+        "additionalProperties": False,
+    },
+)
+def indicator_distribution(caller: AiCaller, code: str, fecha: str | None = None,
+                           escala: dict | None = None) -> dict:
+    from app.services import indicator_stats_service
+
+    # Los indicadores no tienen dueño ni visibilidad por usuario: son del
+    # sistema y cualquiera que entre a la aplicación los ve. Por eso acá no hay
+    # gate que re-aplicar — a diferencia de señales y estrategias. Se deja
+    # dicho para que no parezca un olvido.
+    caller.viewer()
+
+    datos = indicator_stats_service.distribucion_indicador(
+        code, fecha=fecha, escala=escala)
+    datos["como_leerlo"] = (
+        "La cobertura es la trampa a mirar primero: una señal sin valor NO "
+        "castiga al activo, se saltea y los pesos se renormalizan entre las "
+        "demás, así que al activo sin dato le va sistemáticamente MEJOR. Si un "
+        "indicador no cubre a todos, pedí el dato también en el filtro de "
+        "elegibilidad de la estrategia, donde el faltante sí deja afuera."
+    )
+    return datos
