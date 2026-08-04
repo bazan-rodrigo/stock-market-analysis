@@ -104,54 +104,6 @@ def update_buttons(selected_ids):
 
 # ── Modal: abrir / cerrar ─────────────────────────────────────────────────────
 
-def _abrir_desde_url(search: str | None):
-    """Abre el editor con la señal de la query string y, si vienen, con el
-    min/max propuestos desde Calibración.
-
-    Devuelve la misma tupla de 14 que `toggle_modal`. Si la key no existe o no
-    es visible, no pasa nada: una URL a mano no tiene por qué abrir un modal
-    vacío.
-    """
-    import json
-
-    from app.components.url_params import (
-        float_param_from_search, text_param_from_search,
-    )
-
-    _noup = no_update
-    _noop = (_noup,) * 14
-
-    key = text_param_from_search(search, "editar")
-    if not key:
-        return _noop
-    sig = next((x for x in _visible_signals()
-                if (x.key or "").lower() == key.lower()), None)
-    if sig is None:
-        return _noop
-
-    propuestos = {c: float_param_from_search(search, c) for c in ("min", "max")}
-    propuestos = {c: v for c, v in propuestos.items() if v is not None}
-    params_txt = sig.params
-    if propuestos:
-        try:
-            p = json.loads(sig.params or "{}")
-            p.update(propuestos)
-            params_txt = json.dumps(p, ensure_ascii=False)
-        except (ValueError, TypeError):
-            params_txt = sig.params
-
-    pb_store = builder_from_params(sig.formula_type, params_txt)
-    return (
-        True, "Editar señal — escala traída de Calibración (sin guardar)",
-        sig.key, True,
-        sig.name, sig.indicator_key,
-        sig.formula_type, sig.description or "", bool(sig.is_public),
-        params_txt,
-        pb_store if pb_store is not None else empty_params_store(),
-        pb_store is None,
-        sig.id, False,
-    )
-
 @callback(
     Output("sig-modal",         "is_open"),
     Output("sig-modal-title",   "children"),
@@ -170,21 +122,13 @@ def _abrir_desde_url(search: str | None):
     Input("sig-btn-add",        "n_clicks"),
     Input("sig-btn-cancel",     "n_clicks"),
     Input("sig-btn-edit",       "n_clicks"),
-    Input("url",                "search"),
     State("sig-selected-ids",   "data"),
     prevent_initial_call=True,
 )
-def toggle_modal(n_add, n_cancel, n_edit, search, selected_ids):
+def toggle_modal(n_add, n_cancel, n_edit, selected_ids):
     trigger = ctx.triggered_id
     _noup = no_update
     _noop = (_noup,) * 14  # 14 outputs totales
-
-    if trigger == "url":
-        # Llegada desde Calibración: /admin/signals?editar=<key>&min=&max=.
-        # Abre esta señal con la escala propuesta YA CARGADA pero SIN guardar —
-        # la pantalla de calibración no escribe, y guardar sigue siendo un acto
-        # deliberado acá, con su validación y su dueño.
-        return _abrir_desde_url(search)
 
     if trigger == "sig-btn-cancel":
         # is_open=False, resto sin cambio, editing_id=None, error=False

@@ -43,6 +43,76 @@ def _build_indicator_opts() -> list[dict]:
     return opts
 
 
+def params_con_escala(params_txt: str | None, min_txt, max_txt) -> str:
+    """params de la señal con el min/max propuestos pisados. Lógica pura.
+
+    Los valores llegan como texto desde la query string; si no son números se
+    ignoran y quedan los de la señal (una URL editada a mano no debe romper el
+    editor)."""
+    import json
+
+    propuestos = {}
+    for campo, crudo in (("min", min_txt), ("max", max_txt)):
+        if crudo is None or str(crudo).strip() == "":
+            continue
+        try:
+            propuestos[campo] = float(crudo)
+        except (TypeError, ValueError):
+            continue
+    if not propuestos:
+        return params_txt or "{}"
+    try:
+        p = json.loads(params_txt or "{}")
+    except (ValueError, TypeError):
+        return params_txt or "{}"
+    p.update(propuestos)
+    return json.dumps(p, ensure_ascii=False)
+
+
+def _preseleccion(kwargs: dict) -> dict:
+    """Editor abierto con una señal cargada al llegar desde Calibración
+    (`/admin/signals?editar=<key>&min=&max=`).
+
+    Va en el LAYOUT y no en un callback sobre la URL: cuando la página se
+    carga, el cambio de `url.search` **ya ocurrió** antes de que existieran los
+    componentes del modal, así que un callback sobre él nunca llega a
+    dispararse (con `prevent_initial_call` se pierde la primera llamada, que es
+    la única que hay). Dash sí le pasa la query string al layout.
+
+    Devuelve {} si no hay nada que preseleccionar; ante cualquier problema
+    también, que es abrir la pantalla normal en vez de un modal roto.
+    """
+    key = (kwargs.get("editar") or "").strip()
+    if not key:
+        return {}
+    try:
+        import app.services.signal_service as svc
+        from app.callbacks.signal_params_ui import (
+            builder_from_params, empty_params_store,
+        )
+        from app.services.visibility import current_viewer
+
+        sig = next((s for s in svc.get_visible_signals(*current_viewer())
+                    if (s.key or "").lower() == key.lower()), None)
+        if sig is None:
+            return {}
+        params_txt = params_con_escala(sig.params, kwargs.get("min"),
+                                       kwargs.get("max"))
+        pb = builder_from_params(sig.formula_type, params_txt)
+        return {
+            "id": sig.id, "key": sig.key, "name": sig.name,
+            "indicator_key": sig.indicator_key,
+            "formula_type": sig.formula_type,
+            "description": sig.description or "",
+            "is_public": bool(sig.is_public),
+            "params": params_txt,
+            "pb_store": pb if pb is not None else empty_params_store(),
+            "advanced": pb is None,
+        }
+    except Exception:
+        return {}
+
+
 def layout(**kwargs):
     from flask_login import current_user
     # Abierto a analistas (ven públicas + propias, editan solo las propias).
@@ -51,19 +121,26 @@ def layout(**kwargs):
     is_admin = bool(current_user.is_admin)
 
     indicator_opts = _build_indicator_opts()
+    pre = _preseleccion(kwargs)
 
     modal = dbc.Modal([
-        dbc.ModalHeader(dbc.ModalTitle(id="sig-modal-title")),
+        dbc.ModalHeader(dbc.ModalTitle(
+            id="sig-modal-title",
+            children=("Editar señal — escala traída de Calibración "
+                      "(todavía sin guardar)") if pre else None)),
         dbc.ModalBody([
             dbc.Row([
                 dbc.Col([
                     dbc.Label("Clave (key)", style={"fontSize": "0.82rem"}),
                     dbc.Input(id="sig-f-key", placeholder="ej: tendencia_d",
+                              value=pre.get("key"),
+                              disabled=bool(pre),
                               style={"fontSize": "0.85rem"}),
                 ], md=6),
                 dbc.Col([
                     dbc.Label("Nombre", style={"fontSize": "0.82rem"}),
                     dbc.Input(id="sig-f-name", placeholder="Nombre legible",
+                              value=pre.get("name"),
                               style={"fontSize": "0.85rem"}),
                 ], md=6),
             ], className="mb-2"),
@@ -77,6 +154,7 @@ def layout(**kwargs):
                         clearable=True,
                         searchable=True,
                         options=indicator_opts,
+                        value=pre.get("indicator_key"),
                         style={"fontSize": "0.85rem"},
                     ),
                 ]),
@@ -86,6 +164,7 @@ def layout(**kwargs):
                 dbc.Col([
                     dbc.Label("Tipo de fórmula", style={"fontSize": "0.82rem"}),
                     dcc.Dropdown(id="sig-f-formula-type", options=_FORMULA_OPTS,
+                                 value=pre.get("formula_type"),
                                  placeholder="Seleccionar...", clearable=False,
                                  style={"fontSize": "0.85rem"}),
                 ]),
@@ -95,11 +174,12 @@ def layout(**kwargs):
 
             dbc.Label("Descripción", style={"fontSize": "0.82rem"}),
             dbc.Textarea(id="sig-f-description", rows=2,
+                         value=pre.get("description"),
                          placeholder="Descripción opcional",
                          style={"fontSize": "0.82rem", "resize": "vertical"}),
 
             dbc.Switch(id="sig-f-public", label="Pública (visible para todos los usuarios)",
-                       value=False, style={"fontSize": "0.82rem"},
+                       value=pre.get("is_public", False), style={"fontSize": "0.82rem"},
                        className="mt-2"),
             html.Small(
                 "Privada: solo vos (y el admin) la ven. Una señal pública "
@@ -112,10 +192,12 @@ def layout(**kwargs):
                 dbc.Col([
                     html.Div(id="sig-params-builder", className="mb-1"),
                     dbc.Switch(id="sig-params-advanced",
-                               label="Modo avanzado (editar JSON)", value=False,
+                               label="Modo avanzado (editar JSON)",
+                               value=pre.get("advanced", False),
                                style={"fontSize": "0.78rem"}, className="mt-1"),
                     html.Div(
                         dbc.Textarea(id="sig-f-params", rows=6,
+                                     value=pre.get("params"),
                                      placeholder='{"map": {...}}',
                                      style={"fontSize": "0.80rem",
                                             "fontFamily": "monospace",
@@ -138,11 +220,11 @@ def layout(**kwargs):
             dbc.Button("Guardar",  id="sig-btn-save",   color="primary"),
             dbc.Button("Cancelar", id="sig-btn-cancel", color="secondary", className="ms-2"),
         ]),
-    ], id="sig-modal", is_open=False, size="xl")
+    ], id="sig-modal", is_open=bool(pre), size="xl")
 
     return html.Div([
-        dcc.Store(id="sig-editing-id",   data=None),
-        dcc.Store(id="sig-pb-store",     data=None),
+        dcc.Store(id="sig-editing-id",   data=pre.get("id")),
+        dcc.Store(id="sig-pb-store",     data=pre.get("pb_store")),
         dcc.Store(id="sig-pb-opts",      data={}),
         # Distribución real del indicador elegido, para el fondo de la
         # vista previa. Se cachea acá y no se recalcula con cada tecla
